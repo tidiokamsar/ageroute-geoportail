@@ -103,6 +103,22 @@ Ce test simplifie une géométrie qui a d'abord été finement numérisée. Il m
 
 Le test donne donc une borne, pas une certitude. Il établit que la sinuosité des routes guinéennes à cette échelle est faible, ce qui rend le biais faible — mais il ne remplace pas une comparaison avec un tracé de référence indépendant.
 
+### Cette réserve est levée
+
+*Ajout du 1er septembre 2026, après réception d'une extraction OpenStreetMap du réseau routier guinéen (8 mars 2023, 262 656 polylignes).*
+
+Le réseau classé de cette source — voie rapide, primaire, secondaire, tertiaire —
+totalise **21 490 km**, contre **21 156 km** calculés ici. **Un écart de 1,6 %**, entre
+deux jeux constitués indépendamment, à trois ans d'intervalle, avec des nomenclatures
+différentes.
+
+Le chiffre de 21 156 km tient donc face à une source externe. Les 7 933 km affichés ne
+décrivent qu'une partie du réseau.
+
+La correspondance porte sur l'ordre de grandeur du réseau classé, non sur une
+équivalence classe par classe : « route tertiaire » au sens OSM n'est pas « route
+régionale » au sens AGEROUTE. Évaluation complète dans `BDRI-SOURCE-OSM-2023.md`.
+
 ---
 
 ## 4. La longueur doit-elle être calculée ou saisie ?
