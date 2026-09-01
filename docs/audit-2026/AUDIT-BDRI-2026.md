@@ -313,6 +313,23 @@ Ces points ont été vérifiés et ne demandent pas d'intervention :
 Oui, sur deux routes : `/api/search` et `/api/audit` (P1-1 et P1-2). Les seize autres
 routes sont correctement gardées.
 
+> ### ⚠️ CORRECTION — cette réponse était fausse
+>
+> Le second tour a établi qu'une **troisième** route fuyait, et plus largement que les
+> deux autres : **treize routes de lecture du module Marchés** n'avaient aucune garde
+> de module. Liste des marchés, montants, décomptes, bailleurs et décaissements par
+> bailleur étaient lisibles par tout compte authentifié.
+>
+> **Pourquoi je l'ai manquée.** J'avais vérifié la présence de `requireModuleAccess`
+> **fichier par fichier**. `marches.routes.ts` la mentionne dix fois : le fichier a
+> donc passé le contrôle. Or il compte 25 routes — les neuf routes d'écriture étaient
+> gardées, les treize routes de lecture ne l'étaient pas. Un contrôle au niveau du
+> fichier ne dit rien du niveau de la route.
+>
+> La phrase « les seize autres routes sont correctement gardées » est conservée
+> ci-dessus telle qu'écrite, plutôt qu'effacée. Voir `SECOND-AUDIT-BDRI-2026.md` §2.3
+> et §3 pour l'audit refait route par route.
+
 **« Le stockage des photos sur disque du conteneur est-il risqué ? »**
 Oui, et de la pire manière : la perte est **certaine** au prochain déploiement, pas
 seulement probable (P0-1).
