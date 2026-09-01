@@ -6,7 +6,7 @@ import { canvas, divIcon, latLngBounds, type LatLngBounds, type Map as CarteLeaf
 import { LogIn, AlertTriangle, LocateFixed, Loader2, Plus, Minus } from "lucide-react";
 import axios from "axios";
 import { ETAT_COLORS, ETAT_LABELS, CHANTIER_COLORS } from "./geoportail/types";
-import { ecussonHtml } from "./public/Ecusson";
+import { Ecusson, ecussonHtml } from "./public/Ecusson";
 import { FicheElement } from "./public/FicheElement";
 import { PanneauInfos, type CoucheKey, type StatsReseau } from "./public/PanneauInfos";
 import { RechercheRoute, type RouteIndexee } from "./public/RechercheRoute";
@@ -76,6 +76,9 @@ export function PublicCartePage() {
     () => typeof window !== "undefined" && window.matchMedia("(min-width: 640px)").matches
   );
   const [carte, setCarte] = useState<CarteLeaflet | null>(null);
+  // Route mise en avant seule sur la carte, choisie depuis la recherche : quand on
+  // cherche une route precise, tout le reste du reseau devient du bruit.
+  const [routeIsolee, setRouteIsolee] = useState<string | null>(null);
 
   const onVueChange = useCallback((v: { zoom: number; bounds: LatLngBounds }) => setVue(v), []);
   const onCarteReady = useCallback((m: CarteLeaflet) => setCarte((prev) => prev ?? m), []);
@@ -104,8 +107,11 @@ export function PublicCartePage() {
     [data]
   );
   const tronconsVisibles = useMemo(
-    () => tronconLines.filter(({ t }) => !etatsMasques.has(t.etat)),
-    [tronconLines, etatsMasques]
+    () =>
+      tronconLines.filter(
+        ({ t }) => !etatsMasques.has(t.etat) && (routeIsolee === null || t.nom === routeIsolee)
+      ),
+    [tronconLines, etatsMasques, routeIsolee]
   );
   const chantierLines = useMemo(
     () =>
@@ -216,6 +222,8 @@ export function PublicCartePage() {
   }
 
   function allerVersRoute(route: RouteIndexee) {
+    setRouteIsolee(route.nom);
+    setSelected(null);
     if (!carte || route.positions.length === 0) return;
     carte.flyToBounds(latLngBounds(route.positions).pad(0.15), { animate: animer, duration: 0.8 });
   }
@@ -243,7 +251,10 @@ export function PublicCartePage() {
   }
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-slate-100">
+    // h-[100dvh] et non inset-0 : sur un navigateur mobile, la barre d'adresse qui
+    // apparait et disparait fait mentir la hauteur du viewport, et le bas de la page
+    // se retrouve masque sous la barre d'outils.
+    <div className="fixed inset-x-0 top-0 flex h-[100dvh] flex-col bg-slate-100">
       <header className="z-[1100] flex items-center gap-3 bg-navy px-3 py-2 text-white shadow-sm sm:px-4 sm:py-2.5">
         <img src="/ageroute-logo.svg" alt="AGEROUTE Guinée" className="h-7 w-auto shrink-0 sm:h-8" />
         <div className="min-w-0 flex-1">
@@ -359,14 +370,29 @@ export function PublicCartePage() {
         <div className="pointer-events-none absolute inset-x-0 top-0 z-[1000] p-3">
           <div className="pointer-events-auto mx-auto max-w-md sm:mx-0 sm:ml-3 sm:max-w-sm">
             <RechercheRoute routes={routesIndexees} onChoisir={allerVersRoute} />
+            {routeIsolee && (
+              <div className="mt-2 flex items-center gap-2 rounded-lg bg-navy px-3 py-2 text-white shadow-lg">
+                <Ecusson nom={routeIsolee} taille="sm" />
+                <span className="min-w-0 flex-1 truncate text-xs">Cette route seule est affichée</span>
+                <button
+                  type="button"
+                  onClick={() => setRouteIsolee(null)}
+                  className="shrink-0 rounded px-2 py-1 text-xs font-medium underline underline-offset-2 transition hover:bg-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+                >
+                  Tout le réseau
+                </button>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Pile de commandes sur le bord droit : la recherche occupe le haut et la
-            feuille d'infos le bas, le flanc droit est la seule zone libre sur
-            telephone. Boutons maison plutot que le controle de zoom de Leaflet,
-            pour que zoom et localisation partagent la meme forme. */}
-        <div className="absolute bottom-32 right-3 z-[1000] flex flex-col gap-2 sm:bottom-6">
+        {/* Sur telephone, commandes et feuille d'infos partagent un meme flux vertical
+            ancre en bas : la feuille change de hauteur selon qu'elle est depliee, et
+            des positions absolues independantes finissaient par se recouvrir — les
+            boutons passaient derriere la feuille, donc hors d'atteinte. Au dela de
+            sm, "contents" efface ce conteneur et chaque bloc reprend sa place. */}
+        <div className="absolute inset-x-0 bottom-0 z-[1000] flex flex-col items-end sm:contents">
+          <div className="mb-3 mr-3 flex flex-col gap-2 sm:absolute sm:bottom-6 sm:right-3 sm:z-[1000] sm:mb-0 sm:mr-0">
           <div className="overflow-hidden rounded-full bg-white shadow-lg ring-1 ring-black/5">
             <button
               type="button"
@@ -398,6 +424,18 @@ export function PublicCartePage() {
               <LocateFixed className="h-5 w-5" aria-hidden />
             )}
           </button>
+          </div>
+
+          <PanneauInfos
+            stats={stats}
+            couches={couches}
+            onToggleCouche={toggleCouche}
+            etatsMasques={etatsMasques}
+            onToggleEtat={toggleEtat}
+            deplie={deplie}
+            onToggleDeplie={() => setDeplie((d) => !d)}
+            zoomInsuffisantPourNoms={!!vue && vue.zoom < ZOOM_MIN_ETIQUETTES}
+          />
         </div>
 
         {(isLoading || isError || erreurLocalisation) && (
@@ -420,17 +458,6 @@ export function PublicCartePage() {
             )}
           </div>
         )}
-
-        <PanneauInfos
-          stats={stats}
-          couches={couches}
-          onToggleCouche={toggleCouche}
-          etatsMasques={etatsMasques}
-          onToggleEtat={toggleEtat}
-          deplie={deplie}
-          onToggleDeplie={() => setDeplie((d) => !d)}
-          zoomInsuffisantPourNoms={!!vue && vue.zoom < ZOOM_MIN_ETIQUETTES}
-        />
 
         {selected && <FicheElement feature={selected} onClose={() => setSelected(null)} />}
       </div>

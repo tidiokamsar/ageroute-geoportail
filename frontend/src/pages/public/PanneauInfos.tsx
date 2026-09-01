@@ -82,8 +82,10 @@ export function PanneauInfos({
   zoomInsuffisantPourNoms: boolean;
 }) {
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[1000] sm:inset-x-auto sm:bottom-6 sm:left-3 sm:top-auto sm:w-72">
-      <div className="pointer-events-auto rounded-t-2xl bg-white shadow-2xl ring-1 ring-black/5 sm:rounded-lg sm:shadow-lg">
+    <div className="pointer-events-none w-full sm:absolute sm:bottom-6 sm:left-3 sm:z-[1000] sm:w-72">
+      {/* pb pour l'encoche basse des telephones recents, sinon l'indicateur d'accueil
+          recouvre la derniere ligne de la feuille. */}
+      <div className="pointer-events-auto rounded-t-2xl bg-white pb-[env(safe-area-inset-bottom)] shadow-2xl ring-1 ring-black/5 sm:rounded-lg sm:pb-0 sm:shadow-lg">
         {/* Barre de resume : toujours visible, c'est le seul contenu sur telephone
             tant que la feuille est repliee. */}
         <button
@@ -129,8 +131,10 @@ export function PanneauInfos({
           </div>
         </div>
 
+        {/* 42dvh et non 60vh : sur un ecran de 640 px la feuille depliee mangeait les
+            trois quarts de la carte. dvh suit la barre d'adresse mobile. */}
         {deplie && (
-          <div className="max-h-[60vh] overflow-y-auto border-t border-slate-100 px-4 py-3 text-xs sm:max-h-[55vh]">
+          <div className="max-h-[42dvh] overflow-y-auto border-t border-slate-100 px-4 py-3 text-xs sm:max-h-[55vh]">
             <p className="mb-2 font-semibold text-navy">État de la chaussée</p>
             <p className="mb-2 text-[11px] leading-snug text-slate-500">
               Décochez un état pour le retirer de la carte.
