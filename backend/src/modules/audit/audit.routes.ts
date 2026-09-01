@@ -2,6 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middleware/auth.middleware";
+import { MODULE_PAR_ENTITE, modulesAutorisesDe, moduleAutorise } from "../../lib/access";
 
 export const auditRouter = Router();
 
@@ -12,10 +13,47 @@ const querySchema = z.object({
   pageSize: z.coerce.number().int().positive().max(100).optional(),
 });
 
-// Historique des operations sur une entite (qui/quoi/quand), lu depuis audit_logs.
+/**
+ * Historique des operations sur une entite (qui/quoi/quand), lu depuis audit_logs.
+ *
+ * L'acces est aligne sur le module dont releve l'entite consultee, et non reserve au
+ * seul ADMIN : cette route alimente l'historique affiche dans les fiches (voir
+ * AuditHistoryModal et geoportail/DetailPanel), qu'un gestionnaire doit pouvoir lire
+ * sur une entite a laquelle il a deja droit. Le reserver a ADMIN aurait casse cette
+ * fonctionnalite pour tous les autres roles.
+ *
+ * Une fois ce controle pose, les champs before/after n'ajoutent aucune fuite : ils ne
+ * contiennent que les champs de l'entite, que l'appelant peut deja lire via l'API du
+ * module. C'est precisement ce qui n'etait pas vrai avant (P0-SEC-02), ou un compte
+ * LECTEUR obtenait les montants et statuts contractuels des marches sans avoir le
+ * module Marches.
+ *
+ * Les types d'entite inconnus de MODULE_PAR_ENTITE sont refuses : on echoue ferme,
+ * pour qu'un nouveau type journalise ne soit pas expose par oubli.
+ */
 auditRouter.get("/", requireAuth, async (req, res, next) => {
   try {
     const q = querySchema.parse(req.query);
+
+    if (!(q.entityType in MODULE_PAR_ENTITE)) {
+      res.status(403).json({ error: "Type d'entité non autorisé" });
+      return;
+    }
+    const moduleRequis = MODULE_PAR_ENTITE[q.entityType];
+    if (moduleRequis === null) {
+      // Comptes utilisateurs et parametres applicatifs : strictement ADMIN.
+      if (req.user!.role !== "ADMIN") {
+        res.status(403).json({ error: "Accès réservé aux administrateurs" });
+        return;
+      }
+    } else {
+      const modules = await modulesAutorisesDe(req.user!);
+      if (!moduleAutorise(modules, moduleRequis)) {
+        res.status(403).json({ error: "Accès à ce module non autorisé pour votre compte" });
+        return;
+      }
+    }
+
     const page = q.page ?? 1;
     const pageSize = q.pageSize ?? 20;
     const where = { entityType: q.entityType, entityId: q.entityId };

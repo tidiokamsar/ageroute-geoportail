@@ -1,0 +1,44 @@
+-- Index spatial sur la projection geography de la geometrie des troncons.
+--
+-- POURQUOI CETTE FORME, ET PAS "USING GIST (geom)"
+--
+-- Le code interroge les geometries en les castant en geography, pour raisonner en
+-- metres plutot qu'en degres (troncons.service.ts, ST_DWithin sur 20 km). Un index
+-- pose sur la colonne geometry ne peut pas servir une requete qui caste en geography :
+-- la classe d'operateurs differe, et le planificateur l'ignore.
+--
+-- Mesure sur la base de production le 01/09/2026, requete ST_DWithin dans un rayon de
+-- 50 km sur 1 690 troncons (87 resultats), chaque essai dans une transaction annulee :
+--
+--   sans index                    Seq Scan          797 ms (a froid)
+--   USING GIST (geom)             Seq Scan          151 ms  -- index IGNORE
+--   USING GIST ((geom::geography)) Bitmap Index Scan  19,6 ms
+--
+-- Le cout estime passe de 21551 a 1304. Le gain vient de ce que ST_DWithin en
+-- geography est couteux PAR LIGNE : elaguer les candidats avant ce calcul paie, meme
+-- sur une table de cette taille.
+--
+-- POURQUOI CETTE TABLE SEULEMENT
+--
+-- Les quatre autres tables geometriques ne justifient aucun index a ce jour :
+--
+--   ouvrages       126 lignes (124 avec geometrie)
+--   chantiers      488 lignes, mais 6 avec geometrie
+--   points_noirs     2 lignes
+--   postes           0 ligne
+--
+-- A ces volumes, PostgreSQL prefere a raison un parcours complet. Verifie aussi sur
+-- une requete d'intersection de rectangle englobant : l'index n'y est pas davantage
+-- utilise (1,8 ms sans index, sur 361 resultats). Les creer maintenant reviendrait a
+-- entretenir des index que le planificateur n'emprunterait pas.
+--
+-- A REEXAMINER quand les chantiers seront geolocalises (98,8 % ne le sont pas
+-- aujourd'hui) ou quand le referentiel administratif imposera des ST_Intersects
+-- entre troncons et polygones de prefectures.
+--
+-- CREATE INDEX simple et non CONCURRENTLY : a 1 690 lignes la construction dure
+-- quelques millisecondes, et CONCURRENTLY ne peut pas s'executer dans la transaction
+-- ouverte par Prisma pour chaque migration.
+
+CREATE INDEX IF NOT EXISTS "troncons_geom_geography_idx"
+  ON "troncons" USING GIST ((geom::geography));
