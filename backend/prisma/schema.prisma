@@ -1,0 +1,731 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [postgis]
+}
+
+// ===================== ENUMS =====================
+
+enum Role {
+  ADMIN
+  GESTIONNAIRE
+  INSPECTEUR
+  LECTEUR
+}
+
+enum ClasseRoute {
+  RN // Route Nationale
+  RR // Route Régionale
+  RU // Route Urbaine
+  PISTE
+}
+
+enum Revetement {
+  BITUME
+  TERRE
+  LATERITE
+  PAVE
+}
+
+enum EtatPatrimoine {
+  BON
+  MOYEN
+  MAUVAIS
+  CRITIQUE
+  NON_EVALUE
+}
+
+enum TypeOuvrage {
+  PONT
+  DALOT
+  BUSE
+  RADIER
+  PONCEAU
+  MUR_SOUTENEMENT
+  TUNNEL
+  PASSERELLE
+  VIADUC
+}
+
+enum Gravite {
+  FAIBLE
+  MOYENNE
+  FORTE
+}
+
+enum TypePoste {
+  PEAGE
+  PESAGE
+}
+
+enum StatutPoste {
+  EN_SERVICE
+  HORS_SERVICE
+  EN_CONSTRUCTION
+}
+
+enum StatutChantier {
+  PLANIFIE
+  EN_COURS
+  SUSPENDU
+  TERMINE
+}
+
+enum DocumentType {
+  ARRETE
+  CAHIER_CHARGES
+  CAHIER_ENGAGEMENT
+  AUTRE
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  RESTORE
+  LOGIN
+  LOGIN_FAILED
+}
+
+enum DeviseMarche {
+  GNF
+  USD
+  EUR
+}
+
+enum StatutMarche {
+  PLANIFIE
+  EN_COURS
+  SUSPENDU
+  TERMINE
+  SOLDE
+}
+
+enum DecompteType {
+  AVANCE
+  DECOMPTE
+  RETENUE_GARANTIE
+  SOLDE
+}
+
+enum TypeInterventionOT {
+  REPARATION_CHAUSSEE
+  CURAGE_ASSAINISSEMENT
+  SIGNALISATION
+  DEBROUSSAILLAGE
+  OUVRAGE_ART_MINEUR
+  URGENCE_SECURITE
+  AUTRE
+}
+
+enum PrioriteOT {
+  URGENTE
+  HAUTE
+  NORMALE
+  BASSE
+}
+
+enum StatutOT {
+  BROUILLON
+  ASSIGNE
+  EN_COURS
+  SUSPENDU
+  TERMINE
+  ANNULE
+  CONVERTI_CHANTIER
+}
+
+enum TypePhotoOT {
+  AVANT
+  PENDANT
+  APRES
+}
+
+enum CanalSignalement {
+  PWA
+  SMS_USSD
+  AGENT
+}
+
+enum TypeProbleme {
+  NID_DE_POULE
+  CHAUSSEE_DEGRADEE
+  OUVRAGE_ENDOMMAGE
+  ROUTE_COUPEE
+  INONDATION
+  PANNEAU_SIGNALISATION
+  VEGETATION
+  DANGER_AUTRE
+}
+
+enum StatutSignalement {
+  NOUVEAU
+  EN_QUALIFICATION
+  VALIDE
+  REJETE
+  DOUBLON
+  CONVERTI_OT
+  RESOLU
+}
+
+enum DecompteStatut {
+  EMIS
+  PAYE
+  REJETE
+}
+
+// ===================== UTILISATEURS =====================
+
+model User {
+  id              String    @id @default(uuid())
+  email           String    @unique
+  nomComplet      String
+  passwordHash    String
+  role            Role      @default(LECTEUR)
+  actif           Boolean   @default(true)
+  derniereConnexion DateTime?
+  totpSecret          String?
+  totpEnabled         Boolean   @default(false)
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+  // Tableau vide = pas de restriction (accès à tous les modules autorisés par le rôle,
+  // comportement historique). Une fois renseigné, seuls les modules listés sont visibles
+  // pour cet utilisateur, quel que soit son rôle — permet de retirer l'accès à un module
+  // précis sans changer le rôle global.
+  modulesAutorises    String[]  @default([])
+  refreshTokens   RefreshToken[]
+  auditLogs       AuditLog[]
+  inspections     Inspection[]
+  otsAssignes     OrdreTravaux[] @relation("OtAssigne")
+  otsCrees        OrdreTravaux[] @relation("OtCreateur")
+  otPhotos        OtPhoto[]
+  otHistoriques   OtHistorique[]
+  signalementsQualifies SignalementCitoyen[]
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("refresh_tokens")
+  @@index([userId])
+}
+
+// ===================== REFERENTIELS =====================
+
+model Region {
+  id        Int        @id @default(autoincrement())
+  nom       String     @unique
+  troncons  Troncon[]
+  ouvrages  Ouvrage[]
+  pointsNoirs PointNoir[]
+  postes    Poste[]
+  chantiers Chantier[]
+  ordresTravaux OrdreTravaux[]
+
+  @@map("regions")
+}
+
+// ===================== PATRIMOINE =====================
+
+model Troncon {
+  id              String         @id @default(uuid())
+  code            String         @unique
+  nom             String
+  classe          ClasseRoute
+  regionId        Int
+  region          Region         @relation(fields: [regionId], references: [id])
+  longueurKm      Float
+  revetement      Revetement
+  etat            EtatPatrimoine @default(NON_EVALUE)
+  pkDebut         Float
+  pkFin           Float
+  traficMoyenJma          Int?
+  traficDateComptage      DateTime?
+  criticiteStrategique    Int?
+  coutRehabEstime         Decimal?  @db.Decimal(12, 3)
+  dateDerniereEvaluation  DateTime?
+  prefecture      String?
+  commune         String?
+  observations    String?
+  geom            Unsupported("geometry(LineString,4326)")?
+  ouvrages        Ouvrage[]
+  pointsNoirs     PointNoir[]
+  postes          Poste[]
+  chantiers       Chantier[]
+  inspections     Inspection[]
+  documents       Document[]
+  marcheChantiers MarcheChantier[]
+  ordresTravaux   OrdreTravaux[]
+  signalements    SignalementCitoyen[]
+  deletedAt       DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@map("troncons")
+  @@index([regionId])
+  @@index([etat])
+  @@index([deletedAt])
+}
+
+model Ouvrage {
+  id              String         @id @default(uuid())
+  nom             String
+  type            TypeOuvrage
+  etat            EtatPatrimoine @default(NON_EVALUE)
+  regionId        Int
+  region          Region         @relation(fields: [regionId], references: [id])
+  tronconId       String?
+  troncon         Troncon?       @relation(fields: [tronconId], references: [id])
+  pk              Float?
+  longueurM       Float?
+  gabaritT        Float?
+  anneeConstruction Int?
+  materiau        String?
+  derniereInspectionDate DateTime?
+  ficheNumero     String?
+  code            String?
+  largeurM        Float?
+  hauteurM        Float?
+  nbTravees       Int?
+  longueurTravee  Float?
+  materiauAppuis  String?
+  materiauTablier String?
+  materiauPiles   String?
+  materiauAutre   String?
+  remarques       String?
+  travauxAPrevoir String?
+  photos          String[]       @default([])
+  geom            Unsupported("geometry(Point,4326)")?
+  inspections     Inspection[]
+  ordresTravaux   OrdreTravaux[]
+  deletedAt       DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@map("ouvrages")
+  @@index([regionId])
+  @@index([etat])
+  @@index([deletedAt])
+}
+
+model PointNoir {
+  id                  String    @id @default(uuid())
+  description         String
+  regionId            Int
+  region              Region    @relation(fields: [regionId], references: [id])
+  tronconId           String?
+  troncon             Troncon?  @relation(fields: [tronconId], references: [id])
+  pk                  Float?
+  gravite             Gravite
+  nbAccidents         Int       @default(0)
+  causes              String?
+  mesuresCorrectives  String?
+  geom                Unsupported("geometry(Point,4326)")?
+  ordresTravaux       OrdreTravaux[]
+  deletedAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@map("points_noirs")
+  @@index([regionId])
+  @@index([deletedAt])
+}
+
+model Poste {
+  id                    String      @id @default(uuid())
+  nom                   String
+  type                  TypePoste
+  regionId              Int
+  region                Region      @relation(fields: [regionId], references: [id])
+  tronconId             String?
+  troncon               Troncon?    @relation(fields: [tronconId], references: [id])
+  pk                    Float?
+  statut                StatutPoste @default(EN_SERVICE)
+  recettesMensuellesGnf BigInt?
+  traficJma             Int?
+  geom                  Unsupported("geometry(Point,4326)")?
+  deletedAt             DateTime?
+  createdAt             DateTime    @default(now())
+  updatedAt             DateTime    @updatedAt
+
+  @@map("postes")
+  @@index([regionId])
+  @@index([deletedAt])
+}
+
+model Chantier {
+  id              String         @id @default(uuid())
+  intitule        String
+  entreprise      String
+  bailleur        String?
+  montantGnf      BigInt?
+  regionId        Int
+  region          Region         @relation(fields: [regionId], references: [id])
+  tronconId       String?
+  troncon         Troncon?       @relation(fields: [tronconId], references: [id])
+  pkDebut         Float?
+  pkFin           Float?
+  avancementPct   Int            @default(0)
+  statut          StatutChantier @default(PLANIFIE)
+  dateDebutPrevue   DateTime?
+  dateFinPrevue     DateTime?
+  dateDebutReelle   DateTime?
+  dateFinReelle     DateTime?
+  numContrat      String?
+  observations    String?
+  geom            Unsupported("geometry(LineString,4326)")?
+  marches         MarcheChantier[]
+  deletedAt       DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@map("chantiers")
+  @@index([regionId])
+  @@index([deletedAt])
+}
+
+model Inspection {
+  id              String         @id @default(uuid())
+  tronconId       String?
+  troncon         Troncon?       @relation(fields: [tronconId], references: [id])
+  ouvrageId       String?
+  ouvrage         Ouvrage?       @relation(fields: [ouvrageId], references: [id])
+  inspecteurId    String
+  inspecteur      User           @relation(fields: [inspecteurId], references: [id])
+  dateInspection  DateTime
+  etatObserve     EtatPatrimoine
+  defautsConstates String?
+  recommandations String?
+  photos          String[]       @default([])
+  deletedAt       DateTime?
+  createdAt       DateTime       @default(now())
+
+  @@map("inspections")
+  @@index([tronconId])
+  @@index([ouvrageId])
+}
+
+// ===================== BASE DOCUMENTAIRE =====================
+
+model Document {
+  id          String       @id @default(uuid())
+  titre       String
+  type        DocumentType
+  annee       Int?
+  tronconId   String?
+  troncon     Troncon?     @relation(fields: [tronconId], references: [id])
+  fileName    String
+  filePath    String
+  mimeType    String
+  sizeBytes   Int
+  deletedAt   DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@map("documents")
+  @@index([tronconId])
+  @@index([type])
+  @@index([deletedAt])
+}
+
+// ===================== MARCHÉS & BAILLEURS =====================
+
+model Bailleur {
+  id      Int      @id @default(autoincrement())
+  nom     String   @unique
+  type    String   @default("autre")
+  marches Marche[]
+
+  @@map("bailleurs")
+}
+
+model Marche {
+  id                        String           @id @default(uuid()) @db.Uuid
+  intitule                  String
+  bailleurId                Int?
+  bailleur                  Bailleur?        @relation(fields: [bailleurId], references: [id])
+  montantTotal              BigInt?
+  devise                    DeviseMarche     @default(GNF)
+  dateSignature             DateTime?
+  dateDebutPrevue           DateTime?
+  dateFinPrevue             DateTime?
+  dateReceptionProvisoire   DateTime?
+  garantieBonneExecutionExp DateTime?
+  tauxPenaliteRetardPct     Float?
+  statut                    StatutMarche     @default(PLANIFIE)
+  chantiers                 MarcheChantier[]
+  avancements               AvancementMarche[]
+  decomptes                 Decompte[]
+  deletedAt                 DateTime?
+  createdAt                 DateTime         @default(now())
+  updatedAt                 DateTime         @updatedAt
+
+  @@map("marches")
+  @@index([bailleurId])
+  @@index([statut])
+  @@index([deletedAt])
+}
+
+model Decompte {
+  id           String         @id @default(uuid()) @db.Uuid
+  marcheId     String         @db.Uuid
+  marche       Marche         @relation(fields: [marcheId], references: [id], onDelete: Cascade)
+  numero       Int
+  type         DecompteType   @default(DECOMPTE)
+  montantGnf   BigInt
+  dateEmission DateTime?
+  datePaiement DateTime?
+  statut       DecompteStatut @default(EMIS)
+  observations String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@map("decomptes")
+  @@index([marcheId])
+  @@index([statut])
+}
+
+model MarcheChantier {
+  marcheId   String   @db.Uuid
+  marche     Marche   @relation(fields: [marcheId], references: [id], onDelete: Cascade)
+  chantierId String
+  chantier   Chantier @relation(fields: [chantierId], references: [id], onDelete: Cascade)
+  tronconId  String?
+  troncon    Troncon? @relation(fields: [tronconId], references: [id])
+
+  @@id([marcheId, chantierId])
+  @@map("marches_chantiers")
+}
+
+model AvancementMarche {
+  id                      Int      @id @default(autoincrement())
+  marcheId                String   @db.Uuid
+  marche                  Marche   @relation(fields: [marcheId], references: [id], onDelete: Cascade)
+  periode                 DateTime
+  avancementPhysiquePrevu Float    @default(0)
+  avancementPhysiqueReel  Float    @default(0)
+  avancementFinancierPrevu Float   @default(0)
+  avancementFinancierReel Float    @default(0)
+  createdAt               DateTime @default(now())
+
+  @@unique([marcheId, periode])
+  @@map("avancement_marche")
+  @@index([marcheId])
+}
+
+// ===================== HISTORIQUE RÉSEAU =====================
+
+model IndicateurReseauHistorique {
+  id                  Int      @id @default(autoincrement())
+  periode             DateTime @unique
+  pctBon              Float    @default(0)
+  pctMoyen            Float    @default(0)
+  pctMauvais          Float    @default(0)
+  pctCritique         Float    @default(0)
+  pctNonEvalue        Float    @default(0)
+  lineaireTraiteKm    Float    @default(0)
+  budgetEngageCumul   BigInt   @default(0)
+  budgetDecaisseCumul BigInt   @default(0)
+  createdAt           DateTime @default(now())
+
+  @@map("indicateurs_reseau_historique")
+  @@index([periode])
+}
+
+// ===================== AUDIT =====================
+
+// ===================== ORDRES DE TRAVAUX =====================
+
+// Maille intervention entre l'alerte et le chantier : petit périmètre exécuté en régie
+// ou petite entreprise. Au-delà d'un seuil de coût (paramétrable), conversion en chantier.
+model OrdreTravaux {
+  id               String             @id @default(uuid())
+  numero           String             @unique
+  titre            String
+  description      String?
+  typeIntervention TypeInterventionOT
+  priorite         PrioriteOT         @default(NORMALE)
+  statut           StatutOT           @default(BROUILLON)
+  regionId         Int?
+  region           Region?            @relation(fields: [regionId], references: [id])
+  tronconId        String?
+  troncon          Troncon?           @relation(fields: [tronconId], references: [id])
+  ouvrageId        String?
+  ouvrage          Ouvrage?           @relation(fields: [ouvrageId], references: [id])
+  pointNoirId      String?
+  pointNoir        PointNoir?         @relation(fields: [pointNoirId], references: [id])
+  signalementId    String?
+  signalement      SignalementCitoyen? @relation(fields: [signalementId], references: [id])
+  chantierId       String?
+  pkLocalisation   Float?
+  lat              Float?
+  lon              Float?
+  coutEstimeGnf    BigInt?
+  coutReelGnf      BigInt?
+  assigneAId       String?
+  assigneA         User?              @relation("OtAssigne", fields: [assigneAId], references: [id])
+  entreprise       String?
+  dateEcheance     DateTime?
+  dateDebutReel    DateTime?
+  dateFinReelle    DateTime?
+  creeParId        String
+  creePar          User               @relation("OtCreateur", fields: [creeParId], references: [id])
+  photos           OtPhoto[]
+  historique       OtHistorique[]
+  deletedAt        DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@map("ordres_travaux")
+  @@index([statut])
+  @@index([priorite])
+  @@index([regionId])
+  @@index([assigneAId])
+  @@index([deletedAt])
+}
+
+// Photos avant/pendant/après géolocalisées : preuve d'exécution pour audits et bailleurs.
+model OtPhoto {
+  id        String       @id @default(uuid())
+  otId      String
+  ot        OrdreTravaux @relation(fields: [otId], references: [id], onDelete: Cascade)
+  fileName  String
+  type      TypePhotoOT  @default(AVANT)
+  lat       Float?
+  lon       Float?
+  priseLe   DateTime     @default(now())
+  priseParId String?
+  prisePar  User?        @relation(fields: [priseParId], references: [id])
+
+  @@map("ot_photos")
+  @@index([otId])
+}
+
+model OtHistorique {
+  id            Int          @id @default(autoincrement())
+  otId          String
+  ot            OrdreTravaux @relation(fields: [otId], references: [id], onDelete: Cascade)
+  action        String
+  ancienStatut  StatutOT?
+  nouveauStatut StatutOT?
+  commentaire   String?
+  userId        String?
+  user          User?        @relation(fields: [userId], references: [id])
+  createdAt     DateTime     @default(now())
+
+  @@map("ot_historique")
+  @@index([otId])
+}
+
+// ===================== COURBES DE DÉGRADATION =====================
+
+// Chaîne de Markov à 4 états (Bon→Moyen→Mauvais→Critique) : probabilités annuelles de
+// transition par famille revêtement × classe de trafic. Valeurs initiales HDM-4
+// simplifiées, à recaler sur les inspections réelles (source=recale_donnees).
+model MatriceDegradation {
+  id                  Int      @id @default(autoincrement())
+  familleRevetement   String
+  classeTrafic        String
+  pBonVersMoyen       Float
+  pMoyenVersMauvais   Float
+  pMauvaisVersCritique Float
+  source              String   @default("standard_initial")
+  version             Int      @default(1)
+  updatedAt           DateTime @updatedAt
+
+  @@unique([familleRevetement, classeTrafic])
+  @@map("matrices_degradation")
+}
+
+// Barèmes de coût d'intervention par état de départ (M GNF/km) — alimente le ratio
+// "coût de report" (entretenir tôt coûte ~10× moins que reconstruire).
+model BaremeIntervention {
+  id                Int    @id @default(autoincrement())
+  familleRevetement String
+  etatDepart        String
+  typeIntervention  String
+  coutKmGnf         BigInt
+
+  @@unique([familleRevetement, etatDepart])
+  @@map("baremes_intervention")
+}
+
+// ===================== SIGNALEMENTS CITOYENS =====================
+
+model SignalementCitoyen {
+  id                 String            @id @default(uuid())
+  numeroPublic       String            @unique
+  canal              CanalSignalement  @default(PWA)
+  typeProbleme       TypeProbleme
+  description        String?
+  lat                Float?
+  lon                Float?
+  localisationTexte  String?
+  tronconId          String?
+  troncon            Troncon?          @relation(fields: [tronconId], references: [id])
+  photoFileName      String?
+  statut             StatutSignalement @default(NOUVEAU)
+  motifRejet         String?
+  signalementParentId String?
+  signalementParent  SignalementCitoyen? @relation("Doublons", fields: [signalementParentId], references: [id])
+  doublons           SignalementCitoyen[] @relation("Doublons")
+  contactTel         String?
+  qualifieParId      String?
+  qualifiePar        User?             @relation(fields: [qualifieParId], references: [id])
+  ots                OrdreTravaux[]
+  qualifieLe         DateTime?
+  resoluLe           DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@map("signalements_citoyens")
+  @@index([statut])
+  @@index([typeProbleme])
+}
+
+// ===================== PARAMÈTRES SYSTÈME =====================
+
+// Store clé/valeur générique pour les réglages configurables depuis l'interface (SMTP,
+// et futures catégories) — évite une migration à chaque nouveau paramètre. La valeur est
+// une chaîne JSON ; les champs sensibles qu'elle contient (mot de passe SMTP...) sont
+// chiffrés avant écriture (voir src/lib/crypto.ts), jamais stockés en clair.
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+
+  @@map("app_settings")
+}
+
+model AuditLog {
+  id          String      @id @default(uuid())
+  userId      String?
+  user        User?       @relation(fields: [userId], references: [id])
+  action      AuditAction
+  entityType  String
+  entityId    String?
+  before      Json?
+  after       Json?
+  ipAddress   String?
+  createdAt   DateTime    @default(now())
+
+  @@map("audit_logs")
+  @@index([entityType, entityId])
+  @@index([userId])
+}

@@ -1,0 +1,59 @@
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: bdri_app
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+      POSTGRES_DB: console_bdri
+    volumes:
+      - bdri_pgdata:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bdri_app"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - ./backend/.env
+    ports:
+      - "127.0.0.1:4000:4000"
+    networks:
+      - default
+      - sig_internal
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:8081:80"
+    networks:
+      - default
+      - proxy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.routers.bdri.rule=Host(`carte.ageroute.gov.gn`)"
+      - "traefik.http.routers.bdri.entrypoints=websecure"
+      - "traefik.http.routers.bdri.tls.certresolver=le"
+      - "traefik.http.services.bdri.loadbalancer.server.port=80"
+
+volumes:
+  bdri_pgdata:
+
+networks:
+  default:
+  sig_internal:
+    external: true
+  proxy:
+    external: true

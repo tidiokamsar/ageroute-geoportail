@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 460">
+  <!-- Petit triangle or, base du "A" -->
+  <polygon points="60,300 128,150 150,300" fill="#f5a623"/>
+  <!-- Grand triangle navy (montagne "A") -->
+  <polygon points="200,30 320,300 80,300" fill="#1a2942"/>
+  <!-- Route blanche qui serpente du bas vers le sommet, avec ligne medianne en tirets -->
+  <path d="M95,300 C140,260 150,230 150,200 C150,150 230,120 320,115 C230,135 175,165 175,205 C175,250 150,275 120,300 Z" fill="#ffffff"/>
+  <path d="M132,300 Q150,240 220,170" fill="none" stroke="#1a2942" stroke-width="6" stroke-dasharray="14 10" stroke-linecap="round"/>
+  <!-- Texte AGEROUTE -->
+  <text x="200" y="360" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="800" font-size="56">
+    <tspan fill="#f5a623">AGE</tspan><tspan fill="#1a2942">ROUTE</tspan>
+  </text>
+  <text x="200" y="390" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-weight="500" font-size="20" fill="#1a2942">
+    Agence de Gestion des Routes-Guinée
+  </text>
+</svg>

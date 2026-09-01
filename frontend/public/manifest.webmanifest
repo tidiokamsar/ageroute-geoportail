@@ -1,0 +1,12 @@
+{
+  "name": "BDRI — AGEROUTE Guinée",
+  "short_name": "BDRI",
+  "description": "Base de données routière informatisée — AGEROUTE Guinée",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a2942",
+  "theme_color": "#1a2942",
+  "icons": [
+    { "src": "/ageroute-logo.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

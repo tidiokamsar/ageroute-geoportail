@@ -1,0 +1,95 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  background: #f4f6f8;
+  color: #1f2937;
+}
+
+/* Variables shadcn/ui mappees sur la charte AGEROUTE (navy #1a2942 / or #f5a623),
+   pas sur la palette neutre par defaut, pour que les composants (Button, Dialog,
+   Input...) respectent l'identite visuelle existante sans theme sombre (non requis). */
+@layer base {
+  :root {
+    --background: #f4f6f8;
+    --foreground: #1f2937;
+    --card: #ffffff;
+    --card-foreground: #1f2937;
+    --popover: #ffffff;
+    --popover-foreground: #1f2937;
+    --primary: #1a2942;
+    --primary-foreground: #ffffff;
+    --secondary: #22344e;
+    --secondary-foreground: #ffffff;
+    --muted: #eef1f4;
+    --muted-foreground: #6b7280;
+    --accent: #f5a623;
+    --accent-foreground: #1a2942;
+    --destructive: #dc2626;
+    --border: #e5e7eb;
+    --input: #d1d5db;
+    --ring: #f5a623;
+    --chart-1: #1a2942;
+    --chart-2: #f5a623;
+    --chart-3: #16a34a;
+    --chart-4: #dc2626;
+    --chart-5: #9ca3af;
+    --radius: 0.5rem;
+    --sidebar: #1a2942;
+    --sidebar-foreground: #ffffff;
+    --sidebar-primary: #f5a623;
+    --sidebar-primary-foreground: #1a2942;
+    --sidebar-accent: #22344e;
+    --sidebar-accent-foreground: #ffffff;
+    --sidebar-border: rgba(255, 255, 255, 0.1);
+    --sidebar-ring: #f5a623;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Impression ciblee sur une fiche (bouton "Imprimer / PDF") : le contenu applicatif
+   (#root = sidebar + carte) est masque, ne laissant que le modal de fiche (portal Radix,
+   rendu en sibling direct de #root sous body) visible a l'impression. */
+body.printing-fiche > #root {
+  display: none !important;
+}
+body.printing-fiche [role="dialog"] {
+  position: static !important;
+  transform: none !important;
+  box-shadow: none !important;
+  max-height: none !important;
+  width: 100% !important;
+  overflow: visible !important;
+}
+body.printing-fiche [role="dialog"] button {
+  display: none !important;
+}
+
+/* Impression d'un rapport pleine page (page Rapports) : on masque tout l'habillage
+   applicatif marque .no-print (sidebar, en-tete, boutons) et on ne laisse que le
+   contenu marque .printable-report. */
+@media print {
+  body.printing-report .no-print {
+    display: none !important;
+  }
+  body.printing-report .printable-report {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    padding: 0 !important;
+  }
+}

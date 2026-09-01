@@ -1,0 +1,1 @@
+ALTER TABLE "ouvrages" ADD COLUMN "photos" TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
