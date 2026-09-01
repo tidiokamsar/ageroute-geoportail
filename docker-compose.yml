@@ -24,6 +24,12 @@ services:
         condition: service_healthy
     env_file:
       - ./backend/.env
+    volumes:
+      # Sans ce volume, /app/uploads vit dans le conteneur : documents et photos
+      # televerses disparaissaient a chaque "docker compose up -d". Les pages Base
+      # documentaire, Inspection terrain et Ordres de travaux sont en production et
+      # servent precisement a televerser.
+      - bdri_uploads:/app/uploads
     ports:
       - "127.0.0.1:4000:4000"
     networks:
@@ -50,6 +56,7 @@ services:
 
 volumes:
   bdri_pgdata:
+  bdri_uploads:
 
 networks:
   default:

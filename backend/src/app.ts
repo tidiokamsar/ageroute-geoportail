@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
+import compression from "compression";
 import morgan from "morgan";
 import rateLimit from "express-rate-limit";
 import swaggerUi from "swagger-ui-express";
@@ -60,6 +61,11 @@ export function createApp() {
       hsts: { maxAge: 15552000, includeSubDomains: true }, // 180 jours
     })
   );
+  // Compression avant toute route : /api/public/carte/geo renvoyait 2,8 Mo de GeoJSON
+  // non compresse, sur un public qui consulte majoritairement en 3G. Le GeoJSON est du
+  // texte tres repetitif, gzip y gagne l'essentiel. Place ici pour couvrir toutes les
+  // reponses, y compris les erreurs.
+  app.use(compression());
   app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
   app.use(express.json({ limit: "5mb" }));
   app.use(morgan(env.NODE_ENV === "development" ? "dev" : "combined"));
