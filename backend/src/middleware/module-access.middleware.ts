@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
-import { prisma } from "../lib/prisma";
+import { modulesAutorisesDe, moduleAutorise } from "../lib/access";
 import type { ModuleKey } from "../lib/modules";
 
 // A poser apres requireAuth sur chaque router de module. ADMIN passe toujours (un admin
@@ -12,13 +12,11 @@ export function requireModuleAccess(moduleKey: ModuleKey) {
       res.status(401).json({ error: "Authentification requise" });
       return;
     }
-    if (req.user.role === "ADMIN") {
-      next();
-      return;
-    }
     try {
-      const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { modulesAutorises: true } });
-      if (!user || (user.modulesAutorises.length > 0 && !user.modulesAutorises.includes(moduleKey))) {
+      // Regle partagee avec la recherche globale et le journal d'audit, via
+      // lib/access : deux implementations separees finissaient par diverger.
+      const modules = await modulesAutorisesDe(req.user);
+      if (!moduleAutorise(modules, moduleKey)) {
         res.status(403).json({ error: "Accès à ce module non autorisé pour votre compte" });
         return;
       }

@@ -107,7 +107,7 @@ async function computeScores(opts: {
 
 // ── GET /priorisation/scores ───────────────────────────────────────────────────
 
-marchesRouter.get("/priorisation/scores", requireAuth, async (req, res, next) => {
+marchesRouter.get("/priorisation/scores", requireAuth, requireModuleAccess("decision"), async (req, res, next) => {
   try {
     const {
       poids_etat = "35", poids_trafic = "25", poids_strategique = "20", poids_cout = "20",
@@ -135,7 +135,7 @@ marchesRouter.get("/priorisation/scores", requireAuth, async (req, res, next) =>
 
 // ── POST /simulateur/budget ────────────────────────────────────────────────────
 
-marchesRouter.post("/simulateur/budget", requireAuth, async (req, res, next) => {
+marchesRouter.post("/simulateur/budget", requireAuth, requireModuleAccess("programmation"), async (req, res, next) => {
   try {
     const {
       enveloppe_md_gnf = 2000,
@@ -195,19 +195,19 @@ marchesRouter.post("/simulateur/budget", requireAuth, async (req, res, next) => 
 
 // ── Bailleurs ──────────────────────────────────────────────────────────────────
 
-marchesRouter.get("/bailleurs", requireAuth, listBailleursHandler);
-marchesRouter.post("/bailleurs", requireAuth, requireRole("ADMIN", "GESTIONNAIRE"), createBailleurHandler);
-marchesRouter.put("/bailleurs/:id", requireAuth, requireRole("ADMIN", "GESTIONNAIRE"), updateBailleurHandler);
-marchesRouter.delete("/bailleurs/:id", requireAuth, requireRole("ADMIN"), deleteBailleurHandler);
+marchesRouter.get("/bailleurs", requireAuth, requireModuleAccess("marches"), listBailleursHandler);
+marchesRouter.post("/bailleurs", requireAuth, requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("marches"), createBailleurHandler);
+marchesRouter.put("/bailleurs/:id", requireAuth, requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("marches"), updateBailleurHandler);
+marchesRouter.delete("/bailleurs/:id", requireAuth, requireRole("ADMIN"), requireModuleAccess("marches"), deleteBailleurHandler);
 
 // ── Marchés — CRUD ───────────────────────────────────────────────────────────
 
-marchesRouter.get("/marches", requireAuth, listHandler);
+marchesRouter.get("/marches", requireAuth, requireModuleAccess("marches"), listHandler);
 marchesRouter.post("/marches", requireAuth, requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("marches"), createHandler);
 
 // ── GET /marches/alertes ───────────────────────────────────────────────────────
 
-marchesRouter.get("/marches/alertes", requireAuth, async (_req, res, next) => {
+marchesRouter.get("/marches/alertes", requireAuth, requireModuleAccess("marches"), async (_req, res, next) => {
   try {
     const alertes = await computeAlertesContractuelles();
     res.json({ total: alertes.length, alertes });
@@ -225,7 +225,7 @@ marchesRouter.post("/marches/alertes/notifier", requireAuth, requireRole("ADMIN"
 
 // ── GET /marches/:id/courbe-s ──────────────────────────────────────────────────
 
-marchesRouter.get("/marches/:id/courbe-s", requireAuth, async (req, res, next) => {
+marchesRouter.get("/marches/:id/courbe-s", requireAuth, requireModuleAccess("marches"), async (req, res, next) => {
   try {
     const marche = await prisma.marche.findUnique({
       where: { id: req.params.id },
@@ -291,19 +291,19 @@ marchesRouter.delete("/marches/:id/chantiers/:chantierId", requireAuth, requireR
 
 // ── Avancement mensuel (courbe en S) ────────────────────────────────────────────
 
-marchesRouter.get("/marches/:id/avancement", requireAuth, listAvancementsHandler);
+marchesRouter.get("/marches/:id/avancement", requireAuth, requireModuleAccess("marches"), listAvancementsHandler);
 marchesRouter.post("/marches/:id/avancement", requireAuth, requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("marches"), upsertAvancementHandler);
 
 // ── Décaissements (décomptes) ───────────────────────────────────────────────────
 
-marchesRouter.get("/decaissements/par-bailleur", requireAuth, sumByBailleurHandler);
-marchesRouter.get("/marches/:id/decomptes", requireAuth, listDecomptesHandler);
+marchesRouter.get("/decaissements/par-bailleur", requireAuth, requireModuleAccess("marches"), sumByBailleurHandler);
+marchesRouter.get("/marches/:id/decomptes", requireAuth, requireModuleAccess("marches"), listDecomptesHandler);
 marchesRouter.post("/marches/:id/decomptes", requireAuth, requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("marches"), createDecompteHandler);
 marchesRouter.put("/decomptes/:decompteId", requireAuth, requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("marches"), updateDecompteHandler);
 marchesRouter.delete("/decomptes/:decompteId", requireAuth, requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("marches"), deleteDecompteHandler);
 
 // ── Marché — un seul (doit rester après les routes littérales /marches/alertes etc.) ──
 
-marchesRouter.get("/marches/:id", requireAuth, getHandler);
+marchesRouter.get("/marches/:id", requireAuth, requireModuleAccess("marches"), getHandler);
 marchesRouter.put("/marches/:id", requireAuth, requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("marches"), updateHandler);
 marchesRouter.delete("/marches/:id", requireAuth, requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("marches"), deleteHandler);
