@@ -51,7 +51,11 @@ function geoJsonToLatLngs(geometry: string | null): [number, number][] {
 // y donnerait une bouillie illisible. Au dela, on n'etiquette que ce qui est dans la
 // vue, et au plus MAX_ETIQUETTES, les plus longs d'abord (les axes structurants).
 const ZOOM_MIN_ETIQUETTES = 9;
-const MAX_ETIQUETTES = 150;
+// La vue est decoupee en COLS x ROWS cases dont chacune ne porte qu'une etiquette :
+// sans cela, les zones denses en empilent des dizaines qui se chevauchent et
+// deviennent illisibles. Le produit des deux borne aussi le nombre total.
+const ETIQUETTES_COLS = 6;
+const ETIQUETTES_ROWS = 5;
 
 /**
  * Etiquette de route : un marqueur sans interaction plutot qu'un Tooltip permanent,
@@ -279,10 +283,12 @@ export function PublicCartePage() {
 
   const etiquettes = useMemo(() => {
     if (!showNoms || !showTroncons || !vue || vue.zoom < ZOOM_MIN_ETIQUETTES) return [];
-    // Une seule etiquette par nom de route : le reseau est decoupe en troncons, si
+    type Candidat = { id: string; nom: string; position: [number, number]; longueur: number };
+
+    // 1. Une seule etiquette par nom de route : le reseau est decoupe en troncons, si
     // bien qu'un meme axe (RN29...) apparait en plusieurs segments et serait etiquete
     // autant de fois. On garde le plus long segment visible, le plus representatif.
-    const parNom = new Map<string, { id: string; nom: string; position: [number, number]; longueur: number }>();
+    const parNom = new Map<string, Candidat>();
     for (const { t, positions } of tronconLines) {
       if (!positions.some((p) => vue.bounds.contains(p))) continue;
       const dejaVu = parNom.get(t.nom);
@@ -296,7 +302,27 @@ export function PublicCartePage() {
         longueur: t.longueurKm,
       });
     }
-    return [...parNom.values()].sort((a, b) => b.longueur - a.longueur).slice(0, MAX_ETIQUETTES);
+
+    // 2. Une seule etiquette par case de la grille, la route la plus longue d'abord :
+    // les axes structurants (RN) l'emportent sur la desserte locale (RES) quand les
+    // deux se disputent la meme zone.
+    const sw = vue.bounds.getSouthWest();
+    const ne = vue.bounds.getNorthEast();
+    const spanLat = ne.lat - sw.lat;
+    const spanLon = ne.lng - sw.lng;
+    if (spanLat <= 0 || spanLon <= 0) return [];
+
+    const occupees = new Set<string>();
+    const retenues: Candidat[] = [];
+    for (const c of [...parNom.values()].sort((a, b) => b.longueur - a.longueur)) {
+      const col = Math.min(ETIQUETTES_COLS - 1, Math.floor(((c.position[1] - sw.lng) / spanLon) * ETIQUETTES_COLS));
+      const row = Math.min(ETIQUETTES_ROWS - 1, Math.floor(((c.position[0] - sw.lat) / spanLat) * ETIQUETTES_ROWS));
+      const case_ = `${col}:${row}`;
+      if (occupees.has(case_)) continue;
+      occupees.add(case_);
+      retenues.push(c);
+    }
+    return retenues;
   }, [showNoms, showTroncons, vue, tronconLines]);
 
   // Etats effectivement presents : evite une legende qui annonce des couleurs
