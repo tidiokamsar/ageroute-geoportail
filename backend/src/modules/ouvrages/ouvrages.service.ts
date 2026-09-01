@@ -124,7 +124,7 @@ function toNumber(v: unknown): number | undefined {
 }
 
 async function importXlsx(buffer: Buffer, userId: string): Promise<{ created: number; errors: { row: number; message: string }[] }> {
-  const rows = parseImportBuffer(buffer);
+  const rows = await parseImportBuffer(buffer);
   const report: ImportReport = { created: 0, errors: [] };
 
   for (let i = 0; i < rows.length; i++) {

@@ -76,9 +76,9 @@ docker compose up -d --build
 ```
 
 Services exposés :
-- `frontend` (Nginx) : http://localhost:8080
-- `backend` (API) : http://localhost:4000/api
-- `db` (Postgres/PostGIS) : 5432
+- `frontend` (Nginx) : http://127.0.0.1:8081
+- `backend` (API) : http://127.0.0.1:4000/api
+- `db` (Postgres/PostGIS) : 127.0.0.1:5432
 
 Au premier démarrage, exécuter dans le conteneur backend :
 

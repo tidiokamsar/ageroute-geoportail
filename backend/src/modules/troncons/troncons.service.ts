@@ -109,7 +109,7 @@ function toNumber(v: unknown): number | undefined {
 }
 
 async function importXlsx(buffer: Buffer, userId: string): Promise<ImportReport> {
-  const rows = parseImportBuffer(buffer);
+  const rows = await parseImportBuffer(buffer);
   const report: ImportReport = { created: 0, errors: [] };
 
   for (let i = 0; i < rows.length; i++) {

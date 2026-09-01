@@ -68,6 +68,12 @@ export function createApp() {
     "/api/auth/login",
     rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: "Trop de tentatives, reessayez plus tard" } })
   );
+  // Un code TOTP a 6 chiffres : sans limite, l'endpoint de verification serait
+  // bruteforcable pendant la validite du challenge (5 min). Meme garde que /login.
+  app.use(
+    "/api/auth/2fa/login-verify",
+    rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: "Trop de tentatives, reessayez plus tard" } })
+  );
 
   app.get("/api/health", (_req, res) => res.json({ status: "ok", timestamp: new Date().toISOString() }));
 

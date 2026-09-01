@@ -10,7 +10,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      "/api": { target: "https://carte.ageroute.gov.gn", changeOrigin: true },
+      // Proxy vers le backend local UNIQUEMENT : ne jamais pointer le dev vers la
+      // production, sinon toute session de development ecrit dans la base reelle.
+      "/api": { target: "http://localhost:4000", changeOrigin: true },
     },
   },
   build: {

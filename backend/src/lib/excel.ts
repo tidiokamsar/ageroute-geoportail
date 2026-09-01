@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { ZodError } from "zod";
 
 export interface ColumnDef {
@@ -6,23 +6,61 @@ export interface ColumnDef {
   header: string;
 }
 
-export function buildExportBuffer(rows: Record<string, unknown>[], columns: ColumnDef[]): Buffer {
-  const sheetRows = rows.map((row) => {
-    const out: Record<string, unknown> = {};
-    for (const col of columns) out[col.header] = row[col.key] ?? "";
-    return out;
-  });
-  const sheet = XLSX.utils.json_to_sheet(sheetRows, { header: columns.map((c) => c.header) });
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, sheet, "Export");
-  return XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+// exceljs remplace le paquet npm xlsx@0.18.5, qui comporte des CVE connues
+// (CVE-2023-30533 pollution de prototype, CVE-2024-22363 ReDoS) sans correctif
+// publie sur le registre npm. L'interface ci-dessous est conservee a l'identique :
+// memes cles (en-tetes de la ligne 1), cellules vides a null, premiere feuille.
+export async function buildExportBuffer(rows: Record<string, unknown>[], columns: ColumnDef[]): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet("Export");
+  sheet.addRow(columns.map((c) => c.header));
+  for (const row of rows) {
+    sheet.addRow(columns.map((c) => row[c.key] ?? ""));
+  }
+  const output = await workbook.xlsx.writeBuffer();
+  return Buffer.from(output);
 }
 
-export function parseImportBuffer(buffer: Buffer): Record<string, unknown>[] {
-  const workbook = XLSX.read(buffer, { type: "buffer" });
-  const sheetName = workbook.SheetNames[0];
-  if (!sheetName) return [];
-  return XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: null });
+function cellValue(cell: ExcelJS.Cell): unknown {
+  const value = cell.value;
+  if (value === null || value === undefined) return null;
+  if (value instanceof Object) {
+    // Resultat de formule, texte riche ou lien hypertexte : retenons la valeur
+    // affichee plutot que l'objet exceljs brut.
+    const richOrLink = value as { result?: unknown; text?: string; richText?: unknown[] };
+    if (richOrLink.result !== undefined) return richOrLink.result;
+    if (richOrLink.richText !== undefined || richOrLink.text !== undefined) return cell.text;
+  }
+  return value;
+}
+
+export async function parseImportBuffer(buffer: Buffer): Promise<Record<string, unknown>[]> {
+  const workbook = new ExcelJS.Workbook();
+  // exceljs declare son propre type Buffer (global, base sur ArrayBuffer),
+  // incompatible avec le Buffer de @types/node : cast vers le type du parametre.
+  await workbook.xlsx.load(buffer as unknown as Parameters<typeof workbook.xlsx.load>[0]);
+  const sheet = workbook.worksheets[0];
+  if (!sheet) return [];
+
+  const headers = new Map<number, string>();
+  sheet.getRow(1).eachCell((cell, colNumber) => {
+    const header = cell.text.trim();
+    if (header) headers.set(colNumber, header);
+  });
+
+  const rows: Record<string, unknown>[] = [];
+  sheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const obj: Record<string, unknown> = {};
+    let hasValue = false;
+    for (const [colNumber, header] of headers) {
+      const value = cellValue(row.getCell(colNumber));
+      if (value !== null && value !== "") hasValue = true;
+      obj[header] = value;
+    }
+    if (hasValue) rows.push(obj);
+  });
+  return rows;
 }
 
 export interface ImportRowError {

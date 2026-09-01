@@ -9,6 +9,32 @@ import { env } from "../../config/env";
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
 
+// Compteur d'echecs par challenge 2FA : un code TOTP a 6 chiffres, sans plafond
+// il est bruteforcable pendant toute la validite du challenge (5 min). En memoire
+// car un challenge est court-lived ; le rate-limit IP d'app.ts reste la premiere
+// barriere, celui-ci empeche de concentrer les essais sur un meme challenge.
+const TWO_FA_MAX_ATTEMPTS = 5;
+const TWO_FA_CHALLENGE_TTL_MS = 5 * 60 * 1000;
+const twoFaFailedAttempts = new Map<string, { count: number; expiresAt: number }>();
+
+function isTwoFaChallengeExhausted(challengeToken: string): boolean {
+  const entry = twoFaFailedAttempts.get(challengeToken);
+  if (!entry) return false;
+  if (entry.expiresAt <= Date.now()) {
+    twoFaFailedAttempts.delete(challengeToken);
+    return false;
+  }
+  return entry.count >= TWO_FA_MAX_ATTEMPTS;
+}
+
+function registerTwoFaFailure(challengeToken: string): void {
+  const previous = twoFaFailedAttempts.get(challengeToken);
+  twoFaFailedAttempts.set(challengeToken, {
+    count: (previous?.count ?? 0) + 1,
+    expiresAt: previous?.expiresAt ?? Date.now() + TWO_FA_CHALLENGE_TTL_MS,
+  });
+}
+
 function refreshExpiryDate(): Date {
   // JWT_REFRESH_EXPIRES_IN type "7d" -> on stocke une echeance large par defaut (7j)
   const match = /^(\d+)([smhd])$/.exec(env.JWT_REFRESH_EXPIRES_IN);
@@ -76,16 +102,22 @@ export async function verifyTwoFaLogin(challengeToken: string, code: string, ipA
     throw new ApiError(401, "Session de connexion expirée, veuillez vous reconnecter.");
   }
 
+  if (isTwoFaChallengeExhausted(challengeToken)) {
+    throw new ApiError(429, "Trop de tentatives, veuillez relancer la connexion.");
+  }
+
   const user = await prisma.user.findUnique({ where: { id: payload.sub } });
   if (!user || !user.actif || !user.totpEnabled || !user.totpSecret) {
     throw new ApiError(401, "Session invalide.");
   }
 
   if (!verifyTotpCode(user.totpSecret, code)) {
+    registerTwoFaFailure(challengeToken);
     await logAudit({ userId: user.id, action: "LOGIN_FAILED", entityType: "User", entityId: user.id, ipAddress });
     throw new ApiError(401, "Code de vérification invalide.");
   }
 
+  twoFaFailedAttempts.delete(challengeToken);
   return issueSession(user, ipAddress);
 }
 
