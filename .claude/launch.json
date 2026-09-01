@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "bdri-dev",
+      "runtimeExecutable": "F:\\ageroute-geoportail\\.claude\\dev.bat",
+      "runtimeArgs": [],
+      "port": 5173
+    }
+  ]
+}
