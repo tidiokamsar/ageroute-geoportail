@@ -180,6 +180,11 @@ export function GeoportailPage() {
   const [itinError, setItinError] = useState<string | null>(null);
   const [itinLoading, setItinLoading] = useState(false);
 
+  // Ce calcul n'est PAS un itineraire routier : le service trace une droite entre
+  // les centroides des deux troncons et renvoie la distance a vol d'oiseau. Le nom de
+  // la fonction est conserve pour ne pas toucher a l'API, mais l'interface ne doit
+  // jamais promettre un trajet — elle promettait « Itineraire » sur le bouton, et ne
+  // detrompait l'utilisateur qu'apres coup, dans le resultat.
   async function calculerItineraire() {
     if (!itinFromId || !itinToId) return;
     setItinLoading(true);
@@ -569,10 +574,10 @@ export function GeoportailPage() {
         <div className="flex rounded-lg border border-gray-200 bg-white shadow-md overflow-hidden text-sm">
           <button
             onClick={() => setItineraireOpen((v) => !v)}
-            title="Calculer un itinéraire"
+            title="Estimer la distance à vol d'oiseau entre deux tronçons"
             className={`flex items-center gap-1.5 px-2.5 py-2 ${itineraireOpen ? "bg-navy text-white" : "hover:bg-gray-50"}`}
           >
-            <Navigation className="h-3.5 w-3.5" /><span className="hidden sm:inline">Itinéraire</span>
+            <Navigation className="h-3.5 w-3.5" /><span className="hidden sm:inline">Distance</span>
           </button>
           <button
             onClick={handleShare}
@@ -670,7 +675,7 @@ export function GeoportailPage() {
               </p>
               {itinResult.regionsTraversees.length > 0 && (
                 <p className="text-xs text-gray-500">
-                  Régions traversées (estimation) : {itinResult.regionsTraversees.join(", ")}
+                  Régions proches du tracé direct : {itinResult.regionsTraversees.join(", ")}
                 </p>
               )}
               <p className="text-[11px] text-gray-400">
