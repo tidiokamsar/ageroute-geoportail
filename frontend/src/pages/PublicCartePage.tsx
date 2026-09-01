@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip } from "react-leaflet";
-import { canvas } from "leaflet";
+import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMapEvents } from "react-leaflet";
+import { canvas, divIcon, type LatLngBounds } from "leaflet";
 import { LogIn, Eye, AlertTriangle, X, Route, HardHat } from "lucide-react";
 import axios from "axios";
 import { ETAT_COLORS, ETAT_LABELS, CHANTIER_COLORS } from "./geoportail/types";
@@ -45,6 +45,42 @@ function geoJsonToLatLngs(geometry: string | null): [number, number][] {
   } catch {
     return [];
   }
+}
+
+// En dessous de ce zoom, la Guinee entiere tient a l'ecran : etiqueter 1690 troncons
+// y donnerait une bouillie illisible. Au dela, on n'etiquette que ce qui est dans la
+// vue, et au plus MAX_ETIQUETTES, les plus longs d'abord (les axes structurants).
+const ZOOM_MIN_ETIQUETTES = 9;
+const MAX_ETIQUETTES = 150;
+
+/**
+ * Etiquette de route : un marqueur sans interaction plutot qu'un Tooltip permanent,
+ * car un tooltip permanent ne s'ouvre pas sur une geometrie rendue en canvas (il est
+ * lie a l'ajout de la couche, que le renderer canvas ne relaie pas). Le span interne
+ * se recentre lui-meme : le div exterieur porte deja la transformation de position
+ * appliquee par Leaflet, on ne peut donc pas la centrer dessus.
+ */
+function etiquetteRoute(nom: string) {
+  const texte = nom.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+  return divIcon({
+    className: "",
+    html:
+      `<span style="position:absolute;left:0;top:0;transform:translate(-50%,-50%);` +
+      `white-space:nowrap;font-size:10px;font-weight:700;color:#1a2942;` +
+      `text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff">${texte}</span>`,
+  });
+}
+
+/** Remonte zoom et emprise a chaque deplacement, pour n'etiqueter que le visible. */
+function SuiviVue({ onChange }: { onChange: (v: { zoom: number; bounds: LatLngBounds }) => void }) {
+  const map = useMapEvents({
+    zoomend: () => onChange({ zoom: map.getZoom(), bounds: map.getBounds() }),
+    moveend: () => onChange({ zoom: map.getZoom(), bounds: map.getBounds() }),
+  });
+  useEffect(() => {
+    onChange({ zoom: map.getZoom(), bounds: map.getBounds() });
+  }, [map, onChange]);
+  return null;
 }
 
 type SelectedFeature =
@@ -205,6 +241,9 @@ export function PublicCartePage() {
   const [showChantiers, setShowChantiers] = useState(true);
   const [showPointsNoirs, setShowPointsNoirs] = useState(true);
   const [selected, setSelected] = useState<SelectedFeature | null>(null);
+  const [showNoms, setShowNoms] = useState(true);
+  const [vue, setVue] = useState<{ zoom: number; bounds: LatLngBounds } | null>(null);
+  const onVueChange = useCallback((v: { zoom: number; bounds: LatLngBounds }) => setVue(v), []);
 
   // Rendu canvas plutot que SVG, pour deux raisons : les tronces font 3 px de large,
   // donc quasi impossibles a viser au doigt ou a la souris — seul le renderer canvas
@@ -237,6 +276,28 @@ export function PublicCartePage() {
     () => (data?.chantiers ?? []).filter((c) => c.approximate && c.lat != null && c.lon != null),
     [data]
   );
+
+  const etiquettes = useMemo(() => {
+    if (!showNoms || !showTroncons || !vue || vue.zoom < ZOOM_MIN_ETIQUETTES) return [];
+    // Une seule etiquette par nom de route : le reseau est decoupe en troncons, si
+    // bien qu'un meme axe (RN29...) apparait en plusieurs segments et serait etiquete
+    // autant de fois. On garde le plus long segment visible, le plus representatif.
+    const parNom = new Map<string, { id: string; nom: string; position: [number, number]; longueur: number }>();
+    for (const { t, positions } of tronconLines) {
+      if (!positions.some((p) => vue.bounds.contains(p))) continue;
+      const dejaVu = parNom.get(t.nom);
+      if (dejaVu && dejaVu.longueur >= t.longueurKm) continue;
+      parNom.set(t.nom, {
+        id: t.id,
+        nom: t.nom,
+        // Sommet median : toujours sur le trace, contrairement au centre de l'emprise
+        // qui tombe a cote des que la route est courbe.
+        position: positions[Math.floor(positions.length / 2)],
+        longueur: t.longueurKm,
+      });
+    }
+    return [...parNom.values()].sort((a, b) => b.longueur - a.longueur).slice(0, MAX_ETIQUETTES);
+  }, [showNoms, showTroncons, vue, tronconLines]);
 
   // Etats effectivement presents : evite une legende qui annonce des couleurs
   // absentes de la carte.
@@ -277,6 +338,7 @@ export function PublicCartePage() {
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             crossOrigin="anonymous"
           />
+          <SuiviVue onChange={onVueChange} />
 
           {showTroncons &&
             tronconLines.map(({ t, positions }) => (
@@ -328,6 +390,12 @@ export function PublicCartePage() {
               </CircleMarker>
             ))}
 
+          {/* interactive={false} : les etiquettes ne doivent jamais intercepter un clic
+              destine a la route qu'elles nomment. */}
+          {etiquettes.map((e) => (
+            <Marker key={`nom-${e.id}`} position={e.position} icon={etiquetteRoute(e.nom)} interactive={false} />
+          ))}
+
           {showPointsNoirs &&
             (data?.pointsNoirs ?? []).map((p) => (
               <CircleMarker
@@ -370,14 +438,25 @@ export function PublicCartePage() {
             Tronçons routiers
           </label>
           {showTroncons && (
-            <ul className="mb-2 mt-1 space-y-1 pl-6 text-gray-600">
-              {etatsPresents.map((etat) => (
-                <li key={etat} className="flex items-center gap-2">
-                  <LegendSwatch color={ETAT_COLORS[etat]} />
-                  <span className="truncate">{ETAT_LABELS[etat]}</span>
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul className="mb-2 mt-1 space-y-1 pl-6 text-gray-600">
+                {etatsPresents.map((etat) => (
+                  <li key={etat} className="flex items-center gap-2">
+                    <LegendSwatch color={ETAT_COLORS[etat]} />
+                    <span className="truncate">{ETAT_LABELS[etat]}</span>
+                  </li>
+                ))}
+              </ul>
+              <label className="flex cursor-pointer items-center gap-2 pl-6 text-gray-600">
+                <input type="checkbox" checked={showNoms} onChange={(e) => setShowNoms(e.target.checked)} />
+                Afficher les noms
+              </label>
+              {showNoms && vue && vue.zoom < ZOOM_MIN_ETIQUETTES && (
+                <p className="mb-2 pl-6 pt-1 text-[11px] italic leading-snug text-gray-400">
+                  Zoomez pour afficher les noms des routes.
+                </p>
+              )}
+            </>
           )}
 
           <label className="mt-2 flex cursor-pointer items-center gap-2 font-medium text-navy">
