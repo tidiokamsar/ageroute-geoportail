@@ -1,0 +1,72 @@
+import type { EtatPatrimoine, StatutChantier } from "../../types";
+
+// Formes reduites renvoyees par /api/public/carte/geo : volontairement plus pauvres
+// que les types authentifies de ../geoportail/types (ni entreprise, ni bailleur, ni
+// montant, ni PK, ni trafic). Les redeclarer ici evite de laisser croire que la vue
+// publique dispose des memes champs que le geoportail complet.
+export interface PublicTroncon {
+  id: string;
+  code: string;
+  nom: string;
+  classe: string;
+  etat: EtatPatrimoine;
+  longueurKm: number;
+  region: string | null;
+  geometry: string | null;
+}
+
+export interface PublicPointNoir {
+  id: string;
+  gravite: string;
+  region: string | null;
+  lat: number;
+  lon: number;
+}
+
+export interface PublicChantier {
+  id: string;
+  statut: StatutChantier;
+  avancementPct: number;
+  region: string | null;
+  geometry: string | null;
+  approximate: boolean;
+  lat: number | null;
+  lon: number | null;
+}
+
+export interface PublicCarteData {
+  troncons: PublicTroncon[];
+  pointsNoirs: PublicPointNoir[];
+  chantiers: PublicChantier[];
+}
+
+export type SelectedFeature =
+  | { kind: "troncon"; data: PublicTroncon }
+  | { kind: "chantier"; data: PublicChantier }
+  | { kind: "pointNoir"; data: PublicPointNoir };
+
+export const STATUT_LABELS: Record<StatutChantier, string> = {
+  PLANIFIE: "Planifié",
+  EN_COURS: "En cours",
+  SUSPENDU: "Suspendu",
+  TERMINE: "Terminé",
+};
+
+// Libelles des classes tels qu'un citoyen les comprend : le code brut (RN/RR/RU)
+// ne dit rien a qui n'est pas du metier.
+export const CLASSE_LABELS: Record<string, string> = {
+  RN: "Route nationale",
+  RR: "Route régionale",
+  RU: "Voirie urbaine",
+};
+
+export function geoJsonToLatLngs(geometry: string | null): [number, number][] {
+  if (!geometry) return [];
+  try {
+    const g = JSON.parse(geometry) as { type: string; coordinates: number[][] };
+    if (g.type !== "LineString") return [];
+    return g.coordinates.map(([lon, lat]) => [lat, lon]);
+  } catch {
+    return [];
+  }
+}

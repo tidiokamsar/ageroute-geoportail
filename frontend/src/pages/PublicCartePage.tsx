@@ -1,79 +1,28 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMapEvents } from "react-leaflet";
-import { canvas, divIcon, type LatLngBounds } from "leaflet";
-import { LogIn, Eye, AlertTriangle, X, Route, HardHat } from "lucide-react";
+import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMap, useMapEvents } from "react-leaflet";
+import { canvas, divIcon, latLngBounds, type LatLngBounds, type Map as CarteLeaflet } from "leaflet";
+import { LogIn, AlertTriangle, LocateFixed, Loader2, Plus, Minus } from "lucide-react";
 import axios from "axios";
 import { ETAT_COLORS, ETAT_LABELS, CHANTIER_COLORS } from "./geoportail/types";
-import type { EtatPatrimoine, StatutChantier } from "../types";
+import { ecussonHtml } from "./public/Ecusson";
+import { FicheElement } from "./public/FicheElement";
+import { PanneauInfos, type CoucheKey, type StatsReseau } from "./public/PanneauInfos";
+import { RechercheRoute, type RouteIndexee } from "./public/RechercheRoute";
+import { geoJsonToLatLngs, STATUT_LABELS, type PublicCarteData, type SelectedFeature } from "./public/types";
+import type { EtatPatrimoine } from "../types";
 
 const GUINEE_CENTER: [number, number] = [10.5, -10.8];
 
-const STATUT_LABELS: Record<StatutChantier, string> = {
-  PLANIFIE: "Planifié",
-  EN_COURS: "En cours",
-  SUSPENDU: "Suspendu",
-  TERMINE: "Terminé",
-};
-
-// Formes reduites renvoyees par /api/public/carte/geo : volontairement plus pauvres
-// que les types authentifies de ./geoportail/types (ni entreprise, ni bailleur, ni
-// montant, ni PK, ni trafic). Les redeclarer ici evite de laisser croire que la vue
-// publique dispose des memes champs que le geoportail complet.
-interface PublicTroncon {
-  id: string; code: string; nom: string; classe: string; etat: EtatPatrimoine;
-  longueurKm: number; region: string | null; geometry: string | null;
-}
-interface PublicPointNoir { id: string; gravite: string; region: string | null; lat: number; lon: number }
-interface PublicChantier {
-  id: string; statut: StatutChantier; avancementPct: number; region: string | null;
-  geometry: string | null; approximate: boolean; lat: number | null; lon: number | null;
-}
-interface PublicCarteData {
-  troncons: PublicTroncon[];
-  pointsNoirs: PublicPointNoir[];
-  chantiers: PublicChantier[];
-}
-
-function geoJsonToLatLngs(geometry: string | null): [number, number][] {
-  if (!geometry) return [];
-  try {
-    const g = JSON.parse(geometry) as { type: string; coordinates: number[][] };
-    if (g.type !== "LineString") return [];
-    return g.coordinates.map(([lon, lat]) => [lat, lon]);
-  } catch {
-    return [];
-  }
-}
-
 // En dessous de ce zoom, la Guinee entiere tient a l'ecran : etiqueter 1690 troncons
 // y donnerait une bouillie illisible. Au dela, on n'etiquette que ce qui est dans la
-// vue, et au plus MAX_ETIQUETTES, les plus longs d'abord (les axes structurants).
+// vue, et la grille ci-dessous repartit les etiquettes restantes.
 const ZOOM_MIN_ETIQUETTES = 9;
-// La vue est decoupee en COLS x ROWS cases dont chacune ne porte qu'une etiquette :
-// sans cela, les zones denses en empilent des dizaines qui se chevauchent et
-// deviennent illisibles. Le produit des deux borne aussi le nombre total.
 const ETIQUETTES_COLS = 6;
 const ETIQUETTES_ROWS = 5;
 
-/**
- * Etiquette de route : un marqueur sans interaction plutot qu'un Tooltip permanent,
- * car un tooltip permanent ne s'ouvre pas sur une geometrie rendue en canvas (il est
- * lie a l'ajout de la couche, que le renderer canvas ne relaie pas). Le span interne
- * se recentre lui-meme : le div exterieur porte deja la transformation de position
- * appliquee par Leaflet, on ne peut donc pas la centrer dessus.
- */
-function etiquetteRoute(nom: string) {
-  const texte = nom.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
-  return divIcon({
-    className: "",
-    html:
-      `<span style="position:absolute;left:0;top:0;transform:translate(-50%,-50%);` +
-      `white-space:nowrap;font-size:10px;font-weight:700;color:#1a2942;` +
-      `text-shadow:0 0 3px #fff,0 0 3px #fff,0 0 3px #fff">${texte}</span>`,
-  });
-}
+const ORDRE_ETATS: EtatPatrimoine[] = ["BON", "MOYEN", "MAUVAIS", "CRITIQUE", "NON_EVALUE"];
 
 /** Remonte zoom et emprise a chaque deplacement, pour n'etiqueter que le visible. */
 function SuiviVue({ onChange }: { onChange: (v: { zoom: number; bounds: LatLngBounds }) => void }) {
@@ -81,154 +30,21 @@ function SuiviVue({ onChange }: { onChange: (v: { zoom: number; bounds: LatLngBo
     zoomend: () => onChange({ zoom: map.getZoom(), bounds: map.getBounds() }),
     moveend: () => onChange({ zoom: map.getZoom(), bounds: map.getBounds() }),
   });
+  // Sans cette amorce, la vue reste inconnue tant que l'utilisateur n'a rien bouge,
+  // et rien ne peut dependre du zoom au premier rendu.
   useEffect(() => {
     onChange({ zoom: map.getZoom(), bounds: map.getBounds() });
   }, [map, onChange]);
   return null;
 }
 
-type SelectedFeature =
-  | { kind: "troncon"; data: PublicTroncon }
-  | { kind: "chantier"; data: PublicChantier }
-  | { kind: "pointNoir"; data: PublicPointNoir };
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-baseline justify-between gap-4 border-b border-gray-100 py-2 last:border-b-0">
-      <dt className="shrink-0 text-xs text-gray-500">{label}</dt>
-      <dd className="text-right text-sm font-medium text-navy">{children}</dd>
-    </div>
-  );
-}
-
-/**
- * Fiche de consultation ouverte au clic sur un element de la carte. Strictement en
- * lecture : elle n'affiche que les champs renvoyes par /api/public/carte/geo, qui
- * sont volontairement reduits. Tout le reste (entreprise, bailleur, montant,
- * contrat, PK, trafic, inspections) reste derriere l'authentification.
- */
-function DetailModal({ feature, onClose }: { feature: SelectedFeature; onClose: () => void }) {
+/** Expose l'instance Leaflet au parent, pour recentrer depuis la recherche. */
+function CaptureCarte({ onReady }: { onReady: (m: CarteLeaflet) => void }) {
+  const map = useMap();
   useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  const titres = {
-    troncon: { icone: <Route className="h-4 w-4" />, titre: "Tronçon routier" },
-    chantier: { icone: <HardHat className="h-4 w-4" />, titre: "Chantier" },
-    pointNoir: { icone: <AlertTriangle className="h-4 w-4" />, titre: "Point noir" },
-  }[feature.kind];
-
-  return (
-    <div
-      className="absolute inset-0 z-[1200] flex items-end justify-center bg-black/30 p-4 sm:items-center"
-      onClick={onClose}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={titres.titre}
-        className="w-full max-w-sm overflow-hidden rounded-lg bg-white shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center gap-2 bg-navy px-4 py-3 text-white">
-          {titres.icone}
-          <h2 className="flex-1 text-sm font-bold">{titres.titre}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Fermer"
-            autoFocus
-            className="rounded p-1 transition hover:bg-white/15"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <dl className="px-4 py-2">
-          {feature.kind === "troncon" && (
-            <>
-              <Field label="Code">{feature.data.code}</Field>
-              <Field label="Nom">{feature.data.nom}</Field>
-              <Field label="Classe">{feature.data.classe}</Field>
-              <Field label="État">
-                <span className="inline-flex items-center gap-2">
-                  <span
-                    className="inline-block h-2.5 w-2.5 rounded-full"
-                    style={{ backgroundColor: ETAT_COLORS[feature.data.etat] ?? "#9ca3af" }}
-                  />
-                  {ETAT_LABELS[feature.data.etat] ?? feature.data.etat}
-                </span>
-              </Field>
-              <Field label="Longueur">{feature.data.longueurKm} km</Field>
-              <Field label="Région">{feature.data.region ?? "Non renseignée"}</Field>
-            </>
-          )}
-
-          {feature.kind === "chantier" && (
-            <>
-              <Field label="Statut">
-                <span className="inline-flex items-center gap-2">
-                  <span
-                    className="inline-block h-2.5 w-2.5 rounded-full"
-                    style={{ backgroundColor: CHANTIER_COLORS[feature.data.statut] }}
-                  />
-                  {STATUT_LABELS[feature.data.statut] ?? feature.data.statut}
-                </span>
-              </Field>
-              <Field label="Avancement">
-                <span className="inline-flex items-center gap-2">
-                  <span className="h-1.5 w-20 overflow-hidden rounded-full bg-gray-200">
-                    <span
-                      className="block h-full rounded-full bg-navy"
-                      style={{ width: `${Math.min(100, Math.max(0, feature.data.avancementPct))}%` }}
-                    />
-                  </span>
-                  {feature.data.avancementPct} %
-                </span>
-              </Field>
-              <Field label="Région">{feature.data.region ?? "Non renseignée"}</Field>
-              {feature.data.approximate && (
-                <Field label="Localisation">
-                  <span className="text-xs italic text-gray-500">Approximative (centre de région)</span>
-                </Field>
-              )}
-            </>
-          )}
-
-          {feature.kind === "pointNoir" && (
-            <>
-              <Field label="Gravité">{feature.data.gravite}</Field>
-              <Field label="Région">{feature.data.region ?? "Non renseignée"}</Field>
-              <Field label="Coordonnées">
-                {feature.data.lat.toFixed(5)}, {feature.data.lon.toFixed(5)}
-              </Field>
-            </>
-          )}
-        </dl>
-
-        <p className="border-t border-gray-100 bg-gray-50 px-4 py-2.5 text-xs leading-snug text-gray-500">
-          Consultation publique. Connectez-vous pour la fiche complète et l'historique.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function LegendSwatch({ color, dashed }: { color: string; dashed?: boolean }) {
-  return (
-    <span
-      className="inline-block h-0 w-5 shrink-0 rounded"
-      style={{
-        borderTopWidth: 3,
-        borderTopStyle: dashed ? "dashed" : "solid",
-        borderTopColor: color,
-      }}
-    />
-  );
+    onReady(map);
+  }, [map, onReady]);
+  return null;
 }
 
 /**
@@ -239,21 +55,40 @@ function LegendSwatch({ color, dashed }: { color: string; dashed?: boolean }) {
  * Lit /api/public/carte/geo (3 couches, champs reduits, 60 req/min). Toute action
  * — edition, fiches detaillees, mesures, exports, autres modules — passe par
  * "Se connecter" et le compte existant de l'utilisateur.
+ *
+ * Concue pour un telephone d'abord : c'est de la que le public consulte un service
+ * comme celui-ci, souvent en itinerance et sur un reseau lent.
  */
 export function PublicCartePage() {
-  const [showTroncons, setShowTroncons] = useState(true);
-  const [showChantiers, setShowChantiers] = useState(true);
-  const [showPointsNoirs, setShowPointsNoirs] = useState(true);
+  const [couches, setCouches] = useState<Record<CoucheKey, boolean>>({
+    troncons: true,
+    chantiers: true,
+    pointsNoirs: true,
+    noms: true,
+  });
+  const [etatsMasques, setEtatsMasques] = useState<Set<EtatPatrimoine>>(new Set());
   const [selected, setSelected] = useState<SelectedFeature | null>(null);
-  const [showNoms, setShowNoms] = useState(true);
   const [vue, setVue] = useState<{ zoom: number; bounds: LatLngBounds } | null>(null);
-  const onVueChange = useCallback((v: { zoom: number; bounds: LatLngBounds }) => setVue(v), []);
+  const [maPosition, setMaPosition] = useState<[number, number] | null>(null);
+  const [localisationEnCours, setLocalisationEnCours] = useState(false);
+  const [erreurLocalisation, setErreurLocalisation] = useState<string | null>(null);
+  const [deplie, setDeplie] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 640px)").matches
+  );
+  const [carte, setCarte] = useState<CarteLeaflet | null>(null);
 
-  // Rendu canvas plutot que SVG, pour deux raisons : les tronces font 3 px de large,
-  // donc quasi impossibles a viser au doigt ou a la souris — seul le renderer canvas
-  // offre une tolerance de clic ; et la carte compte plus de 2000 geometries, que le
-  // canvas dessine bien plus vite que 2000 noeuds SVG.
-  const renderer = useMemo(() => canvas({ tolerance: 10 }), []);
+  const onVueChange = useCallback((v: { zoom: number; bounds: LatLngBounds }) => setVue(v), []);
+  const onCarteReady = useCallback((m: CarteLeaflet) => setCarte((prev) => prev ?? m), []);
+
+  // Rendu canvas plutot que SVG, pour deux raisons : les traces font 3 px de large,
+  // donc quasi impossibles a viser au doigt — seul le renderer canvas offre une
+  // tolerance de clic ; et la carte compte plus de 2000 geometries, que le canvas
+  // dessine bien plus vite que 2000 noeuds SVG.
+  const renderer = useMemo(() => canvas({ tolerance: 12 }), []);
+  const animer = useMemo(
+    () => typeof window === "undefined" || !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    []
+  );
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["public", "carte", "geo"],
@@ -268,6 +103,10 @@ export function PublicCartePage() {
         .filter((x) => x.positions.length > 0),
     [data]
   );
+  const tronconsVisibles = useMemo(
+    () => tronconLines.filter(({ t }) => !etatsMasques.has(t.etat)),
+    [tronconLines, etatsMasques]
+  );
   const chantierLines = useMemo(
     () =>
       (data?.chantiers ?? [])
@@ -281,15 +120,53 @@ export function PublicCartePage() {
     [data]
   );
 
+  const stats = useMemo<StatsReseau>(() => {
+    const troncons = data?.troncons ?? [];
+    const totalKm = troncons.reduce((s, t) => s + (t.longueurKm || 0), 0);
+    const parEtat = ORDRE_ETATS.map((etat) => {
+      const km = troncons.filter((t) => t.etat === etat).reduce((s, t) => s + (t.longueurKm || 0), 0);
+      return { etat, km, pct: totalKm > 0 ? Math.round((km / totalKm) * 100) : 0 };
+    }).filter((e) => e.km > 0);
+    return {
+      totalKm: Math.round(totalKm),
+      parEtat,
+      chantiersEnCours: (data?.chantiers ?? []).filter((c) => c.statut === "EN_COURS").length,
+      pointsNoirs: (data?.pointsNoirs ?? []).length,
+    };
+  }, [data]);
+
+  // Index de recherche : un axe (RN1) est decoupe en plusieurs troncons ; on le
+  // presente comme une seule route, dont on additionne longueur et geometries.
+  const routesIndexees = useMemo<RouteIndexee[]>(() => {
+    const parNom = new Map<string, RouteIndexee>();
+    for (const { t, positions } of tronconLines) {
+      const existante = parNom.get(t.nom);
+      if (existante) {
+        existante.longueurKm += t.longueurKm || 0;
+        existante.positions.push(...positions);
+        if (t.region && !existante.regions.includes(t.region)) existante.regions.push(t.region);
+      } else {
+        parNom.set(t.nom, {
+          nom: t.nom,
+          classe: t.classe,
+          longueurKm: t.longueurKm || 0,
+          regions: t.region ? [t.region] : [],
+          positions: [...positions],
+        });
+      }
+    }
+    return [...parNom.values()];
+  }, [tronconLines]);
+
   const etiquettes = useMemo(() => {
-    if (!showNoms || !showTroncons || !vue || vue.zoom < ZOOM_MIN_ETIQUETTES) return [];
+    if (!couches.noms || !couches.troncons || !vue || vue.zoom < ZOOM_MIN_ETIQUETTES) return [];
     type Candidat = { id: string; nom: string; position: [number, number]; longueur: number };
 
     // 1. Une seule etiquette par nom de route : le reseau est decoupe en troncons, si
-    // bien qu'un meme axe (RN29...) apparait en plusieurs segments et serait etiquete
-    // autant de fois. On garde le plus long segment visible, le plus representatif.
+    // bien qu'un meme axe apparait en plusieurs segments et serait etiquete autant de
+    // fois. On garde le plus long segment visible, le plus representatif.
     const parNom = new Map<string, Candidat>();
-    for (const { t, positions } of tronconLines) {
+    for (const { t, positions } of tronconsVisibles) {
       if (!positions.some((p) => vue.bounds.contains(p))) continue;
       const dejaVu = parNom.get(t.nom);
       if (dejaVu && dejaVu.longueur >= t.longueurKm) continue;
@@ -304,8 +181,8 @@ export function PublicCartePage() {
     }
 
     // 2. Une seule etiquette par case de la grille, la route la plus longue d'abord :
-    // les axes structurants (RN) l'emportent sur la desserte locale (RES) quand les
-    // deux se disputent la meme zone.
+    // les axes structurants l'emportent sur la desserte locale quand les deux se
+    // disputent la meme zone.
     const sw = vue.bounds.getSouthWest();
     const ne = vue.bounds.getNorthEast();
     const spanLat = ne.lat - sw.lat;
@@ -323,39 +200,77 @@ export function PublicCartePage() {
       retenues.push(c);
     }
     return retenues;
-  }, [showNoms, showTroncons, vue, tronconLines]);
+  }, [couches.noms, couches.troncons, vue, tronconsVisibles]);
 
-  // Etats effectivement presents : evite une legende qui annonce des couleurs
-  // absentes de la carte.
-  const etatsPresents = useMemo(() => {
-    const set = new Set<EtatPatrimoine>();
-    for (const { t } of tronconLines) set.add(t.etat);
-    return (Object.keys(ETAT_COLORS) as EtatPatrimoine[]).filter((e) => set.has(e));
-  }, [tronconLines]);
+  function toggleCouche(k: CoucheKey) {
+    setCouches((c) => ({ ...c, [k]: !c[k] }));
+  }
+
+  function toggleEtat(etat: EtatPatrimoine) {
+    setEtatsMasques((prev) => {
+      const suivant = new Set(prev);
+      if (suivant.has(etat)) suivant.delete(etat);
+      else suivant.add(etat);
+      return suivant;
+    });
+  }
+
+  function allerVersRoute(route: RouteIndexee) {
+    if (!carte || route.positions.length === 0) return;
+    carte.flyToBounds(latLngBounds(route.positions).pad(0.15), { animate: animer, duration: 0.8 });
+  }
+
+  function meLocaliser() {
+    if (!navigator.geolocation) {
+      setErreurLocalisation("Votre navigateur ne sait pas donner votre position.");
+      return;
+    }
+    setErreurLocalisation(null);
+    setLocalisationEnCours(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const p: [number, number] = [pos.coords.latitude, pos.coords.longitude];
+        setMaPosition(p);
+        setLocalisationEnCours(false);
+        carte?.flyTo(p, Math.max(carte.getZoom(), 12), { animate: animer, duration: 0.8 });
+      },
+      () => {
+        setLocalisationEnCours(false);
+        setErreurLocalisation("Position indisponible. Autorisez la localisation puis réessayez.");
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
+  }
 
   return (
-    <div className="fixed inset-0 flex flex-col">
-      <header className="z-[1000] flex items-center gap-3 border-b border-navy/20 bg-navy px-4 py-2.5 text-white shadow-sm">
-        <img src="/ageroute-logo.svg" alt="AGEROUTE Guinée" className="h-8 w-auto shrink-0" />
+    <div className="fixed inset-0 flex flex-col bg-slate-100">
+      <header className="z-[1100] flex items-center gap-3 bg-navy px-3 py-2 text-white shadow-sm sm:px-4 sm:py-2.5">
+        <img src="/ageroute-logo.svg" alt="AGEROUTE Guinée" className="h-7 w-auto shrink-0 sm:h-8" />
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-sm font-bold leading-tight">Géoportail routier — AGEROUTE Guinée</h1>
-          <p className="flex items-center gap-1.5 truncate text-xs leading-tight text-white/60">
-            <Eye className="h-3 w-3 shrink-0" />
-            Consultation publique du réseau routier national
+          <h1 className="truncate text-sm font-bold leading-tight">Géoportail routier</h1>
+          <p className="truncate text-[11px] leading-tight text-white/60">
+            L'état des routes de Guinée, ouvert à tous
           </p>
         </div>
         <Link
           to="/login"
-          className="inline-flex shrink-0 items-center gap-2 rounded-md bg-gold px-3 py-2 text-sm font-medium text-navy transition hover:brightness-95"
+          className="inline-flex shrink-0 items-center gap-2 rounded-md bg-gold px-3 py-2 text-sm font-medium text-navy transition hover:brightness-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
         >
-          <LogIn className="h-4 w-4" />
-          Se connecter
+          <LogIn className="h-4 w-4" aria-hidden />
+          <span className="hidden sm:inline">Se connecter</span>
+          <span className="sr-only sm:hidden">Se connecter</span>
         </Link>
       </header>
 
       <div className="relative flex-1">
-        <MapContainer center={GUINEE_CENTER} zoom={7} renderer={renderer} style={{ height: "100%", width: "100%" }}>
-          {/* Tuiles OpenStreetMap et non le fond CARTO "clair" du geoportail interne :
+        <MapContainer
+          center={GUINEE_CENTER}
+          zoom={7}
+          renderer={renderer}
+          zoomControl={false}
+          style={{ height: "100%", width: "100%" }}
+        >
+          {/* Tuiles OpenStreetMap et non le fond CARTO du geoportail interne :
               basemaps.cartocdn.com renvoie desormais une tuile "API KEY REQUIRED"
               sans cle. Cette page etant ouverte a tous, elle ne peut pas dependre
               d'un service a cle. */}
@@ -365,9 +280,10 @@ export function PublicCartePage() {
             crossOrigin="anonymous"
           />
           <SuiviVue onChange={onVueChange} />
+          <CaptureCarte onReady={onCarteReady} />
 
-          {showTroncons &&
-            tronconLines.map(({ t, positions }) => (
+          {couches.troncons &&
+            tronconsVisibles.map(({ t, positions }) => (
               <Polyline
                 key={t.id}
                 positions={positions}
@@ -375,16 +291,12 @@ export function PublicCartePage() {
                 eventHandlers={{ click: () => setSelected({ kind: "troncon", data: t }) }}
               >
                 <Tooltip sticky>
-                  <span className="font-semibold">{t.code}</span> — {t.nom}
-                  <br />
-                  {t.classe} · {t.longueurKm} km{t.region ? ` · ${t.region}` : ""}
-                  <br />
-                  État : {ETAT_LABELS[t.etat] ?? t.etat}
+                  <span className="font-semibold">{t.nom}</span> — {ETAT_LABELS[t.etat] ?? t.etat}
                 </Tooltip>
               </Polyline>
             ))}
 
-          {showChantiers &&
+          {couches.chantiers &&
             chantierLines.map(({ c, positions }) => (
               <Polyline
                 key={c.id}
@@ -392,14 +304,11 @@ export function PublicCartePage() {
                 pathOptions={{ color: CHANTIER_COLORS[c.statut], weight: 5, dashArray: "5 5" }}
                 eventHandlers={{ click: () => setSelected({ kind: "chantier", data: c }) }}
               >
-                <Tooltip sticky>
-                  Chantier — {STATUT_LABELS[c.statut] ?? c.statut} ({c.avancementPct} %)
-                  {c.region ? <><br />{c.region}</> : null}
-                </Tooltip>
+                <Tooltip sticky>Chantier — {STATUT_LABELS[c.statut]} ({c.avancementPct} %)</Tooltip>
               </Polyline>
             ))}
 
-          {showChantiers &&
+          {couches.chantiers &&
             chantierPoints.map((c) => (
               <CircleMarker
                 key={c.id}
@@ -408,21 +317,22 @@ export function PublicCartePage() {
                 pathOptions={{ color: "#fff", weight: 1, fillColor: CHANTIER_COLORS[c.statut], fillOpacity: 0.9 }}
                 eventHandlers={{ click: () => setSelected({ kind: "chantier", data: c }) }}
               >
-                <Tooltip>
-                  Chantier — {STATUT_LABELS[c.statut] ?? c.statut} ({c.avancementPct} %)
-                  <br />
-                  <span className="italic">Localisation approximative</span>
-                </Tooltip>
+                <Tooltip>Chantier — {STATUT_LABELS[c.statut]}</Tooltip>
               </CircleMarker>
             ))}
 
           {/* interactive={false} : les etiquettes ne doivent jamais intercepter un clic
               destine a la route qu'elles nomment. */}
           {etiquettes.map((e) => (
-            <Marker key={`nom-${e.id}`} position={e.position} icon={etiquetteRoute(e.nom)} interactive={false} />
+            <Marker
+              key={`nom-${e.id}`}
+              position={e.position}
+              icon={divIcon({ className: "", html: ecussonHtml(e.nom) })}
+              interactive={false}
+            />
           ))}
 
-          {showPointsNoirs &&
+          {couches.pointsNoirs &&
             (data?.pointsNoirs ?? []).map((p) => (
               <CircleMarker
                 key={p.id}
@@ -431,87 +341,98 @@ export function PublicCartePage() {
                 pathOptions={{ color: "#fff", weight: 1, fillColor: "#dc2626", fillOpacity: 0.9 }}
                 eventHandlers={{ click: () => setSelected({ kind: "pointNoir", data: p }) }}
               >
-                <Tooltip>
-                  Point noir — gravité {p.gravite}
-                  {p.region ? <><br />{p.region}</> : null}
-                </Tooltip>
+                <Tooltip>Point noir — gravité {p.gravite}</Tooltip>
               </CircleMarker>
             ))}
+
+          {maPosition && (
+            <CircleMarker
+              center={maPosition}
+              radius={7}
+              pathOptions={{ color: "#fff", weight: 2, fillColor: "#2563eb", fillOpacity: 1 }}
+            >
+              <Tooltip>Vous êtes ici</Tooltip>
+            </CircleMarker>
+          )}
         </MapContainer>
 
-        {isLoading && (
-          <div className="pointer-events-none absolute inset-x-0 top-3 z-[1000] flex justify-center">
-            <div className="rounded-full bg-white/95 px-4 py-1.5 text-xs text-navy shadow">
-              Chargement du réseau…
-            </div>
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-[1000] p-3">
+          <div className="pointer-events-auto mx-auto max-w-md sm:mx-0 sm:ml-3 sm:max-w-sm">
+            <RechercheRoute routes={routesIndexees} onChoisir={allerVersRoute} />
           </div>
-        )}
-
-        {isError && (
-          <div className="absolute inset-x-0 top-3 z-[1000] flex justify-center px-4">
-            <div className="flex items-center gap-2 rounded-md bg-red-50 px-4 py-2 text-xs text-red-700 shadow ring-1 ring-red-200">
-              <AlertTriangle className="h-4 w-4 shrink-0" />
-              Les données cartographiques sont momentanément indisponibles.
-            </div>
-          </div>
-        )}
-
-        <div className="absolute bottom-6 left-3 z-[1000] max-h-[70%] w-56 overflow-y-auto rounded-lg bg-white/95 p-3 text-xs shadow-lg ring-1 ring-black/5">
-          <p className="mb-2 font-bold text-navy">Légende</p>
-
-          <label className="flex cursor-pointer items-center gap-2 font-medium text-navy">
-            <input type="checkbox" checked={showTroncons} onChange={(e) => setShowTroncons(e.target.checked)} />
-            Tronçons routiers
-          </label>
-          {showTroncons && (
-            <>
-              <ul className="mb-2 mt-1 space-y-1 pl-6 text-gray-600">
-                {etatsPresents.map((etat) => (
-                  <li key={etat} className="flex items-center gap-2">
-                    <LegendSwatch color={ETAT_COLORS[etat]} />
-                    <span className="truncate">{ETAT_LABELS[etat]}</span>
-                  </li>
-                ))}
-              </ul>
-              <label className="flex cursor-pointer items-center gap-2 pl-6 text-gray-600">
-                <input type="checkbox" checked={showNoms} onChange={(e) => setShowNoms(e.target.checked)} />
-                Afficher les noms
-              </label>
-              {showNoms && vue && vue.zoom < ZOOM_MIN_ETIQUETTES && (
-                <p className="mb-2 pl-6 pt-1 text-[11px] italic leading-snug text-gray-400">
-                  Zoomez pour afficher les noms des routes.
-                </p>
-              )}
-            </>
-          )}
-
-          <label className="mt-2 flex cursor-pointer items-center gap-2 font-medium text-navy">
-            <input type="checkbox" checked={showChantiers} onChange={(e) => setShowChantiers(e.target.checked)} />
-            Chantiers
-          </label>
-          {showChantiers && (
-            <ul className="mb-2 mt-1 space-y-1 pl-6 text-gray-600">
-              {(Object.keys(CHANTIER_COLORS) as StatutChantier[]).map((statut) => (
-                <li key={statut} className="flex items-center gap-2">
-                  <LegendSwatch color={CHANTIER_COLORS[statut]} dashed />
-                  <span>{STATUT_LABELS[statut]}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <label className="mt-2 flex cursor-pointer items-center gap-2 font-medium text-navy">
-            <input type="checkbox" checked={showPointsNoirs} onChange={(e) => setShowPointsNoirs(e.target.checked)} />
-            Points noirs
-          </label>
-
-          <p className="mt-3 border-t border-gray-200 pt-2 leading-snug text-gray-500">
-            Cliquez un élément de la carte pour l'afficher. Vue publique en lecture
-            seule : connectez-vous pour les fiches complètes et les autres modules.
-          </p>
         </div>
 
-        {selected && <DetailModal feature={selected} onClose={() => setSelected(null)} />}
+        {/* Pile de commandes sur le bord droit : la recherche occupe le haut et la
+            feuille d'infos le bas, le flanc droit est la seule zone libre sur
+            telephone. Boutons maison plutot que le controle de zoom de Leaflet,
+            pour que zoom et localisation partagent la meme forme. */}
+        <div className="absolute bottom-32 right-3 z-[1000] flex flex-col gap-2 sm:bottom-6">
+          <div className="overflow-hidden rounded-full bg-white shadow-lg ring-1 ring-black/5">
+            <button
+              type="button"
+              onClick={() => carte?.zoomIn()}
+              aria-label="Zoomer"
+              className="flex h-11 w-11 items-center justify-center text-navy transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-navy"
+            >
+              <Plus className="h-5 w-5" aria-hidden />
+            </button>
+            <button
+              type="button"
+              onClick={() => carte?.zoomOut()}
+              aria-label="Dézoomer"
+              className="flex h-11 w-11 items-center justify-center border-t border-slate-200 text-navy transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-navy"
+            >
+              <Minus className="h-5 w-5" aria-hidden />
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={meLocaliser}
+            disabled={localisationEnCours}
+            aria-label="Afficher ma position"
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-white text-navy shadow-lg ring-1 ring-black/5 transition hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy disabled:opacity-60"
+          >
+            {localisationEnCours ? (
+              <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+            ) : (
+              <LocateFixed className="h-5 w-5" aria-hidden />
+            )}
+          </button>
+        </div>
+
+        {(isLoading || isError || erreurLocalisation) && (
+          <div className="pointer-events-none absolute inset-x-0 top-20 z-[1000] flex justify-center px-4">
+            {isLoading && (
+              <p className="rounded-full bg-white/95 px-4 py-1.5 text-xs text-navy shadow">
+                Chargement du réseau routier…
+              </p>
+            )}
+            {isError && (
+              <p className="flex items-center gap-2 rounded-md bg-red-50 px-4 py-2 text-xs text-red-700 shadow ring-1 ring-red-200">
+                <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+                Les données ne sont pas disponibles pour le moment. Réessayez dans un instant.
+              </p>
+            )}
+            {!isLoading && !isError && erreurLocalisation && (
+              <p className="rounded-md bg-amber-50 px-4 py-2 text-xs text-amber-800 shadow ring-1 ring-amber-200">
+                {erreurLocalisation}
+              </p>
+            )}
+          </div>
+        )}
+
+        <PanneauInfos
+          stats={stats}
+          couches={couches}
+          onToggleCouche={toggleCouche}
+          etatsMasques={etatsMasques}
+          onToggleEtat={toggleEtat}
+          deplie={deplie}
+          onToggleDeplie={() => setDeplie((d) => !d)}
+          zoomInsuffisantPourNoms={!!vue && vue.zoom < ZOOM_MIN_ETIQUETTES}
+        />
+
+        {selected && <FicheElement feature={selected} onClose={() => setSelected(null)} />}
       </div>
     </div>
   );
