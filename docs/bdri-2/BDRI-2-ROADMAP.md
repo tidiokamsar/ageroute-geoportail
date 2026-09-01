@@ -1,223 +1,224 @@
 # BDRI 2.0 — Feuille de route
 
-Ordre des lots, et pourquoi il diffère de celui proposé au §48 de la mission.
+**Révision du 1er septembre 2026.** Cette version remplace la précédente. Elle est
+réécrite après l'inventaire complet des données en production, qui a produit quatre
+résultats que la première version ne connaissait pas.
 
 ---
 
-## 1. La dépendance qui commande tout
+## 1. Ce que la mesure a changé depuis la première version
 
-Le §48 propose : carte → fiches → référentiel → qualité → terrain → analyse →
-interopérabilité → design.
+| Découverte | Effet sur la feuille de route |
+|---|---|
+| **Le réseau est composé de 3 graphes disjoints** — 0 jonction entre RN, RR et RU | Le routage sort de la feuille de route à court terme. Aucun moteur ne franchit un graphe disconnecté. |
+| **La provenance est déductible des préfixes de code** — `GN N*`, `*-OSM-*`, `RES-*` | La traçabilité des sources devient un travail d'un jour, pas un chantier. |
+| **6 postes de péage/pesage sont récupérables dans le journal d'audit** | Un module réputé vide a une donnée de départ identifiée. |
+| **Les longueurs nulles coïncident exactement avec un lot d'import** — `RES-*`, 1 028 tronçons | Ce n'est pas une dégradation à corriger au cas par cas, c'est une étape d'import à rejouer. |
 
-C'est l'ordre naturel **quand les données existent**. Les mesures montrent qu'elles
-n'existent pas :
-
-- Inspections, ordres de travaux, marchés, signalements, péages : **0 enregistrement**
-- Trafic, criticité, coût, préfecture, date d'évaluation : **0 sur 1 690 tronçons**
-- Chantiers localisés : **6 sur 488**
-
-Construire les fiches objets (2.2) avant le terrain (2.5) revient à livrer un écran
-qui affiche sept rubriques vides. Construire l'aide à la décision (2.6) sur des champs
-vides produit un classement qui n'informe de rien.
-
-**Le terrain est le seul lot qui crée de la donnée. Tous les autres en consomment.**
-
-Le §48 autorise explicitement cette révision : « Tu peux modifier cet ordre si l'audit
-montre qu'une autre dépendance est plus importante. » La dépendance est la donnée.
+Et une confirmation qui aggrave le constat initial : la **fraîcheur** est la dimension
+la plus dégradée de toutes, à 3 dates métier renseignées sur 4 970 attendues. Aucune
+donnée de la BDRI ne dit quand le fait qu'elle décrit a été constaté.
 
 ---
 
-## 2. Ordre proposé
+## 2. La dépendance qui commande tout, inchangée
 
-| Lot | Contenu | Pourquoi ici |
-|---|---|---|
-| **2.0** | Clôture du socle | Dette de la Phase 3, quelques jours |
-| **2.1** | **Terrain et inspections** | Seul lot producteur de données |
-| **2.2** | Carte, recherche, navigation | Devient utile dès que le terrain alimente |
-| **2.3** | Fiches objets et relations | A enfin quelque chose à afficher |
-| **2.4** | Référentiel administratif | Débloque la recherche par lieu ; dépend d'une source externe |
-| **2.5** | Qualité des données | Mesure ce que les lots précédents ont produit |
-| **2.6** | Analyse et aide à la décision | Exige les données du terrain — donc après 2.1 |
-| **2.7** | Interopérabilité | Liens vers les applications métiers |
-| **2.8** | Design et accessibilité | En continu, consolidé ici |
+La première version posait que le terrain est le seul lot producteur de données et que
+tous les autres en consomment. Les nouvelles mesures ne contredisent pas ce principe.
+Elles ajoutent une nuance.
 
-Deux changements par rapport au §48 : **le terrain passe de 5<sup>e</sup> à
-1<sup>er</sup>**, et **la qualité des données passe après** les lots qui produisent
-de la donnée à mesurer.
+**Certaines données peuvent être produites sans terrain**, à partir de ce que la base
+contient déjà et n'exploite pas :
+
+| Donnée productible sans terrain | Volume | Origine |
+|---|---:|---|
+| Source d'import de chaque tronçon | 1 689 / 1 690 | préfixe du code |
+| Longueur des régionales | 1 028 | géométrie, concordance déjà démontrée |
+| Localisation de chantiers par route + PK | 36 | intitulés |
+| Rattachement de chantiers à une route | 62 | intitulés |
+| Postes de péage et pesage | 6 | journal d'audit |
+
+Ce gisement est immédiat, sans dépendance externe, et sans risque : il ne crée aucune
+donnée, il exploite celle qui dort. **Il passe devant tout le reste.**
+
+---
+
+## 3. Ordre révisé
+
+| Lot | Contenu | Pourquoi ici | Dépend de |
+|---|---|---|---|
+| **2.0** | Clôture du socle | Dette de la Phase 3 | — |
+| **2.1** | **Donnée dormante** | Gisement immédiat, sans dépendance | — |
+| **2.2** | **Provenance et fraîcheur** | Conditionne la lecture de tout le reste | — |
+| **2.3** | Terrain et inspections | Seul lot producteur de données neuves | 2.0 |
+| **2.4** | Carte, recherche, fiches | A enfin quelque chose à afficher | 2.1, 2.3 |
+| **2.5** | Référentiel administratif | Débloque 61 % de la géolocalisation | **source externe** |
+| **2.6** | Qualité des données | Mesure ce que les lots précédents ont produit | 2.2 |
+| **2.7** | Topologie du réseau | Raccorder 3 graphes disjoints | — (lourd) |
+| **2.8** | Analyse, décision, routage | Exige données **et** topologie | 2.3, 2.6, 2.7 |
+| **2.9** | Interopérabilité et design | En continu | — |
+
+**Trois changements par rapport à la version précédente** : un lot « donnée dormante »
+apparaît en tête ; la provenance et la fraîcheur passent avant le terrain ; le routage
+recule derrière un lot de topologie qui n'existait pas.
 
 ---
 
 ## LOT 2.0 — Clôture du socle
 
-Dette laissée par la Phase 3. Court, sans dépendance, à solder avant d'ouvrir 2.1.
-
 | Élément | État |
 |---|---|
-| Planifier les sauvegardes (2 lignes de crontab) | Prêt, en attente de validation |
-| Mettre la clé de chiffrement à l'abri hors serveur | Décision d'organisation |
-| Renommer la fonction « itinéraire » | 1 h — elle trompe l'utilisateur aujourd'hui |
-| Intégration continue (`ci.yml` non commité) | Bloqué par le garde-fou de session |
-| Vérification avant livraison | À écrire |
-| Contrôle automatique base ↔ fichiers | À écrire |
-| En-têtes de sécurité du frontend | Risque SharePoint à traiter |
+| Sauvegardes planifiées, restauration vérifiée, rapport d'état | **fait** |
+| Sonde d'état, compression, index spatial, contrôles d'accès | **fait** |
+| Mettre la clé de chiffrement à l'abri hors serveur | **en attente de décision** |
+| Déployer la migration `lat`/`lon`/`precisionM` et les correctifs de synchronisation | **en attente de validation** |
+| Intégration continue (`ci.yml`) | bloqué par le garde-fou de session |
 
-**Estimation : 5 j.**
-
----
-
-## LOT 2.1 — Terrain et inspections
-
-**Le lot qui débloque tous les autres.**
-
-Un agent ouvre son téléphone, obtient sa position, voit les tronçons proches, en
-sélectionne un, saisit les dégradations constatées, photographie, enregistre hors
-connexion, synchronise plus tard.
-
-**Ce qui existe déjà** : `InspectionTerrainPage`, `lib/offlineSync.ts`,
-`hooks/useOfflineSync.ts`, un service worker, le modèle `Inspection` et
-`MatriceDegradation`. **Rien n'a jamais été exercé** — la table est vide.
-
-**Ce qui reste à faire** : éprouver le hors-ligne pour de vrai (coupure réseau,
-reprise, conflits, doublons), la géolocalisation avec sa précision affichée, les
-photos horodatées et géolocalisées, la synchronisation.
-
-**Le point critique** : le §15 interdit de considérer que « l'application fonctionne
-sans réseau » sans test réel. Le mode hors-ligne est le composant le plus difficile à
-tester et le plus coûteux à corriger après coup. Il faut un téléphone réel.
-
-**Dépendances** : lot 2.0 pour les sauvegardes — le terrain va enfin produire des
-données qu'il serait impardonnable de perdre.
-**Risque** : élevé. Le hors-ligne est là où les applications terrain échouent.
-**Estimation : 20 j.**
+Le déploiement du correctif terrain bloque le lot 2.3 : sans les colonnes de position,
+toute inspection saisie perd son GPS.
 
 ---
 
-## LOT 2.2 — Carte, recherche, navigation
+## LOT 2.1 — Donnée dormante
 
-Panneau gauche (recherche, couches, filtres, légende), carte au centre, panneau droit
-(fiche), statistiques contextuelles en bas. Recherche universelle, filtres combinés,
-légende qui suit les couches actives, statistiques liées à la carte.
+Le lot le plus rentable de toute la feuille de route : aucune collecte, aucune source
+externe, aucun risque d'invention.
 
-**Ce qui existe** : la carte publique en porte déjà une part — recherche par route et
-région, filtre par état, légende à bascule, isolement d'une route. Le géoportail
-interne a six couches, mesures, export, partage.
+| Action | Effet mesuré |
+|---|---|
+| Renseigner la source depuis le préfixe de code | 1 689 tronçons tracés |
+| Exposer une longueur calculée à côté de la longueur saisie | le réseau passe de 7 933 à ~21 156 km, ventilé et justifié |
+| Publier la ventilation RN / RR / RU | l'indicateur cesse de mentir par omission |
+| Extraire route + PK des intitulés de chantiers, **en proposition** | 6 → 42 chantiers localisés |
+| Rattacher les chantiers citant une route | +62 chantiers |
+| Restaurer les 6 postes, dédoublonnés | un module vide cesse de l'être |
 
-**Ce qui reste** : unifier les deux, la recherche universelle multi-types, les filtres
-combinés, le lien carte ↔ statistiques.
-
-**Dépendances** : 2.1 pour que les couches inspections et dégradations aient du
-contenu.
-**Estimation : 15 j.**
-
----
-
-## LOT 2.3 — Fiches objets et relations
-
-La fiche universelle du §8 et la navigation entre objets du §9 :
-tronçon → ouvrages → inspections → dégradations → ordres de travaux → chantiers.
-
-**Dépendances** : 2.1 et 2.2. Sans inspections ni chantiers localisés, la chaîne de
-relations est un maillon unique.
-**Estimation : 12 j.**
+**Règle absolue de ce lot** : rien n'est écrit automatiquement dans un champ métier.
+Chaque valeur dérivée est proposée à un agent, ou stockée dans un champ distinct
+marqué comme calculé.
 
 ---
 
-## LOT 2.4 — Référentiel administratif
+## LOT 2.2 — Provenance et fraîcheur
 
-Région → préfecture → sous-préfecture → commune → localité, avec géométries, et
-rattachement spatial contrôlable.
+C'est le lot qui rend tous les autres interprétables.
 
-**Bloqué par une dépendance externe** : la source officielle. Voir
-`BDRI-2-DATA-MODEL.md` §4. Aucune ligne de code avant qu'elle ne soit obtenue.
+| Action | Justification mesurée |
+|---|---|
+| Ajouter source, date de constat et méthode aux champs de décision | 0 / 6 questions du §21 ont une réponse aujourd'hui |
+| Ajouter un statut de fiabilité par champ, sur 6 champs seulement | un tronçon a une géométrie vérifiée, une longueur absente et un revêtement contredit |
+| Requalifier `revetement` en valeur importée non vérifiée | `BITUME` sur 1 690, démenti par 29 intitulés |
+| Tracer les créations dans le journal d'audit | 1 690 tronçons créés sans aucune trace |
 
-**Estimation : 10 j après réception de la source.**
-
----
-
-## LOT 2.5 — Qualité des données
-
-Centre de qualité, score global, centre des anomalies. Les règles sont déjà écrites
-et mesurées dans `DATA-QUALITY-BDRI.md` — il s'agit de les rendre visibles et
-actionnables.
-
-**Placé ici, et non en 2.4 comme au §48** : mesurer la qualité avant que le terrain
-et le référentiel n'aient produit quoi que ce soit reviendrait à afficher un tableau
-de bord dont tous les indicateurs sont à zéro.
-
-**Estimation : 10 j.**
+Le statut est porté **par champ** et non par enregistrement — démonstration dans
+`data/BDRI-REFERENTIEL-NATIONAL.md` §5. Six champs, pas vingt-deux.
 
 ---
 
-## LOT 2.6 — Analyse et aide à la décision
+## LOT 2.3 — Terrain et inspections
 
-Vues nationale, régionale, préfectorale, communale. Score de priorité **documenté
-facteur par facteur**. Scénarios budgétaires.
+Inchangé dans son principe : c'est le seul lot qui crée de la donnée neuve.
 
-**Condition d'ouverture, non négociable** : trafic, criticité et coût doivent être
-renseignés. Ils sont aujourd'hui à zéro sur 1 690 tronçons. Tant qu'ils le restent,
-**ce lot ne doit pas s'ouvrir** — il produirait la formule opaque que le §26 interdit.
+| Action | État |
+|---|---|
+| Correctifs doublon et GPS | écrits, **non déployés** |
+| Tests automatisés de la file de synchronisation | 9 tests, verts |
+| **Test sur téléphone réel** | **non exécuté** — protocole dans `data/BDRI-TERRAIN-TEST.md` |
+| Plan d'inspection | à définir — 1 690 tronçons, 5 comptes actifs, 1 inspection |
 
-**Estimation : 15 j, après alimentation des trois champs.**
-
----
-
-## LOT 2.7 — Interopérabilité
-
-Liens vers les applications métiers, API versionnée `/api/v1`, exports SIG respectant
-les permissions, intégration SharePoint améliorée, partage de vues sans contournement
-des droits.
-
-**Dépendances** : identifiants stables (voir `BDRI-2-DATA-MODEL.md` §2) — un lien
-vers une application métier doit reposer sur un identifiant qui ne bouge pas.
-**Estimation : 12 j.**
+La dernière ligne est la vraie difficulté, et elle n'est pas technique. Le module
+fonctionne ; il n'a pas d'utilisateurs.
 
 ---
 
-## LOT 2.8 — Design et accessibilité
+## LOT 2.4 — Carte, recherche, fiches
 
-Système visuel cohérent, charte cartographique documentée, mise en page d'impression,
-accessibilité clavier et contraste.
+À ouvrir seulement quand 2.1 et 2.3 ont produit de quoi remplir un écran. Les fiches
+détaillées des §28 et §29 du brief comportent sept rubriques ; aujourd'hui cinq
+seraient vides.
 
-**En continu dans chaque lot**, consolidé ici. Un design system livré à la fin ne
-rattrape pas huit lots construits sans lui.
-**Estimation : 8 j.**
+Priorité interne, conforme au §36 : carte, recherche, fiche, filtres, tableau de bord,
+mobile.
 
----
-
-## 3. Chemin critique
-
-```
-2.0 ─┬─► 2.1 (terrain) ─┬─► 2.2 (carte) ─► 2.3 (fiches) ─► 2.7 (interop)
-     │                  │
-     │                  └─► 2.5 (qualité)
-     │
-     └─► 2.4 (référentiel administratif) ── bloqué par source externe
-                                            │
-     alimentation trafic/coût/criticité ────┴─► 2.6 (décision)
-```
-
-Deux blocages ne dépendent pas du développement :
-
-- **La source administrative officielle** (INS / Direction Nationale de la
-  Cartographie). Sans elle, 2.4 n'ouvre pas.
-- **L'alimentation de trafic, criticité et coût.** Sans elle, 2.6 n'ouvre pas.
-
-Ces deux démarches devraient être **engagées maintenant**, en parallèle du lot 2.1.
-Ce sont les délais les plus longs du programme, et ils ne coûtent rien à lancer tôt.
+Le §31 s'applique dès ce lot : chaque indicateur doit être calculé, daté, explicable et
+cliquable. Un « 1 690 tronçons » qui ne mène nulle part est décoratif.
 
 ---
 
-## 4. Ce que je ne recommande pas
+## LOT 2.5 — Référentiel administratif
 
-**Ne pas ouvrir 2.6 en attendant.** La tentation sera d'utiliser l'état seul comme
-score de priorité. Sur 647 tronçons évalués et 1 043 non évalués, ce score
-classerait surtout l'ignorance.
+**Bloqué sur une décision qui n'est pas technique** : quelle source officielle fait foi.
 
-**Ne pas géolocaliser les chantiers par estimation.** 482 chantiers sont au centre de
-leur région. Les déplacer « au mieux » créerait une précision fausse, plus dangereuse
-que l'imprécision affichée. Le §21 le dit ; la solution est le rattachement au tronçon
-depuis la source métier, pas l'interpolation.
+Ce lot ne débloque pas seulement la recherche Région → Préfecture → Commune. Il
+débloque **299 chantiers**, soit 61 % du gisement de géolocalisation, parce que les
+intitulés portent des noms de lieux et que la base n'a aucune cible à leur opposer :
+zéro tronçon porte un nom de localité.
 
-**Ne pas construire les six espaces comme six modules techniques.** Ce sont des
-regroupements de navigation. Créer six nouveaux modules doublerait la surface de code
-pour un gain nul.
+Si le référentiel arrive avec des géométries, le rattachement des 1 690 tronçons se
+fait en une requête d'intersection spatiale.
+
+---
+
+## LOT 2.6 — Qualité des données
+
+Le module `DATA QUALITY` du §20, alimenté par les statuts posés en 2.2. Les six
+dimensions sont déjà mesurées et documentées dans `data/BDRI-DATA-QUALITY-REPORT.md` ;
+ce lot les rend permanentes et visibles dans l'application.
+
+Contrainte du §32 : aucune formule opaque, aucun score global agrégé. Une moyenne des
+dimensions masquerait exactement ce que la mesure montre — une qualité excellente sur
+la géométrie et nulle sur la provenance.
+
+---
+
+## LOT 2.7 — Topologie du réseau
+
+Lot nouveau, imposé par la mesure.
+
+| Étape | Objet |
+|---|---|
+| Identifier les nœuds réels du réseau | 77 % des extrémités coïncident déjà à 1 m |
+| Raccorder les classes entre elles | **0 jonction RN ↔ RR ↔ RU aujourd'hui** |
+| Mesurer les composantes connexes restantes | inconnu avant traitement |
+| Traiter les 777 extrémités libres | distinguer fin de réseau et rupture |
+
+C'est un lot lourd et il n'a aucune dépendance externe : il peut démarrer quand on veut.
+
+---
+
+## LOT 2.8 — Analyse, décision, routage
+
+**Ne pas ouvrir avant 2.7.** Le §26 demande de comparer pgRouting, OSRM et GraphHopper
+et de recommander. La recommandation ne peut pas être faite sur l'état actuel : les
+trois échoueraient identiquement sur un graphe disjoint.
+
+L'aide à la décision suit la même logique. Le §9 est catégorique et la mesure le
+confirme : trois des quatre critères sont entièrement vides et le quatrième manque sur
+62 % du réseau. Tant que c'est le cas, le module doit être présenté comme un moteur de
+priorisation **transparent**, montrant chaque facteur et son absence, jamais comme une
+aide à la décision fiable.
+
+En attendant, la règle du §41 tient : une distance à vol d'oiseau ne s'appelle pas un
+itinéraire.
+
+---
+
+## LOT 2.9 — Interopérabilité et design
+
+Conforme au §36 : la modernisation de l'interface vient **après** la sécurisation des
+données essentielles. Le socle technique n'est plus le facteur limitant ; l'interface
+non plus.
+
+---
+
+## 4. Ce que cette feuille de route refuse de faire
+
+| Refus | Motif |
+|---|---|
+| Remplir les modules vides avec des données de démonstration | §41 |
+| Écraser une longueur saisie par une longueur calculée | fait passer un calcul pour une donnée métier |
+| Remplacer `BITUME` par une autre supposition | aucune source ne le permet |
+| Géocoder un nom de lieu sans référentiel ni validation | §18 |
+| Choisir un moteur de routage avant d'avoir un graphe connecté | comparerait des outils sur un problème qu'aucun ne résout |
+| Publier un score global de qualité | masquerait le seul enseignement utile |
+| Appeler « itinéraire » une distance à vol d'oiseau | §41 |
