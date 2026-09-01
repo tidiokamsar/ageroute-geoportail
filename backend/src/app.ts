@@ -24,6 +24,7 @@ import { searchRouter } from "./modules/search/search.routes";
 import { documentsRouter } from "./modules/documents/documents.routes";
 import { photosRouter } from "./modules/photos/photos.routes";
 import { publicRouter } from "./modules/public/public.routes";
+import { healthRouter } from "./modules/health/health.routes";
 import { errorHandler, notFoundHandler } from "./middleware/error.middleware";
 import fs from "fs";
 import { UPLOAD_DIR } from "./middleware/upload-document.middleware";
@@ -75,7 +76,9 @@ export function createApp() {
     rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: "Trop de tentatives, reessayez plus tard" } })
   );
 
-  app.get("/api/health", (_req, res) => res.json({ status: "ok", timestamp: new Date().toISOString() }));
+  // Sonde d'etat : voir modules/health. Elle repondait "ok" sans rien verifier,
+  // donc "ok" meme base arretee.
+  app.use("/api/health", healthRouter);
 
   const swaggerSpec = swaggerJsdoc({
     definition: {
