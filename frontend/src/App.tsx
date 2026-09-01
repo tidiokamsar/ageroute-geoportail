@@ -11,6 +11,7 @@ import { Toaster } from "./components/ui/Toaster";
 const DashboardPage = lazy(() => import("./pages/DashboardPage").then((m) => ({ default: m.DashboardPage })));
 const GeoportailPage = lazy(() => import("./pages/GeoportailPage").then((m) => ({ default: m.GeoportailPage })));
 const EmbedCartePage = lazy(() => import("./pages/EmbedCartePage").then((m) => ({ default: m.EmbedCartePage })));
+const PublicCartePage = lazy(() => import("./pages/PublicCartePage").then((m) => ({ default: m.PublicCartePage })));
 const TronconsPage = lazy(() => import("./pages/TronconsPage").then((m) => ({ default: m.TronconsPage })));
 const OuvragesPage = lazy(() => import("./pages/OuvragesPage").then((m) => ({ default: m.OuvragesPage })));
 const PointsNoirsPage = lazy(() => import("./pages/PointsNoirsPage").then((m) => ({ default: m.PointsNoirsPage })));
@@ -50,6 +51,9 @@ const router = createBrowserRouter(
     <>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/embed/carte" element={<LazyPage><EmbedCartePage /></LazyPage>} />
+      {/* Vue publique en lecture seule, hors ProtectedRoute : c'est la page servie a
+          tout visiteur non connecte qui ouvre la racine du domaine (cf. ProtectedRoute). */}
+      <Route path="/carte" element={<LazyPage><PublicCartePage /></LazyPage>} />
       <Route element={<ProtectedRoute />}>
         <Route element={<AppLayout />}>
           <Route index element={<LazyPage><DashboardPage /></LazyPage>} handle={{ title: "Tableau de bord" }} />

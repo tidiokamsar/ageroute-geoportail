@@ -23,7 +23,11 @@ export function ProtectedRoute({ roles }: { roles?: Role[] }) {
   const location = useLocation();
 
   if (loading) return <div className="h-screen flex items-center justify-center text-gray-400">Chargement...</div>;
-  if (!user) return <Navigate to="/login" replace />;
+  // Visiteur non connecte : la racine du domaine ouvre la carte publique en lecture
+  // seule plutot que le formulaire de connexion — carte.ageroute.gov.gn doit montrer
+  // le geoportail a tout le monde. Un lien profond vers un module reste renvoye vers
+  // /login, ou l'utilisateur se connecte avec son compte pour acceder au reste.
+  if (!user) return <Navigate to={location.pathname === "/" ? "/carte" : "/login"} replace />;
   if (roles && !roles.includes(user.role)) return <Navigate to="/" replace />;
 
   const moduleKey = moduleForPath(location.pathname);
