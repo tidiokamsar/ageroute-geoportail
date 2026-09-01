@@ -32,6 +32,66 @@ enum Revetement {
   PAVE
 }
 
+// ===================== QUALITE, PROVENANCE, CONFIANCE =====================
+//
+// Ces enums existent pour repondre a une question que la base ne savait pas poser :
+// que sait-on REELLEMENT de cette valeur ? Un champ rempli n'est pas un champ
+// renseigne. Mesure du 01/09/2026 : `revetement` vaut BITUME sur les 1 690 troncons
+// sans une seule exception, et 29 intitules de chantiers decrivent des routes « en
+// terre ». Les deux ne peuvent etre vrais. Sans statut, l'interface presentait une
+// valeur d'import comme une caracteristique du reseau.
+
+/// D'ou vient un enregistrement. La distinction qui compte est entre une provenance
+/// DEDUITE (le prefixe du code trahit le lot d'import) et une provenance DOCUMENTEE
+/// (quelqu'un a retrouve le document source). Les confondre ferait passer une
+/// inference pour un fait etabli.
+enum SourceType {
+  IMPORT_CODE_PATTERN
+  IMPORT_DOCUMENTE
+  SAISIE_APPLICATIVE
+  RECUPERATION_AUDIT
+  INCONNUE
+}
+
+enum NiveauConfiance {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+/// Statut d'une valeur de champ. CONFLICTING n'est pas une erreur a corriger tout de
+/// suite : c'est un signalement — deux sources internes se contredisent, quelqu'un
+/// doit trancher avec une source externe.
+enum StatutValeur {
+  OBSERVED
+  IMPORTED_UNVERIFIED
+  DERIVED
+  CONFLICTING
+  UNKNOWN
+}
+
+/// Niveau de localisation reel d'un objet. NONE est une valeur legitime et doit le
+/// rester : 50 chantiers sont rattaches a une region nommee « Non renseigne », et les
+/// afficher au centre d'une region inventerait une position.
+enum StatutLocalisation {
+  NONE
+  APPROXIMATIVE
+  LINEAIRE
+  PRECISE
+}
+
+enum StatutProposition {
+  PROPOSED
+  VALIDATED
+  REJECTED
+}
+
+enum StatutRecuperation {
+  PENDING_VALIDATION
+  VALIDATED
+  REJECTED
+}
+
 enum EtatPatrimoine {
   BON
   MOYEN
@@ -206,6 +266,8 @@ model User {
   otPhotos        OtPhoto[]
   otHistoriques   OtHistorique[]
   signalementsQualifies SignalementCitoyen[]
+  valeursConstatees     ValeurQualite[]
+  propositionsDecidees  PropositionLocalisation[]
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -262,7 +324,20 @@ model Troncon {
   prefecture      String?
   commune         String?
   observations    String?
+  // Provenance de l'ENREGISTREMENT (T2). Distincte du statut d'une valeur, qui est
+  // porte par ValeurQualite : un troncon vient d'un lot d'import, mais chacun de ses
+  // champs peut avoir ete constate, calcule ou jamais verifie.
+  //
+  // Mesure du 01/09/2026 : le journal d'audit ne contient AUCUNE creation pour les
+  // 1 690 troncons. Leur origine n'etait donc nulle part. Elle est pourtant lisible
+  // dans le code — `GN N*`, `*-OSM-*`, `RES-*` — d'ou sourceType IMPORT_CODE_PATTERN,
+  // qui dit bien « deduit », pas « documente ».
+  sourceType       SourceType?
+  sourceReference  String?
+  sourceConfidence NiveauConfiance?
+  sourceDetectedAt DateTime?
   geom            Unsupported("geometry(LineString,4326)")?
+  propositionsLocalisation PropositionLocalisation[]
   ouvrages        Ouvrage[]
   pointsNoirs     PointNoir[]
   postes          Poste[]
@@ -358,6 +433,18 @@ model Poste {
   statut                StatutPoste @default(EN_SERVICE)
   recettesMensuellesGnf BigInt?
   traficJma             Int?
+  // Recuperation depuis le journal d'audit (T9). Dix suppressions du 01/07/2026 se
+  // reduisent a six sites distincts — les autres etaient des doublons d'accentuation
+  // (« Peage de Kilissi » et « Péage de Kilissi »). La suppression etait justifiee ;
+  // l'absence de reprise ensuite ne l'etait pas.
+  //
+  // recoveryStatus reste PENDING_VALIDATION tant qu'un agent n'a pas confirme. Les
+  // valeurs de trafic et de recettes NE SONT PAS reprises : deux postes portaient
+  // exactement 3 200, tous les montants etaient ronds, aucun n'avait de coordonnees.
+  // C'est la signature d'un jeu de demonstration, pas d'une campagne de comptage.
+  historicalRecovered   Boolean     @default(false)
+  recoveredFrom         String?
+  recoveryStatus        StatutRecuperation?
   geom                  Unsupported("geometry(Point,4326)")?
   deletedAt             DateTime?
   createdAt             DateTime    @default(now())
@@ -388,7 +475,15 @@ model Chantier {
   dateFinReelle     DateTime?
   numContrat      String?
   observations    String?
+  // Niveau de localisation REEL (T6). Sans ce champ, la carte ne pouvait pas
+  // distinguer un chantier dont on connait l'emprise d'un chantier dont on ne connait
+  // que la region — et 50 chantiers dont on ne connait meme pas la region, rattaches
+  // a une entree nommee « Non renseigne ».
+  //
+  // Valeur derivee, jamais saisie a la main : recalculee depuis geom, tronconId et pk.
+  statutLocalisation StatutLocalisation @default(NONE)
   geom            Unsupported("geometry(LineString,4326)")?
+  propositions    PropositionLocalisation[]
   marches         MarcheChantier[]
   deletedAt       DateTime?
   createdAt       DateTime       @default(now())
@@ -418,6 +513,15 @@ model Inspection {
   lat             Float?
   lon             Float?
   precisionM      Float?
+  // Identifiant genere par le CLIENT avant tout envoi (T7). C'est la cle
+  // d'idempotence : le serveur refuse une seconde creation portant le meme
+  // identifiant et renvoie l'inspection deja creee.
+  //
+  // La correction cote client — persister l'identifiant serveur des la creation
+  // reussie — supprime la cause la plus frequente du doublon, mais elle ne protege
+  // pas de tout : une reponse perdue en chemin laisse le client croire a un echec
+  // alors que le serveur a bien enregistre. Seule une garantie SERVEUR ferme ce cas.
+  clientInspectionId String?     @unique
   deletedAt       DateTime?
   createdAt       DateTime       @default(now())
 
@@ -734,4 +838,101 @@ model AuditLog {
   @@map("audit_logs")
   @@index([entityType, entityId])
   @@index([userId])
+}
+
+// ===================== QUALITE DES DONNEES =====================
+
+/// Ce que l'on sait d'UNE valeur d'UN champ d'UN enregistrement (T3, T4).
+///
+/// POURQUOI UNE TABLE ET PAS DES COLONNES
+///
+/// Six champs alimentent une decision — etat, longueur, revetement, trafic,
+/// criticite, cout. Leur attacher statut, source, methode, date, auteur et confiance
+/// en colonnes ferait trente-six colonnes sur `troncons`, puis autant sur `ouvrages`.
+/// Une table separee tient la meme information sans toucher une seule colonne
+/// existante : la migration n'ecrit rien dans les donnees metier, et son retrait se
+/// reduit a un DROP TABLE.
+///
+/// LA GRANULARITE EST LE POINT
+///
+/// Un troncon typique a aujourd'hui une geometrie VERIFIEE, une longueur ABSENTE et
+/// un revetement CONTREDIT. Un statut unique porte par l'objet devrait choisir entre
+/// ces trois niveaux et perdrait ce qui compte.
+///
+/// LA DATE EST OBLIGATOIRE, PAS DECORATIVE
+///
+/// Mesure du 01/09/2026 : 3 dates metier renseignees sur 4 970 attendues. Les 647
+/// troncons dont l'etat est connu ne sont donc pas comparables entre eux — un « BON »
+/// de cette annee et un « BON » d'il y a dix ans occupent la meme case. Un statut
+/// OBSERVED sans `observedAt` ne vaut pas mieux que pas de statut du tout.
+model ValeurQualite {
+  id           String           @id @default(uuid())
+  /// Nom du modele Prisma : "Troncon", "Ouvrage", "Chantier".
+  entityType   String
+  entityId     String
+  /// Nom du champ tel qu'il figure au schema : "revetement", "etat", "longueurKm".
+  champ        String
+  statut       StatutValeur
+  /// D'ou vient la valeur : "IMPORT_INITIAL", "INSPECTION_TERRAIN", "ST_Length(geom)".
+  source       String?
+  /// Comment elle a ete etablie : "RELEVE_TERRAIN", "CALCUL_GEOMETRIQUE", "IMPORT".
+  methode      String?
+  /// Date du CONSTAT, jamais la date d'ecriture de la ligne. `createdAt` dit quand on
+  /// l'a saisi ; `observedAt` dit quand le fait a ete constate. Les confondre est
+  /// exactement l'erreur que ce modele existe pour empecher.
+  observedAt   DateTime?
+  observedById String?
+  observedBy   User?            @relation(fields: [observedById], references: [id])
+  confiance    NiveauConfiance?
+  /// Ce qui contredit la valeur, quand statut vaut CONFLICTING.
+  note         String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@unique([entityType, entityId, champ])
+  @@index([entityType, champ, statut])
+  @@index([statut])
+  @@map("valeurs_qualite")
+}
+
+/// Localisation PROPOSEE pour un chantier, jamais appliquee seule (T5).
+///
+/// 36 intitules de chantiers portent a la fois la route et les PK de debut et de fin :
+/// « lot 12 : travaux de cantonnage manuel de la route PK24 - PK66 RN5 (42 km) ».
+/// Les 1 690 troncons ayant leurs PK renseignes, la projection est calculable.
+///
+/// Mais les intitules sont du texte libre et piegent une extraction naive :
+/// « PK50-Marela (PK103) » mele un PK et une localite dans la meme expression. Une
+/// proposition attend donc toujours la decision d'un agent, et la geometrie du
+/// chantier n'est ecrite qu'a la validation.
+///
+/// `longueurCiteeKm` sert de controle : 221 intitules portent une longueur, et
+/// l'ecart avec la longueur de l'emprise calculee dit si l'extraction a vu juste.
+model PropositionLocalisation {
+  id                 String            @id @default(uuid())
+  chantierId         String
+  chantier           Chantier          @relation(fields: [chantierId], references: [id], onDelete: Cascade)
+  statut             StatutProposition @default(PROPOSED)
+  /// "INTITULE_ROUTE_PK", "INTITULE_ROUTE_SEULE".
+  methode            String
+  /// L'intitule exact dont la proposition est tiree, pour que l'agent juge sur piece.
+  sourceTexte        String
+  confiance          NiveauConfiance
+  tronconId          String?
+  troncon            Troncon?          @relation(fields: [tronconId], references: [id])
+  pkDebut            Float?
+  pkFin              Float?
+  longueurCiteeKm    Float?
+  longueurCalculeeKm Float?
+  ecartPct           Float?
+  geom               Unsupported("geometry(LineString,4326)")?
+  createdAt          DateTime          @default(now())
+  decidedAt          DateTime?
+  decidedById        String?
+  decidedBy          User?             @relation(fields: [decidedById], references: [id])
+  motifRejet         String?
+
+  @@index([chantierId])
+  @@index([statut])
+  @@map("propositions_localisation")
 }
