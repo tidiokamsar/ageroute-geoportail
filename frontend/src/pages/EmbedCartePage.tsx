@@ -66,7 +66,9 @@ export function EmbedCartePage() {
   return (
     <div style={{ position: "fixed", inset: 0 }}>
       <MapContainer center={GUINEE_CENTER} zoom={7} zoomControl={false} attributionControl={false} style={{ height: "100%", width: "100%" }}>
-        <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+        {/* Esri Dark Gray et non le fond sombre CARTO : basemaps.cartocdn.com renvoie
+            desormais une tuile filigranee "API KEY REQUIRED" (en HTTP 200). */}
+        <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}" />
         {tronconLines.map(({ t, positions }) => (
           <Polyline key={t.id} positions={positions} pathOptions={{ color: ETAT_COLORS[t.etat] ?? "#8FA9C8", weight: 3 }}>
             <Tooltip sticky>{t.code} — {t.nom}</Tooltip>

@@ -40,10 +40,14 @@ const GUINEE_CENTER: [number, number] = [10.5, -10.8];
 const DEFAULT_ZOOM = 7;
 
 const BASEMAPS = {
+  // Esri Light Gray et non le fond clair CARTO : basemaps.cartocdn.com renvoie
+  // desormais une tuile filigranee "API KEY REQUIRED" (en HTTP 200, donc sans
+  // erreur visible cote code). Esri est deja la source du fond satellite ci-dessous
+  // et ne demande pas de cle.
   clair: {
     label: "Plan clair",
-    url: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-    attribution: "&copy; OpenStreetMap, &copy; CARTO",
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+    attribution: "&copy; Esri, HERE, Garmin, &copy; OpenStreetMap",
   },
   osm: {
     label: "OpenStreetMap",
