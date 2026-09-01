@@ -39,28 +39,67 @@ export async function refreshPendingCount() {
   emit();
 }
 
-async function syncOne(item: PendingInspection): Promise<boolean> {
-  try {
-    const { data: created } = await api.post("/inspections", {
-      tronconId: item.payload.tronconId || undefined,
-      ouvrageId: item.payload.ouvrageId || undefined,
-      dateInspection: item.payload.dateInspection,
-      etatObserve: item.payload.etatObserve,
-      defautsConstates: item.payload.defautsConstates || undefined,
-      recommandations: item.payload.recommandations || undefined,
-    });
+// Au-dela, on cesse de reessayer. Une erreur permanente — troncon supprime,
+// validation refusee — se reproduirait sinon a chaque retour de reseau, sans fin et
+// sans que personne ne s'en apercoive. L'element est conserve pour que l'agent puisse
+// le corriger ou le supprimer, jamais efface en silence.
+const MAX_TENTATIVES = 5;
 
-    for (const photo of item.photos) {
-      const formData = new FormData();
-      formData.append("photo", photo.blob, photo.name);
-      await api.post(`/inspections/${created.id}/photos`, formData);
+/**
+ * Synchronise une inspection en attente.
+ *
+ * REPRISE PAS A PAS. La version precedente creait l'inspection puis envoyait les
+ * photos, et ne retirait l'element de la file qu'apres le succes de TOUTES les
+ * photos. Une coupure pendant l'envoi d'une photo laissait donc l'element complet en
+ * attente — et la synchronisation suivante RECREAIT l'inspection. Un doublon par
+ * tentative, sur le module qui produit la donnee du reseau.
+ *
+ * Chaque etape reussie est desormais persistee : l'identifiant serveur d'abord, puis
+ * chaque photo retiree de la liste des qu'elle est passee. Une reprise ne refait que
+ * ce qui reste.
+ */
+async function syncOne(item: PendingInspection): Promise<boolean> {
+  const tentatives = (item.tentatives ?? 0) + 1;
+  let etat = { ...item, tentatives };
+
+  try {
+    if (!etat.serverId) {
+      const { data: created } = await api.post("/inspections", {
+        tronconId: etat.payload.tronconId || undefined,
+        ouvrageId: etat.payload.ouvrageId || undefined,
+        dateInspection: etat.payload.dateInspection,
+        etatObserve: etat.payload.etatObserve,
+        defautsConstates: etat.payload.defautsConstates || undefined,
+        recommandations: etat.payload.recommandations || undefined,
+        lat: etat.payload.lat,
+        lon: etat.payload.lon,
+        precisionM: etat.payload.precisionM,
+      });
+      // Persister AVANT d'envoyer la moindre photo : c'est cette ecriture qui empeche
+      // la recreation en cas de coupure a la ligne suivante.
+      etat = { ...etat, serverId: created.id as string };
+      await updatePendingInspection(etat);
     }
 
-    await removePendingInspection(item.localId);
+    while (etat.photos.length > 0) {
+      const photo = etat.photos[0];
+      const formData = new FormData();
+      formData.append("photo", photo.blob, photo.name);
+      await api.post(`/inspections/${etat.serverId}/photos`, formData);
+      etat = { ...etat, photos: etat.photos.slice(1) };
+      await updatePendingInspection(etat);
+    }
+
+    await removePendingInspection(etat.localId);
     return true;
   } catch (err) {
     const message = err instanceof Error ? err.message : "Erreur de synchronisation";
-    await updatePendingInspection({ ...item, status: "error", errorMessage: message });
+    const abandonnee = tentatives >= MAX_TENTATIVES;
+    await updatePendingInspection({
+      ...etat,
+      status: abandonnee ? "abandonnee" : "error",
+      errorMessage: abandonnee ? `${message} (abandon apres ${tentatives} tentatives)` : message,
+    });
     return false;
   }
 }
@@ -74,6 +113,9 @@ export async function syncPendingInspections(): Promise<void> {
   try {
     const all = await getAllPending();
     for (const item of all) {
+      // Une inspection abandonnee n'est plus retentee : elle attend une intervention
+      // humaine. La retenter en boucle masquerait le probleme sous du bruit.
+      if (item.status === "abandonnee") continue;
       await syncOne(item);
     }
   } finally {

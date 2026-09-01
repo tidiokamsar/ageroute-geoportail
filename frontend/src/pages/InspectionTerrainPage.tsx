@@ -60,7 +60,7 @@ export function InspectionTerrainPage() {
   const [defautsConstates, setDefautsConstates] = useState("");
   const [recommandations, setRecommandations] = useState("");
   const [photos, setPhotos] = useState<{ name: string; blob: Blob; previewUrl: string }[]>([]);
-  const [geoloc, setGeoloc] = useState<{ lat: number; lon: number } | null>(null);
+  const [geoloc, setGeoloc] = useState<{ lat: number; lon: number; precisionM: number } | null>(null);
   const [geolocError, setGeolocError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [recentSubmissions, setRecentSubmissions] = useState<PendingInspection[]>([]);
@@ -73,7 +73,17 @@ export function InspectionTerrainPage() {
   function captureGeoloc() {
     if (!navigator.geolocation) { setGeolocError("Géolocalisation non disponible sur cet appareil."); return; }
     navigator.geolocation.getCurrentPosition(
-      (pos) => { setGeoloc({ lat: pos.coords.latitude, lon: pos.coords.longitude }); setGeolocError(null); },
+      (pos) => {
+        // On retient l'incertitude annoncee par l'appareil, et pas seulement la
+        // position : a plus ou moins 500 m, une coordonnee rattachee a un troncon
+        // precis cree une donnee fausse, plus couteuse qu'une donnee absente.
+        setGeoloc({
+          lat: pos.coords.latitude,
+          lon: pos.coords.longitude,
+          precisionM: Math.round(pos.coords.accuracy),
+        });
+        setGeolocError(null);
+      },
       () => setGeolocError("Impossible d'obtenir la position (autorisation refusée ou GPS indisponible)."),
       { enableHighAccuracy: true, timeout: 10000 }
     );
@@ -117,6 +127,7 @@ export function InspectionTerrainPage() {
           recommandations: recommandations || undefined,
           lat: geoloc?.lat,
           lon: geoloc?.lon,
+          precisionM: geoloc?.precisionM,
         },
         photos: photos.map((p) => ({ name: p.name, blob: p.blob })),
         createdAt: new Date().toISOString(),
@@ -254,7 +265,7 @@ export function InspectionTerrainPage() {
       <div>
         <Button variant="secondary" onClick={captureGeoloc} className="w-full justify-center">
           <MapPin className="h-4 w-4 mr-1.5" />
-          {geoloc ? `Position capturée (${geoloc.lat.toFixed(5)}, ${geoloc.lon.toFixed(5)})` : "Capturer la position GPS"}
+          {geoloc ? `Position capturée — ± ${geoloc.precisionM} m` : "Capturer la position GPS"}
         </Button>
         {geolocError && <p className="mt-1 text-xs text-red-600">{geolocError}</p>}
       </div>

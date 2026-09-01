@@ -19,11 +19,26 @@ export interface PendingInspection {
     recommandations?: string;
     lat?: number;
     lon?: number;
+    // Incertitude annoncee par l'appareil, en metres.
+    precisionM?: number;
   };
   photos: { name: string; blob: Blob }[];
   createdAt: string;
-  status: "pending" | "syncing" | "error";
+  status: "pending" | "syncing" | "error" | "abandonnee";
   errorMessage?: string;
+
+  // Identifiant renvoye par le serveur une fois l'inspection creee.
+  //
+  // Sans lui, une inspection creee avec succes mais dont une photo echoue restait en
+  // file d'attente ENTIERE : la synchronisation suivante la recreait, produisant un
+  // doublon a chaque tentative. On retient donc l'identifiant des que la creation
+  // aboutit, et les reprises n'envoient plus que les photos restantes.
+  serverId?: string;
+
+  // Nombre de tentatives de synchronisation. Une erreur permanente — un troncon
+  // supprime, une validation refusee — se reproduirait sinon a chaque retour de
+  // reseau, indefiniment et sans que personne ne le voie.
+  tentatives?: number;
 }
 
 function openDb(): Promise<IDBDatabase> {

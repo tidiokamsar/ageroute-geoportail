@@ -412,6 +412,12 @@ model Inspection {
   defautsConstates String?
   recommandations String?
   photos          String[]       @default([])
+  // Position relevee sur le terrain. precisionM porte l'incertitude annoncee par
+  // l'appareil : une position a plus ou moins 500 m ne vaut pas une position a 5 m,
+  // et le distinguer evite de traiter la premiere comme exacte.
+  lat             Float?
+  lon             Float?
+  precisionM      Float?
   deletedAt       DateTime?
   createdAt       DateTime       @default(now())
 
