@@ -4,6 +4,7 @@ import { constants as fsConstants } from "fs";
 import { prisma } from "../../lib/prisma";
 import { UPLOAD_DIR } from "../../middleware/upload-document.middleware";
 import { PHOTOS_UPLOAD_DIR } from "../../middleware/upload-photo.middleware";
+import { echecsAuditDepuisDemarrage } from "../../utils/audit";
 
 export const healthRouter = Router();
 
@@ -87,6 +88,11 @@ healthRouter.get("/", async (_req, res) => {
       api: { etat: "ok" as Etat },
       base: { etat: base.etat, ms: base.ms },
       stockage: { etat: stockage.etat, ms: stockage.ms },
+      // P2-03 : nombre d'ecritures metier passees SANS trace d'audit depuis le
+      // demarrage (echec d'ecriture dans audit_logs). Zero attendu ; un nombre
+      // qui monte demande une investigation — c'est le signal qui manquait quand
+      // l'echec d'audit etait purement silencieux.
+      audit: { echecsDepuisDemarrage: echecsAuditDepuisDemarrage() },
     },
   });
 });
