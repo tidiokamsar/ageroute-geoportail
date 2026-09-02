@@ -2,6 +2,9 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 vi.mock("../../utils/audit", () => ({ logAudit: vi.fn() }));
 vi.mock("../../utils/password", () => ({ hashPassword: vi.fn(async (p: string) => `hashed:${p}`) }));
+// users.service importe desormais revokeAllForUser depuis auth.service ; mocker
+// ce module evite de charger la chaine jwt/config-env (process.exit sans .env en CI).
+vi.mock("../auth/auth.service", () => ({ revokeAllForUser: vi.fn() }));
 
 const userStore = new Map<string, Record<string, unknown>>();
 
