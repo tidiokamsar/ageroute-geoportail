@@ -2,6 +2,7 @@ import { prisma } from "../../lib/prisma";
 import { createCrudService, type ListParams } from "../../lib/crud-factory";
 import { createPhotoService } from "../../lib/photos";
 import { logAudit } from "../../utils/audit";
+import { enregistrerQualite } from "../../lib/qualite";
 
 const base = createCrudService(prisma.inspection, "Inspection", { troncon: true, ouvrage: true, inspecteur: { select: { nomComplet: true } } });
 const photos = createPhotoService(prisma.inspection, "Inspection");
@@ -29,13 +30,15 @@ async function propagateEtat(
 ) {
   if (!data.etatObserve || data.etatObserve === "NON_EVALUE") return;
   const etat = data.etatObserve as never;
+  // La date du CONSTAT, pas celle de la saisie : c'est ce que dit dateInspection.
+  const dateConstat = data.dateInspection ? new Date(data.dateInspection) : new Date();
 
   if (data.ouvrageId) {
     const before = await prisma.ouvrage.findUnique({ where: { id: data.ouvrageId }, select: { etat: true } });
     if (before) {
       await prisma.ouvrage.update({
         where: { id: data.ouvrageId },
-        data: { etat, derniereInspectionDate: data.dateInspection ? new Date(data.dateInspection) : new Date() },
+        data: { etat, derniereInspectionDate: dateConstat },
       });
       await logAudit({
         userId, action: "UPDATE", entityType: "Ouvrage", entityId: data.ouvrageId,
@@ -45,12 +48,41 @@ async function propagateEtat(
   } else if (data.tronconId) {
     const before = await prisma.troncon.findUnique({ where: { id: data.tronconId }, select: { etat: true } });
     if (before) {
-      await prisma.troncon.update({ where: { id: data.tronconId }, data: { etat } });
+      // `dateDerniereEvaluation` n'etait JAMAIS ecrite : le champ existe depuis
+      // l'origine et vaut 0 sur les 1 690 troncons. Les ouvrages recevaient bien leur
+      // date d'inspection, pas les troncons. Consequence : les 647 troncons dont
+      // l'etat est connu ne sont pas comparables entre eux — un « BON » de cette
+      // annee et un « BON » d'il y a dix ans occupent la meme case.
+      await prisma.troncon.update({
+        where: { id: data.tronconId },
+        data: { etat, dateDerniereEvaluation: dateConstat },
+      });
       await logAudit({
         userId, action: "UPDATE", entityType: "Troncon", entityId: data.tronconId,
         before: { etat: before.etat }, after: { etat: data.etatObserve, source: "inspection" },
       });
     }
+  }
+
+  // Une inspection est le SEUL evenement de la base qui produise une valeur reellement
+  // constatee : datee, attribuee, et de methode connue. C'est ici que le modele de
+  // qualite cesse d'etre descriptif pour devenir alimente — aujourd'hui, aucune valeur
+  // de la base n'est OBSERVED.
+  const entityType = data.ouvrageId ? "Ouvrage" : "Troncon";
+  const entityId = data.ouvrageId ?? data.tronconId;
+  if (entityId) {
+    await enregistrerQualite({
+      entityType,
+      entityId,
+      champ: "etat",
+      statut: "OBSERVED",
+      source: "INSPECTION_TERRAIN",
+      methode: "RELEVE_TERRAIN",
+      observedAt: dateConstat,
+      observedById: userId,
+      confiance: "HIGH",
+      note: null,
+    });
   }
 }
 

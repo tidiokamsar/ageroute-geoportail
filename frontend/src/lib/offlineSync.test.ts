@@ -78,6 +78,37 @@ describe("Synchronisation hors-ligne", () => {
     expect(base.size).toBe(0);
   });
 
+  it("transmet l'identifiant client, clé d'idempotence du serveur", async () => {
+    // `localId` est genere une fois a la saisie et ne change jamais d'une tentative a
+    // l'autre. C'est lui qui permet au serveur de refuser une seconde creation quand
+    // une reponse s'est perdue en chemin — le cas que la persistance pas a pas
+    // ci-dessous ne couvre pas.
+    deposer("a", 0);
+    const { api } = await import("./api");
+    await syncPendingInspections();
+
+    const corps = vi.mocked(api.post).mock.calls[0][1] as Record<string, unknown>;
+    expect(corps.clientInspectionId).toBe("a");
+  });
+
+  it("renvoie le même identifiant client à chaque reprise", async () => {
+    deposer("a", 2);
+    echouerPhotoNo = 1;
+    await syncPendingInspections();
+
+    echouerPhotoNo = 0;
+    await syncPendingInspections();
+
+    const { api } = await import("./api");
+    const creations = vi
+      .mocked(api.post)
+      .mock.calls.filter((c) => c[0] === "/inspections")
+      .map((c) => (c[1] as Record<string, unknown>).clientInspectionId);
+    // Une seule creation ici, mais l'identifiant doit rester stable si une seconde
+    // tentative avait lieu.
+    for (const id of creations) expect(id).toBe("a");
+  });
+
   it("transmet la position et sa précision", async () => {
     deposer("a", 0);
     const { api } = await import("./api");

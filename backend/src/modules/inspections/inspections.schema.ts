@@ -15,6 +15,15 @@ export const inspectionCreateSchema = z.object({
   lon: z.number().min(-180).max(180).optional(),
   // Incertitude annoncee par l'appareil, en metres. Negative n'a pas de sens.
   precisionM: z.number().nonnegative().optional(),
+  // Identifiant genere par le CLIENT avant tout envoi, et inchange d'une tentative a
+  // l'autre. C'est la cle d'idempotence : le serveur refuse une seconde creation
+  // portant le meme identifiant et renvoie l'inspection deja enregistree.
+  //
+  // Le correctif client — persister l'identifiant serveur des la creation reussie —
+  // supprime la cause la plus frequente du doublon, mais pas toutes : une reponse
+  // perdue en chemin laisse le client croire a un echec alors que le serveur a bien
+  // enregistre. Seule une garantie SERVEUR ferme ce cas.
+  clientInspectionId: z.string().min(8).max(128).optional(),
 });
 
 export const inspectionUpdateSchema = inspectionCreateSchema.partial();

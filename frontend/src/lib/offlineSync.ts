@@ -65,6 +65,16 @@ async function syncOne(item: PendingInspection): Promise<boolean> {
   try {
     if (!etat.serverId) {
       const { data: created } = await api.post("/inspections", {
+        // Cle d'idempotence SERVEUR (T7). `localId` est genere une seule fois a la
+        // saisie, persiste dans IndexedDB, et ne change jamais d'une tentative a
+        // l'autre : c'est exactement l'identifiant stable que le serveur attend pour
+        // refuser une seconde creation.
+        //
+        // La persistance pas a pas ci-dessous supprime la cause la plus frequente du
+        // doublon, mais pas toutes : si la reponse se perd en chemin, ce client
+        // conclut a un echec alors que le serveur a bien enregistre. Il retentera, et
+        // seule la garantie serveur ferme ce cas.
+        clientInspectionId: etat.localId,
         tronconId: etat.payload.tronconId || undefined,
         ouvrageId: etat.payload.ouvrageId || undefined,
         dateInspection: etat.payload.dateInspection,
