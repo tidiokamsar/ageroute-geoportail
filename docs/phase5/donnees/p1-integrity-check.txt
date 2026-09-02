@@ -1,0 +1,18 @@
+Test des migrations P1 — 2026-09-02 10:11
+repertoire : /home/agergec/phase5/migrations
+migrations P1 :
+  - 20260902140000_p1_soft_delete_decomptes_bailleurs
+  - 20260902141000_p1_ot_photos_soft_delete
+sauvegarde utilisee (P1-09) : bdri_20260902_030001.dump.enc
+  troncons : 1690
+  chantiers : 496
+  ouvrages : 126
+  decomptes : 0
+  bailleurs : 5
+  ot_photos : 0
+  marches : 0
+  troncons actifs : 1690 ; geometries valides : 1690
+APPLIQUEE : 20260902140000_p1_soft_delete_decomptes_bailleurs
+APPLIQUEE : 20260902141000_p1_ot_photos_soft_delete
+BASE VIDE : couverte par la chaine complete des migrations (CI), pas isolement.
+RESULTAT : SUCCES — migrations P1 eprouvees, integrite verifiee, rollback valide
