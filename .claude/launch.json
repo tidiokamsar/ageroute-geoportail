@@ -6,6 +6,12 @@
       "runtimeExecutable": "F:\\ageroute-geoportail\\.claude\\dev.bat",
       "runtimeArgs": [],
       "port": 5173
+    },
+    {
+      "name": "bdri-api",
+      "runtimeExecutable": "F:\\ageroute-geoportail\\.claude\\api.bat",
+      "runtimeArgs": [],
+      "port": 4000
     }
   ]
 }
