@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type { ColumnDef } from "@tanstack/react-table";
 import { ChevronDown, Pencil, Archive, RotateCcw, Clock } from "lucide-react";
@@ -44,11 +44,21 @@ interface Props<T extends { id: string }> {
   auditEntityType?: string;
   /** Boutons d'action supplementaires par ligne (ex "Fiche" pour les troncons, "Photos" pour les ouvrages). */
   rowExtraActions?: { label: string; onClick: (row: T) => void }[];
-  /** JSX de filtres horizontaux à afficher en ligne 2 sous la barre de recherche. */
+  /** JSX de filtres horizontaux à afficher en ligne 2 sous la barre de recherche.
+   *  L'état des filtres appartient à la page appelante ; voir extraParams. */
   filters?: React.ReactNode;
+  /** Paramètres de requête supplémentaires (filtres serveur : region, type, …).
+   *  Le retour à la page 1 est automatique quand ces paramètres changent. */
+  extraParams?: Record<string, string | undefined>;
+  /** Filtre CLIENT appliqué aux lignes affichées (parité avec les pages
+   *  historiques — attention : la pagination reste celle du serveur). */
+  rowFilter?: (row: T) => boolean;
+  /** En-tête de page : icône et sous-titre optionnels (parité visuelle). */
+  pageIcon?: React.ReactNode;
+  subtitle?: string;
 }
 
-export function EntityListPage<T extends { id: string }>({ endpoint, title, columns, fields, searchPlaceholder, importExport, auditEntityType, rowExtraActions, filters }: Props<T>) {
+export function EntityListPage<T extends { id: string }>({ endpoint, title, columns, fields, searchPlaceholder, importExport, auditEntityType, rowExtraActions, filters, extraParams, rowFilter, pageIcon, subtitle }: Props<T>) {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [page, setPage] = useState(1);
@@ -66,7 +76,16 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
   const [historyId, setHistoryId] = useState<string | null>(null);
   const [viewingRow, setViewingRow] = useState<T | null>(null);
 
-  const { data, isLoading } = useEntityList<T>(endpoint, { page, pageSize: 20, search, sortBy, sortDir, archived });
+  const { data, isLoading } = useEntityList<T>(endpoint, { page, pageSize: 20, search, sortBy, sortDir, archived, ...extraParams });
+
+  // Un changement de filtre serveur rend la page courante probablement vide :
+  // retour systematique a la premiere page (parite avec les pages historiques).
+  const cleFiltres = JSON.stringify(extraParams ?? {});
+  const pageRef = useRef(page);
+  useEffect(() => {
+    if (pageRef.current !== 1) setPage(1);
+    pageRef.current = 1;
+  }, [cleFiltres]);
   const { create, update, remove, bulkArchive, bulkRestore } = useEntityMutations(endpoint);
   const { confirm, dialog: confirmDialog } = useConfirm();
 
@@ -111,7 +130,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
     setSelected(new Set());
   }
 
-  const rows = data?.data ?? [];
+  const rows = rowFilter ? (data?.data ?? []).filter(rowFilter) : (data?.data ?? []);
   const allOnPageSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
 
   const actionColumn: ColumnDef<T, unknown> = {
@@ -203,6 +222,16 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
 
   return (
     <div className="space-y-3">
+      {/* En-tête de page (parité visuelle avec les pages historiques) */}
+      {(pageIcon || subtitle) && (
+        <div className="flex items-center gap-3 mb-2">
+          {pageIcon && <div className="h-8 w-8 rounded-lg bg-gray-50 flex items-center justify-center shrink-0">{pageIcon}</div>}
+          <div>
+            <h1 className="text-base font-bold text-navy">{title}</h1>
+            {subtitle && <p className="text-xs text-gray-500">{subtitle}</p>}
+          </div>
+        </div>
+      )}
       {/* Ligne 1 : recherche + actions droite */}
       <div className="flex items-center gap-2 flex-wrap">
         <Input
