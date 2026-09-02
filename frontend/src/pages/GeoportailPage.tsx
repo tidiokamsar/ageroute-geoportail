@@ -9,7 +9,7 @@ import {
   Search, Ruler, Square, Navigation, Share2, Maximize, Minimize, ChevronDown,
   ChevronLeft, ChevronRight,
   Route, Landmark, ShieldAlert, Construction, AlertTriangle, MapPinned, Layers as LayersIcon,
-  PenLine, Check, X, BarChart2,
+  PenLine, Check, X, BarChart2, MapPin,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useEntityMutations } from "../hooks/useEntity";
@@ -18,6 +18,8 @@ import { Checkbox } from "../components/ui/checkbox";
 import type { DashboardKpis, EtatPatrimoine, Region } from "../types";
 import { DetailPanel } from "./geoportail/DetailPanel";
 import { MoveOuvrageLayer } from "./geoportail/MoveOuvrageLayer";
+import { RechercheVille } from "../components/RechercheVille";
+import { tronconDansFiltre, type FiltreVille } from "../lib/villes";
 import axios from "axios";
 import { MeasureLayer, type MeasureMode } from "./geoportail/MeasureLayer";
 import { DrawTronconLayer, type DrawHandle, type DrawPhase } from "./geoportail/DrawTronconLayer";
@@ -149,6 +151,9 @@ export function GeoportailPage() {
     return Object.fromEntries(LAYER_KEYS.map((k) => [k, active.has(k)])) as Record<LayerKey, boolean>;
   });
   const [regionFilter, setRegionFilter] = useState(params.get("region") ?? "");
+  // Recherche par ville : une ville = troncons a moins de 20 km ; deux villes =
+  // corridor entre les deux. Seuls ces troncons restent affiches.
+  const [villeFiltre, setVilleFiltre] = useState<FiltreVille | null>(null);
   const [etatFilter, setEtatFilter] = useState(params.get("etat") ?? "");
   const [basemap, setBasemap] = useState<BasemapKey>((params.get("bg") as BasemapKey) || "clair");
   const [search, setSearch] = useState("");
@@ -315,9 +320,10 @@ export function GeoportailPage() {
         (t) =>
           (!regionFilter || t.region === regionFilter) &&
           (!etatFilter || t.etat === etatFilter) &&
-          classeFilter[t.classe] !== false
+          classeFilter[t.classe] !== false &&
+          (!villeFiltre || tronconDansFiltre(t.geometry, villeFiltre))
       ),
-    [troncons, regionFilter, etatFilter, classeFilter]
+    [troncons, regionFilter, etatFilter, classeFilter, villeFiltre]
   );
 
   const alertTroncons = useMemo(
@@ -519,6 +525,21 @@ export function GeoportailPage() {
             className="w-full rounded-full border border-gray-200 bg-white pl-9 pr-3 py-2 text-sm shadow-md focus:outline-none focus:ring-2 focus:ring-gold/50"
           />
         </div>
+        {/* Recherche par ville : filtre la couche tronçons (une ville = alentours,
+            deux villes = corridor). */}
+        <div className="w-full rounded-lg border border-gray-200 bg-white/95 px-2 py-1.5 shadow-md backdrop-blur">
+          <RechercheVille compact onAppliquer={setVilleFiltre} />
+        </div>
+        {villeFiltre && (
+          <button
+            onClick={() => setVilleFiltre(null)}
+            className="flex items-center gap-1.5 rounded-full bg-navy px-3 py-1 text-xs font-medium text-white shadow-md"
+          >
+            <MapPin className="h-3 w-3" />
+            {villeFiltre.a.nom}{villeFiltre.b ? ` ↔ ${villeFiltre.b.nom}` : " (20 km)"} — {filteredTroncons.length} tronçon(s)
+            <X className="h-3 w-3" />
+          </button>
+        )}
         {searchResults.length > 0 && (
           <div className="w-full bg-white rounded-lg shadow-lg border border-gray-100 overflow-hidden">
             {searchResults.map((hit) => (
@@ -925,7 +946,7 @@ export function GeoportailPage() {
 
           {layers.troncons && (
             <GeoJSON
-              key={`troncons-${tronconsFeatureCollection.features.length}-${regionFilter}-${etatFilter}-${Object.values(classeFilter).join("")}`}
+              key={`troncons-${tronconsFeatureCollection.features.length}-${regionFilter}-${etatFilter}-${Object.values(classeFilter).join("")}-${villeFiltre ? `${villeFiltre.a.nom}-${villeFiltre.b?.nom ?? ""}` : ""}`}
               data={tronconsFeatureCollection}
               style={(feature) => {
                 const t = feature?.properties?.id ? tronconsById.get(feature.properties.id) : undefined;

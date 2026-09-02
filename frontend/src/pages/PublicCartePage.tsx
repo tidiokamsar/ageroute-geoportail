@@ -3,10 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, GeoJSON, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import { canvas, divIcon, latLngBounds, type LatLngBounds, type Map as CarteLeaflet } from "leaflet";
-import { LogIn, AlertTriangle, LocateFixed, Loader2, Plus, Minus } from "lucide-react";
+import { LogIn, AlertTriangle, LocateFixed, Loader2, Plus, Minus, MapPin, X } from "lucide-react";
 import axios from "axios";
 import { ETAT_COLORS, ETAT_LABELS, CHANTIER_COLORS } from "./geoportail/types";
 import { ouvrageIcon, TYPE_OUVRAGE_LABEL } from "./geoportail/symbols";
+import { RechercheVille } from "../components/RechercheVille";
+import { tronconDansFiltre, type FiltreVille } from "../lib/villes";
 import { Ecusson, ecussonHtml } from "./public/Ecusson";
 import { FicheElement } from "./public/FicheElement";
 import { PanneauInfos, type CoucheKey, type StatsReseau } from "./public/PanneauInfos";
@@ -83,6 +85,8 @@ export function PublicCartePage() {
   // Route mise en avant seule sur la carte, choisie depuis la recherche : quand on
   // cherche une route precise, tout le reste du reseau devient du bruit.
   const [routeIsolee, setRouteIsolee] = useState<string | null>(null);
+  // Recherche par ville (P4) : une ville = alentours 20 km, deux villes = corridor.
+  const [villeFiltre, setVilleFiltre] = useState<FiltreVille | null>(null);
 
   const onVueChange = useCallback((v: { zoom: number; bounds: LatLngBounds }) => setVue(v), []);
   const onCarteReady = useCallback((m: CarteLeaflet) => setCarte((prev) => prev ?? m), []);
@@ -122,9 +126,12 @@ export function PublicCartePage() {
   const tronconsVisibles = useMemo(
     () =>
       tronconLines.filter(
-        ({ t }) => !etatsMasques.has(t.etat) && (routeIsolee === null || t.nom === routeIsolee)
+        ({ t }) =>
+          !etatsMasques.has(t.etat) &&
+          (routeIsolee === null || t.nom === routeIsolee) &&
+          (!villeFiltre || tronconDansFiltre(t.geometry ?? "", villeFiltre))
       ),
-    [tronconLines, etatsMasques, routeIsolee]
+    [tronconLines, etatsMasques, routeIsolee, villeFiltre]
   );
   const chantierLines = useMemo(
     () =>
@@ -428,6 +435,9 @@ export function PublicCartePage() {
         <div className="pointer-events-none absolute inset-x-0 top-0 z-[1000] p-3">
           <div className="pointer-events-auto mx-auto max-w-md sm:mx-0 sm:ml-3 sm:max-w-sm">
             <RechercheRoute routes={routesIndexees} onChoisir={allerVersRoute} />
+            <div className="mt-2 rounded-lg bg-white/95 px-2 py-1.5 shadow-lg backdrop-blur">
+              <RechercheVille compact onAppliquer={setVilleFiltre} />
+            </div>
             {routeIsolee && (
               <div className="mt-2 flex items-center gap-2 rounded-lg bg-navy px-3 py-2 text-white shadow-lg">
                 <Ecusson nom={routeIsolee} taille="sm" />
@@ -438,6 +448,22 @@ export function PublicCartePage() {
                   className="shrink-0 rounded px-2 py-1 text-xs font-medium underline underline-offset-2 transition hover:bg-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
                 >
                   Tout le réseau
+                </button>
+              </div>
+            )}
+            {villeFiltre && (
+              <div className="mt-2 flex items-center gap-2 rounded-lg bg-navy px-3 py-2 text-white shadow-lg">
+                <MapPin className="h-3.5 w-3.5 shrink-0" />
+                <span className="min-w-0 flex-1 truncate text-xs">
+                  {villeFiltre.a.nom}{villeFiltre.b ? ` ↔ ${villeFiltre.b.nom}` : " et ses alentours"} — {tronconsVisibles.length} route(s)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setVilleFiltre(null)}
+                  aria-label="Retirer le filtre ville"
+                  className="shrink-0 rounded p-1 transition hover:bg-white/15"
+                >
+                  <X className="h-3.5 w-3.5" />
                 </button>
               </div>
             )}
