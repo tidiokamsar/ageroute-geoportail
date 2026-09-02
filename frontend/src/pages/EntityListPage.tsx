@@ -56,14 +56,23 @@ interface Props<T extends { id: string }> {
   /** En-tête de page : icône et sous-titre optionnels (parité visuelle). */
   pageIcon?: React.ReactNode;
   subtitle?: string;
+  /** Colonne de tri par défaut (createdAt par défaut ; ex dateInspection). */
+  defaultSortBy?: string;
+  /** Contenu supplémentaire dans la barre d'actions haute (ex : lien Mode terrain),
+   *  affiché seulement en vue active — les pages historiques le conditionnaient ainsi. */
+  headerExtra?: React.ReactNode;
+  /** Contenu rendu après la table (modales spécifiques : photos, fiche…). */
+  children?: React.ReactNode;
+  /** Contenu rendu entre l'en-tête et la barre de recherche (ex : cartes KPI). */
+  aboveList?: React.ReactNode;
 }
 
-export function EntityListPage<T extends { id: string }>({ endpoint, title, columns, fields, searchPlaceholder, importExport, auditEntityType, rowExtraActions, filters, extraParams, rowFilter, pageIcon, subtitle }: Props<T>) {
+export function EntityListPage<T extends { id: string }>({ endpoint, title, columns, fields, searchPlaceholder, importExport, auditEntityType, rowExtraActions, filters, extraParams, rowFilter, pageIcon, subtitle, defaultSortBy, headerExtra, children, aboveList }: Props<T>) {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState(searchParams.get("q") ?? "");
-  const [sortBy, setSortBy] = useState("createdAt");
+  const [sortBy, setSortBy] = useState(defaultSortBy ?? "createdAt");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<T | null>(null);
@@ -138,8 +147,17 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
     header: "",
     cell: ({ row }) =>
       archived ? (
-        canWrite(user?.role) && (
-          <div className="flex items-center gap-1 justify-end">
+        <div className="flex items-center gap-1 justify-end">
+          {rowExtraActions?.map((action) => (
+            <button
+              key={action.label}
+              className="px-2 py-1 rounded text-xs text-gray-400 hover:text-navy hover:bg-gray-100"
+              onClick={() => action.onClick(row.original)}
+            >
+              {action.label}
+            </button>
+          ))}
+          {canWrite(user?.role) && (
             <button
               onClick={() => bulkRestore.mutate([row.original.id])}
               title="Restaurer"
@@ -147,8 +165,8 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
             >
               <RotateCcw className="h-3.5 w-3.5" />
             </button>
-          </div>
-        )
+          )}
+        </div>
       ) : (
         <div className="flex items-center gap-1 justify-end">
           {canWrite(user?.role) && (
@@ -232,6 +250,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
           </div>
         </div>
       )}
+      {aboveList}
       {/* Ligne 1 : recherche + actions droite */}
       <div className="flex items-center gap-2 flex-wrap">
         <Input
@@ -248,6 +267,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
             <Archive className="h-3.5 w-3.5 mr-1" />
             {archived ? "← Actifs" : "Voir les archivés"}
           </Button>
+          {!archived && headerExtra}
           {importExport && !archived && <ImportExportBar endpoint={endpoint} filenamePrefix={endpoint} />}
           {!archived && canWrite(user?.role) && (
             <Button
@@ -406,6 +426,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
           title={title}
         />
       )}
+      {children}
       {confirmDialog}
     </div>
   );
