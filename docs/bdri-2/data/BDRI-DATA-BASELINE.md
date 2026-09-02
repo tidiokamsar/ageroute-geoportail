@@ -65,7 +65,7 @@ pas refaire.
 | `classe` | 1 690 | 100 % | RN 621 / RR 1 029 / RU 40 |
 | `regionId` | 1 690 | 100 % | |
 | `geom` | 1 690 | 100 % | toutes valides, toutes en 4326 |
-| `pkDebut` + `pkFin` | **1 690** | **100 %** | le référencement linéaire existe déjà |
+| `pkDebut` + `pkFin` | 1 690 | 100 % | **trompeur : 1 069 valent 0/0**, voir ci-dessous |
 | `revetement` | 1 690 | 100 % | **une seule valeur : `BITUME`** |
 | `etat` | 1 690 | 100 % | **mais 1 043 valent `NON_EVALUE`** |
 | `longueurKm` | 662 | 39,2 % | 621 RN + 40 RU + 1 RR |
@@ -77,7 +77,27 @@ pas refaire.
 | `prefecture` | **0** | 0 % | |
 | `commune` | **0** | 0 % | |
 
-### Les deux champs qui trompent
+### Les trois champs qui trompent
+
+**`pkDebut` et `pkFin` sont remplis à 100 % et exploitables sur 32,6 %.**
+
+*Correction du 2 septembre 2026.* La première version de ce document présentait le
+référencement linéaire comme un acquis complet. C'était faux.
+
+| Classe | Tronçons | `pk = 0/0` | Intervalle exploitable |
+|---|---:|---:|---:|
+| RN | 621 | 70 | **551** |
+| RR | 1 029 | **1 029** | **0** |
+| RU | 40 | 40 | **0** |
+
+1 069 tronçons portent `pkDebut = pkFin = 0`. Les colonnes sont renseignées, la donnée
+ne l'est pas. Seuls les 551 tronçons de la famille `GN N*` ont un intervalle utilisable
+— les 70 tronçons importés d'OSM n'en ont pas non plus, ce qui est cohérent : OSM ne
+porte pas de PK.
+
+C'est la troisième occurrence du même piège dans cet inventaire, et je l'ai commise
+après l'avoir décrite. Elle a une conséquence directe sur la géolocalisation des
+chantiers : voir `BDRI-CHANTIERS-GEOLOCALISATION.md` §5.
 
 **`revetement` est rempli à 100 % et ne dit rien.** Une seule valeur distincte sur
 1 690 lignes n'est pas une observation, c'est un défaut d'import. Détail et preuve

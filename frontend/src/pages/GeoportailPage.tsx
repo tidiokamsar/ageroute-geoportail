@@ -713,7 +713,17 @@ export function GeoportailPage() {
           {kpis && (
             <PanelSection icon={<BarChart2 className="h-4 w-4" />} title="Tableau de bord">
               <div className="grid grid-cols-2 gap-1.5 mb-2">
-                <MiniStat label="Linéaire total" value={`${kpis.longueurTotaleKm.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} km`} accent="#1a2942" />
+                {/* « Lineaire total » etait faux : ce chiffre est la longueur SAISIE,
+                    renseignee sur 662 troncons sur 1 690. La longueur calculee depuis
+                    la geometrie donne 21 156 km. Deux chiffres, deux libelles. */}
+                <MiniStat label="Longueur renseignée" value={`${kpis.longueurTotaleKm.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} km`} accent="#1a2942" />
+                {kpis.reseau?.geometrique?.totalKm > 0 && (
+                  <MiniStat
+                    label="Calculé (géométrie)"
+                    value={`${kpis.reseau.geometrique.totalKm.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} km`}
+                    accent="#0891b2"
+                  />
+                )}
                 <MiniStat label="Tronçons" value={kpis.tronconsCount} accent="#1a2942" />
                 <MiniStat label="Ouvrages" value={kpis.ouvragesCount} accent="#7c3aed" />
                 <MiniStat label="Chantiers actifs" value={kpis.chantiersEnCours} accent="#f5a623" />

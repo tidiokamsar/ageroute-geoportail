@@ -24,10 +24,16 @@
 --
 --     « lot 12 : travaux de cantonnage manuel de la route PK24 - PK66 RN5 (42 km) »
 --
--- Les 1 690 troncons ayant leurs pkDebut/pkFin renseignes a 100 %, la projection par
--- ST_LineSubstring est calculable. Mais les intitules sont du texte libre et piegent
--- une extraction naive : « PK50-Marela (PK103) » mele un PK et une localite dans la
--- meme expression.
+-- La projection par ST_LineSubstring est calculable, mais deux reserves pesent.
+--
+-- D'abord les PK de la cible. Ils sont renseignes sur les 1 690 troncons et exploitables
+-- sur 551 seulement : 1 069 portent pkDebut = pkFin = 0 (toutes les RR, toutes les RU,
+-- et les 70 RN venues d'OSM, qui ne porte pas de PK). Pour ceux-la, deriveChantierGeom
+-- retombe sur un repli qui lit le PK comme un kilometrage depuis le debut du trace —
+-- hypothese plus faible, que la proposition doit signaler a l'agent.
+--
+-- Ensuite les intitules, qui sont du texte libre et piegent une extraction naive :
+-- « PK50-Marela (PK103) » mele un PK et une localite dans la meme expression.
 --
 -- D'ou une table SEPAREE. Une proposition n'est pas une localisation : elle attend la
 -- decision d'un agent, et `chantiers.geom` n'est ecrit qu'a la validation. Aucune

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middleware/auth.middleware";
 import { requireModuleAccess } from "../../middleware/module-access.middleware";
+import { longueurReseau } from "../../lib/reseau";
 
 export const dashboardRouter = Router();
 
@@ -22,6 +23,7 @@ dashboardRouter.get("/kpis", requireAuth, requireModuleAccess("dashboard"), asyn
       longueurTotale,
       alertesTroncons,
       alertesOuvrages,
+      reseau,
     ] = await Promise.all([
       prisma.troncon.count({ where: notDeleted }),
       prisma.ouvrage.count({ where: notDeleted }),
@@ -35,6 +37,7 @@ dashboardRouter.get("/kpis", requireAuth, requireModuleAccess("dashboard"), asyn
       prisma.troncon.aggregate({ where: notDeleted, _sum: { longueurKm: true } }),
       prisma.troncon.count({ where: { ...notDeleted, etat: { in: ["MAUVAIS", "CRITIQUE"] } } }),
       prisma.ouvrage.count({ where: { ...notDeleted, etat: { in: ["MAUVAIS", "CRITIQUE"] } } }),
+      longueurReseau(),
     ]);
 
     res.json({
@@ -44,7 +47,13 @@ dashboardRouter.get("/kpis", requireAuth, requireModuleAccess("dashboard"), asyn
       postesCount,
       documentsCount,
       chantiersEnCours,
+      // Conserve pour ne pas casser les clients existants. C'est la longueur SAISIE,
+      // pas la longueur du reseau : `reseau` ci-dessous porte la distinction.
       longueurTotaleKm: longueurTotale._sum.longueurKm ?? 0,
+      // La longueur saisie et la longueur calculee, separees et ventilees par classe.
+      // L'ecart — 7 933 km contre 21 156 — ne vient pas d'une donnee abimee mais d'un
+      // champ jamais renseigne sur les 1 029 regionales. Voir lib/reseau.ts.
+      reseau,
       alertesCount: alertesTroncons + alertesOuvrages,
       tronconsParEtat: tronconsParEtat.map((r) => ({ etat: r.etat, total: r._count._all })),
       ouvragesParEtat: ouvragesParEtat.map((r) => ({ etat: r.etat, total: r._count._all })),

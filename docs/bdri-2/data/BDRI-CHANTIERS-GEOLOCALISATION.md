@@ -114,9 +114,14 @@ Trois des sources que le brief place en tête — marchés, documents, ordres de
 
 ### Étape 1 — Les 36 chantiers à référencement complet
 
-Extraire route, PK début et PK fin des 36 intitulés qui portent les deux. Les tronçons
-ayant tous leurs `pkDebut`/`pkFin` renseignés, la projection sur la géométrie est
-directe : `ST_LineSubstring` sur le tronçon correspondant donne une emprise réelle.
+Extraire route, PK début et PK fin des 36 intitulés qui portent les deux, puis projeter
+par `ST_LineSubstring` sur le tronçon correspondant.
+
+**Réserve mesurée** : seuls 551 tronçons sur 1 690 portent un intervalle PK exploitable
+(`pkFin > pkDebut`) — tous de la famille `GN N*`. Les 70 tronçons OSM, les 1 029
+régionales et les 40 urbaines ont `pkDebut = pkFin = 0`. Pour ceux-là, la projection
+retombe sur un repli qui interprète le PK comme un kilométrage depuis le début du tracé,
+ce qui est une hypothèse plus faible et doit être signalé à l'agent qui valide.
 
 **Gain** : de 6 à 42 chantiers localisés précisément, soit **× 7**.
 

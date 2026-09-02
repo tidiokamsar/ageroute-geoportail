@@ -246,6 +246,35 @@ export interface PaginatedResult<T> {
   totalPages: number;
 }
 
+/**
+ * Longueur du reseau, en distinguant ce qui est SAISI de ce qui est CALCULE.
+ *
+ * Le tableau de bord annoncait « 7 933 km — Reseau total ». C'etait la somme des
+ * longueurs saisies : le champ n'est renseigne que sur les nationales et les urbaines,
+ * et pas sur les 1 029 regionales. La geometrie de ces regionales represente
+ * 13 296 km de plus. L'indicateur sous-estimait le reseau de 63 %.
+ */
+export interface LongueurReseau {
+  metier: {
+    totalKm: number;
+    tronconsRenseignes: number;
+    tronconsTotal: number;
+    couverturePct: number;
+  };
+  geometrique: {
+    totalKm: number;
+    /** A citer dans l'interface : un chiffre calcule doit dire comment. */
+    methode: string;
+  };
+  parClasse: {
+    classe: string;
+    troncons: number;
+    tronconsAvecLongueurMetier: number;
+    kmMetier: number;
+    kmGeometrique: number;
+  }[];
+}
+
 export interface DashboardKpis {
   tronconsCount: number;
   ouvragesCount: number;
@@ -253,7 +282,9 @@ export interface DashboardKpis {
   postesCount: number;
   documentsCount: number;
   chantiersEnCours: number;
+  /** Longueur SAISIE uniquement. Ne pas presenter comme la longueur du reseau. */
   longueurTotaleKm: number;
+  reseau: LongueurReseau;
   alertesCount: number;
   tronconsParEtat: { etat: EtatPatrimoine; total: number }[];
   ouvragesParEtat: { etat: EtatPatrimoine; total: number }[];

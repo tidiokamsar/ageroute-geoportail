@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { api } from "../lib/api";
 import { KpiCard, Card } from "../components/ui/Card";
+import { LongueurReseauCard } from "../components/LongueurReseauCard";
 import { ETAT_COLORS } from "./geoportail/types";
 import type { ActivityEntry, DashboardKpis } from "../types";
 
@@ -96,13 +97,20 @@ export function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-4 shrink-0">
-          <div className="text-right">
-            <p className="text-2xl font-black">
-              {data.longueurTotaleKm.toFixed(0)}{" "}
-              <span className="text-base font-semibold text-white/70">km</span>
-            </p>
-            <p className="text-xs text-white/50 uppercase tracking-wider">Réseau total</p>
-          </div>
+          {/* « Reseau total : 7 933 km » etait faux — c'etait la longueur SAISIE, et le
+              champ n'est renseigne que sur 662 troncons sur 1 690. Voir
+              components/LongueurReseauCard.tsx. */}
+          {data.reseau ? (
+            <LongueurReseauCard reseau={data.reseau} />
+          ) : (
+            <div className="text-right">
+              <p className="text-2xl font-black">
+                {data.longueurTotaleKm.toFixed(0)}{" "}
+                <span className="text-base font-semibold text-white/70">km</span>
+              </p>
+              <p className="text-xs text-white/50 uppercase tracking-wider">Longueur renseignée</p>
+            </div>
+          )}
         </div>
       </div>
 
