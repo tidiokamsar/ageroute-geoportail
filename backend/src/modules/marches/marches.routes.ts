@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { prisma } from "../../lib/prisma";
+import { evaluerCriteres, calculerScore } from "../../lib/priorisation";
 import { requireAuth } from "../../middleware/auth.middleware";
 import { requireRole } from "../../middleware/rbac.middleware";
 import { requireModuleAccess } from "../../middleware/module-access.middleware";
@@ -20,24 +21,34 @@ import {
 export const marchesRouter = Router();
 
 // ── Helpers partagés priorisation ─────────────────────────────────────────────
-
-const ETAT_SCORE: Record<string, number> = { CRITIQUE: 100, MAUVAIS: 70, MOYEN: 40, BON: 10, NON_EVALUE: 20 };
-const STRATEGIC_SCORE: Record<string, number> = { RN: 90, RR: 70, RU: 50, PISTE: 30 };
-const COUT_REHAB_M_PAR_KM: Record<string, number> = { CRITIQUE: 800, MAUVAIS: 500, MOYEN: 150, BON: 0, NON_EVALUE: 200 };
-
-function normalize(values: number[]): Map<number, number> {
-  const max = Math.max(...values, 1);
-  const min = Math.min(...values, 0);
-  const range = max - min || 1;
-  return new Map(values.map((v, i) => [i, ((v - min) / range) * 100]));
-}
+//
+// Trois tables de valeurs de repli ont ete SUPPRIMEES ici (T8) :
+//
+//   STRATEGIC_SCORE      criticite deduite de la classe de route
+//   COUT_REHAB_M_PAR_KM  cout deduit de longueur x tarif au km selon l'etat
+//   ETAT_SCORE           attribuait 20/100 a NON_EVALUE, faisant passer un troncon
+//                        jamais evalue pour un troncon en assez bon etat
+//
+// Elles comblaient l'absence des trois criteres vides — trafic, criticite et cout
+// sont a 0 sur les 1 690 troncons — et le resultat etait ensuite affiche au meme
+// titre que l'etat reellement constate. C'est ce que le §41 interdit : presenter une
+// estimation comme une donnee reelle.
+//
+// La logique de score vit desormais dans lib/priorisation.ts, ou elle est testee.
 
 type ScoredTroncon = {
   tronconId: string; code: string; nom: string; region: string;
   etat: string; classe: string; longueurKm: number;
-  traficMoyenJma: number; criticiteStrategique: number; coutRehabEstimeMd: number;
-  score: number;
-  detail: { etat: number; trafic: number; strategique: number; cout: number };
+  // Valeurs brutes, nullables : l'absence doit se voir.
+  traficMoyenJma: number | null;
+  criticiteStrategique: number | null;
+  coutRehabEstimeMd: number | null;
+  /** Null quand le score n'est pas calculable. Jamais 0 : 0 serait un classement. */
+  score: number | null;
+  calculable: boolean;
+  criteresManquants: string[];
+  explication: string;
+  criteres: import("../../lib/priorisation").CritereEvalue[];
 };
 
 async function computeScores(opts: {
@@ -45,7 +56,6 @@ async function computeScores(opts: {
   region?: string; classe?: string; limit?: number;
 }): Promise<ScoredTroncon[]> {
   const { wEtat, wTrafic, wStrat, wCout, region, classe, limit = 200 } = opts;
-  const total = wEtat + wTrafic + wStrat + wCout || 1;
 
   const notDeleted = { deletedAt: null };
   const where: Record<string, unknown> = {
@@ -61,6 +71,7 @@ async function computeScores(opts: {
       id: true, code: true, nom: true, classe: true, etat: true,
       longueurKm: true, traficMoyenJma: true,
       criticiteStrategique: true, coutRehabEstime: true,
+      dateDerniereEvaluation: true,
       region: { select: { nom: true } },
     },
     take: limit,
@@ -68,41 +79,53 @@ async function computeScores(opts: {
 
   if (rows.length === 0) return [];
 
-  // Normalisation min-max sur le sous-ensemble
-  const trafics = rows.map((r) => r.traficMoyenJma ?? 0);
-  const couts   = rows.map((r) =>
-    r.coutRehabEstime != null
-      ? Number(r.coutRehabEstime)
-      : ((r.longueurKm ?? 0) * (COUT_REHAB_M_PAR_KM[r.etat] ?? 200)) / 1000
-  );
-  const traficNorm = normalize(trafics);
-  const coutNorm   = normalize(couts);
+  // Bornes de normalisation, calculees sur les seules valeurs REELLES. La version
+  // precedente comblait les manques : le cout se derivait de longueur x tarif au km
+  // choisi selon l'etat, et la criticite d'une valeur deduite de la classe de route.
+  // Ces deux estimations etaient ensuite presentees a l'ecran au meme titre que
+  // l'etat reellement constate — ce que le §41 interdit.
+  const traficMax = Math.max(0, ...rows.map((r) => r.traficMoyenJma ?? 0));
+  const coutMax = Math.max(0, ...rows.map((r) => (r.coutRehabEstime != null ? Number(r.coutRehabEstime) : 0)));
 
-  return rows.map((r, i) => {
-    const sEtat = ETAT_SCORE[r.etat] ?? 20;
-    const sTrafic = traficNorm.get(i) ?? 0;
-    const sStrat = r.criticiteStrategique ?? (STRATEGIC_SCORE[r.classe] ?? 50);
-    const sCout = coutNorm.get(i) ?? 0;
-    const score = parseFloat(
-      ((sEtat * wEtat + sTrafic * wTrafic + sStrat * wStrat + sCout * wCout) / total).toFixed(1)
+  const poids = { etat: wEtat, trafic: wTrafic, criticite: wStrat, cout: wCout };
+
+  return rows.map((r) => {
+    const criteres = evaluerCriteres(
+      {
+        etat: r.etat,
+        traficMoyenJma: r.traficMoyenJma,
+        criticiteStrategique: r.criticiteStrategique,
+        coutRehabEstime: r.coutRehabEstime != null ? Number(r.coutRehabEstime) : null,
+        dateDerniereEvaluation: r.dateDerniereEvaluation ?? null,
+      },
+      poids,
+      { traficMax, coutMax }
     );
+    const resultat = calculerScore(criteres);
+
     return {
       tronconId: r.id, code: r.code, nom: r.nom,
       region: r.region?.nom ?? "—",
       etat: r.etat, classe: r.classe,
       longueurKm: r.longueurKm,
-      traficMoyenJma: r.traficMoyenJma ?? 0,
-      criticiteStrategique: sStrat,
-      coutRehabEstimeMd: couts[i],
-      score,
-      detail: {
-        etat: Math.round(sEtat),
-        trafic: Math.round(sTrafic),
-        strategique: Math.round(sStrat),
-        cout: Math.round(sCout),
-      },
+      traficMoyenJma: r.traficMoyenJma,
+      criticiteStrategique: r.criticiteStrategique,
+      coutRehabEstimeMd: r.coutRehabEstime != null ? Number(r.coutRehabEstime) : null,
+      // null, jamais 0 : un 0 se lirait comme « le moins prioritaire ».
+      score: resultat.score,
+      calculable: resultat.calculable,
+      criteresManquants: resultat.criteresManquants,
+      explication: resultat.explication,
+      criteres: resultat.criteres,
     };
-  }).sort((a, b) => b.score - a.score);
+  }).sort((a, b) => {
+    // Les troncons non classables vont en fin de liste plutot que d'etre melanges
+    // aux scores : ils ne valent pas « zero », ils ne se comparent pas.
+    if (a.score == null && b.score == null) return 0;
+    if (a.score == null) return 1;
+    if (b.score == null) return -1;
+    return b.score - a.score;
+  });
 }
 
 // ── GET /priorisation/scores ───────────────────────────────────────────────────
@@ -156,10 +179,35 @@ marchesRouter.post("/simulateur/budget", requireAuth, requireModuleAccess("progr
       limit: 500,
     });
 
+    // Un plan de financement suppose des couts. Le cout de rehabilitation est vide sur
+    // les 1 690 troncons ; la version precedente le fabriquait — longueur x tarif au km
+    // choisi selon l'etat — et rendait une selection budgetaire d'apparence solide,
+    // batie sur des montants que personne n'avait etablis.
+    //
+    // On ne simule que sur les troncons dont le cout ET le score sont connus. Si aucun
+    // ne l'est, la reponse le dit au lieu de rendre un plan vide ou invente.
+    const exploitables = scored.filter(
+      (t): t is typeof t & { coutRehabEstimeMd: number; score: number } =>
+        t.coutRehabEstimeMd != null && t.score != null
+    );
+
+    if (exploitables.length === 0) {
+      return res.status(200).json({
+        enveloppe: enveloppe_md_gnf,
+        simulable: false,
+        motif:
+          "Simulation impossible : aucun tronçon ne porte à la fois un score calculable et un coût de réhabilitation. " +
+          "Le coût est absent sur les 1 690 tronçons.",
+        troncons_examines: scored.length,
+        troncons_exploitables: 0,
+        selection: [],
+      });
+    }
+
     // Greedy knapsack — tri par score (déjà trié), sélection tant que cumul <= enveloppe
     let budgetUtilise = 0;
     let lineaireKm = 0;
-    const selection = scored.map((t) => {
+    const selection = exploitables.map((t) => {
       const finance = budgetUtilise + t.coutRehabEstimeMd <= enveloppe_md_gnf;
       if (finance) {
         budgetUtilise += t.coutRehabEstimeMd;
@@ -174,23 +222,28 @@ marchesRouter.post("/simulateur/budget", requireAuth, requireModuleAccess("progr
     });
 
     const finances = selection.filter((s) => s.finance);
-    const nbCritiqueBefore = scored.filter((t) => t.etat === "CRITIQUE").length;
+    const nbCritiqueBefore = exploitables.filter((t) => t.etat === "CRITIQUE").length;
     const nbCritiqueFinance = finances.filter((s) =>
-      scored.find((t) => t.tronconId === s.tronconId)?.etat === "CRITIQUE"
+      exploitables.find((t) => t.tronconId === s.tronconId)?.etat === "CRITIQUE"
     ).length;
     const impactEstime = nbCritiqueBefore > 0
       ? parseFloat(((nbCritiqueFinance / nbCritiqueBefore) * -100).toFixed(1))
       : 0;
 
-    res.json({
+    return res.json({
       enveloppe: enveloppe_md_gnf,
+      simulable: true,
+      // Rendus explicitement : une simulation portant sur 12 troncons sur 500 n'a pas
+      // la meme portee qu'une simulation portant sur tout le reseau.
+      troncons_examines: scored.length,
+      troncons_exploitables: exploitables.length,
       budget_utilise: parseFloat(budgetUtilise.toFixed(1)),
       nb_troncons_finances: finances.length,
       lineaire_traite_km: parseFloat(lineaireKm.toFixed(1)),
       impact_estime_pct_critique: impactEstime,
       selection,
     });
-  } catch (err) { next(err); }
+  } catch (err) { return next(err); }
 });
 
 // ── Bailleurs ──────────────────────────────────────────────────────────────────

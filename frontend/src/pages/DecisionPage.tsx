@@ -31,7 +31,15 @@ interface DecisionData {
   tronconsPrio: {
     id: string; code: string; nom: string; region: string;
     etat: string; classe: string; longueurKm: number;
-    traficMoyenJma: number; strategicScore: number; montantRehabEstimeMd: number;
+    /** Valeur réelle. Null quand aucun comptage n'existe — jamais 0, qui se lirait « aucun trafic ». */
+    traficMoyenJma: number | null;
+    criticiteStrategique: number | null;
+    coutRehabEstime: number | null;
+    /** Valeurs ESTIMÉES, à ne jamais présenter comme relevées. */
+    criticiteEstimee: number;
+    montantRehabEstimeMd: number;
+    estimations: { criticite: string; cout: string };
+    criteresReels: { etat: boolean; trafic: boolean; criticite: boolean; cout: boolean };
   }[];
   chantiersDecision: {
     id: string; intitule: string; avancementPct: number; avancementPrevu: number;
@@ -229,21 +237,50 @@ function PriorisationTab({ data }: { data: DecisionData }) {
   const troncons = data.tronconsPrio;
 
   const total = weights.etat + weights.trafic + weights.strat + weights.cout;
-  const maxTrafic = Math.max(...troncons.map((t) => t.traficMoyenJma), 1);
-  const maxCout = Math.max(...troncons.map((t) => t.montantRehabEstimeMd), 1);
+  // Bornes calculees sur les seules valeurs REELLES.
+  const maxTrafic = Math.max(...troncons.map((t) => t.traficMoyenJma ?? 0), 1);
+  const maxCout = Math.max(...troncons.map((t) => t.coutRehabEstime ?? 0), 1);
 
+  // Un score n'est rendu que si CHAQUE critere pondere dispose d'une valeur reelle.
+  // Meme regle qu'au serveur (backend/src/lib/priorisation.ts), et meme raison : trois
+  // criteres sur quatre sont vides sur les 1 690 troncons, et la version precedente
+  // les comblait — criticite deduite de la classe, cout deduit de longueur x tarif —
+  // avant de les ponderer au meme titre que l'etat reellement constate.
+  //
+  // Mettre un poids a zero exclut le critere explicitement, et le score redevient
+  // calculable. Le choix est alors visible et assume.
   const scored = useMemo(() => {
-    return troncons.map((t) => {
-      const sEtat = ETAT_SCORE[t.etat] ?? 20;
-      const sTrafic = maxTrafic > 0 ? (t.traficMoyenJma / maxTrafic) * 100 : 0;
-      const sStrat = t.strategicScore;
-      const sCout = maxCout > 0 ? (t.montantRehabEstimeMd / maxCout) * 100 : 0;
-      const score = total > 0
-        ? (sEtat * weights.etat + sTrafic * weights.trafic + sStrat * weights.strat + sCout * weights.cout) / total
-        : 0;
-      return { ...t, score };
-    }).sort((a, b) => b.score - a.score);
+    return troncons
+      .map((t) => {
+        const manquants: string[] = [];
+        if (weights.etat > 0 && !t.criteresReels.etat) manquants.push("État");
+        if (weights.trafic > 0 && !t.criteresReels.trafic) manquants.push("Trafic");
+        if (weights.strat > 0 && !t.criteresReels.criticite) manquants.push("Criticité");
+        if (weights.cout > 0 && !t.criteresReels.cout) manquants.push("Coût");
+
+        if (manquants.length > 0 || total === 0) {
+          return { ...t, score: null as number | null, manquants };
+        }
+
+        const sEtat = ETAT_SCORE[t.etat] ?? 0;
+        const sTrafic = maxTrafic > 0 ? ((t.traficMoyenJma ?? 0) / maxTrafic) * 100 : 0;
+        const sStrat = t.criticiteStrategique ?? 0;
+        const sCout = maxCout > 0 ? ((t.coutRehabEstime ?? 0) / maxCout) * 100 : 0;
+        const score =
+          (sEtat * weights.etat + sTrafic * weights.trafic + sStrat * weights.strat + sCout * weights.cout) / total;
+        return { ...t, score: score as number | null, manquants };
+      })
+      .sort((a, b) => {
+        // Les non classables en fin de liste : ils ne valent pas zero, ils ne se
+        // comparent pas.
+        if (a.score == null && b.score == null) return 0;
+        if (a.score == null) return 1;
+        if (b.score == null) return -1;
+        return b.score - a.score;
+      });
   }, [troncons, weights, maxTrafic, maxCout, total]);
+
+  const nbCalculables = scored.filter((t) => t.score != null).length;
 
   const setW = (k: keyof typeof weights) => (v: number) => setWeights((w) => ({ ...w, [k]: v }));
 
@@ -290,7 +327,12 @@ function PriorisationTab({ data }: { data: DecisionData }) {
       <Card className="shadow-sm border-gray-200/60 p-0 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-700">Classement des tronçons par score de priorité</h3>
-          <span className="text-xs text-gray-400">{scored.length} tronçons (état dégradé)</span>
+          <span className="text-xs text-gray-400">
+            {scored.length} tronçons (état dégradé) —{" "}
+            <span className={nbCalculables === 0 ? "font-semibold text-amber-700" : ""}>
+              {nbCalculables} score{nbCalculables > 1 ? "s" : ""} calculable{nbCalculables > 1 ? "s" : ""}
+            </span>
+          </span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
@@ -313,19 +355,34 @@ function PriorisationTab({ data }: { data: DecisionData }) {
                   <td className="px-3 py-2.5 text-gray-600">{t.region}</td>
                   <td className="px-3 py-2.5"><EtatPill etat={t.etat} /></td>
                   <td className="px-3 py-2.5 text-right tabular-nums">
-                    {t.traficMoyenJma > 0 ? t.traficMoyenJma.toLocaleString("fr-FR") : <span className="text-gray-300">—</span>}
+                    {t.traficMoyenJma != null ? t.traficMoyenJma.toLocaleString("fr-FR") : <span className="text-gray-400" title="Aucun comptage — 0 tronçon sur 1 690">non renseigné</span>}
                   </td>
                   <td className="px-3 py-2.5 tabular-nums">{t.longueurKm.toFixed(1)} km</td>
                   <td className="px-3 py-2.5 tabular-nums text-right">
-                    {t.montantRehabEstimeMd > 0 ? `${t.montantRehabEstimeMd.toFixed(0)} Md GNF` : "—"}
+                    {t.coutRehabEstime != null ? (
+                      `${t.coutRehabEstime.toFixed(0)} Md GNF`
+                    ) : (
+                      <span className="text-amber-700" title={t.estimations.cout}>
+                        ~{t.montantRehabEstimeMd.toFixed(0)} <span className="text-[10px]">estimé</span>
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <div className="h-1.5 w-16 rounded-full bg-gray-100 overflow-hidden">
-                        <div className="h-full rounded-full bg-gold" style={{ width: `${t.score.toFixed(0)}%` }} />
+                    {t.score != null ? (
+                      <div className="flex items-center gap-2">
+                        <div className="h-1.5 w-16 rounded-full bg-gray-100 overflow-hidden">
+                          <div className="h-full rounded-full bg-gold" style={{ width: `${t.score.toFixed(0)}%` }} />
+                        </div>
+                        <span className="font-bold text-navy w-7 text-right tabular-nums">{t.score.toFixed(0)}</span>
                       </div>
-                      <span className="font-bold text-navy w-7 text-right tabular-nums">{t.score.toFixed(0)}</span>
-                    </div>
+                    ) : (
+                      <span
+                        className="text-[11px] text-gray-500"
+                        title={`Critères pondérés mais non renseignés : ${t.manquants.join(", ")}. Mettre leur poids à zéro les exclut explicitement.`}
+                      >
+                        Non calculable
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -347,19 +404,26 @@ function SimulateurTab({ data }: { data: DecisionData }) {
   const [weights] = useState({ etat: 35, trafic: 25, strat: 20, cout: 20 });
   const troncons = data.tronconsPrio;
 
-  const maxTrafic = Math.max(...troncons.map((t) => t.traficMoyenJma), 1);
+  const maxTrafic = Math.max(...troncons.map((t) => t.traficMoyenJma ?? 0), 1);
+  // Le simulateur travaille sur le cout ESTIME, faute de cout reel : il est le seul
+  // ecran ou un ordre de grandeur reste utile pour degrossir une enveloppe. Mais il
+  // doit le dire — voir l'avertissement affiche en tete de l'onglet.
   const maxCout = Math.max(...troncons.map((t) => t.montantRehabEstimeMd), 1);
   const total = 100;
 
   const scored = useMemo(() => {
-    return troncons.map((t) => {
-      const sEtat = ETAT_SCORE[t.etat] ?? 20;
-      const sTrafic = maxTrafic > 0 ? (t.traficMoyenJma / maxTrafic) * 100 : 0;
-      const sStrat = t.strategicScore;
-      const sCout = maxCout > 0 ? (t.montantRehabEstimeMd / maxCout) * 100 : 0;
-      const score = (sEtat * weights.etat + sTrafic * weights.trafic + sStrat * weights.strat + sCout * weights.cout) / total;
-      return { ...t, score };
-    }).sort((a, b) => b.score - a.score);
+    return troncons
+      .map((t) => {
+        const sEtat = ETAT_SCORE[t.etat] ?? 0;
+        const sTrafic = maxTrafic > 0 ? ((t.traficMoyenJma ?? 0) / maxTrafic) * 100 : 0;
+        // Criticite et cout sont ESTIMES ici, et l'onglet l'annonce. Le classement
+        // sert a ordonner une simulation, pas a fonder une decision.
+        const sStrat = t.criticiteEstimee;
+        const sCout = maxCout > 0 ? (t.montantRehabEstimeMd / maxCout) * 100 : 0;
+        const score = (sEtat * weights.etat + sTrafic * weights.trafic + sStrat * weights.strat + sCout * weights.cout) / total;
+        return { ...t, score };
+      })
+      .sort((a, b) => b.score - a.score);
   }, [troncons, weights, maxTrafic, maxCout]);
 
   const simulation = useMemo(() => {

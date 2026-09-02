@@ -223,18 +223,44 @@ dashboardRouter.get("/decision", requireAuth, requireModuleAccess("decision"), a
     const kmOf = (e: string) => etatMap[e]?.km ?? 0;
     const pct = (e: string) => longueur > 0 ? parseFloat(((kmOf(e) / longueur) * 100).toFixed(1)) : 0;
 
-    // Coût de réhabilitation estimé (M GNF/km) par état — basé sur normes AGEROUTE
-    const COUT_REHAB: Record<string, number> = { CRITIQUE: 800, MAUVAIS: 500, MOYEN: 150, BON: 0, NON_EVALUE: 200 };
-    const STRATEGIC: Record<string, number> = { RN: 90, RR: 70, RU: 50, PISTE: 30 };
+    // Baremes d'ESTIMATION, et rien d'autre (T8).
+    //
+    // Ces deux tables produisent des valeurs plausibles la ou la base est vide : le
+    // cout de rehabilitation et la criticite strategique sont a 0 sur les 1 690
+    // troncons. Elles etaient auparavant servies sous les noms `strategicScore` et
+    // `montantRehabEstimeMd`, sans rien qui les distingue d'une donnee relevee, puis
+    // ponderees dans le score au meme titre que l'etat reellement constate.
+    //
+    // Elles restent utiles — un ordre de grandeur vaut mieux que rien pour degrossir —
+    // mais elles portent desormais le suffixe `Estime` et un drapeau explicite. Le
+    // client doit pouvoir dire a l'utilisateur d'ou vient chaque chiffre.
+    const COUT_REHAB_ESTIME_M_PAR_KM: Record<string, number> = { CRITIQUE: 800, MAUVAIS: 500, MOYEN: 150, BON: 0, NON_EVALUE: 200 };
+    const CRITICITE_ESTIMEE_PAR_CLASSE: Record<string, number> = { RN: 90, RR: 70, RU: 50, PISTE: 30 };
 
     const tronconsPrio = tronconsRaw.map((t) => ({
       id: t.id, code: t.code, nom: t.nom,
       region: t.region?.nom ?? "—",
       etat: t.etat, classe: t.classe,
       longueurKm: t.longueurKm ?? 0,
-      traficMoyenJma: t.traficMoyenJma ?? 0,
-      strategicScore: STRATEGIC[t.classe] ?? 50,
-      montantRehabEstimeMd: ((t.longueurKm ?? 0) * (COUT_REHAB[t.etat] ?? 200)) / 1000,
+      // Valeurs REELLES : null quand elles manquent, jamais 0. Un 0 se lirait comme
+      // « aucun trafic », alors qu'il signifie « aucun comptage ».
+      traficMoyenJma: t.traficMoyenJma,
+      criticiteStrategique: null as number | null,
+      coutRehabEstime: null as number | null,
+      // Valeurs ESTIMEES, clairement nommees comme telles.
+      criticiteEstimee: CRITICITE_ESTIMEE_PAR_CLASSE[t.classe] ?? 50,
+      montantRehabEstimeMd: ((t.longueurKm ?? 0) * (COUT_REHAB_ESTIME_M_PAR_KM[t.etat] ?? 200)) / 1000,
+      estimations: {
+        criticite: "déduite de la classe de route, non renseignée en base",
+        cout: "longueur × tarif au km selon l'état, non renseigné en base",
+      },
+      // Ce que le client doit savoir pour ne pas presenter un classement comme fonde.
+      criteresReels: {
+        etat: t.etat !== "NON_EVALUE",
+        trafic: t.traficMoyenJma != null,
+        criticite: false,
+        cout: false,
+      },
     }));
 
     const chantiersDecision = chantiersRaw.map((c) => {
