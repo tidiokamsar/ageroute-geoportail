@@ -22,7 +22,8 @@
     "backfill:provenance": "tsx scripts/backfill-provenance.ts",
     "backfill:qualite": "tsx scripts/backfill-qualite.ts",
     "reclasser:localisation": "tsx scripts/reclasser-localisation.ts",
-    "propositions:generer": "tsx scripts/generer-propositions-localisation.ts"
+    "propositions:generer": "tsx scripts/generer-propositions-localisation.ts",
+    "recuperer:postes": "tsx scripts/recuperer-postes-audit.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",
