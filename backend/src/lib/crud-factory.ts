@@ -64,7 +64,10 @@ export function createCrudService(model: PrismaDelegate, entityName: string, def
   }
 
   async function update(id: string, data: Record<string, unknown>, userId: string) {
-    const before = await model.findUnique({ where: { id } });
+    // P2-01 : une entite archivee n'est plus modifiable — cohérent avec getById.
+    // Avant, findUnique trouvait l'entité archivée et l'update passait : une donnée
+    // retirée des listes opérationnelles restait modifiable par identifiant.
+    const before = await model.findFirst({ where: { id, deletedAt: null } });
     if (!before) throw new ApiError(404, `${entityName} introuvable`);
     const updated = await model.update({ where: { id }, data });
     await logAudit({ userId, action: "UPDATE", entityType: entityName, entityId: id, before, after: updated });

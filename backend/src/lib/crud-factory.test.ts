@@ -20,8 +20,11 @@ function makeFakeModel(initial: Record<string, unknown>[]) {
     count: vi.fn(async ({ where }: { where: { deletedAt: unknown } }) =>
       rows.filter((r) => matchesDeletedAt(r, where.deletedAt)).length
     ),
-    findFirst: vi.fn(async ({ where }: { where: { id: string; deletedAt: null } }) =>
-      rows.find((r) => r.id === where.id && r.deletedAt == null) ?? null
+    findFirst: vi.fn(async ({ where }: { where: { id: string; deletedAt?: unknown } }) =>
+      rows.find((r) =>
+        r.id === where.id &&
+        matchesDeletedAt(r, where.deletedAt === undefined ? null : where.deletedAt)
+      ) ?? null
     ),
     findUnique: vi.fn(async ({ where }: { where: { id: string } }) => rows.find((r) => r.id === where.id) ?? null),
     create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
@@ -112,6 +115,28 @@ describe("createCrudService", () => {
     expect(result.failed).toEqual([{ id: "inexistant", message: "Troncon introuvable" }]);
     const stillThereA = await model.findUnique({ where: { id: "a" } });
     expect((stillThereA as { deletedAt: Date | null }).deletedAt).not.toBeNull();
+  });
+
+  it("update() refuse une entite archivee — donnee retirée, donnee figée (P2-01)", async () => {
+    const model = makeFakeModel([
+      { id: "a", nom: "Tronçon A", deletedAt: new Date() },
+    ]);
+    const service = createCrudService(model, "Troncon");
+
+    await expect(service.update("a", { nom: "X" }, "user-1")).rejects.toMatchObject({ status: 404 });
+    expect(model.update).not.toHaveBeenCalled();
+    expect(logAudit).not.toHaveBeenCalled();
+  });
+
+  it("update() accepte une entite active et audite", async () => {
+    const model = makeFakeModel([
+      { id: "a", nom: "Tronçon A", deletedAt: null },
+    ]);
+    const service = createCrudService(model, "Troncon");
+
+    const updated = await service.update("a", { nom: "B" }, "user-1");
+    expect((updated as { nom: string }).nom).toBe("B");
+    expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "UPDATE" }));
   });
 
   it("bulkRestore() reactive plusieurs lignes archivees", async () => {
