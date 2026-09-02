@@ -118,7 +118,7 @@ describe("P3-B — transport cookie HttpOnly (contrôleurs)", () => {
 
   it("logout-all révoque tout et efface le cookie", async () => {
     const { handle, etat } = fakeRes();
-    await logoutAllHandler(fakeReq({ user: { id: "u1", role: "ADMIN" }, cookies: { bdri_rt: "RT" } }), handle, next);
+    await logoutAllHandler(fakeReq({ user: { id: "u1", role: "ADMIN", email: "a@ageroute.gov.gn" }, cookies: { bdri_rt: "RT" } }), handle, next);
     expect(authService.logoutAll).toHaveBeenCalledWith("u1", "1.2.3.4");
     expect(etat.effaces).toContain("bdri_rt");
   });
