@@ -1,0 +1,76 @@
+Benchmark GiST — 2026-09-02 10:09 — copie de production restauree propre
+sauvegarde : bdri_20260902_030001.dump.enc (P1-09 : identifiant consigne dans le rapport)
+restaure : 1690 troncons actifs
+corridor test : troncons les plus longs (68e05bef-875f-4915-875d-4fec1ab9e388 -> d7d42ed9-5f30-4122-8edb-14029bdfc083)
+
+== AVANT index ==
+  passe 1 : 89.475 ms
+  passe 2 : 89.206 ms
+  passe 3 : 88.620 ms
+                                                                     QUERY PLAN                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=38.77..38.78 rows=1 width=8) (actual time=88.627..88.628 rows=1 loops=1)
+   Buffers: shared hit=431
+   InitPlan 3
+     ->  Result  (cost=17.84..17.98 rows=1 width=32) (actual time=0.251..0.251 rows=1 loops=1)
+           Buffers: shared hit=6
+           InitPlan 1
+             ->  Index Scan using troncons_pkey on troncons  (cost=0.28..8.92 rows=1 width=32) (actual time=0.168..0.170 rows=1 loops=1)
+                   Index Cond: (id = '68e05bef-875f-4915-875d-4fec1ab9e388'::text)
+                   Buffers: shared hit=3
+           InitPlan 2
+             ->  Index Scan using troncons_pkey on troncons troncons_1  (cost=0.28..8.92 rows=1 width=32) (actual time=0.070..0.072 rows=1 loops=1)
+                   Index Cond: (id = 'd7d42ed9-5f30-4122-8edb-14029bdfc083'::text)
+                   Buffers: shared hit=3
+   ->  Index Scan using troncons_geom_geography_idx on troncons t  (cost=0.27..20.80 rows=1 width=0) (actual time=17.619..88.583 rows=144 loops=1)
+         Index Cond: ((geom)::geography && _st_expand(((InitPlan 3).col1)::geography, '20000'::double precision))
+         Filter: (("deletedAt" IS NULL) AND st_dwithin((geom)::geography, ((InitPlan 3).col1)::geography, '20000'::double precision, true))
+         Rows Removed by Filter: 200
+         Buffers: shared hit=431
+ Planning:
+   Buffers: shared hit=259
+ Planning Time: 15.333 ms
+ Execution Time: 88.936 ms
+(22 rows)
+
+
+== Creation de l'index candidat ==
+index cree : troncons USING GIST ((geom::geography)) — 136 kB
+
+== APRES index ==
+  passe 1 : 88.777 ms
+  passe 2 : 88.695 ms
+  passe 3 : 88.822 ms
+                                                                     QUERY PLAN                                                                     
+----------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=38.77..38.78 rows=1 width=8) (actual time=88.569..88.571 rows=1 loops=1)
+   Buffers: shared hit=403
+   InitPlan 3
+     ->  Result  (cost=17.84..17.98 rows=1 width=32) (actual time=0.213..0.214 rows=1 loops=1)
+           Buffers: shared hit=6
+           InitPlan 1
+             ->  Index Scan using troncons_pkey on troncons  (cost=0.28..8.92 rows=1 width=32) (actual time=0.139..0.141 rows=1 loops=1)
+                   Index Cond: (id = '68e05bef-875f-4915-875d-4fec1ab9e388'::text)
+                   Buffers: shared hit=3
+           InitPlan 2
+             ->  Index Scan using troncons_pkey on troncons troncons_1  (cost=0.28..8.92 rows=1 width=32) (actual time=0.063..0.064 rows=1 loops=1)
+                   Index Cond: (id = 'd7d42ed9-5f30-4122-8edb-14029bdfc083'::text)
+                   Buffers: shared hit=3
+   ->  Index Scan using troncons_geog_gist_idx on troncons t  (cost=0.27..20.80 rows=1 width=0) (actual time=17.532..88.516 rows=144 loops=1)
+         Index Cond: ((geom)::geography && _st_expand(((InitPlan 3).col1)::geography, '20000'::double precision))
+         Filter: (("deletedAt" IS NULL) AND st_dwithin((geom)::geography, ((InitPlan 3).col1)::geography, '20000'::double precision, true))
+         Rows Removed by Filter: 200
+         Buffers: shared hit=403
+ Planning:
+   Buffers: shared hit=334
+ Planning Time: 15.947 ms
+ Execution Time: 88.839 ms
+(22 rows)
+
+nb troncons dans le corridor : 144
+
+Contre-temoin : rendu pleine table (listGeo) — l'index ne doit rien changer
+ Seq Scan on troncons  (cost=0.00..1329.15 rows=1690 width=32) (actual time=0.109..23.020 rows=1690 loops=1)
+ Execution Time: 36.626 ms
+
+Benchmark termine. Conteneur detruit, production non touchee.
