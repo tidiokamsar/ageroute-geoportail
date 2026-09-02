@@ -1064,9 +1064,13 @@ export function GeoportailPage() {
 
       </div>
 
-      {/* DetailPanel hors du stacking context z-0 → s'affiche au-dessus de la toolbar */}
+      {/* DetailPanel hors du stacking context z-0 → s'affiche au-dessus de la toolbar.
+          key : remonte le panneau à chaque changement d'objet — sans elle, les
+          drafts d'édition (état, statut, avancement) du chantier A survivaient
+          à la sélection du chantier B et s'y appliquaient par erreur. */}
       {selectedFeature && (
         <DetailPanel
+          key={`${selectedFeature.kind}-${(selectedFeature.data as { id?: string }).id ?? (selectedFeature.data as { nom?: string }).nom ?? ""}`}
           feature={selectedFeature}
           onClose={() => setSelectedFeature(null)}
           onArchive={archiveSelectedFeature}
