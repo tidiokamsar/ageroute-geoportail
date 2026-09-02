@@ -70,7 +70,8 @@ SELECT f.id, f.franchissement, f.nature, f.numero, f.nom,
          WHEN ST_Distance(f.geom::geography, o.geom::geography) <= 25  THEN 'PONT_BDRI_PROCHE_25M'
          WHEN ST_Distance(f.geom::geography, o.geom::geography) <= 250 THEN 'PONT_BDRI_PROCHE_250M'
          ELSE 'PONT_SANS_OUVRAGE'
-       END AS classement
+       END AS classement,
+       f.geom
 FROM osm_franchissement f
 LEFT JOIN LATERAL (
   SELECT id, nom, type, geom FROM ouvrages

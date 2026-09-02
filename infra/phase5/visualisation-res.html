@@ -59,6 +59,8 @@
     <label><input type="checkbox" id="c-res" checked><span class="apercu" style="background:#dc2626"></span>RES-* (couleur = typologie)</label>
     <label><input type="checkbox" id="c-osm" checked><span class="apercu" style="background:#d97706; height:0; border-top:3px dashed #d97706"></span>OSM class&eacute;</label>
     <label><input type="checkbox" id="c-ter"><span class="apercu" style="background:#f59e0b; height:0; border-top:3px dotted #f59e0b"></span>OSM tertiaire seul (surbrillance)</label>
+    <label><input type="checkbox" id="c-ponts"><span class="apercu" style="background:#b91c1c; height:0; border-top:3px solid #b91c1c"></span>Franchissements OSM (croisement P4)</label>
+    <label><input type="checkbox" id="c-ponts-majeurs" style="margin-left:14px">… axes majeurs uniquement</label>
   </fieldset>
 
   <fieldset>
@@ -130,6 +132,7 @@ Promise.all([
           p => `BDRI RR <b>${p.code}</b>`),
   charger("ru", "bdri-ru.geojson", () => styleProp(0, "#111827"),
           p => `BDRI RU <b>${p.code}</b>`),
+  charger("ponts", "ponts-osm.geojson", null, null),
   charger("osm", "osm-classe.geojson",
           p => ({ color: p.nature === "Route tertiaire" ? "#f59e0b" : "#d97706",
                   weight: 1.5, opacity: 0.7, dashArray: "4 3" }),
@@ -147,7 +150,32 @@ function majAffichage() {
   const masquer = document.getElementById("masquer-autres").checked && filtreResActif();
   const terSeul = on("c-ter");
 
-  ["rn","rr","ru","osm","res"].forEach(k => { if (couches[k] && map.hasLayer(couches[k])) map.removeLayer(couches[k]); });
+  ["rn","rr","ru","osm","res","ponts","pontsFiltre"].forEach(k => { if (couches[k] && map.hasLayer(couches[k])) map.removeLayer(couches[k]); });
+
+  if (on("c-ponts") && couches.ponts) {
+    const majeurSeul = on("c-ponts-majeurs");
+    const stylePont = p => {
+      const majeur = /rapide|primaire|secondaire/.test(p.nature);
+      if (p.classement !== "PONT_SANS_OUVRAGE") return { color: "#16a34a", weight: 3 };
+      return majeur ? { color: "#b91c1c", weight: 4 } : { color: "#ef4444", weight: 1.5, opacity: 0.7 };
+    };
+    const popPont = p =>
+      `<b>${p.franchissement}</b>${p.numero ? " " + p.numero : ""}${p.nom ? " — " + p.nom : ""}<br>` +
+      `${p.nature} — région ${p.region || "?"}<br>` +
+      `Classement : <b>${p.classement}</b><br>` +
+      `way ${p.longueurM} m · ouvrage BDRI le plus proche : ${p.distanceM} m`;
+    if (majeurSeul) {
+      couches._pontsF = L.geoJSON(couches.ponts.toGeoJSON(), {
+        filter: ft => /rapide|primaire|secondaire/.test(ft.properties.nature),
+        style: ft => stylePont(ft.properties),
+        onEachFeature: (ft, l) => l.bindPopup(popPont(ft.properties))
+      }).addTo(map);
+    } else {
+      couches.ponts.addTo(map);
+      couches.ponts.setStyle(p => stylePont(p));
+      couches.ponts.eachLayer(l => l.bindPopup(popPont(l.feature.properties)));
+    }
+  }
 
   if (on("c-osm") && !masquer && !terSeul && couches.osm) couches.osm.addTo(map);
   if (terSeul && couches.osm) {
@@ -187,7 +215,7 @@ function stats() {
   return html;
 }
 
-["c-rn","c-rr","c-ru","c-res","c-osm","c-ter","masquer-autres"].forEach(id =>
+["c-rn","c-rr","c-ru","c-res","c-osm","c-ter","c-ponts","c-ponts-majeurs","masquer-autres"].forEach(id =>
   document.getElementById(id).addEventListener("change", majAffichage));
 document.querySelectorAll("input[name=bande]").forEach(el =>
   el.addEventListener("change", majAffichage));
