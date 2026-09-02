@@ -26,6 +26,8 @@ interface Props {
   serverError?: string | null;
   /** Erreurs de validation par champ renvoyées par le serveur (Zod `details.fieldErrors`). */
   serverFieldErrors?: Record<string, string[]>;
+  /** P3-B : notifie le parent des modifications non enregistrées (garde anti-perte à la fermeture). */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 const CLIENT_ERROR_MESSAGES: Record<string, string> = {
@@ -41,8 +43,9 @@ function clientErrorMessage(type?: string): string {
   return (type && CLIENT_ERROR_MESSAGES[type]) ?? "Ce champ est invalide.";
 }
 
-export function EntityForm({ fields, defaultValues, onSubmit, submitting, serverError, serverFieldErrors }: Props) {
-  const { register, handleSubmit, reset, watch, setValue, formState: { errors } } = useForm({ defaultValues });
+export function EntityForm({ fields, defaultValues, onSubmit, submitting, serverError, serverFieldErrors, onDirtyChange }: Props) {
+  const { register, handleSubmit, reset, watch, setValue, formState: { errors, isDirty } } = useForm({ defaultValues });
+  useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
   const { data: regions } = useQuery({
     queryKey: ["regions"],
     queryFn: async () => (await api.get<Region[]>("/regions")).data,

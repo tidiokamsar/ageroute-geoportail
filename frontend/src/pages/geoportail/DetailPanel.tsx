@@ -15,6 +15,8 @@ import { useEntityMutations } from "../../hooks/useEntity";
 import { printFiche } from "../../lib/print";
 import { useConfirm } from "../../hooks/useConfirm";
 import { api } from "../../lib/api";
+import { toast } from "../../lib/toast";
+import { parseApiError } from "../../lib/errors";
 import { ETAT_COLORS, ETAT_LABELS, CHANTIER_COLORS } from "./types";
 import type { SelectedFeature, TronconGeoFeature } from "./types";
 import type { EtatPatrimoine, StatutChantier, Ouvrage, PointNoir, Poste, Chantier, Inspection, Document } from "../../types";
@@ -337,9 +339,14 @@ export function DetailPanel({
 
   async function saveTronconEtat() {
     if (feature.kind !== "troncon" || !etatDraft) return;
-    await tronconsMut.update.mutateAsync({ id: feature.data.id, payload: { etat: etatDraft } });
-    await qc.invalidateQueries({ queryKey: ["troncons", "geo"] });
-    setEtatDraft(null);
+    try {
+      await tronconsMut.update.mutateAsync({ id: feature.data.id, payload: { etat: etatDraft } });
+      await qc.invalidateQueries({ queryKey: ["troncons", "geo"] });
+      setEtatDraft(null);
+      toast.success("État du tronçon mis à jour.");
+    } catch (err) {
+      toast.error(parseApiError(err).message); // le draft est conservé : l'agent peut corriger et réessayer
+    }
   }
 
   async function saveChantierStatut() {
@@ -348,19 +355,29 @@ export function DetailPanel({
     if (statutDraft) payload.statut = statutDraft;
     if (avancementDraft != null) payload.avancementPct = avancementDraft;
     if (!Object.keys(payload).length) return;
-    await chantiersMut.update.mutateAsync({ id: feature.data.id, payload });
-    await qc.invalidateQueries({ queryKey: ["chantiers", "geo"] });
-    setStatutDraft(null); setAvancementDraft(null);
+    try {
+      await chantiersMut.update.mutateAsync({ id: feature.data.id, payload });
+      await qc.invalidateQueries({ queryKey: ["chantiers", "geo"] });
+      setStatutDraft(null); setAvancementDraft(null);
+      toast.success("Avancement du chantier mis à jour.");
+    } catch (err) {
+      toast.error(parseApiError(err).message);
+    }
   }
 
   async function signalerChantier() {
     if (feature.kind !== "troncon" || !chantierIntitule.trim() || !chantierEntreprise.trim()) return;
-    await chantiersCreateMut.mutateAsync({
-      intitule: chantierIntitule.trim(), entreprise: chantierEntreprise.trim(),
-      tronconId: feature.data.id, statut: "EN_COURS", avancementPct: 0,
-    });
-    await qc.invalidateQueries({ queryKey: ["chantiers", "geo"] });
-    setChantierOpen(false); setChantierIntitule(""); setChantierEntreprise("");
+    try {
+      await chantiersCreateMut.mutateAsync({
+        intitule: chantierIntitule.trim(), entreprise: chantierEntreprise.trim(),
+        tronconId: feature.data.id, statut: "EN_COURS", avancementPct: 0,
+      });
+      await qc.invalidateQueries({ queryKey: ["chantiers", "geo"] });
+      setChantierOpen(false); setChantierIntitule(""); setChantierEntreprise("");
+      toast.success("Chantier signalé sur ce tronçon.");
+    } catch (err) {
+      toast.error(parseApiError(err).message); // saisie conservée pour correction
+    }
   }
 
   function startEdit() {
@@ -393,10 +410,15 @@ export function DetailPanel({
     payload.pkDebut = Number(payload.pkDebut);
     payload.pkFin = Number(payload.pkFin);
     payload.longueurKm = Number(payload.longueurKm);
-    await tronconsMut.update.mutateAsync({ id: feature.data.id, payload });
-    await qc.invalidateQueries({ queryKey: ["troncons", "geo"] });
-    await qc.invalidateQueries({ queryKey: ["troncons", "fiche", feature.data.id] });
-    setIsEditing(false);
+    try {
+      await tronconsMut.update.mutateAsync({ id: feature.data.id, payload });
+      await qc.invalidateQueries({ queryKey: ["troncons", "geo"] });
+      await qc.invalidateQueries({ queryKey: ["troncons", "fiche", feature.data.id] });
+      setIsEditing(false);
+      toast.success("Tronçon mis à jour.");
+    } catch (err) {
+      toast.error(parseApiError(err).message); // édition conservée : corriger puis réessayer
+    }
   }
 
   function renderEditForm() {

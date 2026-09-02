@@ -61,6 +61,8 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [formError, setFormError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
+  // P3-B : la modale de saisie prévient avant de perdre des modifications.
+  const [formDirty, setFormDirty] = useState(false);
   const [historyId, setHistoryId] = useState<string | null>(null);
   const [viewingRow, setViewingRow] = useState<T | null>(null);
 
@@ -295,7 +297,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
         onRowClick={(row) => setViewingRow(row)}
       />
 
-      <Modal open={modalOpen} onClose={closeModal} title={editing ? `Modifier — ${title}` : `Ajouter — ${title}`}>
+      <Modal open={modalOpen} onClose={closeModal} title={editing ? `Modifier — ${title}` : `Ajouter — ${title}`} sale={() => formDirty}>
         <EntityForm
           fields={fields}
           defaultValues={editing ?? {}}
@@ -303,6 +305,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
           submitting={create.isPending || update.isPending}
           serverError={formError}
           serverFieldErrors={fieldErrors}
+          onDirtyChange={setFormDirty}
         />
       </Modal>
 
