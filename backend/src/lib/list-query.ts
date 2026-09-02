@@ -11,7 +11,10 @@ const queryBoolean = z
 const listQuerySchema = z.object({
   page: z.coerce.number().int().positive().optional(),
   pageSize: z.coerce.number().int().positive().max(200).optional(),
-  sortBy: z.string().optional(),
+  // P2-02 : sortBy part directement dans orderBy — identifier seul, sinon ZodError -> 400.
+  // (Colonne inexistante mais bien formée : voir PrismaClientValidationError -> 400
+  // dans error.middleware — ceinture et bretelles.)
+  sortBy: z.string().regex(/^[a-zA-Z_][a-zA-Z0-9_]{0,63}$/, "Colonne de tri invalide").optional(),
   sortDir: z.enum(["asc", "desc"]).optional(),
   search: z.string().optional(),
   region: z.string().optional(),

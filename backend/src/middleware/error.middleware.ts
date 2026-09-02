@@ -37,6 +37,12 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
       return;
     }
   }
+  // P2-02 : une requete mal formee (colonne de tri inexistante, filtre invalide...)
+  // est une erreur CLIENT, pas un crash serveur. Avant : 500 générique.
+  if (err instanceof Prisma.PrismaClientValidationError) {
+    res.status(400).json({ error: "Paramètre de requête invalide" });
+    return;
+  }
   console.error(err);
   res.status(500).json({ error: "Erreur interne du serveur" });
 }
