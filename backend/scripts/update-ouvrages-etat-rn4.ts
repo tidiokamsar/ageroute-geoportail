@@ -4,9 +4,12 @@
  * (RAS/BAS = bon, balise cassee/vibration = moyen, fissure/affouillement = mauvais,
  * cumul de plusieurs defauts structurels = critique) permettent de la deriver.
  *
- * Usage : INVENTAIRE_XLS_PATH=/chemin/fichier.xls tsx scripts/update-ouvrages-etat-rn4.ts
+ * Le classeur doit etre au format .xlsx : exceljs ne lit pas le .xls binaire
+ * (voir scripts/lib/excel-grid.ts). Convertir la fiche au prealable si besoin.
+ *
+ * Usage : INVENTAIRE_XLS_PATH=/chemin/fichier.xlsx tsx scripts/update-ouvrages-etat-rn4.ts
  */
-import * as XLSX from "xlsx";
+import { openWorkbook } from "./lib/excel-grid";
 import { PrismaClient } from "@prisma/client";
 
 const xlsPath = process.env.INVENTAIRE_XLS_PATH;
@@ -17,7 +20,7 @@ if (!xlsPath) {
 
 const prisma = new PrismaClient();
 
-function deriveEtat(remarques: string, commentaire: string): string {
+function deriveEtat(remarques: string): string {
   const r = remarques.toLowerCase();
   const hasBaliseCassee = /balise cass/.test(r);
   const hasFissure = /fissure/.test(r);
@@ -36,13 +39,11 @@ function deriveEtat(remarques: string, commentaire: string): string {
 interface Row {
   ficheNumero: string;
   remarques: string;
-  commentaire: string;
 }
 
-function readRows(): Row[] {
-  const wb = XLSX.readFile(xlsPath!);
-  const sheet = wb.Sheets["Tableau récapitulatif"];
-  const raw = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
+async function readRows(): Promise<Row[]> {
+  const wb = await openWorkbook(xlsPath!);
+  const raw = wb.sheet("Tableau récapitulatif");
   const rows: Row[] = [];
   for (let i = 5; i < raw.length; i++) {
     const r = raw[i];
@@ -52,14 +53,13 @@ function readRows(): Row[] {
     rows.push({
       ficheNumero: r[1] !== "" ? String(r[1]) : "",
       remarques: String(r[17] ?? "").trim(),
-      commentaire: String(r[18] ?? "").trim(),
     });
   }
   return rows;
 }
 
 async function main() {
-  const rows = readRows();
+  const rows = await readRows();
   console.log(`Lignes lues : ${rows.length}`);
 
   const counts: Record<string, number> = {};
@@ -69,7 +69,7 @@ async function main() {
   for (const r of rows) {
     if (!r.ficheNumero) continue;
     try {
-      const etat = deriveEtat(r.remarques, r.commentaire);
+      const etat = deriveEtat(r.remarques);
       counts[etat] = (counts[etat] || 0) + 1;
       const result = await prisma.ouvrage.updateMany({
         where: { ficheNumero: r.ficheNumero, tronconId: { not: null } },

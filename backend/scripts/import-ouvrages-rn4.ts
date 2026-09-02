@@ -4,9 +4,12 @@
  * fournies dans la fiche (colonnes X/Y), donc geolocalisation immediate sans passer
  * par le PK.
  *
- * Usage : INVENTAIRE_XLS_PATH=/chemin/fichier.xls tsx scripts/import-ouvrages-rn4.ts
+ * Le classeur doit etre au format .xlsx : exceljs ne lit pas le .xls binaire
+ * (voir scripts/lib/excel-grid.ts). Convertir la fiche au prealable si besoin.
+ *
+ * Usage : INVENTAIRE_XLS_PATH=/chemin/fichier.xlsx tsx scripts/import-ouvrages-rn4.ts
  */
-import * as XLSX from "xlsx";
+import { openWorkbook } from "./lib/excel-grid";
 import { PrismaClient } from "@prisma/client";
 
 const xlsPath = process.env.INVENTAIRE_XLS_PATH;
@@ -69,10 +72,9 @@ interface Row {
   travauxAPrevoir?: string;
 }
 
-function readRows(): Row[] {
-  const wb = XLSX.readFile(xlsPath!);
-  const sheet = wb.Sheets["Tableau récapitulatif"];
-  const raw = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
+async function readRows(): Promise<Row[]> {
+  const wb = await openWorkbook(xlsPath!);
+  const raw = wb.sheet("Tableau récapitulatif");
   const rows: Row[] = [];
   for (let i = 5; i < raw.length; i++) {
     const r = raw[i];
@@ -114,7 +116,7 @@ async function findNearestRn4Troncon(lat: number, lon: number) {
 }
 
 async function main() {
-  const rows = readRows();
+  const rows = await readRows();
   console.log(`Lignes lues : ${rows.length}`);
 
   let created = 0;

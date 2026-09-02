@@ -1,0 +1,28 @@
+{
+  // Verification de type des scripts d'exploitation.
+  //
+  // POURQUOI CE FICHIER
+  //
+  // Le tsconfig principal n'inclut que src/**/*.ts : les scripts n'etaient donc
+  // typecheck NULLE PART. Un script casse ne se voyait qu'a l'execution, sur la base
+  // de production. C'est la meme famille de defaut qu'en phase 3, ou les tests
+  // passaient pendant que la construction de l'image echouait.
+  //
+  // Verification seulement : ce fichier n'entre pas dans la construction de l'image,
+  // et les scripts continuent d'etre lances par tsx.
+  //
+  // AUCUNE EXCLUSION DE SCRIPT
+  //
+  // import-chantiers-projets.ts, import-ouvrages-rn4.ts et update-ouvrages-etat-rn4.ts
+  // ont ete exclus tant qu'ils importaient le paquet `xlsx`, retire du projet au profit
+  // d'exceljs pour cause de CVE (voir l'en-tete de src/lib/excel.ts) : ils auraient
+  // echoue a l'execution sur « Cannot find module 'xlsx' ». Leur lecture Excel est
+  // desormais portee sur exceljs via scripts/lib/excel-grid.ts, et les trois sont
+  // rentres dans le perimetre de verification.
+  "extends": "./tsconfig.json",
+  // rootDir vaut "src" dans la configuration principale ; sans emission il n'a pas
+  // d'effet, et l'elargir permet de couvrir scripts/.
+  "compilerOptions": { "noEmit": true, "rootDir": "." },
+  "include": ["scripts/**/*.ts", "src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

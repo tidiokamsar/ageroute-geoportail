@@ -16,7 +16,9 @@
     "merge:osm-routes": "tsx scripts/merge-osm-routes.ts",
     "update:ouvrages-etat-rn4": "tsx scripts/update-ouvrages-etat-rn4.ts",
     "import:chantiers-projets": "tsx scripts/import-chantiers-projets.ts",
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:scripts": "tsc -p tsconfig.scripts.json"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",

@@ -21,7 +21,9 @@ export async function buildExportBuffer(rows: Record<string, unknown>[], columns
   return Buffer.from(output);
 }
 
-function cellValue(cell: ExcelJS.Cell): unknown {
+// Exporte : les scripts d'exploitation (scripts/lib/excel-grid.ts) lisent les
+// memes classeurs et doivent deballer les cellules selon la meme regle.
+export function cellValue(cell: ExcelJS.Cell): unknown {
   const value = cell.value;
   if (value === null || value === undefined) return null;
   if (value instanceof Object) {

@@ -11,7 +11,7 @@
  *
  * Usage : PROJETS_XLSX_PATH=/chemin/fichier.xlsx tsx scripts/import-chantiers-projets.ts
  */
-import * as XLSX from "xlsx";
+import { openWorkbook, Workbook } from "./lib/excel-grid";
 import { PrismaClient } from "@prisma/client";
 
 const xlsPath = process.env.PROJETS_XLSX_PATH;
@@ -78,8 +78,8 @@ interface Row {
   observations?: string;
 }
 
-function readSheet(wb: XLSX.WorkBook, name: string, hasCode: boolean): Row[] {
-  const raw = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[name], { header: 1, defval: "" });
+function readSheet(wb: Workbook, name: string, hasCode: boolean): Row[] {
+  const raw = wb.sheet(name);
   const off = hasCode ? 1 : 0;
   const rows: Row[] = [];
   for (let i = 2; i < raw.length; i++) {
@@ -106,7 +106,7 @@ function readSheet(wb: XLSX.WorkBook, name: string, hasCode: boolean): Row[] {
 }
 
 async function main() {
-  const wb = XLSX.readFile(xlsPath!);
+  const wb = await openWorkbook(xlsPath!);
   const rows = [
     ...readSheet(wb, "FER", false),
     ...readSheet(wb, "BND-FINEX", true),
