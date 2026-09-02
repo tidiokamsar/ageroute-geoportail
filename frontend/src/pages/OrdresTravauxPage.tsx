@@ -1,26 +1,27 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  ChevronDown, Plus, Search, Camera, UserPlus,
-  ArrowRightCircle, Clock, AlertTriangle, Wrench,
-} from "lucide-react";
-import { useEntityMutations } from "../hooks/useEntity";
-import { DataTable } from "../components/DataTable";
-import { EntityForm } from "../components/EntityForm";
+import { AlertTriangle, ArrowRightCircle, Camera, Clock, UserPlus, Wrench } from "lucide-react";
+import { EntityListPage, FilterSelect } from "./EntityListPage";
+import { KpiCard } from "../components/ui/Card";
 import { Modal } from "../components/ui/Modal";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
-import { Card, KpiCard } from "../components/ui/Card";
-import { useAuth, canWrite } from "../lib/auth";
-import { useConfirm } from "../hooks/useConfirm";
+import { api } from "../lib/api";
 import { parseApiError } from "../lib/errors";
 import { toast } from "../lib/toast";
-import { api } from "../lib/api";
+import { canWrite, useAuth } from "../lib/auth";
+import { useConfirm } from "../hooks/useConfirm";
 import { otFields } from "../lib/fieldConfigs";
-import type { OrdreTravaux, OtStats, PaginatedResult, PrioriteOT, StatutOT, TypePhotoOT } from "../types";
+import type { OrdreTravaux, PrioriteOT, StatutOT, TypePhotoOT } from "../types";
 
-// ── Constantes ────────────────────────────────────────────────────────────────
+interface OtStats {
+  ouverts: number;
+  termines: number;
+  delaiMoyenJours: number | null;
+  tauxPreuvePhotoPct: number | null;
+  deriveCoutMoyenPct: number | null;
+}
 
 const PRIORITE_META: Record<PrioriteOT, { label: string; pill: string; dot: string }> = {
   URGENTE: { label: "Urgente", pill: "bg-red-100 text-red-700", dot: "bg-red-500" },
@@ -82,26 +83,6 @@ function StatutPill({ s }: { s: StatutOT }) {
   const m = STATUT_META[s];
   return <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${m.pill}`}>{m.label}</span>;
 }
-
-function FilterSelect({ value, onChange, children }: { value: string; onChange: (v: string) => void; children: React.ReactNode }) {
-  const active = value !== "";
-  return (
-    <div className="relative">
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={`appearance-none rounded-lg border px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-navy/20 transition-colors ${
-          active ? "border-navy/40 bg-navy/5 text-navy font-medium" : "border-gray-200 bg-white text-gray-600"
-        }`}
-      >
-        {children}
-      </select>
-      <ChevronDown className={`pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 ${active ? "text-navy/60" : "text-gray-400"}`} />
-    </div>
-  );
-}
-
-// ── Photo vignette authentifiée ──────────────────────────────────────────────
 
 function OtPhotoThumb({ fileName, onDelete, canRemove }: { fileName: string; onDelete: () => void; canRemove: boolean }) {
   const [src, setSrc] = useState<string | null>(null);
@@ -310,50 +291,22 @@ function OtDetailModal({ ot, onClose }: { ot: OrdreTravaux; onClose: () => void 
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
+// ── Page : enveloppe EntityListPage (consolidation) ──────────────────────────
+// Spécifique conservé : vue Mes OT / Tous (aTraiter), KPI workflow, pills
+// priorité/statut, modale détail (photos, historique, changement de statut).
+// L'archivage logique (P1) devient accessible depuis la liste — il l'était
+// uniquement via l'API jusqu'ici.
+
 export function OrdresTravauxPage() {
-  const { user } = useAuth();
   const [statutFilter, setStatutFilter] = useState("");
   const [prioriteFilter, setPrioriteFilter] = useState("");
   const [vue, setVue] = useState<"mes-ot" | "tous">("tous");
-  const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [modalOpen, setModalOpen] = useState(false);
   const [detailOt, setDetailOt] = useState<OrdreTravaux | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
-
-  const { data, isLoading } = useQuery({
-    queryKey: ["ordres-travaux", "list", { page, statutFilter, prioriteFilter, search, vue }],
-    queryFn: async () => (await api.get<PaginatedResult<OrdreTravaux>>("/ordres-travaux", {
-      params: {
-        page, pageSize: 20, search: search || undefined,
-        etat: statutFilter || undefined, priorite: prioriteFilter || undefined,
-        aTraiter: vue === "mes-ot" ? "1" : undefined,
-      },
-    })).data,
-  });
 
   const { data: stats } = useQuery({
     queryKey: ["ordres-travaux", "stats"],
     queryFn: async () => (await api.get<OtStats>("/ordres-travaux/stats")).data,
   });
-
-  const { create } = useEntityMutations("ordres-travaux");
-  const rows = useMemo(() => data?.data ?? [], [data?.data]);
-
-  async function handleSubmit(values: Record<string, unknown>) {
-    setFormError(null); setFieldErrors({});
-    try {
-      const created = await create.mutateAsync(values) as unknown as { data: OrdreTravaux };
-      setModalOpen(false);
-      if (created?.data?.suggestionConversion) {
-        toast.info("Coût estimé élevé — envisagez une conversion en chantier/marché");
-      }
-    } catch (err) {
-      const { message, fieldErrors: fe } = parseApiError(err);
-      setFormError(message); setFieldErrors(fe);
-    }
-  }
 
   const columns: ColumnDef<OrdreTravaux, unknown>[] = [
     {
@@ -398,35 +351,43 @@ export function OrdresTravauxPage() {
         <span className="inline-flex items-center gap-1 text-xs text-gray-400"><Camera className="h-3 w-3" /> {o._count?.photos ?? 0}</span>
       ),
     },
-    {
-      id: "actions",
-      header: "",
-      cell: ({ row: { original: o } }) => (
-        <button onClick={() => setDetailOt(o)} className="text-xs text-navy hover:underline">Ouvrir</button>
-      ),
-    },
   ];
 
   return (
-    <div className="space-y-4">
-      <div className="bg-gradient-to-r from-navy via-navy2 to-[#1e3a5f] rounded-xl p-5 text-white flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
-            <Wrench className="h-5 w-5 text-gold" />
+    <EntityListPage<OrdreTravaux>
+      endpoint="ordres-travaux"
+      title="Ordres de travaux"
+      subtitle="Interventions courtes entre l'alerte et le chantier"
+      pageIcon={<Wrench className="h-4 w-4 text-amber-600" />}
+      searchPlaceholder="Rechercher un OT…"
+      columns={columns}
+      fields={otFields}
+      defaultSortBy="createdAt"
+      extraParams={{
+        etat: statutFilter || undefined,
+        priorite: prioriteFilter || undefined,
+        aTraiter: vue === "mes-ot" ? "1" : undefined,
+      }}
+      filters={
+        <>
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+            <button className={`px-3 py-1.5 text-xs font-semibold ${vue === "mes-ot" ? "bg-navy text-white" : "bg-white text-gray-500"}`} onClick={() => setVue("mes-ot")}>Mes OT</button>
+            <button className={`px-3 py-1.5 text-xs font-semibold ${vue === "tous" ? "bg-navy text-white" : "bg-white text-gray-500"}`} onClick={() => setVue("tous")}>Tous</button>
           </div>
-          <div>
-            <h1 className="text-lg font-bold">Ordres de travaux</h1>
-            <p className="text-white/60 text-sm">Interventions courtes entre l'alerte et le chantier</p>
-          </div>
-        </div>
-        {canWrite(user?.role) && (
-          <Button onClick={() => { setFormError(null); setFieldErrors({}); setModalOpen(true); }} className="bg-white/10 hover:bg-white/20 text-white border border-white/20">
-            <Plus className="h-4 w-4 mr-1" /> Nouvel OT
-          </Button>
-        )}
-      </div>
-
-      {stats && (
+          <FilterSelect value={statutFilter} onChange={setStatutFilter}>
+            <option value="">Tous statuts</option>
+            {Object.entries(STATUT_META).map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
+          </FilterSelect>
+          <FilterSelect value={prioriteFilter} onChange={setPrioriteFilter}>
+            <option value="">Toutes priorités</option>
+            {Object.entries(PRIORITE_META).map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
+          </FilterSelect>
+        </>
+      }
+      rowExtraActions={[
+        { label: "Ouvrir", onClick: (o) => setDetailOt(o) },
+      ]}
+      aboveList={stats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <KpiCard label="OT ouverts" value={stats.ouverts} icon="🛠" accent="#1a2942" />
           <KpiCard label="OT terminés" value={stats.termines} icon="✅" accent="#16a34a" />
@@ -440,51 +401,8 @@ export function OrdresTravauxPage() {
           />
         </div>
       )}
-
-      <Card>
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-            <button className={`px-3 py-1.5 text-xs font-semibold ${vue === "mes-ot" ? "bg-navy text-white" : "bg-white text-gray-500"}`} onClick={() => { setVue("mes-ot"); setPage(1); }}>Mes OT</button>
-            <button className={`px-3 py-1.5 text-xs font-semibold ${vue === "tous" ? "bg-navy text-white" : "bg-white text-gray-500"}`} onClick={() => { setVue("tous"); setPage(1); }}>Tous</button>
-          </div>
-          <div className="relative flex-1 min-w-[180px] max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
-            <Input placeholder="Rechercher..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }} className="pl-9" />
-          </div>
-          <FilterSelect value={statutFilter} onChange={(v) => { setStatutFilter(v); setPage(1); }}>
-            <option value="">Tous statuts</option>
-            {Object.entries(STATUT_META).map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
-          </FilterSelect>
-          <FilterSelect value={prioriteFilter} onChange={(v) => { setPrioriteFilter(v); setPage(1); }}>
-            <option value="">Toutes priorités</option>
-            {Object.entries(PRIORITE_META).map(([k, m]) => <option key={k} value={k}>{m.label}</option>)}
-          </FilterSelect>
-        </div>
-      </Card>
-
-      <DataTable<OrdreTravaux>
-        data={rows}
-        columns={columns}
-        page={data?.page ?? 1}
-        totalPages={data?.totalPages ?? 1}
-        total={data?.total ?? 0}
-        loading={isLoading}
-        onPageChange={setPage}
-        onSortChange={() => {}}
-      />
-
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Nouvel ordre de travaux">
-        <EntityForm
-          fields={otFields}
-          defaultValues={{ priorite: "NORMALE" }}
-          onSubmit={handleSubmit}
-          submitting={create.isPending}
-          serverError={formError}
-          serverFieldErrors={fieldErrors}
-        />
-      </Modal>
-
+    >
       {detailOt && <OtDetailModal ot={detailOt} onClose={() => setDetailOt(null)} />}
-    </div>
+    </EntityListPage>
   );
 }

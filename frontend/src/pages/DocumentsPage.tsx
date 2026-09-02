@@ -258,7 +258,12 @@ export function DocumentsPage() {
         </table>
       </div>
 
-      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Ajouter un document">
+      <Modal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        title="Ajouter un document"
+        sale={() => titre.trim() !== "" || !!file}
+      >
         <form onSubmit={handleSubmit} className="space-y-3">
           {error && <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{error}</div>}
           <div>

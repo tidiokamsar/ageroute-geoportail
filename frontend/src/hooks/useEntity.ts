@@ -14,6 +14,8 @@ export interface ListQuery {
   etat?: string;
   type?: string;
   archived?: boolean;
+  priorite?: string;
+  aTraiter?: string;
 }
 
 export interface BulkResult {

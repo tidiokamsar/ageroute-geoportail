@@ -1,15 +1,11 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileCheck2, ChevronDown, Plus, Pencil, Archive, Link2, TrendingUp, X, Search, Wallet, Trash2 } from "lucide-react";
-import { useEntityMutations } from "../hooks/useEntity";
-import { DataTable } from "../components/DataTable";
-import { EntityForm } from "../components/EntityForm";
+import { Link2, TrendingUp, X, Search, Wallet, Trash2, Briefcase } from "lucide-react";
+import { EntityListPage, FilterSelect } from "./EntityListPage";
 import { Modal } from "../components/ui/Modal";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
-import { useAuth, canWrite, canDelete } from "../lib/auth";
-import { useConfirm } from "../hooks/useConfirm";
 import { parseApiError } from "../lib/errors";
 import { toast } from "../lib/toast";
 import { api } from "../lib/api";
@@ -49,26 +45,6 @@ function StatutPill({ statut }: { statut: StatutMarche }) {
       <span className={`h-1.5 w-1.5 rounded-full ${m.dot}`} />
       {m.label}
     </span>
-  );
-}
-
-function FilterSelect({ value, onChange, children }: {
-  value: string; onChange: (v: string) => void; children: React.ReactNode;
-}) {
-  const active = value !== "";
-  return (
-    <div className="relative">
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={`appearance-none rounded-lg border px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-navy/20 transition-colors ${
-          active ? "border-navy/40 bg-navy/5 text-navy font-medium" : "border-gray-200 bg-white text-gray-600"
-        }`}
-      >
-        {children}
-      </select>
-      <ChevronDown className={`pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 ${active ? "text-navy/60" : "text-gray-400"}`} />
-    </div>
   );
 }
 
@@ -431,65 +407,30 @@ function DecaissementsModal({ marche, onClose }: { marche: Marche; onClose: () =
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
-export function MarchesPage() {
-  const { user } = useAuth();
-  const { confirm, dialog: confirmDialog } = useConfirm();
+// ── Page : enveloppe EntityListPage (consolidation) ──────────────────────────
+// Spécifique conservé : colonnes financières (montant, % décaissé cliquable,
+// chantiers liés, mois d'avancement) ouvrant les trois modales métier
+// (liaison chantiers, courbe en S, décaissements/décomptes), filtres
+// statut/bailleur.
 
+export function MarchesPage() {
   const [statutFilter, setStatutFilter] = useState("");
   const [bailleurFilter, setBailleurFilter] = useState("");
-  const [page, setPage] = useState(1);
-  const [sortBy, setSortBy] = useState("createdAt");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<Marche | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [chantiersFor, setChantiersFor] = useState<Marche | null>(null);
   const [avancementFor, setAvancementFor] = useState<Marche | null>(null);
   const [decaissementsFor, setDecaissementsFor] = useState<Marche | null>(null);
 
-  const { data, isLoading } = useQuery({
-    queryKey: ["marches", "list", { page, statutFilter, bailleurFilter, sortBy, sortDir }],
-    queryFn: async () => (await api.get<PaginatedResult<Marche>>("/marches", {
-      params: {
-        page, pageSize: 20, sortBy, sortDir,
-        statut: statutFilter || undefined,
-        bailleurId: bailleurFilter || undefined,
-      },
-    })).data,
-  });
-
   const { data: bailleurs } = useQuery({
     queryKey: ["bailleurs"],
     queryFn: async () => (await api.get<Bailleur[]>("/bailleurs")).data,
-    staleTime: 300_000,
   });
-
-  const { create, update, remove } = useEntityMutations("marches");
-  const rows = useMemo(() => data?.data ?? [], [data?.data]);
-
-  async function handleSubmit(values: Record<string, unknown>) {
-    setFormError(null); setFieldErrors({});
-    try {
-      if (editing) await update.mutateAsync({ id: editing.id, payload: values });
-      else await create.mutateAsync(values);
-      setModalOpen(false); setEditing(null);
-    } catch (err) {
-      const { message, fieldErrors: fe } = parseApiError(err);
-      setFormError(message); setFieldErrors(fe);
-    }
-  }
-  function openEdit(m: Marche) { setEditing(m); setFormError(null); setFieldErrors({}); setModalOpen(true); }
-  function closeModal() { setModalOpen(false); setEditing(null); }
 
   const columns: ColumnDef<Marche, unknown>[] = [
     {
       id: "intitule",
       header: "Marché",
       cell: ({ row: { original: m } }) => (
-        <button onClick={() => openEdit(m)} className="text-left text-sm font-semibold text-navy hover:underline">
-          {m.intitule}
-        </button>
+        <span className="text-left text-sm font-semibold text-navy">{m.intitule}</span>
       ),
     },
     {
@@ -556,102 +497,40 @@ export function MarchesPage() {
         </button>
       ),
     },
-    {
-      id: "row-actions",
-      header: "",
-      cell: ({ row: { original: m } }) => (
-        <div className="flex items-center gap-1 justify-end">
-          {canWrite(user?.role) && (
-            <button onClick={() => openEdit(m)} className="h-7 w-7 flex items-center justify-center rounded-md text-gray-400 hover:text-navy hover:bg-navy/5 transition-colors" title="Modifier">
-              <Pencil className="h-3.5 w-3.5" />
-            </button>
-          )}
-          {canDelete(user?.role) && (
-            <button
-              onClick={async () => { if (await confirm("Archiver ce marché ?", { danger: true })) remove.mutate(m.id); }}
-              className="h-7 w-7 flex items-center justify-center rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors"
-              title="Archiver"
-            >
-              <Archive className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-      ),
-    },
   ];
 
   return (
-    <div className="space-y-3">
-      {/* Page header */}
-      <div className="bg-gradient-to-r from-navy via-navy2 to-[#1e3a5f] rounded-xl p-5 text-white flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
-            <FileCheck2 className="h-5 w-5 text-gold" />
-          </div>
-          <div>
-            <h1 className="text-lg font-bold">Marchés</h1>
-            <p className="text-white/60 text-sm">{(data?.total ?? 0).toLocaleString("fr-FR")} marchés recensés — suivi contractuel et financier</p>
-          </div>
-        </div>
-        {canWrite(user?.role) && (
-          <Button
-            onClick={() => { setEditing(null); setFormError(null); setFieldErrors({}); setModalOpen(true); }}
-            className="bg-white/10 hover:bg-white/20 text-white border border-white/20"
-          >
-            <Plus className="h-4 w-4 mr-1" /> Nouveau marché
-          </Button>
-        )}
-      </div>
-
-      {/* Filtres */}
-      <div className="flex items-center gap-2 flex-wrap">
-        <FilterSelect value={statutFilter} onChange={(v) => { setStatutFilter(v); setPage(1); }}>
-          <option value="">Tous les statuts</option>
-          <option value="PLANIFIE">Planifié</option>
-          <option value="EN_COURS">En cours</option>
-          <option value="SUSPENDU">Suspendu</option>
-          <option value="TERMINE">Terminé</option>
-          <option value="SOLDE">Soldé</option>
-        </FilterSelect>
-        <FilterSelect value={bailleurFilter} onChange={(v) => { setBailleurFilter(v); setPage(1); }}>
-          <option value="">Tous les bailleurs</option>
-          {(bailleurs ?? []).map((b) => <option key={b.id} value={b.id}>{b.nom}</option>)}
-        </FilterSelect>
-      </div>
-
-      {/* Table */}
-      <DataTable<Marche>
-        data={rows}
-        columns={columns}
-        page={data?.page ?? 1}
-        totalPages={data?.totalPages ?? 1}
-        total={data?.total ?? 0}
-        sortBy={sortBy}
-        sortDir={sortDir}
-        loading={isLoading}
-        onPageChange={setPage}
-        onSortChange={(key) => {
-          if (key === sortBy) setSortDir(sortDir === "asc" ? "desc" : "asc");
-          else { setSortBy(key); setSortDir("asc"); }
-        }}
-      />
-
-      <Modal open={modalOpen} onClose={closeModal} title={editing ? `Modifier — ${editing.intitule}` : "Nouveau marché"}>
-        <EntityForm
-          fields={marcheFields}
-          defaultValues={(editing ?? {}) as Record<string, unknown>}
-          onSubmit={handleSubmit}
-          submitting={create.isPending || update.isPending}
-          serverError={formError}
-          serverFieldErrors={fieldErrors}
-        />
-      </Modal>
-
+    <EntityListPage<Marche>
+      endpoint="marches"
+      title="Marchés"
+      subtitle="Marchés, décomptes et avancement"
+      pageIcon={<Briefcase className="h-4 w-4 text-emerald-600" />}
+      searchPlaceholder="Rechercher un marché…"
+      columns={columns}
+      fields={marcheFields}
+      auditEntityType="Marche"
+      extraParams={{
+        statut: statutFilter || undefined,
+        bailleurId: bailleurFilter || undefined,
+      }}
+      filters={
+        <>
+          <FilterSelect value={statutFilter} onChange={setStatutFilter}>
+            <option value="">Tous les statuts</option>
+            {(Object.entries(STATUT_META) as [StatutMarche, { label: string }][]).map(([v, m]) => (
+              <option key={v} value={v}>{m.label}</option>
+            ))}
+          </FilterSelect>
+          <FilterSelect value={bailleurFilter} onChange={setBailleurFilter}>
+            <option value="">Tous les bailleurs</option>
+            {(bailleurs ?? []).map((b) => <option key={b.id} value={String(b.id)}>{b.nom}</option>)}
+          </FilterSelect>
+        </>
+      }
+    >
       {chantiersFor && <ChantiersLinkModal marche={chantiersFor} onClose={() => setChantiersFor(null)} />}
       {avancementFor && <AvancementModal marche={avancementFor} onClose={() => setAvancementFor(null)} />}
       {decaissementsFor && <DecaissementsModal marche={decaissementsFor} onClose={() => setDecaissementsFor(null)} />}
-
-      {confirmDialog}
-    </div>
+    </EntityListPage>
   );
 }

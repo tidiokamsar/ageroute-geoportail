@@ -65,9 +65,12 @@ interface Props<T extends { id: string }> {
   children?: React.ReactNode;
   /** Contenu rendu entre l'en-tête et la barre de recherche (ex : cartes KPI). */
   aboveList?: React.ReactNode;
+  /** Notifié à chaque chargement des lignes courantes (stats dérivées côté page :
+   *  segments par axe, compteurs…) — les lignes filtrées (rowFilter) exclues. */
+  onRowsLoaded?: (rows: T[]) => void;
 }
 
-export function EntityListPage<T extends { id: string }>({ endpoint, title, columns, fields, searchPlaceholder, importExport, auditEntityType, rowExtraActions, filters, extraParams, rowFilter, pageIcon, subtitle, defaultSortBy, headerExtra, children, aboveList }: Props<T>) {
+export function EntityListPage<T extends { id: string }>({ endpoint, title, columns, fields, searchPlaceholder, importExport, auditEntityType, rowExtraActions, filters, extraParams, rowFilter, pageIcon, subtitle, defaultSortBy, headerExtra, children, aboveList, onRowsLoaded }: Props<T>) {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [page, setPage] = useState(1);
@@ -141,6 +144,10 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
 
   const rows = rowFilter ? (data?.data ?? []).filter(rowFilter) : (data?.data ?? []);
   const allOnPageSelected = rows.length > 0 && rows.every((r) => selected.has(r.id));
+
+  useEffect(() => {
+    onRowsLoaded?.(data?.data ?? []);
+  }, [data?.data, onRowsLoaded]);
 
   const actionColumn: ColumnDef<T, unknown> = {
     id: "actions",
