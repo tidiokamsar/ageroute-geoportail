@@ -212,6 +212,7 @@ export function GeoportailPage() {
   );
   const [drawMode, setDrawMode] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [rechercheVilleOuverte, setRechercheVilleOuverte] = useState(false);
   const [drawPhase, setDrawPhase] = useState<DrawPhase>("drawing");
   const [drawLengthKm, setDrawLengthKm] = useState(0);
   const [drawnPoints, setDrawnPoints] = useState<[number, number][] | null>(null);
@@ -571,8 +572,18 @@ export function GeoportailPage() {
         </p>
       )}
 
-      {/* Barre de recherche + outils */}
-      <div className="absolute z-20 top-3 left-1/2 -translate-x-1/2 w-80 flex flex-col items-center gap-2">
+      {/* Rangee du haut : recherche a gauche, outils a droite, jamais superposees.
+          La version precedente centrait la recherche et calait les outils a droite :
+          au-dela de six boutons, les deux blocs se recouvraient. */}
+      {/* Le decalage gauche suit la largeur du panneau : cette rangee se cale sur
+          l'enveloppe externe, qui englobe le panneau ET la carte. Sans cela, la
+          recherche se pose sur le panneau des couches. */}
+      <div
+        className={`pointer-events-none absolute top-3 right-3 z-20 flex items-start justify-between gap-4 transition-all duration-200 ${
+          sidebarOpen ? "left-[19rem]" : "left-[3.25rem]"
+        }`}
+      >
+      <div className="pointer-events-auto flex w-80 max-w-[46%] flex-col items-center gap-2">
         <div className="relative w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
@@ -582,11 +593,36 @@ export function GeoportailPage() {
             className="w-full rounded-full border border-gray-200 bg-white pl-9 pr-3 py-2 text-sm shadow-md focus:outline-none focus:ring-2 focus:ring-gold/50"
           />
         </div>
-        {/* Recherche par ville : filtre la couche tronçons (une ville = alentours,
-            deux villes = corridor). */}
-        <div className="w-full rounded-lg border border-gray-200 bg-white/95 px-2 py-1.5 shadow-md backdrop-blur">
-          <RechercheVille compact onAppliquer={setVilleFiltre} />
-        </div>
+        {/* Recherche par ville : outil occasionnel, replie par defaut. Deploye en
+            permanence, il occupait le haut de la carte et masquait les commandes de
+            zoom — pour une fonction utilisee ponctuellement. */}
+        {!rechercheVilleOuverte ? (
+          <button
+            type="button"
+            onClick={() => setRechercheVilleOuverte(true)}
+            className="flex items-center gap-1.5 self-start rounded-full border border-gray-200 bg-white/95 px-3 py-1 text-[12px] font-medium text-navy shadow-md backdrop-blur hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+          >
+            <MapPin className="h-3.5 w-3.5 text-gray-400" />
+            Filtrer par ville
+          </button>
+        ) : (
+          <div className="w-full rounded-lg border border-gray-200 bg-white/95 px-2 py-1.5 shadow-md backdrop-blur">
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                Filtrer par ville
+              </span>
+              <button
+                type="button"
+                onClick={() => setRechercheVilleOuverte(false)}
+                aria-label="Fermer le filtre par ville"
+                className="rounded p-0.5 text-gray-400 hover:text-navy focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+            <RechercheVille compact onAppliquer={setVilleFiltre} />
+          </div>
+        )}
         {villeFiltre && (
           <button
             onClick={() => setVilleFiltre(null)}
@@ -616,7 +652,7 @@ export function GeoportailPage() {
         )}
       </div>
 
-      <div className="absolute z-20 top-3 right-3 flex items-center gap-1.5">
+      <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-1.5">
         {canWrite(user?.role) && (
           <button
             onClick={() => {
@@ -646,7 +682,7 @@ export function GeoportailPage() {
             title="Mesurer une distance"
             className={`flex items-center gap-1.5 px-2.5 py-2 ${measureMode === "distance" ? "bg-navy text-white" : "hover:bg-gray-50"}`}
           >
-            <Ruler className="h-3.5 w-3.5" /><span className="hidden sm:inline">Distance</span>
+            <Ruler className="h-3.5 w-3.5" /><span className="hidden sm:inline">Mesurer</span>
           </button>
           <button
             onClick={() => setMeasureMode(measureMode === "area" ? "off" : "area")}
@@ -668,7 +704,7 @@ export function GeoportailPage() {
             title="Estimer la distance à vol d'oiseau entre deux tronçons"
             className={`flex items-center gap-1.5 px-2.5 py-2 ${itineraireOpen ? "bg-navy text-white" : "hover:bg-gray-50"}`}
           >
-            <Navigation className="h-3.5 w-3.5" /><span className="hidden sm:inline">Distance</span>
+            <Navigation className="h-3.5 w-3.5" /><span className="hidden sm:inline">Distance A–B</span>
           </button>
           <button
             onClick={handleShare}
@@ -688,6 +724,7 @@ export function GeoportailPage() {
             {fullscreen ? <Minimize className="h-3.5 w-3.5" /> : <Maximize className="h-3.5 w-3.5" />}
           </button>
         </div>
+      </div>
       </div>
 
       {measureMode !== "off" && (
@@ -803,22 +840,32 @@ export function GeoportailPage() {
           {/* KPIs réseau */}
           {kpis && (
             <PanelSection icon={<BarChart2 className="h-4 w-4" />} title="Tableau de bord">
-              <div className="grid grid-cols-2 gap-1.5 mb-2">
-                {/* « Lineaire total » etait faux : ce chiffre est la longueur SAISIE,
-                    renseignee sur 662 troncons sur 1 690. La longueur calculee depuis
-                    la geometrie donne 21 156 km. Deux chiffres, deux libelles. */}
-                <MiniStat label="Longueur renseignée" value={`${kpis.longueurTotaleKm.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} km`} accent="#1a2942" />
+              {/* Deux registres, deux traitements. Les longueurs MESURENT le reseau :
+                  elles portent l'information principale et occupent toute la largeur.
+                  Les comptes INVENTORIENT : ils tiennent sur une rangee compacte.
+                  L'ancienne grille a deux colonnes mettait les six sur le meme plan,
+                  et « Longueur renseignée » se cassait en deux lignes dans 130 px. */}
+              <div className="mb-2 space-y-1.5">
+                <Mesure
+                  label="Longueur renseignée"
+                  valeur={kpis.longueurTotaleKm.toLocaleString("fr-FR", { maximumFractionDigits: 0 })}
+                  unite="km"
+                  accent="#1a2942"
+                />
                 {kpis.reseau?.geometrique?.totalKm > 0 && (
-                  <MiniStat
-                    label="Calculé (géométrie)"
-                    value={`${kpis.reseau.geometrique.totalKm.toLocaleString("fr-FR", { maximumFractionDigits: 0 })} km`}
+                  <Mesure
+                    label="Calculé depuis la géométrie"
+                    valeur={kpis.reseau.geometrique.totalKm.toLocaleString("fr-FR", { maximumFractionDigits: 0 })}
+                    unite="km"
                     accent="#0891b2"
                   />
                 )}
-                <MiniStat label="Tronçons" value={kpis.tronconsCount} accent="#1a2942" />
-                <MiniStat label="Ouvrages" value={kpis.ouvragesCount} accent="#7c3aed" />
-                <MiniStat label="Chantiers actifs" value={kpis.chantiersEnCours} accent="#f5a623" />
-                <MiniStat label="Points noirs" value={kpis.pointsNoirsCount} accent="#dc2626" />
+                <div className="grid grid-cols-4 divide-x divide-gray-100 rounded-md bg-gray-50 py-1.5">
+                  <Compte valeur={kpis.tronconsCount} label="Tronçons" />
+                  <Compte valeur={kpis.ouvragesCount} label="Ouvrages" />
+                  <Compte valeur={kpis.chantiersEnCours} label="Chantiers" />
+                  <Compte valeur={kpis.pointsNoirsCount} label="Pts noirs" />
+                </div>
               </div>
               <div className="space-y-1 pt-1 border-t border-gray-100">
                 {repartitionParEtat.map((r) => (
@@ -851,9 +898,15 @@ export function GeoportailPage() {
             {/* Légende des natures : la forme identifie l'objet, la couleur porte
                 l'information d'état/grité — sans cette clé, un dalot et un pont
                 se lisaient comme deux points identiques. */}
-            <div className="mt-2 pt-2 border-t border-gray-100 space-y-1">
-              <p className="text-[11px] font-medium text-gray-500">Nature des symboles</p>
-              <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[11px] text-gray-600">
+            {/* Legende repliee par defaut : huit symboles et deux phrases de cle
+                occupaient un tiers du panneau en permanence. On la consulte une fois,
+                puis on la connait. */}
+            <details className="group mt-2 border-t border-gray-100 pt-2">
+              <summary className="flex cursor-pointer list-none items-center gap-1 text-[11px] font-medium text-gray-500 hover:text-navy">
+                <ChevronDown className="h-3 w-3 transition-transform group-open:rotate-180" />
+                Nature des symboles
+              </summary>
+              <div className="mt-1.5 grid grid-cols-2 gap-x-2 gap-y-0.5 text-[11px] text-gray-600">
                 <span><span className="font-bold text-gray-800">⌒</span> Pont / viaduc</span>
                 <span><span className="font-bold text-gray-800">▤</span> Dalot</span>
                 <span><span className="font-bold text-gray-800">◉</span> Buse / ponceau</span>
@@ -863,10 +916,14 @@ export function GeoportailPage() {
                 <span><span className="font-bold text-gray-800">▮▮</span> Péage</span>
                 <span><span className="font-bold text-gray-800">⚖</span> Pesage</span>
               </div>
-              <p className="text-[11px] text-gray-600">
-                Couleur des ouvrages = état (vert bon → rouge critique) · Points noirs : ▲ forte, ◆ moyenne, ● faible
+              <p className="mt-1.5 text-[11px] leading-snug text-gray-500">
+                La <strong className="font-semibold text-gray-700">forme</strong> identifie
+                l'objet, la <strong className="font-semibold text-gray-700">couleur</strong> son
+                état — vert bon, rouge critique.
+                <br />
+                Points noirs : ▲ gravité forte · ◆ moyenne · ● faible
               </p>
-            </div>
+            </details>
             <div className="mt-2 pt-2 border-t border-gray-100">
               <LayerRow checked={showPontsOsm} onChange={() => setShowPontsOsm((v) => !v)} label="Franchissements OSM (propositions D9)" />
               {showPontsOsm && (
@@ -879,7 +936,7 @@ export function GeoportailPage() {
                       FRANCHISSEMENTS. Sans cet intitule, « Reseau classe · 990 » se lit
                       comme 990 routes — signale a l'usage. */}
                   <p className="text-[11px] font-medium text-gray-600">
-                    Nombre de franchissements, par nature de la voie franchie
+                    Ouvrages de franchissement, selon la voie franchie
                   </p>
                   {(["CLASSE", "AUTRE_ROUTE", "CHEMIN"] as CategorieVoie[]).map((c) => (
                     <label key={c} className="flex items-center gap-2 cursor-pointer text-[11px] text-gray-600">
@@ -1271,12 +1328,32 @@ export function GeoportailPage() {
   );
 }
 
-function MiniStat({ label, value, accent }: { label: string; value: string | number; accent: string }) {
+/** Une mesure du reseau : le libelle au-dessus, le chiffre en grand, l'unite en
+ *  retrait. `tabular-nums` pour que deux mesures empilees s'alignent. */
+function Mesure({ label, valeur, unite, accent }: {
+  label: string; valeur: string; unite: string; accent: string;
+}) {
   return (
-    <div className="relative rounded-md bg-gray-50 p-2 pl-3 overflow-hidden">
+    <div className="relative overflow-hidden rounded-md bg-gray-50 py-1.5 pl-3 pr-2">
       <span className="absolute inset-y-0 left-0 w-1" style={{ backgroundColor: accent }} />
-      <p className="text-[10px] text-gray-500 leading-tight">{label}</p>
-      <p className="text-base font-bold text-navy leading-tight">{value}</p>
+      <p className="text-[9.5px] font-semibold uppercase leading-tight tracking-wide text-gray-500">
+        {label}
+      </p>
+      <p className="text-[20px] font-bold leading-none text-navy tabular-nums">
+        {valeur}
+        <span className="ml-1 text-[12px] font-semibold text-gray-400">{unite}</span>
+      </p>
     </div>
   );
 }
+
+/** Un compte d'inventaire : registre secondaire, rangee compacte. */
+function Compte({ valeur, label }: { valeur: number; label: string }) {
+  return (
+    <div className="px-1 text-center">
+      <p className="text-[15px] font-bold leading-none text-navy tabular-nums">{valeur}</p>
+      <p className="mt-0.5 text-[9.5px] leading-tight text-gray-500">{label}</p>
+    </div>
+  );
+}
+

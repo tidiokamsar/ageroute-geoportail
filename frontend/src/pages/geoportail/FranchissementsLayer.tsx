@@ -35,7 +35,22 @@ import { franchissementIcon } from "./symbols";
 
 export type CategorieVoie = "CLASSE" | "AUTRE_ROUTE" | "CHEMIN";
 
+/**
+ * Libelles des filtres du panneau.
+ *
+ * Ils commencent par « Sur » a dessein. « Chemins et sentiers · 1102 » se lisait
+ * comme « 1 102 chemins », et l'utilisateur cochait la case en attendant de voir
+ * apparaitre des chemins. Cette couche ne dessine QUE des ouvrages de
+ * franchissement ; la categorie qualifie la voie franchie, pas ce qui est affiche.
+ */
 export const LIBELLE_CATEGORIE: Record<CategorieVoie, string> = {
+  CLASSE: "Sur réseau classé",
+  AUTRE_ROUTE: "Sur autres voies carrossables",
+  CHEMIN: "Sur chemins et sentiers",
+};
+
+/** Nom de la categorie seule, pour la fiche ou « Sur » n'a pas de sens. */
+export const NOM_CATEGORIE: Record<CategorieVoie, string> = {
   CLASSE: "Réseau classé",
   AUTRE_ROUTE: "Autres voies carrossables",
   CHEMIN: "Chemins et sentiers",
@@ -197,7 +212,7 @@ function FicheFranchissement({
       </div>
 
       <div className="mt-2 border-t border-gray-100 pt-1">
-        <Ligne label="Voie franchie" valeur={LIBELLE_CATEGORIE[f.categorie]} />
+        <Ligne label="Voie franchie" valeur={NOM_CATEGORIE[f.categorie]} />
         <Ligne label="Longueur du tracé" valeur={`${Math.round(f.longueurM)} m`} />
         <Ligne
           label="Ouvrage le plus proche"
