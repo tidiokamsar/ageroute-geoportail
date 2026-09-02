@@ -16,6 +16,7 @@ import { postesRouter } from "./modules/postes/postes.routes";
 import { chantiersRouter } from "./modules/chantiers/chantiers.routes";
 import { inspectionsRouter } from "./modules/inspections/inspections.routes";
 import { dashboardRouter } from "./modules/dashboard/dashboard.routes";
+import { voirieLocaleRouter } from "./modules/voirie-locale/voirie-locale.routes";
 import { marchesRouter } from "./modules/marches/marches.routes";
 import { adminSettingsRouter } from "./modules/admin/settings.routes";
 import { otRouter } from "./modules/ordres-travaux/ot.routes";
@@ -113,6 +114,7 @@ export function createApp() {
   app.use("/api/auth", authRouter);
   app.use("/api/regions", regionsRouter);
   app.use("/api/troncons", tronconsRouter);
+  app.use("/api/voirie-locale", voirieLocaleRouter);
   app.use("/api/ouvrages", ouvragesRouter);
   app.use("/api/points-noirs", pointsNoirsRouter);
   app.use("/api/postes", postesRouter);

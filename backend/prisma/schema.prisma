@@ -306,6 +306,7 @@ model Region {
   postes    Poste[]
   chantiers Chantier[]
   ordresTravaux OrdreTravaux[]
+  voiriesLocales VoirieLocale[]
 
   @@map("regions")
 }
@@ -346,6 +347,7 @@ model Troncon {
   sourceDetectedAt DateTime?
   geom            Unsupported("geometry(LineString,4326)")?
   propositionsLocalisation PropositionLocalisation[]
+  voiriesLocales           VoirieLocale[]
   ouvrages        Ouvrage[]
   pointsNoirs     PointNoir[]
   postes          Poste[]
@@ -947,4 +949,99 @@ model PropositionLocalisation {
   @@index([chantierId])
   @@index([statut])
   @@map("propositions_localisation")
+}
+
+// ===================== VOIRIE LOCALE (source externe) =====================
+
+enum SourceVoirie {
+  OSM
+  IMPORT_AGEROUTE
+  SAISIE_APPLICATIVE
+}
+
+/// Regroupement des 21 valeurs de NATURE d'OpenStreetMap.
+///
+/// INFERE : aucun champ source ne porte ce regroupement. `CL_ADMIN` vaut « Autre »
+/// sur les 262 656 objets, et NATURE decrit la praticabilite, pas le statut. Ce
+/// classement est une lecture, pas une donnee.
+enum CategorieVoirie {
+  VOIE_RAPIDE
+  PRINCIPALE
+  SECONDAIRE
+  TERTIAIRE
+  VOIE_LOCALE
+  RESIDENTIELLE
+  ACCES
+  CHEMIN
+  SENTIER
+  PIETON
+  INCONNU
+}
+
+/// Cycle de vie d'une voie externe.
+///
+/// VALIDEE ne signifie PAS que la voie devient RN/RR/RU. C'est une validation
+/// CARTOGRAPHIQUE — le trace est juge correct. Le classement institutionnel est une
+/// decision distincte, materialisee par `tronconId`.
+enum StatutVoirie {
+  SOURCE_EXTERNE
+  CANDIDATE
+  VALIDEE
+  REJETEE
+  ARCHIVEE
+}
+
+/// Voirie issue d'une source cartographique externe.
+///
+/// N'EST PAS un actif du patrimoine AGEROUTE. Table separee de `Troncon` pour trois
+/// raisons mesurees : 262 656 lignes multiplieraient par 156 tous les indicateurs
+/// existants ; les contraintes non nulles de Troncon (regionId, longueurKm,
+/// revetement, etat, pkDebut, pkFin) exigeraient des valeurs inventees ; et la
+/// distinction entre actif AGEROUTE et donnee externe doit tenir dans le temps.
+model VoirieLocale {
+  id                 String       @id @default(uuid())
+
+  // Provenance, obligatoire.
+  source             SourceVoirie
+  sourceId           String
+  sourceDate         DateTime?
+  importedAt         DateTime     @default(now())
+  /// Lot d'import, pour retrouver d'ou vient une ligne. Ex : « A_OSM_RESEAU_ROUTIER 2023-03-08 ».
+  importLot          String
+
+  // Attributs de la source, tels quels.
+  /// Valeur NATURE brute, non traduite — la trace de ce que la source disait.
+  nature             String
+  /// 0,4 % renseignes dans le jeu 2023.
+  nom                String?
+  /// NUMERO, 0,6 % renseignes.
+  reference          String?
+  sens               String?
+
+  // Lecture derivee, marquee comme telle.
+  categorie          CategorieVoirie
+  longueurCalculeeKm Float
+
+  // Rattachement faible. Nul tant qu'aucune methode ne l'a etabli : la source ne
+  // porte aucun decoupage administratif.
+  regionId           Int?
+  region             Region?      @relation(fields: [regionId], references: [id])
+  regionMethode      String?
+
+  // Cycle de vie.
+  statut             StatutVoirie @default(SOURCE_EXTERNE)
+  /// Rempli quand la voie devient un actif AGEROUTE. L'identifiant source ne devient
+  /// JAMAIS un identifiant BDRI : la relation est conservee, l'identite non.
+  tronconId          String?
+  troncon            Troncon?     @relation(fields: [tronconId], references: [id])
+
+  geom               Unsupported("geometry(LineString,4326)")?
+
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  @@unique([source, sourceId])
+  @@index([categorie])
+  @@index([statut])
+  @@map("voirie_locale")
 }

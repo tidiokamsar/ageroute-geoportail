@@ -30,6 +30,12 @@ import {
   type FranchissementPoint,
 } from "./geoportail/FranchissementsLayer";
 import { FRANCHISSEMENT_TYPE_OUVRAGE } from "./geoportail/symbols";
+import {
+  VoirieLocaleLayer,
+  LIBELLE_VOIRIE,
+  ZOOM_MINIMUM,
+  type CategorieVoirie,
+} from "./geoportail/VoirieLocaleLayer";
 import { RechercheVille } from "../components/RechercheVille";
 import { tronconDansFiltre, type FiltreVille } from "../lib/villes";
 import axios from "axios";
@@ -213,6 +219,17 @@ export function GeoportailPage() {
   const [drawMode, setDrawMode] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [rechercheVilleOuverte, setRechercheVilleOuverte] = useState(false);
+  // Voirie locale : couche de 262 656 objets, servie par emprise au-dela du zoom 12.
+  // Par defaut, seules les voies carrossables — les 175 283 chemins et sentiers font
+  // les deux tiers du volume pour l'usage le moins etabli.
+  const [showVoirie, setShowVoirie] = useState(false);
+  const [categoriesVoirie, setCategoriesVoirie] = useState<Set<CategorieVoirie>>(
+    () => new Set<CategorieVoirie>(["VOIE_LOCALE", "RESIDENTIELLE", "ACCES"])
+  );
+  const [etatVoirie, setEtatVoirie] = useState({
+    zoomSuffisant: false, chargement: false, voies: 0, tronque: false,
+    erreur: null as string | null,
+  });
   const [drawPhase, setDrawPhase] = useState<DrawPhase>("drawing");
   const [drawLengthKm, setDrawLengthKm] = useState(0);
   const [drawnPoints, setDrawnPoints] = useState<[number, number][] | null>(null);
@@ -924,6 +941,62 @@ export function GeoportailPage() {
                 Points noirs : ▲ gravité forte · ◆ moyenne · ● faible
               </p>
             </details>
+            {/* Voirie locale : les traces eux-memes, par opposition aux
+                franchissements qui ne sont que des ouvrages ponctuels. */}
+            <div className="mt-2 border-t border-gray-100 pt-2">
+              <LayerRow
+                checked={showVoirie}
+                onChange={() => setShowVoirie((v) => !v)}
+                label="Voirie locale (OpenStreetMap)"
+              />
+              {showVoirie && (
+                <div className="ml-6 mt-1 space-y-1.5">
+                  {!etatVoirie.zoomSuffisant ? (
+                    <p className="rounded-md bg-amber-50 px-2 py-1.5 text-[11px] leading-snug text-amber-800">
+                      Rapprochez la vue pour afficher les tracés — cette couche compte
+                      262 656 voies et ne se charge qu'à l'échelle d'une ville
+                      (zoom {ZOOM_MINIMUM}).
+                    </p>
+                  ) : etatVoirie.erreur ? (
+                    <p className="rounded-md bg-red-50 px-2 py-1.5 text-[11px] leading-snug text-red-700">
+                      {etatVoirie.erreur}
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-gray-500">
+                      {etatVoirie.chargement
+                        ? "Chargement…"
+                        : `${etatVoirie.voies.toLocaleString("fr-FR")} voie(s) dans la vue`}
+                      {etatVoirie.tronque && (
+                        <span className="text-amber-700"> — affichage tronqué, rapprochez la vue</span>
+                      )}
+                    </p>
+                  )}
+
+                  {(["VOIE_LOCALE", "RESIDENTIELLE", "ACCES", "CHEMIN", "SENTIER"] as CategorieVoirie[]).map((c) => (
+                    <label key={c} className="flex cursor-pointer items-center gap-2 text-[11px] text-gray-600">
+                      <Checkbox
+                        checked={categoriesVoirie.has(c)}
+                        onCheckedChange={() =>
+                          setCategoriesVoirie((prev) => {
+                            const n = new Set(prev);
+                            if (n.has(c)) n.delete(c); else n.add(c);
+                            return n;
+                          })
+                        }
+                      />
+                      {LIBELLE_VOIRIE[c]}
+                    </label>
+                  ))}
+
+                  <p className="text-[11px] leading-snug text-gray-400">
+                    Tracés gris, hiérarchisés par épaisseur — la couleur reste réservée
+                    à l'état du réseau AGEROUTE. Donnée externe, non validée : elle
+                    n'appartient pas au patrimoine tant qu'AGEROUTE ne l'a pas retenue.
+                  </p>
+                </div>
+              )}
+            </div>
+
             <div className="mt-2 pt-2 border-t border-gray-100">
               <LayerRow checked={showPontsOsm} onChange={() => setShowPontsOsm((v) => !v)} label="Franchissements OSM (propositions D9)" />
               {showPontsOsm && (
@@ -1200,6 +1273,12 @@ export function GeoportailPage() {
 
           {/* D9 : franchissements OSM en propositions — une couche GeoJSON unique.
               Rouge = aucun ouvrage BDRI a 250 m (a instruire), vert = correspondance. */}
+          {/* Voirie locale AVANT les troncons : le reseau AGEROUTE doit rester
+              au-dessus, c'est lui qu'on consulte. */}
+          {showVoirie && (
+            <VoirieLocaleLayer categories={categoriesVoirie} onChargement={setEtatVoirie} />
+          )}
+
           {showPontsOsm && pontsOsm && (
             <FranchissementsLayer
               key="ponts-osm-symboles"
