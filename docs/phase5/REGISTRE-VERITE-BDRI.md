@@ -31,7 +31,7 @@ des livrables détaillés (`RES-LOT-ANALYSIS.md`, `OSM-BDRI-DEEP-COMPARISON.md`,
 | **Topologie** | 1 composante géométrique, 0 jonction d'extrémités interclasses | Phase 5 + Phase 4 | élevée sur la mesure | TOPOLOGY_READY après périmètre (P5-11) |
 | **Localisation chantiers** | 189/488 ; 299 sans localisation exploitable | Phase 4 | mixte | référentiel administratif + validation des 33 propositions (P5-06) |
 | **Sauvegardes** | opérationnelles, éprouvées ; **clé en un seul exemplaire** | restauration réelle du 02/09/2026 | élevée sur la procédure / risque majeur sur la clé | décision de gestion de clé (P5-13) |
-| **Ouvrages d'art (126)** | inventaire partiel — couvre 9 des 2 698 ponts cartographiés par OSM (0,3 % à 250 m) | croisement P4 du 02/09/2026 (`P4-PONTS-OSM-CROISEMENT.md`) | élevée sur l'écart mesuré / nulle sur les 2 689 non identifiés | **décision D9** : reconstituer l'inventaire (validation des propositions une par une) ou acter le périmètre partiel |
+| **Ouvrages d'art (126)** | inventaire partiel — couvre 9 des 2 698 ponts cartographiés par OSM (0,3 % à 250 m) ; **positions non vérifiées** : 9/9 ponts posés par interpolation de PK (5/9 repliés au début du tronçon ; Kolenté/Konkouré/Fatala sans aucun pont OSM à 2,5 km de leur position) | croisement P4 du 02/09/2026 + vérification terrain utilisateur (symbole pont sans pont visible) | élevée sur les écarts mesurés / nulle sur les positions | **décision D9** : reconstituer l'inventaire (validation des propositions une par une) ou acter le périmètre partiel ; la carte affiche désormais « position héritée, non vérifiée » |
 | **Périmètre officiel du réseau** | **non défini nulle part** | audit documentaire complet | nulle | décision fondatrice D1 (P5-04) |
 
 ---
