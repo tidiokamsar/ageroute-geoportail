@@ -4,6 +4,7 @@ import { api } from "../lib/api";
 import { Modal } from "./ui/Modal";
 import { Button } from "./ui/Button";
 import { EtatBadge } from "./ui/Badge";
+import { QualiteBadge, qualiteDe, type QualiteChamp } from "./QualiteBadge";
 import { EntityForm } from "./EntityForm";
 import { FicheChildManager } from "./FicheChildManager";
 import { TronconDocumentsTab } from "./TronconDocumentsTab";
@@ -40,6 +41,17 @@ export function TronconFicheModal({ open, onClose, tronconId }: { open: boolean;
     queryKey: ["troncon", "fiche", tronconId],
     queryFn: async () => (await api.get<Fiche>(`/troncons/${tronconId}/fiche`)).data,
     enabled: open,
+  });
+
+  // Ce que l'on sait des valeurs affichees. Requete separee : la fiche reste lisible
+  // si l'appel echoue, et l'absence de qualite se traduit par une absence de badge,
+  // jamais par une valeur presentee comme plus sure qu'elle ne l'est.
+  const { data: qualite } = useQuery({
+    queryKey: ["troncon", "qualite", tronconId],
+    queryFn: async () =>
+      (await api.get<{ champs: QualiteChamp[] }>(`/qualite/Troncon/${tronconId}`)).data.champs,
+    enabled: open,
+    retry: false,
   });
 
   const tabs: { key: TabKey; label: string; count?: number }[] = [
@@ -109,11 +121,42 @@ export function TronconFicheModal({ open, onClose, tronconId }: { open: boolean;
                 <div className="space-y-1">
                   <Row label="Classe" value={data.troncon.classe} />
                   <Row label="Région" value={data.troncon.region?.nom ?? "—"} />
-                  <Row label="Longueur" value={`${data.troncon.longueurKm.toFixed(2)} km`} />
-                  <Row label="Revêtement" value={data.troncon.revetement} />
+                  <Row
+                    label="Longueur"
+                    value={
+                      <>
+                        {data.troncon.longueurKm > 0 ? `${data.troncon.longueurKm.toFixed(2)} km` : "—"}{" "}
+                        <QualiteBadge qualite={qualiteDe(qualite, "longueurKm")} />
+                      </>
+                    }
+                  />
+                  <Row
+                    label="Revêtement"
+                    value={
+                      <>
+                        {data.troncon.revetement} <QualiteBadge qualite={qualiteDe(qualite, "revetement")} />
+                      </>
+                    }
+                  />
                   <Row label="PK" value={`${data.troncon.pkDebut} → ${data.troncon.pkFin}`} />
-                  <Row label="Trafic moyen (j)" value={data.troncon.traficMoyenJma ?? "—"} />
-                  <Row label="État" value={<EtatBadge etat={data.troncon.etat} />} />
+                  <Row
+                    label="Trafic moyen (j)"
+                    value={
+                      <>
+                        {data.troncon.traficMoyenJma ?? "—"}{" "}
+                        <QualiteBadge qualite={qualiteDe(qualite, "traficMoyenJma")} />
+                      </>
+                    }
+                  />
+                  <Row
+                    label="État"
+                    value={
+                      <>
+                        <EtatBadge etat={data.troncon.etat} />{" "}
+                        <QualiteBadge qualite={qualiteDe(qualite, "etat")} />
+                      </>
+                    }
+                  />
                   {writable && (
                     <div className="flex justify-end pt-2">
                       <Button className="px-2 py-1 text-xs" onClick={() => setEditingInfos(true)}>

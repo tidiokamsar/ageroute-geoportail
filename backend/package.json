@@ -19,7 +19,8 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "typecheck:scripts": "tsc -p tsconfig.scripts.json",
-    "backfill:provenance": "tsx scripts/backfill-provenance.ts"
+    "backfill:provenance": "tsx scripts/backfill-provenance.ts",
+    "backfill:qualite": "tsx scripts/backfill-qualite.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",
