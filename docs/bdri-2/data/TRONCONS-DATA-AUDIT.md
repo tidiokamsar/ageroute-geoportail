@@ -103,21 +103,34 @@ Ce test simplifie une géométrie qui a d'abord été finement numérisée. Il m
 
 Le test donne donc une borne, pas une certitude. Il établit que la sinuosité des routes guinéennes à cette échelle est faible, ce qui rend le biais faible — mais il ne remplace pas une comparaison avec un tracé de référence indépendant.
 
-### Cette réserve est levée
+### Cette réserve a été levée trop vite — correction du 2 septembre
 
-*Ajout du 1er septembre 2026, après réception d'une extraction OpenStreetMap du réseau routier guinéen (8 mars 2023, 262 656 polylignes).*
+*Le 1er septembre, à réception d'une extraction OpenStreetMap (8 mars 2023), j'avais
+écrit ici que la réserve était levée : le réseau classé OSM totalise 21 490 km contre
+21 156 ici, un écart de 1,6 %.*
 
-Le réseau classé de cette source — voie rapide, primaire, secondaire, tertiaire —
-totalise **21 490 km**, contre **21 156 km** calculés ici. **Un écart de 1,6 %**, entre
-deux jeux constitués indépendamment, à trois ans d'intervalle, avec des nomenclatures
-différentes.
+**C'était une erreur de raisonnement, et le §14 du cadrage la nommait d'avance** : une
+longueur commune ne prouve pas que les tracés se superposent. Le recouvrement spatial,
+mesuré le 2 septembre (`docs/phase4/OSM-BDRI-COVERAGE-PHASE4.md`), donne :
 
-Le chiffre de 21 156 km tient donc face à une source externe. Les 7 933 km affichés ne
-décrivent qu'une partie du réseau.
+| Classe BDRI | Linéaire à moins de 25 m d'une route OSM classée | à 250 m |
+|---|---:|---:|
+| RN | **90,7 %** | 94,5 % |
+| RR | **2,5 %** | 20,6 % |
 
-La correspondance porte sur l'ordre de grandeur du réseau classé, non sur une
-équivalence classe par classe : « route tertiaire » au sens OSM n'est pas « route
-régionale » au sens AGEROUTE. Évaluation complète dans `BDRI-SOURCE-OSM-2023.md`.
+**Les nationales se superposent. Les régionales non.** L'accord des totaux tient à ce
+que deux ensembles de routes largement différents pèsent à peu près le même nombre de
+kilomètres.
+
+Ce qui reste établi : la géométrie des **nationales** est validée par une source
+externe à 90 % — c'est ce que la réserve demandait, pour cette classe. Ce qui n'est
+pas établi : que la géométrie des régionales `RES-*` corresponde à quoi que ce soit
+d'externe. Le test de simplification de la section 3 reste donc la seule mesure
+disponible de la fiabilité de leur longueur, avec les limites qu'il énonce.
+
+Le chiffre de 21 156 km demeure exact comme longueur de ce que la BDRI contient. Il
+n'est pas « la longueur du réseau classé guinéen » : pris ensemble, les deux jeux
+suggèrent un réseau réel plus grand que l'un ou l'autre.
 
 ---
 

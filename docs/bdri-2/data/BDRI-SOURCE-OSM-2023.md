@@ -81,8 +81,14 @@ des chemins, des routes résidentielles et des non classifiées — totalise :
 Deux jeux de données constitués indépendamment, à trois ans d'intervalle, avec des
 nomenclatures différentes, convergent à 1,6 % près.
 
-**La réserve de l'audit est levée.** Le chiffre de 21 156 km tient face à une source
-externe ; les 7 933 km affichés ne décrivent qu'une partie du réseau.
+**Cette conclusion a été corrigée le 2 septembre.** Le recouvrement spatial, mesuré
+ensuite (`docs/phase4/OSM-BDRI-COVERAGE-PHASE4.md`), montre que les nationales se
+superposent à 90,7 % mais que les régionales ne sont à moins de 250 m d'une route OSM
+classée que dans 20,6 % des cas. L'accord des totaux est une coïncidence : deux
+ensembles de routes différents, de longueur voisine. Le §14 du cadrage l'avait
+anticipé, et je l'ai écrit trop tard. Le chiffre de 21 156 km reste exact comme
+longueur de ce que la BDRI contient — il n'est pas corroboré comme « la » longueur du
+réseau classé.
 
 ### La limite de cette corroboration
 
@@ -109,6 +115,12 @@ bon chiffre.
 Les 1 028 tronçons régionaux de la BDRI sont décrits huit fois plus grossièrement que
 le réseau classé d'OSM. Là où les corridors se correspondent, OSM offrirait un tracé
 sensiblement plus fin.
+
+**Mais ils ne se correspondent presque jamais** — mesure du 2 septembre : 20,6 % du
+linéaire régional BDRI à moins de 250 m d'une route OSM classée, et 240 tronçons
+régionaux, 2 358 km, sans aucune correspondance. Le gain de densité n'est accessible
+que pour une régionale sur cinq. Ce que j'avais présenté comme la piste la plus
+prometteuse est, pour l'essentiel, sans objet.
 
 L'audit avait mesuré que cette grossièreté ne coûte qu'environ 1 % de longueur. Elle
 coûte en revanche à l'affichage cartographique et à toute analyse de tracé.
