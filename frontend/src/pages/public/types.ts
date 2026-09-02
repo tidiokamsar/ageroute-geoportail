@@ -34,16 +34,27 @@ export interface PublicChantier {
   lon: number | null;
 }
 
+export interface PublicOuvrage {
+  id: string;
+  nom: string;
+  type: string;
+  etat: string;
+  lat: number;
+  lon: number;
+}
+
 export interface PublicCarteData {
   troncons: PublicTroncon[];
   pointsNoirs: PublicPointNoir[];
   chantiers: PublicChantier[];
+  ouvrages?: PublicOuvrage[];
 }
 
 export type SelectedFeature =
   | { kind: "troncon"; data: PublicTroncon }
   | { kind: "chantier"; data: PublicChantier }
-  | { kind: "pointNoir"; data: PublicPointNoir };
+  | { kind: "pointNoir"; data: PublicPointNoir }
+  | { kind: "ouvrage"; data: PublicOuvrage };
 
 export const STATUT_LABELS: Record<StatutChantier, string> = {
   PLANIFIE: "Planifié",

@@ -1,8 +1,9 @@
 import { useEffect, useRef } from "react";
-import { X, Route, HardHat, AlertTriangle } from "lucide-react";
+import { X, Route, HardHat, AlertTriangle, Landmark } from "lucide-react";
 import { ETAT_COLORS, ETAT_LABELS, CHANTIER_COLORS } from "../geoportail/types";
 import { Ecusson } from "./Ecusson";
 import { CLASSE_LABELS, STATUT_LABELS, type SelectedFeature } from "./types";
+import { TYPE_OUVRAGE_LABEL } from "../geoportail/symbols";
 
 function Ligne({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -56,6 +57,7 @@ export function FicheElement({ feature, onClose }: { feature: SelectedFeature; o
     troncon: { icone: <Route className="h-4 w-4" />, titre: "Route" },
     chantier: { icone: <HardHat className="h-4 w-4" />, titre: "Chantier" },
     pointNoir: { icone: <AlertTriangle className="h-4 w-4" />, titre: "Point noir" },
+    ouvrage: { icone: <Landmark className="h-4 w-4" />, titre: "Ouvrage d'art" },
   }[feature.kind];
 
   return (
@@ -130,6 +132,22 @@ export function FicheElement({ feature, onClose }: { feature: SelectedFeature; o
                   </span>
                 </Ligne>
               )}
+            </>
+          )}
+
+          {feature.kind === "ouvrage" && (
+            <>
+              <Ligne label="Nom">{feature.data.nom}</Ligne>
+              <Ligne label="Type">{TYPE_OUVRAGE_LABEL[feature.data.type] ?? feature.data.type}</Ligne>
+              <Ligne label="État">
+                <span className="inline-flex items-center gap-2">
+                  <Pastille couleur={ETAT_COLORS[feature.data.etat as keyof typeof ETAT_COLORS] ?? "#9ca3af"} />
+                  {ETAT_LABELS[feature.data.etat as keyof typeof ETAT_LABELS] ?? feature.data.etat}
+                </span>
+              </Ligne>
+              <Ligne label="Position">
+                <span className="text-xs italic text-slate-500">héritée, non vérifiée</span>
+              </Ligne>
             </>
           )}
 

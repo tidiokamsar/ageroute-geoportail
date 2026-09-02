@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMap, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, GeoJSON, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import { canvas, divIcon, latLngBounds, type LatLngBounds, type Map as CarteLeaflet } from "leaflet";
 import { LogIn, AlertTriangle, LocateFixed, Loader2, Plus, Minus } from "lucide-react";
 import axios from "axios";
 import { ETAT_COLORS, ETAT_LABELS, CHANTIER_COLORS } from "./geoportail/types";
+import { ouvrageIcon, TYPE_OUVRAGE_LABEL } from "./geoportail/symbols";
 import { Ecusson, ecussonHtml } from "./public/Ecusson";
 import { FicheElement } from "./public/FicheElement";
 import { PanneauInfos, type CoucheKey, type StatsReseau } from "./public/PanneauInfos";
 import { RechercheRoute, type RouteIndexee } from "./public/RechercheRoute";
 import { geoJsonToLatLngs, STATUT_LABELS, type PublicCarteData, type SelectedFeature } from "./public/types";
 import type { EtatPatrimoine } from "../types";
+import type { FeatureCollection } from "geojson";
 
 const GUINEE_CENTER: [number, number] = [10.5, -10.8];
 
@@ -64,6 +66,8 @@ export function PublicCartePage() {
     troncons: true,
     chantiers: true,
     pointsNoirs: true,
+    ouvrages: false,
+    pontsOsm: false,
     noms: true,
   });
   const [etatsMasques, setEtatsMasques] = useState<Set<EtatPatrimoine>>(new Set());
@@ -97,6 +101,15 @@ export function PublicCartePage() {
     queryKey: ["public", "carte", "geo"],
     queryFn: async () => (await axios.get<PublicCarteData>("/api/public/carte/geo")).data,
     staleTime: 5 * 60 * 1000,
+  });
+
+  // D9 : franchissements OSM (propositions) — fichier statique servi par le
+  // frontend, charge uniquement si la couche est ouverte.
+  const { data: pontsOsm } = useQuery({
+    queryKey: ["public", "ponts-osm"],
+    queryFn: async () => (await axios.get<FeatureCollection>("/data/ponts-osm.geojson")).data,
+    staleTime: Infinity,
+    enabled: couches.pontsOsm,
   });
 
   const tronconLines = useMemo(
@@ -355,6 +368,51 @@ export function PublicCartePage() {
                 <Tooltip>Point noir — gravité {p.gravite}</Tooltip>
               </CircleMarker>
             ))}
+
+          {/* D9 : ouvrages d'art — symbole par nature, couleur = état, position
+              héritée non vérifiée (mention honnête dans l'infobulle). */}
+          {couches.ouvrages &&
+            (data?.ouvrages ?? []).map((o) => (
+              <Marker
+                key={o.id}
+                position={[o.lat, o.lon]}
+                icon={ouvrageIcon(o.type, o.etat)}
+                eventHandlers={{ click: () => setSelected({ kind: "ouvrage", data: o }) }}
+              >
+                <Tooltip>
+                  {TYPE_OUVRAGE_LABEL[o.type] ?? o.type} — {o.nom}
+                  <br />
+                  <span style={{ color: "#6b7280" }}>position héritée, non vérifiée</span>
+                </Tooltip>
+              </Marker>
+            ))}
+
+          {/* D9 : franchissements OSM (propositions) — une couche GeoJSON, meme
+              code couleur que le geoportail interne. */}
+          {couches.pontsOsm && pontsOsm && (
+            <GeoJSON
+              key="public-ponts-osm"
+              data={pontsOsm}
+              style={(f) => {
+                const p = f?.properties ?? {};
+                const majeur = /rapide|primaire|secondaire/.test(String(p.nature));
+                if (p.classement !== "PONT_SANS_OUVRAGE") return { color: "#16a34a", weight: 3, opacity: 0.9 };
+                return majeur
+                  ? { color: "#b91c1c", weight: 4, opacity: 0.9 }
+                  : { color: "#ef4444", weight: 1.5, opacity: 0.7 };
+              }}
+              onEachFeature={(f, layer) => {
+                const p = f.properties as { franchissement?: string; numero?: string; nom?: string; nature?: string; classement?: string; longueurM?: number; distanceM?: number };
+                layer.bindTooltip(`${p.franchissement ?? ""}${p.numero ? " " + p.numero : ""}${p.nom ? " — " + p.nom : ""}`, { sticky: true });
+                layer.bindPopup(
+                  `<b>${p.franchissement ?? ""}${p.numero ? " " + p.numero : ""}${p.nom ? " — " + p.nom : ""}</b><br>` +
+                  `${p.nature ?? ""}<br>` +
+                  `Proposition : <b>${p.classement === "PONT_SANS_OUVRAGE" ? "à instruire (aucun ouvrage AGEROUTE à 250 m)" : "correspondance AGEROUTE"}</b><br>` +
+                  `<span style="color:#6b7280">Source OpenStreetMap 2023 — à valider sur le terrain par AGEROUTE</span>`
+                );
+              }}
+            />
+          )}
 
           {maPosition && (
             <CircleMarker

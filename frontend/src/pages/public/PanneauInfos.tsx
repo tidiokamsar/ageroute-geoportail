@@ -10,7 +10,7 @@ export interface StatsReseau {
   pointsNoirs: number;
 }
 
-export type CoucheKey = "troncons" | "chantiers" | "pointsNoirs" | "noms";
+export type CoucheKey = "troncons" | "chantiers" | "pointsNoirs" | "ouvrages" | "pontsOsm" | "noms";
 
 function Case({
   coche,
@@ -189,6 +189,25 @@ export function PanneauInfos({
             <Case coche={couches.pointsNoirs} onChange={() => onToggleCouche("pointsNoirs")} gras>
               Points noirs
             </Case>
+
+            {/* D9 (02/09/2026) : ouvrages et franchissements OSM en propositions —
+                decision du proprietaire : tout est affiche, mention honnete incluse. */}
+            <Case coche={couches.ouvrages} onChange={() => onToggleCouche("ouvrages")} gras>
+              Ouvrages d'art
+            </Case>
+            {couches.ouvrages && (
+              <p className="ml-7 text-[10px] leading-snug text-slate-400">
+                Ponts, dalots, buses… — positions héritées, non vérifiées
+              </p>
+            )}
+            <Case coche={couches.pontsOsm} onChange={() => onToggleCouche("pontsOsm")} gras>
+              Franchissements OSM (propositions)
+            </Case>
+            {couches.pontsOsm && (
+              <p className="ml-7 text-[10px] leading-snug text-slate-400">
+                Ponts cartographiés par OpenStreetMap (2023) sans inventaire AGEROUTE — à valider sur le terrain
+              </p>
+            )}
 
             <p className="mt-3 border-t border-slate-100 pt-3 text-[11px] leading-snug text-slate-500">
               Touchez un élément de la carte pour l'afficher. Données publiées par
