@@ -1,0 +1,31 @@
+couche;categorie;objets;km;points_par_km
+ROUTE;Route non classifiée;41083;58248.1;27.0
+ROUTE;Chemin carrossable;69425;44619.1;39.8
+ROUTE;Chemin non carrossable;102100;43166.4;40.3
+ROUTE;Route tertiaire;2951;12660.4;16.5
+ROUTE;Route résidentielle;34929;10188.8;30.3
+ROUTE;Voie rapide;1007;3286.6;13.4
+ROUTE;Route secondaire;847;3024.3;17.4
+ROUTE;Route primaire;589;2518.5;16.8
+ROUTE;Route d accès;5806;1182.1;33.8
+ROUTE;Voie piétonne;3672;1014.7;48.9
+ROUTE;Inconnu;34;29.5;25.6
+ROUTE;Route en construction;7;9.0;16.1
+ROUTE;Chemin équestre;14;8.7;30.9
+ROUTE;Rue piétonne;27;8.2;44.3
+ROUTE;Bretelle voie rapide;65;6.4;61.3
+ROUTE;Zone de rencontre;32;5.8;32.8
+ROUTE;Voie cyclable;5;1.1;45.2
+ROUTE;Escaliers;40;0.9;112.1
+ROUTE;Bretelle route tertiaire;11;0.8;57.2
+ROUTE;Bretelle route primaire;7;0.5;56.5
+ROUTE;Bretelle route secondaire;5;0.2;90.0
+CHEMIN;Chemin;69425;44619.1;39.8
+CHEMIN;Sentier;102100;43166.4;40.3
+CHEMIN;Piste cyclable;5;1.1;45.2
+CHEMIN;Escalier;40;0.9;112.1
+SURFACE_ROUTE;Place;3;0.5;30.2
+TOPONYME_COMMUNICATION;Echangeur;1;0.0;0.0
+TOPONYME_COMMUNICATION;Parking;7;0.0;0.0
+TOPONYME_COMMUNICATION;Pont;16;0.0;0.0
+TOPONYME_COMMUNICATION;Tunnel;6;0.0;0.0

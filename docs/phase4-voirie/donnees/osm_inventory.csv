@@ -1,0 +1,5 @@
+couche;objets;geometrie;crs;emprise_lon_min;emprise_lat_min;emprise_lon_max;emprise_lat_max;km_total;geom_nulles;geom_degenerees;multipart;doublons_geom;nb_champs;date_dbf
+ROUTE;262656;PolyLine;4326 (déduit du datum WGS_1984);-15.067052;7.172264;-7.626620;12.742516;179980.1;0;0;0;0;15;2023-03-08
+CHEMIN;171570;PolyLine;4326 (déduit du datum WGS_1984);-15.045809;7.184232;-7.626620;12.733431;87787.6;0;0;0;0;4;2023-03-08
+SURFACE_ROUTE;3;Polygon;4326 (déduit du datum WGS_1984);-13.063977;9.375710;-12.877688;10.002959;0.5;0;0;0;0;4;2023-03-08
+TOPONYME_COMMUNICATION;30;Point;4326 (déduit du datum WGS_1984);-14.399906;9.182561;-8.693619;11.777352;0.0;30;0;0;0;5;2023-03-08
