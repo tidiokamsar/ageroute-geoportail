@@ -29,6 +29,8 @@ import { photosRouter } from "./modules/photos/photos.routes";
 import { publicRouter } from "./modules/public/public.routes";
 import { healthRouter } from "./modules/health/health.routes";
 import { errorHandler, notFoundHandler } from "./middleware/error.middleware";
+import { requireAuth } from "./middleware/auth.middleware";
+import { requireRole } from "./middleware/rbac.middleware";
 import fs from "fs";
 import { UPLOAD_DIR } from "./middleware/upload-document.middleware";
 import { PHOTOS_UPLOAD_DIR } from "./middleware/upload-photo.middleware";
@@ -96,7 +98,9 @@ export function createApp() {
     },
     apis: ["./src/modules/**/*.routes.ts"],
   });
-  app.use("/api/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+  // P1-05 : la cartographie de l'API interne n'a pas a etre consultable par tout
+  // visiteur authentifie. Reserve au role ADMIN.
+  app.use("/api/docs", requireAuth, requireRole("ADMIN"), swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
   app.use("/api/auth", authRouter);
   app.use("/api/regions", regionsRouter);
