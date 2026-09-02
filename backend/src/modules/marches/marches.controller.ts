@@ -75,18 +75,23 @@ export async function listBailleursHandler(_req: Request, res: Response, next: N
 }
 
 export async function createBailleurHandler(req: Request, res: Response, next: NextFunction) {
-  try { res.status(201).json(await marchesService.createBailleur(bailleurCreateSchema.parse(req.body))); } catch (err) { next(err); }
+  try {
+    if (!req.user) throw new ApiError(401, "Authentification requise");
+    res.status(201).json(await marchesService.createBailleur(bailleurCreateSchema.parse(req.body), req.user.id));
+  } catch (err) { next(err); }
 }
 
 export async function updateBailleurHandler(req: Request, res: Response, next: NextFunction) {
   try {
-    res.json(await marchesService.updateBailleur(Number(req.params.id), bailleurCreateSchema.partial().parse(req.body)));
+    if (!req.user) throw new ApiError(401, "Authentification requise");
+    res.json(await marchesService.updateBailleur(Number(req.params.id), bailleurCreateSchema.partial().parse(req.body), req.user.id));
   } catch (err) { next(err); }
 }
 
 export async function deleteBailleurHandler(req: Request, res: Response, next: NextFunction) {
   try {
-    await marchesService.deleteBailleur(Number(req.params.id));
+    if (!req.user) throw new ApiError(401, "Authentification requise");
+    await marchesService.deleteBailleur(Number(req.params.id), req.user.id);
     res.status(204).send();
   } catch (err) { next(err); }
 }

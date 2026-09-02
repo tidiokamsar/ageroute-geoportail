@@ -100,30 +100,44 @@ async function upsertAvancement(marcheId: string, data: {
 }
 
 async function listBailleurs() {
+  // Liste opérationnelle (alimente les sélecteurs) : les bailleurs retirés
+  // logiquement n'y figurent plus, mais restent joints aux marchés historiques.
   return prisma.bailleur.findMany({
+    where: { deletedAt: null },
     orderBy: { nom: "asc" },
     include: { _count: { select: { marches: true } } },
   });
 }
 
-async function createBailleur(data: { nom: string; type: string }) {
-  return prisma.bailleur.create({ data });
+async function createBailleur(data: { nom: string; type: string }, userId: string) {
+  const created = await prisma.bailleur.create({ data });
+  const { logAudit } = await import("../../utils/audit");
+  await logAudit({ userId, action: "CREATE", entityType: "Bailleur", entityId: String(created.id), after: created });
+  return created;
 }
 
-async function updateBailleur(id: number, data: { nom?: string; type?: string }) {
-  const existing = await prisma.bailleur.findUnique({ where: { id } });
-  if (!existing) throw new ApiError(404, "Bailleur introuvable");
-  return prisma.bailleur.update({ where: { id }, data });
+async function updateBailleur(id: number, data: { nom?: string; type?: string }, userId: string) {
+  const before = await prisma.bailleur.findFirst({ where: { id, deletedAt: null } });
+  if (!before) throw new ApiError(404, "Bailleur introuvable");
+  const updated = await prisma.bailleur.update({ where: { id }, data });
+  const { logAudit } = await import("../../utils/audit");
+  await logAudit({ userId, action: "UPDATE", entityType: "Bailleur", entityId: String(id), before, after: updated });
+  return updated;
 }
 
-async function deleteBailleur(id: number) {
+async function deleteBailleur(id: number, userId: string) {
+  // Le garde-fou compte TOUS les marchés rattachés, archivés compris : un
+  // bailleur cité par l'historique financier ne sort jamais du référentiel.
   const marcheCount = await prisma.marche.count({ where: { bailleurId: id } });
   if (marcheCount > 0) {
     throw new ApiError(409, `Impossible de supprimer : ${marcheCount} marché(s) rattaché(s) à ce bailleur.`);
   }
-  await prisma.bailleur.delete({ where: { id } }).catch(() => {
-    throw new ApiError(404, "Bailleur introuvable");
-  });
+  const before = await prisma.bailleur.findFirst({ where: { id, deletedAt: null } });
+  if (!before) throw new ApiError(404, "Bailleur introuvable");
+  // Suppression logique uniquement : donnée de référence du patrimoine financier.
+  await prisma.bailleur.update({ where: { id }, data: { deletedAt: new Date() } });
+  const { logAudit } = await import("../../utils/audit");
+  await logAudit({ userId, action: "DELETE", entityType: "Bailleur", entityId: String(id), before });
 }
 
 export const marchesService = {

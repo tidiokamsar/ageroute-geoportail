@@ -9,7 +9,7 @@ async function ensureMarcheExists(marcheId: string) {
 
 async function list(marcheId: string) {
   await ensureMarcheExists(marcheId);
-  return prisma.decompte.findMany({ where: { marcheId }, orderBy: { numero: "asc" } });
+  return prisma.decompte.findMany({ where: { marcheId, deletedAt: null }, orderBy: { numero: "asc" } });
 }
 
 async function create(marcheId: string, data: {
@@ -37,7 +37,9 @@ async function update(id: string, data: Partial<{
   numero: number; type: string; montantGnf: number; dateEmission?: Date;
   datePaiement?: Date; statut: string; observations?: string;
 }>, userId: string) {
-  const before = await prisma.decompte.findUnique({ where: { id } });
+  // Un décompte retiré logiquement n'est plus modifiable : c'est une donnée
+  // d'archive financière, figée au moment du retrait.
+  const before = await prisma.decompte.findFirst({ where: { id, deletedAt: null } });
   if (!before) throw new ApiError(404, "Décompte introuvable");
 
   const payload: Record<string, unknown> = { ...data };
@@ -49,18 +51,21 @@ async function update(id: string, data: Partial<{
 }
 
 async function remove(id: string, userId: string) {
-  const before = await prisma.decompte.findUnique({ where: { id } });
+  const before = await prisma.decompte.findFirst({ where: { id, deletedAt: null } });
   if (!before) throw new ApiError(404, "Décompte introuvable");
-  await prisma.decompte.delete({ where: { id } });
+  // Suppression logique uniquement : un décompte est une donnée financière
+  // d'archive (paiements, retenues) — jamais de DELETE physique.
+  await prisma.decompte.update({ where: { id }, data: { deletedAt: new Date() } });
   await logAudit({ userId, action: "DELETE", entityType: "Decompte", entityId: id, before });
 }
 
-// Agrégat décaissé (statut PAYE) par marché — utilisé pour enrichir la liste/detail des marchés
+// Agrégat décaissé (statut PAYE) par marché — utilisé pour enrichir la liste/detail des marchés.
+// Un décompte retiré logiquement ne décaisse plus rien : exclu des montants.
 async function sumByMarche(marcheIds: string[]): Promise<Map<string, bigint>> {
   if (marcheIds.length === 0) return new Map();
   const rows = await prisma.decompte.groupBy({
     by: ["marcheId"],
-    where: { marcheId: { in: marcheIds }, statut: "PAYE" },
+    where: { marcheId: { in: marcheIds }, statut: "PAYE", deletedAt: null },
     _sum: { montantGnf: true },
   });
   return new Map(rows.map((r) => [r.marcheId, r._sum.montantGnf ?? BigInt(0)]));

@@ -556,10 +556,11 @@ model Document {
 // ===================== MARCHÉS & BAILLEURS =====================
 
 model Bailleur {
-  id      Int      @id @default(autoincrement())
-  nom     String   @unique
-  type    String   @default("autre")
-  marches Marche[]
+  id        Int       @id @default(autoincrement())
+  nom       String    @unique
+  type      String    @default("autre")
+  deletedAt DateTime?
+  marches   Marche[]
 
   @@map("bailleurs")
 }
@@ -602,6 +603,7 @@ model Decompte {
   datePaiement DateTime?
   statut       DecompteStatut @default(EMIS)
   observations String?
+  deletedAt    DateTime?
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
@@ -711,16 +713,18 @@ model OrdreTravaux {
 
 // Photos avant/pendant/après géolocalisées : preuve d'exécution pour audits et bailleurs.
 model OtPhoto {
-  id        String       @id @default(uuid())
-  otId      String
-  ot        OrdreTravaux @relation(fields: [otId], references: [id], onDelete: Cascade)
-  fileName  String
-  type      TypePhotoOT  @default(AVANT)
-  lat       Float?
-  lon       Float?
-  priseLe   DateTime     @default(now())
+  id         String       @id @default(uuid())
+  otId       String
+  ot         OrdreTravaux @relation(fields: [otId], references: [id], onDelete: Cascade)
+  fileName   String
+  type       TypePhotoOT  @default(AVANT)
+  lat        Float?
+  lon        Float?
+  priseLe    DateTime     @default(now())
   priseParId String?
-  prisePar  User?        @relation(fields: [priseParId], references: [id])
+  prisePar   User?        @relation(fields: [priseParId], references: [id])
+  // P1-02 : une photo d'OT est une preuve d'exécution — retrait logique, pas DELETE.
+  deletedAt  DateTime?
 
   @@map("ot_photos")
   @@index([otId])
