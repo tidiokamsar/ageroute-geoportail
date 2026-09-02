@@ -79,3 +79,29 @@ export function posteIcon(type: string): L.DivIcon {
 export function chantierApproxIcon(couleurStatut: string): L.DivIcon {
   return badge("≈", couleurStatut, 22, "carre");
 }
+
+/**
+ * Franchissements OSM validés (D9) : un glyphe par nature — ⌒ pont, ≈ gué,
+ * ∩ tunnel — la couleur portant le verdict du croisement : vert = ouvrage
+ * AGEROUTE à proximité (correspondance), rouge = à instruire ; anneau plus
+ * épais sur les axes majeurs.
+ */
+export const FRANCHISSEMENT_TYPE_OUVRAGE: Record<string, string> = {
+  Pont: "PONT",
+  Gué: "RADIER",
+  Tunnel: "TUNNEL",
+};
+
+export function franchissementIcon(
+  franchissement: string,
+  aInstruire: boolean,
+  majeur: boolean,
+  dejaAjoute = false
+): L.DivIcon {
+  const glyph = franchissement === "Pont" ? "⌒" : franchissement === "Gué" ? "≈" : "∩";
+  // Un franchissement ajouté à l'inventaire pendant la session prend la couleur du
+  // patrimoine AGEROUTE : sans cela il resterait rouge « à instruire » jusqu'au
+  // prochain recalcul du croisement, qui est un traitement hors ligne.
+  const couleur = dejaAjoute ? "#1a2942" : aInstruire ? (majeur ? "#b91c1c" : "#ef4444") : "#16a34a";
+  return badge(glyph, couleur, majeur ? 24 : 18, "rond");
+}

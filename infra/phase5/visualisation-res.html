@@ -23,6 +23,10 @@
 -->
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Regroupement : 3 178 franchissements poses un a un saturent la carte au dezoom. -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <style>
   body { margin: 0; font-family: system-ui, sans-serif; }
   #map { position: absolute; top: 0; right: 0; bottom: 0; left: 320px; }
@@ -42,6 +46,13 @@
   td, th { border: 1px solid #ddd; padding: 2px 5px; text-align: left; font-size: 11px; }
   th { background: #f0f0f0; }
   .leaflet-popup-content { font-size: 12px; }
+  /* Symbole de franchissement : meme convention que le geoportail — glyphe par
+     nature, couleur portant le verdict du croisement. */
+  .glyphe { display: flex; align-items: center; justify-content: center;
+            border-radius: 50%; background: #fff; font-weight: 700;
+            line-height: 1; box-shadow: 0 1px 3px rgba(0,0,0,.35); }
+  .apercu-rond { display: inline-block; width: 14px; height: 14px; border-radius: 50%;
+                 vertical-align: middle; margin-right: 6px; border: 3px solid; background: #fff; }
 </style>
 </head>
 <body>
@@ -59,8 +70,16 @@
     <label><input type="checkbox" id="c-res" checked><span class="apercu" style="background:#dc2626"></span>RES-* (couleur = typologie)</label>
     <label><input type="checkbox" id="c-osm" checked><span class="apercu" style="background:#d97706; height:0; border-top:3px dashed #d97706"></span>OSM class&eacute;</label>
     <label><input type="checkbox" id="c-ter"><span class="apercu" style="background:#f59e0b; height:0; border-top:3px dotted #f59e0b"></span>OSM tertiaire seul (surbrillance)</label>
-    <label><input type="checkbox" id="c-ponts"><span class="apercu" style="background:#b91c1c; height:0; border-top:3px solid #b91c1c"></span>Franchissements OSM (croisement P4)</label>
-    <label><input type="checkbox" id="c-ponts-majeurs" style="margin-left:14px">… axes majeurs uniquement</label>
+    <label><input type="checkbox" id="c-ponts"><span class="apercu-rond" style="border-color:#b91c1c"></span>Franchissements OSM (croisement P4)</label>
+    <label style="margin-left:14px"><input type="checkbox" id="c-ponts-classe" checked>&hellip; r&eacute;seau class&eacute; <span class="compteur" id="n-classe"></span></label>
+    <label style="margin-left:14px"><input type="checkbox" id="c-ponts-autre">&hellip; autres voies carrossables <span class="compteur" id="n-autre"></span></label>
+    <label style="margin-left:14px"><input type="checkbox" id="c-ponts-chemin">&hellip; chemins et sentiers <span class="compteur" id="n-chemin"></span></label>
+    <div class="note" style="margin:4px 0 0 14px">
+      &#8978;&nbsp;pont &middot; &asymp;&nbsp;gu&eacute; &middot; &cap;&nbsp;tunnel &mdash;
+      <span style="color:#b91c1c">&#9679;</span>&nbsp;&agrave; instruire &middot;
+      <span style="color:#16a34a">&#9679;</span>&nbsp;correspondance.
+      Un franchissement sur chemin n'est pas n&eacute;cessairement un ouvrage du patrimoine.
+    </div>
   </fieldset>
 
   <fieldset>
@@ -111,14 +130,94 @@ L.control.layers({ "Plan": fonds.plan, "Satellite": fonds.satellite }, null, { p
 function styleProp(p, def) { return { color: def, weight: 2, opacity: 0.85 }; }
 
 let couches = {};
+let brut = {};
+
+/**
+ * Charge une couche. Une couche absente ne doit PAS vider l'outil : les fichiers
+ * viennent d'exporter-carto.sh et l'on travaille souvent avec un sous-ensemble.
+ * Sans cette tolerance, un seul fichier manquant faisait echouer le Promise.all
+ * et la carte restait vide, sans rien dire.
+ *
+ * `style` peut etre nul : la couche est alors conservee brute, pour un rendu
+ * construit ailleurs (cas des franchissements, rendus en symboles).
+ */
 function charger(nom, url, style, popup) {
-  return fetch(url).then(r => r.json()).then(d => {
-    couches[nom] = L.geoJSON(d, {
-      style: f => style(f.properties),
-      onEachFeature: (f, l) => { if (popup) l.bindPopup(popup(f.properties)); }
-    });
-    return d.features.length;
+  return fetch(url)
+    .then(r => { if (!r.ok) throw new Error(r.status + " " + url); return r.json(); })
+    .then(d => {
+      brut[nom] = d;
+      if (style) {
+        couches[nom] = L.geoJSON(d, {
+          style: f => style(f.properties),
+          onEachFeature: (f, l) => { if (popup) l.bindPopup(popup(f.properties)); }
+        });
+      }
+      return d.features.length;
+    })
+    .catch(e => { console.warn("couche indisponible :", nom, e.message); brut[nom] = null; return 0; });
+}
+
+/* ── Franchissements : meme convention que le geoportail ────────────────────
+   Trois categories de voie, parce que la nature OSM n'est pas homogene : sur
+   3 178 franchissements, 1 102 portent sur des chemins ou des sentiers. Les
+   montrer sans distinction laisserait croire a 3 178 ouvrages manquants. */
+
+function categorieVoie(nature) {
+  const n = String(nature || "").toLowerCase();
+  if (/voie rapide|bretelle|primaire|secondaire|tertiaire/.test(n)) return "CLASSE";
+  if (/non classifi|r[ée]sidentielle|acc[èe]s|construction/.test(n)) return "AUTRE_ROUTE";
+  return "CHEMIN";
+}
+
+function milieuGeometrie(geom) {
+  const lignes = geom.type === "LineString" ? [geom.coordinates]
+               : geom.type === "MultiLineString" ? geom.coordinates : [];
+  const tous = lignes.flat();
+  if (!tous.length) return null;
+  const c = tous[Math.floor(tous.length / 2)];
+  return [c[1], c[0]];
+}
+
+function iconeFranchissement(franchissement, aInstruire, majeur) {
+  const glyphe = franchissement === "Pont" ? "⌒" : franchissement === "Gué" ? "≈" : "∩";
+  const couleur = aInstruire ? (majeur ? "#b91c1c" : "#ef4444") : "#16a34a";
+  const t = majeur ? 24 : 18;
+  return L.divIcon({
+    className: "",
+    iconSize: [t, t],
+    iconAnchor: [t / 2, t / 2],
+    html: `<div class="glyphe" style="width:${t}px;height:${t}px;border:2px solid ${couleur};color:${couleur};font-size:${Math.round(t*0.62)}px">${glyphe}</div>`
   });
+}
+
+function popupFranchissement(p, categorie) {
+  const lieu = p.nom || p.numero || p.region || "";
+  const aInstruire = p.classement === "PONT_SANS_OUVRAGE";
+  return `<b>${p.franchissement || "Franchissement"}${lieu ? " " + lieu : ""}</b><br>` +
+         `${p.nature} — région ${p.region || "?"}<br>` +
+         `Verdict : <b>${aInstruire ? "à instruire (aucun ouvrage AGEROUTE à 250 m)" : "correspondance AGEROUTE"}</b><br>` +
+         `way ${p.longueurM} m · ouvrage BDRI le plus proche : ${p.distanceM} m` +
+         (categorie === "CHEMIN" && aInstruire
+           ? `<br><span style="color:#b45309">Franchissement sur un chemin : appartenance au patrimoine AGEROUTE non établie.</span>`
+           : "");
+}
+
+/** Reconstruit la couche de symboles selon les categories cochees. */
+function couchePonts(categoriesActives) {
+  const groupe = L.markerClusterGroup({ chunkedLoading: true, maxClusterRadius: 60 });
+  if (!brut.ponts) return groupe;
+  for (const f of brut.ponts.features) {
+    const p = f.properties || {};
+    const cat = categorieVoie(p.nature);
+    if (!categoriesActives.has(cat)) continue;
+    const pos = milieuGeometrie(f.geometry);
+    if (!pos) continue;
+    const aInstruire = p.classement === "PONT_SANS_OUVRAGE";
+    L.marker(pos, { icon: iconeFranchissement(p.franchissement, aInstruire, cat === "CLASSE") })
+      .bindPopup(popupFranchissement(p, cat))
+      .addTo(groupe);
+  }
+  return groupe;
 }
 
 const popRes = p =>
@@ -143,7 +242,19 @@ Promise.all([
           p => ({ color: p.nature === "Route tertiaire" ? "#f59e0b" : "#d97706",
                   weight: 1.5, opacity: 0.7, dashArray: "4 3" }),
           p => `OSM ${p.nature}${p.numero ? " — " + p.numero : ""}`)
-]).then(() => { majAffichage(); document.getElementById("stats").innerHTML = stats(); });
+]).then(() => {
+  // Comptes reels par categorie : le panneau annonce ce que chaque filtre recouvre
+  // plutot qu'un total global qui masque la disparite.
+  if (brut.ponts) {
+    const c = { CLASSE: 0, AUTRE_ROUTE: 0, CHEMIN: 0 };
+    for (const f of brut.ponts.features) c[categorieVoie((f.properties || {}).nature)]++;
+    document.getElementById("n-classe").textContent = "· " + c.CLASSE;
+    document.getElementById("n-autre").textContent = "· " + c.AUTRE_ROUTE;
+    document.getElementById("n-chemin").textContent = "· " + c.CHEMIN;
+  }
+  majAffichage();
+  document.getElementById("stats").innerHTML = stats();
+});
 
 function filtreResActif() {
   const r = document.querySelector("input[name=bande]:checked");
@@ -158,29 +269,16 @@ function majAffichage() {
 
   ["rn","rr","ru","osm","res","ponts","pontsFiltre"].forEach(k => { if (couches[k] && map.hasLayer(couches[k])) map.removeLayer(couches[k]); });
 
-  if (on("c-ponts") && couches.ponts) {
-    const majeurSeul = on("c-ponts-majeurs");
-    const stylePont = p => {
-      const majeur = /rapide|primaire|secondaire/.test(p.nature);
-      if (p.classement !== "PONT_SANS_OUVRAGE") return { color: "#16a34a", weight: 3 };
-      return majeur ? { color: "#b91c1c", weight: 4 } : { color: "#ef4444", weight: 1.5, opacity: 0.7 };
-    };
-    const popPont = p =>
-      `<b>${p.franchissement}</b>${p.numero ? " " + p.numero : ""}${p.nom ? " — " + p.nom : ""}<br>` +
-      `${p.nature} — région ${p.region || "?"}<br>` +
-      `Classement : <b>${p.classement}</b><br>` +
-      `way ${p.longueurM} m · ouvrage BDRI le plus proche : ${p.distanceM} m`;
-    if (majeurSeul) {
-      couches._pontsF = L.geoJSON(couches.ponts.toGeoJSON(), {
-        filter: ft => /rapide|primaire|secondaire/.test(ft.properties.nature),
-        style: ft => stylePont(ft.properties),
-        onEachFeature: (ft, l) => l.bindPopup(popPont(ft.properties))
-      }).addTo(map);
-    } else {
-      couches.ponts.addTo(map);
-      couches.ponts.setStyle(p => stylePont(p));
-      couches.ponts.eachLayer(l => l.bindPopup(popPont(l.feature.properties)));
-    }
+  // Franchissements : symboles ponctuels et non plus le way entier en rouge. Un
+  // ouvrage est ponctuel ; peindre toute la voie laissait croire a un troncon en
+  // defaut sur plusieurs kilometres.
+  if (on("c-ponts") && brut.ponts) {
+    const actives = new Set();
+    if (on("c-ponts-classe")) actives.add("CLASSE");
+    if (on("c-ponts-autre")) actives.add("AUTRE_ROUTE");
+    if (on("c-ponts-chemin")) actives.add("CHEMIN");
+    couches.ponts = couchePonts(actives);
+    couches.ponts.addTo(map);
   }
 
   if (on("c-osm") && !masquer && !terSeul && couches.osm) couches.osm.addTo(map);
@@ -221,7 +319,7 @@ function stats() {
   return html;
 }
 
-["c-rn","c-rr","c-ru","c-res","c-osm","c-ter","c-ponts","c-ponts-majeurs","masquer-autres"].forEach(id =>
+["c-rn","c-rr","c-ru","c-res","c-osm","c-ter","c-ponts","c-ponts-classe","c-ponts-autre","c-ponts-chemin","masquer-autres"].forEach(id =>
   document.getElementById(id).addEventListener("change", majAffichage));
 document.querySelectorAll("input[name=bande]").forEach(el =>
   el.addEventListener("change", majAffichage));

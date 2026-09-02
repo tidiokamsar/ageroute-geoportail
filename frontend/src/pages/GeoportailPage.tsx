@@ -13,11 +13,23 @@ import {
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useEntityMutations } from "../hooks/useEntity";
+import { toast } from "../lib/toast";
+import { parseApiError } from "../lib/errors";
 import { useAuth, canDelete, canWrite } from "../lib/auth";
 import { Checkbox } from "../components/ui/checkbox";
 import type { DashboardKpis, EtatPatrimoine, Region } from "../types";
 import { DetailPanel } from "./geoportail/DetailPanel";
 import { MoveOuvrageLayer } from "./geoportail/MoveOuvrageLayer";
+import {
+  FranchissementsLayer,
+  compterParCategorie,
+  nomPropose,
+  pointsFranchissements,
+  LIBELLE_CATEGORIE,
+  type CategorieVoie,
+  type FranchissementPoint,
+} from "./geoportail/FranchissementsLayer";
+import { FRANCHISSEMENT_TYPE_OUVRAGE } from "./geoportail/symbols";
 import { RechercheVille } from "../components/RechercheVille";
 import { tronconDansFiltre, type FiltreVille } from "../lib/villes";
 import axios from "axios";
@@ -175,6 +187,16 @@ export function GeoportailPage() {
   // D9 (validée) : affichage complet des franchissements OSM en propositions,
   // et repositionnement terrain des ouvrages en attendant la mission.
   const [showPontsOsm, setShowPontsOsm] = useState(false);
+  // Le jeu compte 3 178 franchissements dont 1 102 sur des chemins et sentiers.
+  // Par defaut on n'affiche que le reseau classe : c'est la seule categorie ou la
+  // question « ouvrage AGEROUTE manquant ? » se pose sans ambiguite.
+  const [categoriesFranchissement, setCategoriesFranchissement] = useState<Set<CategorieVoie>>(
+    () => new Set<CategorieVoie>(["CLASSE"])
+  );
+  // Ajoutes pendant la session. Le croisement OSM/BDRI est un fichier statique
+  // recalcule hors ligne : sans cette memoire, un franchissement ajoute resterait
+  // affiche « a instruire » jusqu'au prochain recalcul.
+  const [franchissementsAjoutes, setFranchissementsAjoutes] = useState<Set<string>>(() => new Set());
   const [deplacementOuvrage, setDeplacementOuvrage] = useState<{ id: string; nom: string; lat: number; lon: number } | null>(null);
   const { data: pontsOsm } = useQuery({
     queryKey: ["ponts-osm"],
@@ -182,6 +204,12 @@ export function GeoportailPage() {
     staleTime: Infinity,
     enabled: showPontsOsm,
   });
+  // Comptes par categorie, calcules une fois le jeu charge : le panneau annonce ce
+  // que chaque filtre recouvre reellement plutot qu'un total figé.
+  const comptesFranchissements = useMemo(
+    () => (pontsOsm ? compterParCategorie(pointsFranchissements(pontsOsm)) : null),
+    [pontsOsm]
+  );
   const [drawMode, setDrawMode] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [drawPhase, setDrawPhase] = useState<DrawPhase>("drawing");
@@ -219,10 +247,39 @@ export function GeoportailPage() {
   }
 
   const { user } = useAuth();
-  const { remove: removeOuvrage } = useEntityMutations("ouvrages");
+  const { remove: removeOuvrage, create: createOuvrage } = useEntityMutations("ouvrages");
   const { remove: removePointNoir } = useEntityMutations("points-noirs");
   const { remove: removePoste } = useEntityMutations("postes");
   const { remove: removeChantier } = useEntityMutations("chantiers");
+
+  /**
+   * D9 : création d'ouvrage depuis un franchissement OSM validé — une par une,
+   * avec confirmation, écriture auditée (POST /ouvrages via crud-factory).
+   * Type déduit de la nature (Pont→PONT, Gué→RADIER, Tunnel→TUNNEL) ; région
+   * déduite de la région indicative du croisement.
+   */
+  async function creerOuvrageDepuisFranchissement(f: FranchissementPoint) {
+    const type = FRANCHISSEMENT_TYPE_OUVRAGE[f.franchissement] ?? "PONT";
+    // Le nom suit la nature du franchissement : un gue ne s'appelle pas « Pont ».
+    const nom = nomPropose(f);
+    const region = (regions ?? []).find((r) => r.nom === f.region);
+    if (!region) {
+      toast.error(`Région « ${f.region || "?"} » introuvable — créez l'ouvrage depuis le module Ouvrages.`);
+      return;
+    }
+    try {
+      // useEntityMutations invalide deja ["ouvrages"] et signale le succes : pas de
+      // second toast ni de rechargement manuel. Le retour specifique passe par la
+      // carte — le marqueur prend la couleur du patrimoine — et par le compteur du
+      // panneau, qui disent lequel a ete ajoute plutot qu'un simple « Enregistre ».
+      await createOuvrage.mutateAsync({
+        nom, type, regionId: region.id, lat: f.lat, lon: f.lon,
+      });
+      setFranchissementsAjoutes((prev) => new Set(prev).add(f.id));
+    } catch (err) {
+      toast.error(parseApiError(err).message);
+    }
+  }
 
   function archiveSelectedFeature() {
     if (!selectedFeature || selectedFeature.kind === "toponyme" || selectedFeature.kind === "troncon") return;
@@ -813,9 +870,50 @@ export function GeoportailPage() {
             <div className="mt-2 pt-2 border-t border-gray-100">
               <LayerRow checked={showPontsOsm} onChange={() => setShowPontsOsm((v) => !v)} label="Franchissements OSM (propositions D9)" />
               {showPontsOsm && (
-                <p className="text-[11px] text-gray-400 ml-6">
-                  3 178 franchissements OSM 2023 — rouge : aucun ouvrage BDRI à 250 m · vert : correspondance. Source externe, à valider sur le terrain (satellite conseillé).
-                </p>
+                <div className="ml-6 mt-1 space-y-1.5">
+                  {/* Le filtre par categorie de voie n'est pas un confort d'affichage.
+                      1 102 des 3 178 franchissements portent sur des chemins ou des
+                      sentiers : les montrer sans distinction laisserait croire a
+                      3 178 ouvrages manquants. */}
+                  {(["CLASSE", "AUTRE_ROUTE", "CHEMIN"] as CategorieVoie[]).map((c) => (
+                    <label key={c} className="flex items-center gap-2 cursor-pointer text-[11px] text-gray-600">
+                      <Checkbox
+                        checked={categoriesFranchissement.has(c)}
+                        onCheckedChange={() =>
+                          setCategoriesFranchissement((prev) => {
+                            const n = new Set(prev);
+                            if (n.has(c)) n.delete(c); else n.add(c);
+                            return n;
+                          })
+                        }
+                      />
+                      <span>
+                        {LIBELLE_CATEGORIE[c]}
+                        {comptesFranchissements && (
+                          <span className="text-gray-400"> · {comptesFranchissements[c]}</span>
+                        )}
+                      </span>
+                    </label>
+                  ))}
+
+                  <p className="text-[11px] text-gray-400">
+                    <span style={{ color: "#b91c1c" }}>●</span> à instruire ·{" "}
+                    <span style={{ color: "#16a34a" }}>●</span> correspondance AGEROUTE ·{" "}
+                    <span style={{ color: "#1a2942" }}>●</span> ajouté
+                    <br />
+                    ⌒ pont · ≈ gué · ∩ tunnel
+                    <br />
+                    Source OpenStreetMap 2023, validée par AGEROUTE. Un franchissement sur
+                    chemin n'est pas nécessairement un ouvrage du patrimoine.
+                  </p>
+
+                  {franchissementsAjoutes.size > 0 && (
+                    <p className="text-[11px] font-medium text-navy">
+                      {franchissementsAjoutes.size} ajouté{franchissementsAjoutes.size > 1 ? "s" : ""} à
+                      l'inventaire pendant cette session
+                    </p>
+                  )}
+                </div>
               )}
             </div>
           </PanelSection>
@@ -1019,28 +1117,12 @@ export function GeoportailPage() {
           {/* D9 : franchissements OSM en propositions — une couche GeoJSON unique.
               Rouge = aucun ouvrage BDRI a 250 m (a instruire), vert = correspondance. */}
           {showPontsOsm && pontsOsm && (
-            <GeoJSON
-              key="ponts-osm-layer"
+            <FranchissementsLayer
+              key="ponts-osm-symboles"
               data={pontsOsm}
-              style={(f) => {
-                const p = f?.properties ?? {};
-                const majeur = /rapide|primaire|secondaire/.test(String(p.nature));
-                if (p.classement !== "PONT_SANS_OUVRAGE") return { color: "#16a34a", weight: 3, opacity: 0.9 };
-                return majeur
-                  ? { color: "#b91c1c", weight: 4, opacity: 0.9 }
-                  : { color: "#ef4444", weight: 1.5, opacity: 0.7 };
-              }}
-              onEachFeature={(f, layer) => {
-                const p = f.properties as { franchissement?: string; numero?: string; nom?: string; nature?: string; region?: string; classement?: string; longueurM?: number; distanceM?: number };
-                layer.bindTooltip(`${p.franchissement ?? ""}${p.numero ? " " + p.numero : ""}${p.nom ? " — " + p.nom : ""}`, { sticky: true });
-                layer.bindPopup(
-                  `<b>${p.franchissement ?? ""}${p.numero ? " " + p.numero : ""}${p.nom ? " — " + p.nom : ""}</b><br>` +
-                  `${p.nature ?? ""} — région ${p.region || "?"}<br>` +
-                  `Proposition : <b>${p.classement === "PONT_SANS_OUVRAGE" ? "à instruire (aucun ouvrage BDRI à 250 m)" : "correspondance BDRI"}</b><br>` +
-                  `way ${p.longueurM ?? "?"} m · ouvrage BDRI le plus proche : ${p.distanceM ?? "?"} m<br>` +
-                  `<span style="color:#6b7280">Source OSM 2023 — à valider sur le terrain</span>`
-                );
-              }}
+              categories={categoriesFranchissement}
+              ajoutes={franchissementsAjoutes}
+              onCreerOuvrage={creerOuvrageDepuisFranchissement}
             />
           )}
 
