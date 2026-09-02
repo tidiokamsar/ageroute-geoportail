@@ -123,7 +123,29 @@ régionales et les 40 urbaines ont `pkDebut = pkFin = 0`. Pour ceux-là, la proj
 retombe sur un repli qui interprète le PK comme un kilométrage depuis le début du tracé,
 ce qui est une hypothèse plus faible et doit être signalé à l'agent qui valide.
 
-**Gain** : de 6 à 42 chantiers localisés précisément, soit **× 7**.
+**Gain réel, mesuré le 2 septembre 2026 : aucun automatiquement.**
+
+*Correction d'une estimation trop optimiste de la première version.* L'extraction du
+texte fonctionne — sur les 36 intitulés, elle rend 14 emprises et 19 rattachements à
+une route seule, et refuse les 3 qui citent deux routes. Mais le **rattachement à un
+tronçon** ne fonctionne pas :
+
+| Cause mesurée | Constat |
+|---|---|
+| Échelle | les emprises font 40 à 55 km, les tronçons quelques km : chaque emprise chevauche **4 à 36 tronçons** |
+| PK non continus | sur la RN5, six tronçons commencent à PK 0 ; la somme des intervalles vaut 433 km pour un PK maximum de 156. **24 désignations sur 42** ont des PK de départ dupliqués |
+| PK hors étendue | le chantier `RN38 PK94+300 → PK135+100` vise une route dont le PK maximum en base est 61,6 |
+
+**Sur les 14 emprises extraites, zéro trouve un tronçon qui la couvre.**
+
+Le texte est clair, la cible ne l'est pas. Ces 33 chantiers entrent donc dans une file
+de propositions qu'un agent tranche, avec l'intitulé d'origine, les PK lus, la longueur
+citée et la liste des tronçons candidats. Aucune géométrie n'est posée sans décision
+humaine.
+
+Ce n'est pas un échec du ticket : c'est le référencement linéaire de la BDRI qui n'est
+pas exploitable en l'état. Le rendre cohérent — un kilométrage continu par route — est
+un chantier à part entière, et il conditionne aussi le routage.
 
 **Condition impérative** : chaque extraction est **proposée**, jamais appliquée. Un
 agent valide ou corrige. Le §18 l'exige, et les intitulés le justifient — `PK50-Marela

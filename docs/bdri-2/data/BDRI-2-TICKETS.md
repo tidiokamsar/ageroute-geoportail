@@ -85,7 +85,7 @@ personne passe devant un ticket qui attend une source externe.
 | **Problème** | 482 chantiers sur 488 n'ont aucune position exploitable. Or 36 intitulés contiennent à la fois la route et les PK de début et de fin : `lot 12 : travaux de cantonnage manuel de la route PK24 - PK66 RN5 (42 km)`. |
 | **Solution** | Extraire route, PK début et PK fin, et **proposer** l'emprise correspondante par `ST_LineSubstring` sur le tronçon. Les 1 690 tronçons ayant leurs PK renseignés, la projection est directe. Un agent valide ou corrige ; rien n'est appliqué seul. |
 | **Données nécessaires** | Aucune. Intitulés et PK déjà en base. |
-| **Impact** | 6 → 42 chantiers localisés précisément, soit sept fois plus. |
+| **Impact** | Extraction validée sur les 36 intitulés : 14 emprises, 19 rattachements à une route. **Mais aucune ne trouve de tronçon qui la couvre** — voir le risque ci-dessous. Le gain immédiat est une file de propositions instruites, pas des chantiers localisés. |
 | **Dépendances** | Aucune pour l'extraction. T4 pour enregistrer la méthode et la date avec la position — sans quoi une emprise déduite d'un intitulé deviendra indistinguable d'un relevé. |
 | **Risque** | **Moyen.** Les intitulés sont du texte libre et piègent une extraction naïve : `PK50-Marela (PK103)` mêle un PK et une localité. D'où la validation humaine obligatoire, exigée par le §18. La longueur citée dans 221 intitulés sert de contrôle de cohérence. |
 | **Effort** | 5 à 7 jours, interface de validation comprise. |

@@ -22,6 +22,7 @@ import { otRouter } from "./modules/ordres-travaux/ot.routes";
 import { usersRouter } from "./modules/users/users.routes";
 import { auditRouter } from "./modules/audit/audit.routes";
 import { qualiteRouter } from "./modules/qualite/qualite.routes";
+import { propositionsRouter } from "./modules/chantiers/propositions.routes";
 import { searchRouter } from "./modules/search/search.routes";
 import { documentsRouter } from "./modules/documents/documents.routes";
 import { photosRouter } from "./modules/photos/photos.routes";
@@ -112,6 +113,7 @@ export function createApp() {
   app.use("/api/users", usersRouter);
   app.use("/api/audit", auditRouter);
   app.use("/api/qualite", qualiteRouter);
+  app.use("/api/propositions-localisation", propositionsRouter);
   app.use("/api/search", searchRouter);
   app.use("/api/documents", documentsRouter);
   app.use("/api/photos", photosRouter);
