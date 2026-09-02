@@ -74,7 +74,7 @@ JWT_ACCESS_EXPIRES_IN=1h
 JWT_REFRESH_EXPIRES_IN=7d
 SEED_ADMIN_EMAIL=${MAIL_ADMIN}
 SEED_ADMIN_NAME="Compte de verification locale"
-SEED_ADMIN_PASSWORD=${MDP_ADMIN}
+SEED_ADMIN_PASSWORD="${MDP_ADMIN}"
 ENV
 ok "backend/.env ecrit (ignore par git)"
 

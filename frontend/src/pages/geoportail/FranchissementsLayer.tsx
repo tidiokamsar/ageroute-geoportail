@@ -125,6 +125,114 @@ export function compterParCategorie(points: FranchissementPoint[]): Record<Categ
   return c;
 }
 
+
+/** Une ligne de fait : libelle a gauche, valeur a droite. Meme forme que InfoRow
+ *  du panneau de detail, pour que les deux fiches se lisent pareil. */
+function Ligne({ label, valeur }: { label: string; valeur: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-1">
+      <span className="text-[11px] text-gray-500 shrink-0">{label}</span>
+      <span className="text-[12px] font-medium text-navy text-right">{valeur}</span>
+    </div>
+  );
+}
+
+/**
+ * Fiche d'un franchissement.
+ *
+ * La version precedente empilait les informations au fil, separees par des <br> :
+ * l'intitule, la nature, le verdict et les mesures se lisaient d'un bloc, sans
+ * qu'aucune hierarchie ne dise quoi regarder en premier. Le verdict — la seule
+ * information qui appelle une decision — s'y noyait.
+ *
+ * Ici : l'objet en tete, le verdict en pastille coloree juste apres, les mesures
+ * en lignes alignees, l'origine et l'action en pied.
+ */
+function FicheFranchissement({
+  f, dejaAjoute, aInstruire, onCreerOuvrage,
+}: {
+  f: FranchissementPoint;
+  dejaAjoute: boolean;
+  aInstruire: boolean;
+  onCreerOuvrage?: (f: FranchissementPoint) => void;
+}) {
+  const glyphe = f.franchissement === "Pont" ? "⌒" : f.franchissement === "Gué" ? "≈" : "∩";
+  const couleur = dejaAjoute ? "#1a2942" : aInstruire ? "#b91c1c" : "#16a34a";
+  const verdict = dejaAjoute
+    ? "Ajouté à l'inventaire"
+    : aInstruire
+      ? "À instruire"
+      : "Correspondance AGEROUTE";
+
+  return (
+    <div style={{ minWidth: 236 }}>
+      <div className="flex items-start gap-2.5">
+        <span
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 bg-white text-[15px] font-bold leading-none"
+          style={{ borderColor: couleur, color: couleur }}
+          aria-hidden="true"
+        >
+          {glyphe}
+        </span>
+        <div className="min-w-0">
+          <p className="text-[13px] font-bold leading-tight text-navy">{nomPropose(f)}</p>
+          <p className="text-[11px] leading-tight text-gray-500">
+            {f.nature} · {f.region || "région inconnue"}
+          </p>
+        </div>
+      </div>
+
+      <div
+        className="mt-2.5 rounded-md px-2 py-1.5"
+        style={{ backgroundColor: `${couleur}14` }}
+      >
+        <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: couleur }}>
+          {verdict}
+        </p>
+        {aInstruire && (
+          <p className="text-[10.5px] leading-snug text-gray-600">
+            Aucun ouvrage AGEROUTE à moins de 250 m.
+          </p>
+        )}
+      </div>
+
+      <div className="mt-2 border-t border-gray-100 pt-1">
+        <Ligne label="Voie franchie" valeur={LIBELLE_CATEGORIE[f.categorie]} />
+        <Ligne label="Longueur du tracé" valeur={`${Math.round(f.longueurM)} m`} />
+        <Ligne
+          label="Ouvrage le plus proche"
+          valeur={
+            f.distanceM >= 1000
+              ? `${(f.distanceM / 1000).toFixed(1)} km`
+              : `${Math.round(f.distanceM)} m`
+          }
+        />
+      </div>
+
+      {f.categorie === "CHEMIN" && aInstruire && (
+        <p className="mt-2 rounded-md bg-amber-50 px-2 py-1.5 text-[10.5px] leading-snug text-amber-800">
+          Franchissement sur un chemin : son appartenance au patrimoine AGEROUTE
+          n'est pas établie.
+        </p>
+      )}
+
+      <p className="mt-2 border-t border-gray-100 pt-1.5 text-[10px] leading-snug text-gray-400">
+        Source OpenStreetMap 2023, validée par AGEROUTE. Proposition — l'ajout crée un
+        ouvrage tracé au journal d'audit.
+      </p>
+
+      {onCreerOuvrage && aInstruire && (
+        <button
+          onClick={() => onCreerOuvrage(f)}
+          className="mt-2 w-full rounded-md bg-navy px-3 py-1.5 text-[11.5px] font-semibold text-white hover:bg-navy2 focus:outline-none focus-visible:ring-2 focus-visible:ring-navy/50"
+        >
+          ＋ Ajouter à l'inventaire
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function FranchissementsLayer({
   data,
   categories,
@@ -162,58 +270,12 @@ export function FranchissementsLayer({
               {nomPropose(f)} ({f.nature})
             </Tooltip>
             <Popup>
-              <div className="text-xs" style={{ minWidth: 210 }}>
-                <b>{nomPropose(f)}</b>
-                <br />
-                {f.nature} — {LIBELLE_CATEGORIE[f.categorie]}
-                <br />
-                Région {f.region || "?"}
-                <br />
-                Verdict :{" "}
-                <b>
-                  {dejaAjoute
-                    ? "ajouté à l'inventaire"
-                    : aInstruire
-                      ? "à instruire (aucun ouvrage AGEROUTE à 250 m)"
-                      : "correspondance AGEROUTE"}
-                </b>
-                <br />
-                way {Math.round(f.longueurM)} m · ouvrage le plus proche :{" "}
-                {Math.round(f.distanceM)} m
-                <br />
-                <span style={{ color: "#6b7280" }}>
-                  Source OpenStreetMap 2023 — validé par AGEROUTE
-                </span>
-                {f.categorie === "CHEMIN" && aInstruire && (
-                  <>
-                    <br />
-                    <span style={{ color: "#b45309" }}>
-                      Franchissement sur un chemin : son appartenance au patrimoine
-                      AGEROUTE n'est pas établie.
-                    </span>
-                  </>
-                )}
-                {onCreerOuvrage && aInstruire && (
-                  <>
-                    <br />
-                    <button
-                      onClick={() => onCreerOuvrage(f)}
-                      style={{
-                        marginTop: 6,
-                        padding: "4px 10px",
-                        borderRadius: 6,
-                        border: "1px solid #1a2942",
-                        background: "#1a2942",
-                        color: "#fff",
-                        fontSize: 11,
-                        cursor: "pointer",
-                      }}
-                    >
-                      ＋ Ajouter à l'inventaire
-                    </button>
-                  </>
-                )}
-              </div>
+              <FicheFranchissement
+                f={f}
+                dejaAjoute={dejaAjoute}
+                aInstruire={aInstruire}
+                onCreerOuvrage={onCreerOuvrage}
+              />
             </Popup>
           </Marker>
         );

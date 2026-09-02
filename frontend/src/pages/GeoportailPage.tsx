@@ -875,6 +875,12 @@ export function GeoportailPage() {
                       1 102 des 3 178 franchissements portent sur des chemins ou des
                       sentiers : les montrer sans distinction laisserait croire a
                       3 178 ouvrages manquants. */}
+                  {/* Les categories nomment la VOIE FRANCHIE, les nombres comptent les
+                      FRANCHISSEMENTS. Sans cet intitule, « Reseau classe · 990 » se lit
+                      comme 990 routes — signale a l'usage. */}
+                  <p className="text-[11px] font-medium text-gray-600">
+                    Nombre de franchissements, par nature de la voie franchie
+                  </p>
                   {(["CLASSE", "AUTRE_ROUTE", "CHEMIN"] as CategorieVoie[]).map((c) => (
                     <label key={c} className="flex items-center gap-2 cursor-pointer text-[11px] text-gray-600">
                       <Checkbox
@@ -890,19 +896,40 @@ export function GeoportailPage() {
                       <span>
                         {LIBELLE_CATEGORIE[c]}
                         {comptesFranchissements && (
-                          <span className="text-gray-400"> · {comptesFranchissements[c]}</span>
+                          <span className="text-gray-400">
+                            {" · "}
+                            {comptesFranchissements[c]}
+                            {c === "CLASSE" ? " franchissements" : ""}
+                          </span>
                         )}
                       </span>
                     </label>
                   ))}
 
-                  <p className="text-[11px] text-gray-400">
-                    <span style={{ color: "#b91c1c" }}>●</span> à instruire ·{" "}
-                    <span style={{ color: "#16a34a" }}>●</span> correspondance AGEROUTE ·{" "}
-                    <span style={{ color: "#1a2942" }}>●</span> ajouté
-                    <br />
-                    ⌒ pont · ≈ gué · ∩ tunnel
-                    <br />
+                  {/* Legende en grille : en une seule coulee de texte, elle se cassait
+                      sur trois lignes et les couples couleur/sens se perdaient. */}
+                  <div className="rounded-md bg-gray-50 px-2 py-1.5">
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                      Couleur — verdict du croisement
+                    </p>
+                    <dl className="grid grid-cols-[auto_1fr] items-baseline gap-x-1.5 gap-y-0.5 text-[11px]">
+                      <dt style={{ color: "#b91c1c" }}>●</dt>
+                      <dd className="text-gray-600">à instruire</dd>
+                      <dt style={{ color: "#16a34a" }}>●</dt>
+                      <dd className="text-gray-600">correspondance AGEROUTE</dd>
+                      <dt style={{ color: "#1a2942" }}>●</dt>
+                      <dd className="text-gray-600">ajouté à l'inventaire</dd>
+                    </dl>
+
+                    <p className="mt-1.5 mb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                      Glyphe — nature de l'ouvrage
+                    </p>
+                    <p className="text-[11px] text-gray-600">⌒ pont · ≈ gué · ∩ tunnel</p>
+                  </div>
+
+                  <p className="text-[11px] leading-snug text-gray-400">
+                    Cette couche n'affiche <strong className="font-semibold">que des ouvrages
+                    de franchissement</strong> — jamais le tracé des routes elles-mêmes.
                     Source OpenStreetMap 2023, validée par AGEROUTE. Un franchissement sur
                     chemin n'est pas nécessairement un ouvrage du patrimoine.
                   </p>
