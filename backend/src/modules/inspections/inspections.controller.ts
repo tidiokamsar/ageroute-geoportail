@@ -44,7 +44,20 @@ export async function createHandler(req: Request, res: Response, next: NextFunct
 export async function updateHandler(req: Request, res: Response, next: NextFunction) {
   try {
     if (!req.user) throw new ApiError(401, "Authentification requise");
-    res.json(await inspectionsService.update(req.params.id, inspectionUpdateSchema.parse(req.body), req.user.id));
+    const data = inspectionUpdateSchema.parse(req.body);
+    // P1-05 : un INSPECTEUR ne modifie que ses propres inspections. ADMIN et
+    // GESTIONNAIRE conservent l'édition sur tout le module.
+    if (req.user.role === "INSPECTEUR") {
+      const cible = await prisma.inspection.findFirst({
+        where: { id: req.params.id },
+        select: { inspecteurId: true },
+      });
+      if (!cible) throw new ApiError(404, "Inspection introuvable");
+      if (cible.inspecteurId !== req.user.id) {
+        throw new ApiError(403, "Seule l'inspection vous appartenant est modifiable");
+      }
+    }
+    res.json(await inspectionsService.update(req.params.id, data, req.user.id));
   } catch (err) { next(err); }
 }
 export async function deleteHandler(req: Request, res: Response, next: NextFunction) {
@@ -57,9 +70,13 @@ export async function deleteHandler(req: Request, res: Response, next: NextFunct
 export async function addPhotoHandler(req: Request, res: Response, next: NextFunction) {
   try {
     if (!req.file) throw new ApiError(400, "Photo manquante");
-    res.status(201).json(await inspectionsService.addPhoto(req.params.id, req.file.filename));
+    if (!req.user) throw new ApiError(401, "Authentification requise");
+    res.status(201).json(await inspectionsService.addPhoto(req.params.id, req.file.filename, req.user.id));
   } catch (err) { next(err); }
 }
 export async function removePhotoHandler(req: Request, res: Response, next: NextFunction) {
-  try { res.json(await inspectionsService.removePhoto(req.params.id, req.params.filename)); } catch (err) { next(err); }
+  try {
+      if (!req.user) throw new ApiError(401, "Authentification requise");
+      res.json(await inspectionsService.removePhoto(req.params.id, req.params.filename, req.user.id));
+    } catch (err) { next(err); }
 }

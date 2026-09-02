@@ -56,9 +56,13 @@ export async function geolocateHandler(req: Request, res: Response, next: NextFu
 export async function addPhotoHandler(req: Request, res: Response, next: NextFunction) {
   try {
     if (!req.file) throw new ApiError(400, "Photo manquante");
-    res.status(201).json(await ouvragesService.addPhoto(req.params.id, req.file.filename));
+    if (!req.user) throw new ApiError(401, "Authentification requise");
+    res.status(201).json(await ouvragesService.addPhoto(req.params.id, req.file.filename, req.user.id));
   } catch (err) { next(err); }
 }
 export async function removePhotoHandler(req: Request, res: Response, next: NextFunction) {
-  try { res.json(await ouvragesService.removePhoto(req.params.id, req.params.filename)); } catch (err) { next(err); }
+  try {
+      if (!req.user) throw new ApiError(401, "Authentification requise");
+      res.json(await ouvragesService.removePhoto(req.params.id, req.params.filename, req.user.id));
+    } catch (err) { next(err); }
 }

@@ -16,8 +16,8 @@ const include = {
   signalement: { select: { id: true, numeroPublic: true, typeProbleme: true } },
   assigneA: { select: { id: true, nomComplet: true } },
   creePar: { select: { id: true, nomComplet: true } },
-  photos: { orderBy: { priseLe: "asc" as const } },
-  _count: { select: { photos: true } },
+  photos: { where: { deletedAt: null }, orderBy: { priseLe: "asc" as const } },
+  _count: { select: { photos: { where: { deletedAt: null } } } },
 };
 
 // Transitions autorisées du workflow OT. ANNULE accessible depuis tout état non terminal.
@@ -202,15 +202,26 @@ async function convertirChantier(id: string, userId: string) {
 
 async function addPhoto(otId: string, fileName: string, type: string, lat: number | undefined, lon: number | undefined, userId: string) {
   await getById(otId);
-  return prisma.otPhoto.create({
+  const created = await prisma.otPhoto.create({
     data: { otId, fileName, type: type as never, lat, lon, priseParId: userId },
   });
+  await logAudit({ userId, action: "CREATE", entityType: "OtPhoto", entityId: created.id, after: { otId, fileName, type } });
+  return created;
 }
 
-async function removePhoto(_otId: string, photoId: string) {
-  await prisma.otPhoto.delete({ where: { id: photoId } }).catch(() => {
-    throw new ApiError(404, "Photo introuvable");
+// P1-02 : la photo doit appartenir à l'OT porté par l'URL, et celui-ci être actif.
+// Connaître un identifiant de photo ne suffit plus pour agir sur elle ; un
+// identifiant valide d'un autre OT reçoit la même réponse qu'un identifiant
+// inconnu (404 uniforme, pas de révélation d'existence).
+// Retrait logique : une photo d'OT est une preuve d'exécution, jamais un DELETE.
+async function removePhoto(otId: string, photoId: string, userId: string) {
+  const photo = await prisma.otPhoto.findFirst({
+    where: { id: photoId, otId, deletedAt: null },
+    select: { id: true, fileName: true, type: true, ot: { select: { deletedAt: true } } },
   });
+  if (!photo || photo.ot.deletedAt) throw new ApiError(404, "Photo introuvable");
+  await prisma.otPhoto.update({ where: { id: photoId }, data: { deletedAt: new Date() } });
+  await logAudit({ userId, action: "DELETE", entityType: "OtPhoto", entityId: photoId, before: { otId, fileName: photo.fileName, type: photo.type } });
 }
 
 async function remove(id: string, userId: string) {
@@ -236,7 +247,7 @@ async function stats() {
       select: { createdAt: true, dateFinReelle: true, coutEstimeGnf: true, coutReelGnf: true },
     }),
     prisma.ordreTravaux.count({
-      where: { ...notDeleted, statut: "TERMINE", photos: { some: { type: "APRES" } } },
+      where: { ...notDeleted, statut: "TERMINE", photos: { some: { type: "APRES", deletedAt: null } } },
     }),
   ]);
 

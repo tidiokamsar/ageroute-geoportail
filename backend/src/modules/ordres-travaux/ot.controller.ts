@@ -71,7 +71,8 @@ export async function addPhotoHandler(req: Request, res: Response, next: NextFun
 
 export async function removePhotoHandler(req: Request, res: Response, next: NextFunction) {
   try {
-    await otService.removePhoto(req.params.id, req.params.photoId);
+    if (!req.user) throw new ApiError(401, "Authentification requise");
+    await otService.removePhoto(req.params.id, req.params.photoId, req.user.id);
     res.status(204).send();
   } catch (err) { next(err); }
 }
