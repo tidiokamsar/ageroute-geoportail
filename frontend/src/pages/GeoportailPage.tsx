@@ -1016,7 +1016,11 @@ export function GeoportailPage() {
                     icon={ouvrageIcon(o.type, o.etat)}
                     eventHandlers={{ click: () => setSelectedFeature({ kind: "ouvrage", data: o }) }}
                   >
-                    <Tooltip>{TYPE_OUVRAGE_LABEL[o.type] ?? o.type} — {o.nom} ({ETAT_LABELS[o.etat]})</Tooltip>
+                    <Tooltip>
+                      {TYPE_OUVRAGE_LABEL[o.type] ?? o.type} — {o.nom} ({ETAT_LABELS[o.etat]})
+                      <br />
+                      <span className="text-gray-400">position héritée, non vérifiée</span>
+                    </Tooltip>
                   </Marker>
                 ))}
 

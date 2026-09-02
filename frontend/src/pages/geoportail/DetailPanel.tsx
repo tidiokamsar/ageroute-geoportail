@@ -516,7 +516,9 @@ export function DetailPanel({
       title: feature.kind === "ouvrage" ? feature.data.nom : "",
       subtitle: feature.kind === "ouvrage" ? `${TYPE_OUVRAGE_LABELS[feature.data.type] ?? feature.data.type}${feature.data.code ? ` · ${feature.data.code}` : ""}` : "",
       etat: feature.kind === "ouvrage" ? feature.data.etat : "NON_EVALUE" as EtatPatrimoine,
-      meta: feature.kind === "ouvrage" && feature.data.pk != null ? fmtPk(feature.data.pk) : "",
+      meta: feature.kind === "ouvrage"
+        ? `${feature.data.pk != null ? fmtPk(feature.data.pk) + " · " : ""}position héritée, non vérifiée`
+        : "",
     },
     pointNoir: {
       icon: <ShieldAlert className="h-5 w-5" />,
