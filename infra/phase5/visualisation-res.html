@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Phase 5 — Analyse visuelle du lot RES-* (hors production)</title>
+<!--
+  OUTIL D'ANALYSE, HORS PRODUCTION. Aucune donnee n'est modifiee.
+
+  But : comprendre visuellement ce que represente le lot RES-* en le croisant
+  avec les familles BDRI (RN/RR/RU), le reseau OSM classe et ses tertiaires.
+
+  Usage :
+    1. executer exporter-carto.sh (couches simplifiees dans carto/)
+    2. copier ce fichier dans le meme dossier carto/
+    3. servir le dossier : python3 -m http.server 8765  (dans phase5-resultats)
+    4. ouvrir http://localhost:8765/carto/visualisation-res.html
+
+  Les filtres demandes par le cadrage :
+    RES uniquement / distance OSM < 25 m / 25-100 m / 100-250 m / > 250 m
+    (bande majoritaire du troncon : >= 50 % des points echantillonnes a 100 m)
+
+  Necessite un acces internet pour Leaflet (CDN) — les donnees, elles, restent locales.
+-->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  body { margin: 0; font-family: system-ui, sans-serif; }
+  #map { position: absolute; top: 0; right: 0; bottom: 0; left: 320px; }
+  #panneau { position: absolute; top: 0; left: 0; bottom: 0; width: 320px;
+             overflow-y: auto; padding: 12px; background: #fafafa;
+             border-right: 1px solid #ddd; font-size: 13px; box-sizing: border-box; }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  .note { color: #666; font-size: 11px; margin-bottom: 10px; }
+  fieldset { border: 1px solid #ddd; margin: 0 0 8px; padding: 8px; }
+  legend { font-weight: 600; font-size: 12px; }
+  label { display: block; margin: 3px 0; cursor: pointer; }
+  .apercu { display: inline-block; width: 22px; height: 4px; vertical-align: middle;
+            margin-right: 6px; border-radius: 2px; }
+  .compteur { color: #444; font-size: 11px; }
+  #stats { margin-top: 10px; font-size: 12px; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { border: 1px solid #ddd; padding: 2px 5px; text-align: left; font-size: 11px; }
+  th { background: #f0f0f0; }
+  .leaflet-popup-content { font-size: 12px; }
+</style>
+</head>
+<body>
+<div id="panneau">
+  <h1>Console BDRI — analyse du lot RES-*</h1>
+  <div class="note">Outil d'analyse Phase 5, lecture seule, hors production.
+  Bande OSM = part majoritaire (&ge;50&nbsp;%) du lin&eacute;aire du tron&ccedil;on
+  &agrave; la distance donn&eacute;e du r&eacute;seau OSM class&eacute;.</div>
+
+  <fieldset>
+    <legend>Couches</legend>
+    <label><input type="checkbox" id="c-rn" checked><span class="apercu" style="background:#1d4ed8"></span>BDRI RN (hors RES)</label>
+    <label><input type="checkbox" id="c-rr" checked><span class="apercu" style="background:#6b7280"></span>BDRI RR (hors RES)</label>
+    <label><input type="checkbox" id="c-ru" checked><span class="apercu" style="background:#111827"></span>BDRI RU</label>
+    <label><input type="checkbox" id="c-res" checked><span class="apercu" style="background:#dc2626"></span>RES-* (couleur = typologie)</label>
+    <label><input type="checkbox" id="c-osm" checked><span class="apercu" style="background:#d97706; height:0; border-top:3px dashed #d97706"></span>OSM class&eacute;</label>
+    <label><input type="checkbox" id="c-ter"><span class="apercu" style="background:#f59e0b; height:0; border-top:3px dotted #f59e0b"></span>OSM tertiaire seul (surbrillance)</label>
+  </fieldset>
+
+  <fieldset>
+    <legend>Filtres RES-*</legend>
+    <label><input type="radio" name="bande" value="toutes" checked>RES uniquement (toutes bandes)</label>
+    <label><input type="radio" name="bande" value="osm<25m">distance OSM &lt; 25 m</label>
+    <label><input type="radio" name="bande" value="osm25-100m">distance OSM 25&ndash;100 m</label>
+    <label><input type="radio" name="bande" value="osm100-250m">distance OSM 100&ndash;250 m</label>
+    <label><input type="radio" name="bande" value="osm>250m">distance OSM &gt; 250 m</label>
+    <div style="margin-top:6px">
+      <label><input type="checkbox" id="masquer-autres" checked>Masquer RN/RR/RU/OSM quand un filtre RES est actif</label>
+    </div>
+  </fieldset>
+
+  <fieldset>
+    <legend>Typologie (analyse, pas modification)</legend>
+    <label><span class="apercu" style="background:#16a34a"></span>RES_CONFIRMED_ROAD (&ge;80&nbsp;% &agrave; 25 m d'OSM class&eacute;)</label>
+    <label><span class="apercu" style="background:#d97706"></span>RES_POSSIBLE_ROAD (&ge;50&nbsp;% &agrave; 100 m ou chemin &agrave; 25 m)</label>
+    <label><span class="apercu" style="background:#7c3aed"></span>RES_DUPLICATE_OR_OVERLAP (&ge;50&nbsp;% &agrave; 25 m d'un autre tron&ccedil;on)</label>
+    <label><span class="apercu" style="background:#dc2626"></span>RES_OUTSIDE_REFERENCE_NETWORK</label>
+    <label><span class="apercu" style="background:#9ca3af"></span>RES_UNDETERMINED</label>
+  </fieldset>
+
+  <div id="stats"></div>
+</div>
+<div id="map"></div>
+
+<script>
+const TYPOS = {
+  RES_CONFIRMED_ROAD: "#16a34a",
+  RES_POSSIBLE_ROAD: "#d97706",
+  RES_DUPLICATE_OR_OVERLAP: "#7c3aed",
+  RES_OUTSIDE_REFERENCE_NETWORK: "#dc2626",
+  RES_UNDETERMINED: "#9ca3af"
+};
+
+const map = L.map("map").setView([10.4, -11.0], 7);
+L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+  attribution: "&copy; OpenStreetMap", maxZoom: 17
+}).addTo(map);
+
+function styleProp(p, def) { return { color: def, weight: 2, opacity: 0.85 }; }
+
+let couches = {};
+function charger(nom, url, style, popup) {
+  return fetch(url).then(r => r.json()).then(d => {
+    couches[nom] = L.geoJSON(d, {
+      style: f => style(f.properties),
+      onEachFeature: (f, l) => { if (popup) l.bindPopup(popup(f.properties)); }
+    });
+    return d.features.length;
+  });
+}
+
+const popRes = p =>
+  `<b>${p.code}</b> — ${p.region ?? "?"}<br>
+   Typologie : <b>${p.typologie}</b><br>
+   Bande OSM majoritaire : ${p.bande}<br>
+   part &agrave; 25 m d'OSM class&eacute; : ${Math.round(p.p_osm25*100)} %<br>
+   part &agrave; 25 m d'un chemin/piste : ${Math.round(p.p_chemin25*100)} %<br>
+   part &agrave; 25 m d'un autre tron&ccedil;on BDRI : ${Math.round(p.p_autre25*100)} %`;
+
+Promise.all([
+  charger("res", "bdri-res.geojson",
+          p => ({ color: TYPOS[p.typologie] ?? "#000", weight: 3, opacity: 0.9 }), popRes),
+  charger("rn", "bdri-rn.geojson", () => styleProp(0, "#1d4ed8"),
+          p => `BDRI RN <b>${p.code}</b>`),
+  charger("rr", "bdri-rr.geojson", () => styleProp(0, "#6b7280"),
+          p => `BDRI RR <b>${p.code}</b>`),
+  charger("ru", "bdri-ru.geojson", () => styleProp(0, "#111827"),
+          p => `BDRI RU <b>${p.code}</b>`),
+  charger("osm", "osm-classe.geojson",
+          p => ({ color: p.nature === "Route tertiaire" ? "#f59e0b" : "#d97706",
+                  weight: 1.5, opacity: 0.7, dashArray: "4 3" }),
+          p => `OSM ${p.nature}${p.numero ? " — " + p.numero : ""}`)
+]).then(() => { majAffichage(); document.getElementById("stats").innerHTML = stats(); });
+
+function filtreResActif() {
+  const r = document.querySelector("input[name=bande]:checked");
+  return r && r.value !== "toutes";
+}
+
+function majAffichage() {
+  const on = id => document.getElementById(id).checked;
+  const bande = document.querySelector("input[name=bande]:checked").value;
+  const masquer = document.getElementById("masquer-autres").checked && filtreResActif();
+  const terSeul = on("c-ter");
+
+  ["rn","rr","ru","osm","res"].forEach(k => { if (couches[k] && map.hasLayer(couches[k])) map.removeLayer(couches[k]); });
+
+  if (on("c-osm") && !masquer && !terSeul && couches.osm) couches.osm.addTo(map);
+  if (terSeul && couches.osm) {
+    couches.osm.addTo(map);
+    couches.osm.setStyle(p => p.nature === "Route tertiaire"
+      ? { color: "#f59e0b", weight: 2, opacity: 0.9 }
+      : { color: "#d97706", weight: 0.5, opacity: 0.25, dashArray: "2 4" });
+  }
+  if (on("c-rn") && !masquer && couches.rn) couches.rn.addTo(map);
+  if (on("c-rr") && !masquer && couches.rr) couches.rr.addTo(map);
+  if (on("c-ru") && !masquer && couches.ru) couches.ru.addTo(map);
+
+  if (on("c-res") && couches.res) {
+    if (bande === "toutes") couches.res.addTo(map);
+    else {
+      const f = L.geoJSON(couches.res.toGeoJSON(), {
+        filter: ft => ft.properties.bande === bande,
+        style: ft => ({ color: TYPOS[ft.properties.typologie], weight: 3, opacity: 0.9 }),
+        onEachFeature: (ft, l) => l.bindPopup(popRes(ft.properties))
+      }).addTo(map);
+      couches._filtre = f;
+    }
+    couches.res.setStyle(p => ({ color: TYPOS[p.typologie] ?? "#000", weight: 3, opacity: 0.9 }));
+  }
+  document.getElementById("stats").innerHTML = stats();
+}
+
+function stats() {
+  if (!couches.res) return "";
+  const t = {};
+  couches.res.eachLayer(l => { const y = l.feature.properties.typologie; t[y] = (t[y]||0)+1; });
+  const total = Object.values(t).reduce((a,b)=>a+b,0);
+  let html = `<table><tr><th>Typologie</th><th>Tronçons</th></tr>`;
+  for (const [k, v] of Object.entries(t).sort((a,b)=>b[1]-a[1]))
+    html += `<tr><td><span class="apercu" style="background:${TYPOS[k]}"></span>${k}</td><td>${v}</td></tr>`;
+  html += `</table><p class="compteur">${total} RES-* au total</p>`;
+  return html;
+}
+
+["c-rn","c-rr","c-ru","c-res","c-osm","c-ter","masquer-autres"].forEach(id =>
+  document.getElementById(id).addEventListener("change", majAffichage));
+document.querySelectorAll("input[name=bande]").forEach(el =>
+  el.addEventListener("change", majAffichage));
+</script>
+</body>
+</html>

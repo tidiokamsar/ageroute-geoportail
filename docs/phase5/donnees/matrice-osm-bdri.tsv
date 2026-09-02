@@ -1,0 +1,16 @@
+RN	f	Route primaire	139606	33081	23.70
+RN	f	Route secondaire	139606	16791	12.03
+RN	f	Route tertiaire	139606	27151	19.45
+RN	f	Voie rapide	139606	50737	36.34
+RR	t	Route primaire	192460	299	0.16
+RR	t	Route secondaire	192460	852	0.44
+RR	t	Route tertiaire	192460	2978	1.55
+RR	t	Voie rapide	192460	130	0.07
+RR	f	Route primaire	1210	0	0.00
+RR	f	Route secondaire	1210	512	42.31
+RR	f	Route tertiaire	1210	9	0.74
+RR	f	Voie rapide	1210	0	0.00
+RU	f	Route primaire	797	445	55.83
+RU	f	Route secondaire	797	318	39.90
+RU	f	Route tertiaire	797	139	17.44
+RU	f	Voie rapide	797	17	2.13
