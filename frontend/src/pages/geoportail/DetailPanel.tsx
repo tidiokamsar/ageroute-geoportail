@@ -279,7 +279,7 @@ function useDocuments(tronconId?: string, ouvrageId?: string) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function DetailPanel({
-  feature, onClose, onArchive, canArchive, canEdit, onZoomTo,
+  feature, onClose, onArchive, canArchive, canEdit, onZoomTo, onDeplacerOuvrage,
 }: {
   feature: SelectedFeature;
   onClose: () => void;
@@ -287,6 +287,8 @@ export function DetailPanel({
   canArchive?: boolean;
   canEdit?: boolean;
   onZoomTo?: (center: [number, number]) => void;
+  /** D9 : passer l'ouvrage en mode déplacement sur la carte (mission terrain). */
+  onDeplacerOuvrage?: (ouvrage: { id: string; nom: string; lat: number; lon: number }) => void;
 }) {
   const qc = useQueryClient();
   const { confirm, dialog: confirmDialog } = useConfirm();
@@ -1221,9 +1223,18 @@ export function DetailPanel({
           <span className="text-[11px] text-amber-600 italic">Mode édition</span>
         </div>
       ) : (
-        feature.kind !== "toponyme" && (
+          feature.kind !== "toponyme" && (
           <div className="shrink-0 border-t border-gray-100 px-4 py-2.5 bg-gray-50 flex items-center gap-2">
-            {canEdit && feature.kind !== "chantier" && feature.kind !== "troncon" && (
+            {canEdit && feature.kind === "ouvrage" && onDeplacerOuvrage && (
+              <button
+                onClick={() => onDeplacerOuvrage({ id: feature.data.id, nom: feature.data.nom, lat: feature.data.lat, lon: feature.data.lon })}
+                className="flex items-center gap-1.5 text-xs text-navy border border-navy/20 rounded-lg px-3 py-1.5 hover:bg-navy/5"
+                title="Glisser le marqueur sur la carte pour corriger la position (mission terrain D9)"
+              >
+                <MapPin className="h-3 w-3" /> Déplacer
+              </button>
+            )}
+            {canEdit && feature.kind !== "chantier" && feature.kind !== "troncon" && feature.kind !== "ouvrage" && (
               <button className="flex items-center gap-1.5 text-xs text-navy border border-navy/20 rounded-lg px-3 py-1.5 hover:bg-navy/5">
                 <Pencil className="h-3 w-3" /> Modifier
               </button>

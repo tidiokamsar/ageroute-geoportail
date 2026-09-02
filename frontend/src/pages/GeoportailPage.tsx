@@ -17,6 +17,8 @@ import { useAuth, canDelete, canWrite } from "../lib/auth";
 import { Checkbox } from "../components/ui/checkbox";
 import type { DashboardKpis, EtatPatrimoine, Region } from "../types";
 import { DetailPanel } from "./geoportail/DetailPanel";
+import { MoveOuvrageLayer } from "./geoportail/MoveOuvrageLayer";
+import axios from "axios";
 import { MeasureLayer, type MeasureMode } from "./geoportail/MeasureLayer";
 import { DrawTronconLayer, type DrawHandle, type DrawPhase } from "./geoportail/DrawTronconLayer";
 import { DrawTronconForm } from "./geoportail/DrawTronconForm";
@@ -165,6 +167,16 @@ export function GeoportailPage() {
   );
   const [showAlertes, setShowAlertes] = useState(false);
   const [showToponymes, setShowToponymes] = useState(false);
+  // D9 (validée) : affichage complet des franchissements OSM en propositions,
+  // et repositionnement terrain des ouvrages en attendant la mission.
+  const [showPontsOsm, setShowPontsOsm] = useState(false);
+  const [deplacementOuvrage, setDeplacementOuvrage] = useState<{ id: string; nom: string; lat: number; lon: number } | null>(null);
+  const { data: pontsOsm } = useQuery({
+    queryKey: ["ponts-osm"],
+    queryFn: async () => (await axios.get<GeoJSON.FeatureCollection>("/data/ponts-osm.geojson")).data,
+    staleTime: Infinity,
+    enabled: showPontsOsm,
+  });
   const [drawMode, setDrawMode] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [drawPhase, setDrawPhase] = useState<DrawPhase>("drawing");
@@ -777,6 +789,14 @@ export function GeoportailPage() {
                 Couleur des ouvrages = état (vert bon → rouge critique) · Points noirs : ▲ forte, ◆ moyenne, ● faible
               </p>
             </div>
+            <div className="mt-2 pt-2 border-t border-gray-100">
+              <LayerRow checked={showPontsOsm} onChange={() => setShowPontsOsm((v) => !v)} label="Franchissements OSM (propositions D9)" />
+              {showPontsOsm && (
+                <p className="text-[11px] text-gray-400 ml-6">
+                  3 178 franchissements OSM 2023 — rouge : aucun ouvrage BDRI à 250 m · vert : correspondance. Source externe, à valider sur le terrain (satellite conseillé).
+                </p>
+              )}
+            </div>
           </PanelSection>
 
           <PanelSection icon={<Construction className="h-4 w-4" />} title="Travaux">
@@ -975,6 +995,39 @@ export function GeoportailPage() {
               </CircleMarker>
             ))}
 
+          {/* D9 : franchissements OSM en propositions — une couche GeoJSON unique.
+              Rouge = aucun ouvrage BDRI a 250 m (a instruire), vert = correspondance. */}
+          {showPontsOsm && pontsOsm && (
+            <GeoJSON
+              key="ponts-osm-layer"
+              data={pontsOsm}
+              style={(f) => {
+                const p = f?.properties ?? {};
+                const majeur = /rapide|primaire|secondaire/.test(String(p.nature));
+                if (p.classement !== "PONT_SANS_OUVRAGE") return { color: "#16a34a", weight: 3, opacity: 0.9 };
+                return majeur
+                  ? { color: "#b91c1c", weight: 4, opacity: 0.9 }
+                  : { color: "#ef4444", weight: 1.5, opacity: 0.7 };
+              }}
+              onEachFeature={(f, layer) => {
+                const p = f.properties as { franchissement?: string; numero?: string; nom?: string; nature?: string; region?: string; classement?: string; longueurM?: number; distanceM?: number };
+                layer.bindTooltip(`${p.franchissement ?? ""}${p.numero ? " " + p.numero : ""}${p.nom ? " — " + p.nom : ""}`, { sticky: true });
+                layer.bindPopup(
+                  `<b>${p.franchissement ?? ""}${p.numero ? " " + p.numero : ""}${p.nom ? " — " + p.nom : ""}</b><br>` +
+                  `${p.nature ?? ""} — région ${p.region || "?"}<br>` +
+                  `Proposition : <b>${p.classement === "PONT_SANS_OUVRAGE" ? "à instruire (aucun ouvrage BDRI à 250 m)" : "correspondance BDRI"}</b><br>` +
+                  `way ${p.longueurM ?? "?"} m · ouvrage BDRI le plus proche : ${p.distanceM ?? "?"} m<br>` +
+                  `<span style="color:#6b7280">Source OSM 2023 — à valider sur le terrain</span>`
+                );
+              }}
+            />
+          )}
+
+          {/* D9 : mode déplacement d'un ouvrage (mission terrain) */}
+          {deplacementOuvrage && (
+            <MoveOuvrageLayer ouvrage={deplacementOuvrage} onTerminer={() => setDeplacementOuvrage(null)} />
+          )}
+
           {/* Marqueurs ponctuels regroupes (clustering) pour la lisibilite au dezoom */}
           <MarkerClusterGroup chunkedLoading maxClusterRadius={50}>
             {layers.chantiers &&
@@ -1080,6 +1133,7 @@ export function GeoportailPage() {
           onArchive={archiveSelectedFeature}
           canArchive={canDelete(user?.role)}
           canEdit={canWrite(user?.role)}
+          onDeplacerOuvrage={(o) => setDeplacementOuvrage(o)}
           onZoomTo={(center) => setFlyTarget(center)}
         />
       )}
