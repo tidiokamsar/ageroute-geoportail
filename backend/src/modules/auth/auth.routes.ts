@@ -1,6 +1,6 @@
 import { Router } from "express";
 import {
-  loginHandler, refreshHandler, logoutHandler, meHandler,
+  loginHandler, refreshHandler, logoutHandler, logoutAllHandler, meHandler,
   twoFaLoginVerifyHandler, twoFaSetupHandler, twoFaConfirmHandler, twoFaDisableHandler,
 } from "./auth.controller";
 import { requireAuth } from "../../middleware/auth.middleware";
@@ -17,6 +17,9 @@ export const authRouter = Router();
 authRouter.post("/login", loginHandler);
 authRouter.post("/refresh", refreshHandler);
 authRouter.post("/logout", logoutHandler);
+// P3-A : coupe TOUTES les sessions refresh de l'utilisateur authentifié
+// (tous appareils), avec journalisation SECURITY_EVENT.
+authRouter.post("/logout-all", requireAuth, logoutAllHandler);
 authRouter.get("/me", requireAuth, meHandler);
 
 authRouter.post("/2fa/login-verify", twoFaLoginVerifyHandler);

@@ -16,7 +16,7 @@ export async function loginHandler(req: Request, res: Response, next: NextFuncti
 export async function refreshHandler(req: Request, res: Response, next: NextFunction) {
   try {
     const input = refreshSchema.parse(req.body);
-    const result = await authService.refresh(input.refreshToken);
+    const result = await authService.refresh(input.refreshToken, req.ip);
     res.json(result);
   } catch (err) {
     next(err);
@@ -27,6 +27,16 @@ export async function logoutHandler(req: Request, res: Response, next: NextFunct
   try {
     const input = refreshSchema.parse(req.body);
     await authService.logout(input.refreshToken);
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function logoutAllHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    if (!req.user) throw new ApiError(401, "Authentification requise");
+    await authService.logoutAll(req.user.id, req.ip);
     res.status(204).send();
   } catch (err) {
     next(err);

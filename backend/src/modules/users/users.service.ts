@@ -2,6 +2,7 @@ import { prisma } from "../../lib/prisma";
 import { hashPassword } from "../../utils/password";
 import { logAudit } from "../../utils/audit";
 import { ApiError } from "../../middleware/error.middleware";
+import { revokeAllForUser } from "../auth/auth.service";
 import type { ListParams } from "../../lib/crud-factory";
 import type { UserCreateInput, UserUpdateInput } from "./users.schema";
 
@@ -87,6 +88,11 @@ async function update(id: string, data: UserUpdateInput, actorId: string) {
   }
 
   const updated = await prisma.user.update({ where: { id }, data, select: SAFE_SELECT });
+  // P3-A : la désactivation d'un compte coupe immédiatement toutes ses sessions
+  // refresh — avant, les tokens restaient valides jusqu'à leur expiration.
+  if (data.actif === false) {
+    await revokeAllForUser(id, "ACCOUNT_DEACTIVATED", actorId);
+  }
   await logAudit({
     userId: actorId,
     action: "UPDATE",
@@ -102,7 +108,9 @@ async function resetPassword(id: string, password: string, actorId: string) {
   await getById(id);
   const passwordHash = await hashPassword(password);
   await prisma.user.update({ where: { id }, data: { passwordHash } });
-  await prisma.refreshToken.updateMany({ where: { userId: id, revoked: false }, data: { revoked: true } });
+  // P3-A : un changement de mot de passe révoque toutes les sessions refresh
+  // (politique inchangée depuis l'origine, désormais journalisée SECURITY_EVENT).
+  await revokeAllForUser(id, "PASSWORD_RESET", actorId);
   await logAudit({ userId: actorId, action: "UPDATE", entityType: "User", entityId: id, after: { passwordReset: true } });
 }
 
