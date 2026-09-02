@@ -1,0 +1,36 @@
+Test migration P3-A (refresh tokens) — 2026-09-02 10:44
+sauvegarde (P1-09) : bdri_20260902_030001.dump.enc
+refresh_tokens avant : 646 (dont actifs : 49)
+  troncons : 1690
+  chantiers : 496
+  ouvrages : 126
+  users : 6
+  refresh_tokens : 646
+MIGRATION APPLIQUEE
+SURVIE SESSION : OK (empreinte du temoin retrouvee)
+actifs apres : 49 (attendu = actifs avant : 49)
+                                                                   QUERY PLAN                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------
+ Index Scan using "refresh_tokens_tokenHash_key" on refresh_tokens  (cost=0.28..8.29 rows=1 width=192) (actual time=0.038..0.039 rows=1 loops=1)
+   Index Cond: ("tokenHash" = '122d3be9c00e92c0f6b02eb177d7de7a4cc5375dd0e2fa8491ddfa970d51472f'::text)
+ Planning Time: 0.587 ms
+ Execution Time: 0.090 ms
+(4 rows)
+
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=15.17..15.18 rows=1 width=8) (actual time=0.137..0.138 rows=1 loops=1)
+   InitPlan 1
+     ->  Limit  (cost=0.00..0.21 rows=1 width=32) (actual time=0.056..0.057 rows=1 loops=1)
+           ->  Seq Scan on refresh_tokens refresh_tokens_1  (cost=0.00..133.46 rows=646 width=32) (actual time=0.055..0.055 rows=1 loops=1)
+   ->  Bitmap Heap Scan on refresh_tokens  (cost=4.30..14.95 rows=3 width=0) (actual time=0.132..0.133 rows=1 loops=1)
+         Recheck Cond: ("familyId" = (InitPlan 1).col1)
+         Heap Blocks: exact=1
+         ->  Bitmap Index Scan on "refresh_tokens_familyId_idx"  (cost=0.00..4.30 rows=3 width=0) (actual time=0.125..0.125 rows=1 loops=1)
+               Index Cond: ("familyId" = (InitPlan 1).col1)
+ Planning Time: 0.641 ms
+ Execution Time: 0.235 ms
+(11 rows)
+
+ROLLBACK : OK — reconnexion generale requise (documente)
+RESULTAT : SUCCES — migration P3-A eprouvee, sessions conservees, integrite et rollback verifies
