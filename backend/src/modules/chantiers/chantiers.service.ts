@@ -1,4 +1,5 @@
 import { prisma } from "../../lib/prisma";
+import { localisationDe, REGION_NON_RENSEIGNEE } from "../../lib/localisation";
 import { createCrudService, type ListParams } from "../../lib/crud-factory";
 import { buildExportBuffer, parseImportBuffer, formatImportError, type ImportReport } from "../../lib/excel";
 import { resolveRegionId } from "../../lib/regions";
@@ -88,11 +89,14 @@ async function listGeo() {
     {
       id: string; intitule: string; statut: string; avancementPct: number; region: string | null;
       entreprise: string | null; bailleur: string | null; montantGnf: string | null;
-      numContrat: string | null; observations: string | null; geometry: string | null;
+      numContrat: string | null; observations: string | null;
+      tronconId: string | null; pkDebut: number | null; pkFin: number | null;
+      geometry: string | null;
     }[]
   >`
     SELECT c.id, c.intitule, c.statut, c."avancementPct", r.nom AS region,
            c.entreprise, c.bailleur, c."montantGnf"::text AS "montantGnf", c."numContrat", c.observations,
+           c."tronconId", c."pkDebut", c."pkFin",
            ST_AsGeoJSON(c.geom) AS geometry
     FROM chantiers c
     LEFT JOIN regions r ON r.id = c."regionId"
@@ -100,11 +104,31 @@ async function listGeo() {
   `;
   return rows
     .map((r) => {
-      if (r.geometry) return { ...r, approximate: false, lat: null, lon: null };
-      // Repli Conakry (siege AGEROUTE) si la region est "Non renseigné" ou absente : permet
-      // de garder le chantier visible/cliquable plutot que de le faire disparaitre purement
-      // et simplement, le statut "approximate" + le libelle de region reel restent honnetes
-      // sur le fait que la position n'est pas connue.
+      const loc = localisationDe({
+        aGeometrie: !!r.geometry,
+        tronconId: r.tronconId ?? null,
+        pkDebut: r.pkDebut ?? null,
+        pkFin: r.pkFin ?? null,
+        regionNom: r.region,
+      });
+
+      // Un chantier sans localisation ne va PAS sur la carte.
+      //
+      // La version precedente le repliait sur le centroide de Conakry, au motif de le
+      // garder visible et cliquable, en le marquant « approximate ». Mais aucune
+      // etiquette ne rend honnete une epingle a Conakry pour un chantier peut-etre
+      // situe a Nzerekore : 50 chantiers sont rattaches a l'entree « Non renseigne »,
+      // qui n'est pas une region. C'est une position inventee, et le §17 du cahier des
+      // charges l'interdit.
+      //
+      // Ils restent accessibles par la liste « chantiers sans localisation », qui les
+      // rend visibles SANS leur preter une position.
+      if (!loc.cartographiable) return null;
+
+      if (r.geometry) {
+        return { ...r, approximate: false, lat: null, lon: null, localisation: loc.statut, localisationLibelle: loc.libelle };
+      }
+
       const centroid = (r.region && REGION_CENTROIDS[r.region]) || REGION_CENTROIDS.Conakry;
       // Dispersion deterministe (hash de l'id) autour du centroide : sans ca, des dizaines
       // de chantiers de la meme region se superposeraient exactement au meme pixel.
@@ -112,9 +136,39 @@ async function listGeo() {
       for (let i = 0; i < r.id.length; i++) hash = (hash * 31 + r.id.charCodeAt(i)) % 100000;
       const jitterLat = ((hash % 200) - 100) / 100 / 6; // +/- ~0.17°
       const jitterLon = (((hash / 200) % 200) - 100) / 100 / 6;
-      return { ...r, approximate: true, lat: centroid[0] + jitterLat, lon: centroid[1] + jitterLon };
+      return {
+        ...r,
+        approximate: true,
+        lat: centroid[0] + jitterLat,
+        lon: centroid[1] + jitterLon,
+        localisation: loc.statut,
+        localisationLibelle: loc.libelle,
+      };
     })
     .filter((r): r is NonNullable<typeof r> => r !== null);
+}
+
+/**
+ * Les chantiers qu'aucune position ne permet de placer.
+ *
+ * Ils ne disparaissent pas : ils cessent d'etre montres a un endroit faux. Cette
+ * liste est le pendant necessaire de leur retrait de la carte — sans elle, retirer
+ * les 50 reviendrait a les effacer.
+ */
+async function listSansLocalisation() {
+  const rows = await prisma.$queryRaw<
+    { id: string; intitule: string; statut: string; entreprise: string | null; region: string | null }[]
+  >`
+    SELECT c.id, c.intitule, c.statut, c.entreprise, r.nom AS region
+    FROM chantiers c
+    LEFT JOIN regions r ON r.id = c."regionId"
+    WHERE c."deletedAt" IS NULL
+      AND c.geom IS NULL
+      AND c."tronconId" IS NULL
+      AND (r.nom IS NULL OR r.nom = ${REGION_NON_RENSEIGNEE})
+    ORDER BY c.intitule
+  `;
+  return rows.map((r) => ({ ...r, motif: "Aucune région exploitable — position inconnue" }));
 }
 
 const EXPORT_COLUMNS = [
@@ -189,4 +243,4 @@ async function importXlsx(buffer: Buffer, userId: string): Promise<ImportReport>
   return report;
 }
 
-export const chantiersService = { ...base, list, listGeo, exportXlsx, importXlsx, create, update };
+export const chantiersService = { ...base, list, listGeo, listSansLocalisation, exportXlsx, importXlsx, create, update };

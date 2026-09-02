@@ -57,7 +57,7 @@ qualiteRouter.get(
       const total = repartition.reduce((s, r) => s + r.total, 0);
       const datees = repartition.reduce((s, r) => s + r.datees, 0);
 
-      res.json({
+      return res.json({
         entityType,
         champs: repartition,
         // Rendu explicitement : c'est la dimension la plus degradee de la base, et
@@ -69,7 +69,7 @@ qualiteRouter.get(
         },
       });
     } catch (err) {
-      next(err);
+      return next(err);
     }
   }
 );
@@ -122,8 +122,8 @@ qualiteRouter.get("/:entityType/:entityId", requireAuth, async (req, res, next) 
       };
     });
 
-    res.json({ entityType, entityId, champs });
+    return res.json({ entityType, entityId, champs });
   } catch (err) {
-    next(err);
+    return next(err);
   }
 });

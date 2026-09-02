@@ -21,7 +21,7 @@ vi.mock("../../middleware/auth.middleware", () => ({
 }));
 
 vi.mock("../../middleware/module-access.middleware", () => ({
-  requireModuleAccess: (cle: string) => (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  requireModuleAccess: (cle: string) => (_req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (compte.role === "ADMIN" || compte.modules.length === 0 || compte.modules.includes(cle)) return next();
     return res.status(403).json({ message: "Accès refusé" });
   },

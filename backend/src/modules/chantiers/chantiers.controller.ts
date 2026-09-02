@@ -16,6 +16,9 @@ export async function getHandler(req: Request, res: Response, next: NextFunction
 export async function listGeoHandler(_req: Request, res: Response, next: NextFunction) {
   try { res.json(await chantiersService.listGeo()); } catch (err) { next(err); }
 }
+export async function listSansLocalisationHandler(_req: Request, res: Response, next: NextFunction) {
+  try { res.json(await chantiersService.listSansLocalisation()); } catch (err) { next(err); }
+}
 export async function exportHandler(_req: Request, res: Response, next: NextFunction) {
   try {
     const buffer = await chantiersService.exportXlsx();

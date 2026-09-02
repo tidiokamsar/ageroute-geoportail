@@ -6,7 +6,7 @@ import { uploadExcel } from "../../middleware/upload.middleware";
 import { createBulkRouter } from "../../lib/crud-factory";
 import { chantiersService } from "./chantiers.service";
 import {
-  listHandler, getHandler, listGeoHandler, createHandler, updateHandler, deleteHandler,
+  listHandler, getHandler, listGeoHandler, listSansLocalisationHandler, createHandler, updateHandler, deleteHandler,
   exportHandler, importHandler,
 } from "./chantiers.controller";
 
@@ -30,6 +30,10 @@ chantiersRouter.get("/stats", async (_req, res, next) => {
 });
 chantiersRouter.get("/", listHandler);
 chantiersRouter.get("/geo", listGeoHandler);
+// Les chantiers qu'aucune position ne permet de placer sur la carte. Pendant
+// necessaire de leur retrait : sans cette liste, les retirer reviendrait a les effacer.
+// Meme niveau de garde que /geo, par coherence dans le module.
+chantiersRouter.get("/sans-localisation", listSansLocalisationHandler);
 chantiersRouter.get("/export", exportHandler);
 chantiersRouter.post("/import", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("chantiers"), uploadExcel, importHandler);
 chantiersRouter.use(requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("chantiers"), createBulkRouter(chantiersService));
