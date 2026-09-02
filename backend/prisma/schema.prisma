@@ -150,6 +150,7 @@ enum AuditAction {
   RESTORE
   LOGIN
   LOGIN_FAILED
+  SECURITY_EVENT
 }
 
 enum DeviseMarche {
@@ -274,17 +275,24 @@ model User {
   @@map("users")
 }
 
+// P3-A : le token brut ne vit QUE chez le client. En base : son empreinte
+// SHA-256 (tokenHash, cle de recherche), sa famille de rotation (familyId,
+// racine issuee au login), et l'historique de remplacement/reutilisation.
 model RefreshToken {
-  id        String   @id @default(uuid())
-  token     String   @unique
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expiresAt DateTime
-  revoked   Boolean  @default(false)
-  createdAt DateTime @default(now())
+  id              String    @id @default(uuid())
+  tokenHash       String    @unique
+  familyId        String
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  replacedById    String?
+  reuseDetectedAt DateTime?
+  createdAt       DateTime  @default(now())
 
   @@map("refresh_tokens")
   @@index([userId])
+  @@index([familyId])
 }
 
 // ===================== REFERENTIELS =====================
