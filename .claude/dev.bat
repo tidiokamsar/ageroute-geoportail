@@ -1,3 +1,3 @@
 @echo off
-cd /d "E:\Users\ELHAMADOUTIDIANEDIAL\Claude Code\console-bdri\frontend"
+cd /d "F:\ageroute-geoportail\frontend"
 call npm run dev
