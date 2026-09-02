@@ -181,20 +181,29 @@ async function convertirChantier(id: string, userId: string) {
     throw new ApiError(400, "OT clos — conversion impossible");
   }
   if (!ot.regionId) throw new ApiError(400, "L'OT doit avoir une région pour créer un chantier");
+  // Narrowing conserve hors closure : la garde ci-dessus ne traverse pas la
+  // fonction passée à $transaction, on fige la valeur garant non nulle.
+  const regionId = ot.regionId;
 
-  const chantier = await prisma.chantier.create({
-    data: {
-      intitule: `[Ex-${ot.numero}] ${ot.titre}`,
-      entreprise: ot.entreprise ?? "À déterminer",
-      regionId: ot.regionId,
-      tronconId: ot.tronconId,
-      montantGnf: ot.coutEstimeGnf,
-      statut: "PLANIFIE",
-      observations: `Converti depuis l'ordre de travaux ${ot.numero}. ${ot.description ?? ""}`.trim(),
-    },
+  // P2-04 : creation du chantier et bascule de l'OT dans une MEME transaction.
+  // Avant, un echec de l'update apres le create laissait un chantier orphelin
+  // et un OT encore actif — l'exact etat que la conversion devait eviter.
+  const chantier = await prisma.$transaction(async (tx) => {
+    const created = await tx.chantier.create({
+      data: {
+        intitule: `[Ex-${ot.numero}] ${ot.titre}`,
+        entreprise: ot.entreprise ?? "À déterminer",
+        regionId,
+        tronconId: ot.tronconId,
+        montantGnf: ot.coutEstimeGnf,
+        statut: "PLANIFIE",
+        observations: `Converti depuis l'ordre de travaux ${ot.numero}. ${ot.description ?? ""}`.trim(),
+      },
+    });
+    await tx.ordreTravaux.update({ where: { id }, data: { statut: "CONVERTI_CHANTIER", chantierId: created.id } });
+    return created;
   });
 
-  await prisma.ordreTravaux.update({ where: { id }, data: { statut: "CONVERTI_CHANTIER", chantierId: chantier.id } });
   await pushHistorique(id, `Converti en chantier ${chantier.id}`, userId, { ancienStatut: ot.statut, nouveauStatut: "CONVERTI_CHANTIER" });
   await logAudit({ userId, action: "CREATE", entityType: "Chantier", entityId: chantier.id, after: { fromOt: ot.numero } });
   return { chantierId: chantier.id };
