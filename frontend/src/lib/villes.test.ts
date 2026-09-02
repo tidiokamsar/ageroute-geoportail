@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chercherVilles, tronconDansFiltre, sommetDansFiltre, VILLES } from "./villes";
+import { chercherVilles, tronconDansFiltre, sommetDansFiltre, VILLES, filtrerParRoute, filtrerParVille } from "./villes";
 
 const GEOM_KANKAN_SIGUIRI = JSON.stringify({
   type: "LineString",
@@ -52,5 +52,42 @@ describe("recherche par ville (P4)", () => {
   it("géométrie illisible : exclu sans crash", () => {
     const kankan = VILLES.find((v) => v.nom === "Kankan")!;
     expect(tronconDansFiltre("pas du tout du json", { a: kankan })).toBe(false);
+  });
+});
+
+describe("Filtres de carte — route et ville s'excluent", () => {
+  const labe = VILLES.find((v) => v.nom === "Labé")!;
+  const mali = VILLES.find((v) => v.nom === "Mali")!;
+
+  it("isoler une route ferme le filtre par ville", () => {
+    expect(filtrerParRoute("RN8")).toEqual({ route: "RN8", ville: null });
+  });
+
+  it("filtrer par ville ferme l'isolement de route", () => {
+    const f = filtrerParVille({ a: labe, b: mali });
+    expect(f.route).toBeNull();
+    expect(f.ville).toEqual({ a: labe, b: mali });
+  });
+
+  it("effacer le filtre ville n'isole aucune route", () => {
+    expect(filtrerParVille(null)).toEqual({ route: null, ville: null });
+  });
+
+  it("le corridor Labé–Mali retient bien un tracé qui le suit — le cas signalé", () => {
+    // La RN8 longe cet axe : elle passe a 0,1 km du segment en production.
+    // Le defaut n'etait pas la donnee mais le cumul des deux filtres.
+    const surLAxe = JSON.stringify({
+      type: "LineString",
+      coordinates: [[-12.28, 11.32], [-12.15, 11.70], [-11.97, 12.13]],
+    });
+    expect(tronconDansFiltre(surLAxe, { a: labe, b: mali })).toBe(true);
+  });
+
+  it("et rejette un tracé éloigné de l'axe", () => {
+    const ailleurs = JSON.stringify({
+      type: "LineString",
+      coordinates: [[-9.31, 10.38], [-9.17, 11.42]], // Kankan - Siguiri
+    });
+    expect(tronconDansFiltre(ailleurs, { a: labe, b: mali })).toBe(false);
   });
 });

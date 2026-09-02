@@ -8,7 +8,7 @@ import axios from "axios";
 import { ETAT_COLORS, ETAT_LABELS, CHANTIER_COLORS } from "./geoportail/types";
 import { ouvrageIcon, TYPE_OUVRAGE_LABEL } from "./geoportail/symbols";
 import { RechercheVille } from "../components/RechercheVille";
-import { tronconDansFiltre, type FiltreVille } from "../lib/villes";
+import { tronconDansFiltre, filtrerParRoute, filtrerParVille, type FiltreVille } from "../lib/villes";
 import { Ecusson, ecussonHtml } from "./public/Ecusson";
 import { FicheElement } from "./public/FicheElement";
 import { PanneauInfos, type CoucheKey, type StatsReseau } from "./public/PanneauInfos";
@@ -242,7 +242,11 @@ export function PublicCartePage() {
   }
 
   function allerVersRoute(route: RouteIndexee) {
-    setRouteIsolee(route.nom);
+    // Les deux filtres s'excluent : sans cela, chercher une ville apres une route
+    // ne rendait que l'intersection des deux, souvent vide, sans rien expliquer.
+    const f = filtrerParRoute(route.nom);
+    setRouteIsolee(f.route);
+    setVilleFiltre(f.ville);
     setSelected(null);
     if (!carte || route.positions.length === 0) return;
     carte.flyToBounds(latLngBounds(route.positions).pad(0.15), { animate: animer, duration: 0.8 });
@@ -436,7 +440,14 @@ export function PublicCartePage() {
           <div className="pointer-events-auto mx-auto max-w-md sm:mx-0 sm:ml-3 sm:max-w-sm">
             <RechercheRoute routes={routesIndexees} onChoisir={allerVersRoute} />
             <div className="mt-2 rounded-lg bg-white/95 px-2 py-1.5 shadow-lg backdrop-blur">
-              <RechercheVille compact onAppliquer={setVilleFiltre} />
+              <RechercheVille
+                compact
+                onAppliquer={(v) => {
+                  const f = filtrerParVille(v);
+                  setRouteIsolee(f.route);
+                  setVilleFiltre(f.ville);
+                }}
+              />
             </div>
             {routeIsolee && (
               <div className="mt-2 flex items-center gap-2 rounded-lg bg-navy px-3 py-2 text-white shadow-lg">

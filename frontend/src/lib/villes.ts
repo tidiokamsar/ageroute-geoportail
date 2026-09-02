@@ -136,3 +136,37 @@ export function tronconDansFiltre(geometry: string, f: FiltreVille): boolean {
 }
 
 export const RAYON_VILLES_METRES = RAYON_METRES;
+
+/**
+ * Les deux façons de restreindre la carte : par route, ou par ville/corridor.
+ *
+ * ELLES S'EXCLUENT
+ *
+ * La carte publique les appliquait toutes les deux à la fois. Après une recherche
+ * de route, chercher « Labé → Mali » ne rendait que les tronçons qui sont A LA FOIS
+ * nommés RN26 ET dans le corridor Labé-Mali — soit aucun. La carte affichait
+ * « 0 route(s) » alors que la RN8 passe à 100 m de cet axe, et rien n'indiquait
+ * que le filtre précédent était encore actif.
+ *
+ * Chacune répond à la même question — « montre-moi cette partie du réseau » — donc
+ * la dernière demandée remplace la précédente. C'est ce qu'attend quelqu'un qui
+ * lance une nouvelle recherche.
+ */
+export interface FiltreCarte {
+  /** Nom de route isolée (`t.nom`), ou null. */
+  route: string | null;
+  /** Ville seule ou corridor entre deux villes, ou null. */
+  ville: FiltreVille | null;
+}
+
+export const FILTRE_CARTE_VIDE: FiltreCarte = { route: null, ville: null };
+
+/** Isoler une route ferme le filtre par ville. */
+export function filtrerParRoute(nom: string): FiltreCarte {
+  return { route: nom, ville: null };
+}
+
+/** Filtrer par ville ferme l'isolement de route. */
+export function filtrerParVille(ville: FiltreVille | null): FiltreCarte {
+  return { route: null, ville };
+}
