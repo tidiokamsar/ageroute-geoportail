@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { MapContainer, TileLayer, CircleMarker, Polyline, GeoJSON, Tooltip, useMap, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, GeoJSON, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import type { Layer } from "leaflet";
 import type { Feature, Geometry } from "geojson";
 import MarkerClusterGroup from "react-leaflet-cluster";
@@ -22,6 +22,7 @@ import { DrawTronconLayer, type DrawHandle, type DrawPhase } from "./geoportail/
 import { DrawTronconForm } from "./geoportail/DrawTronconForm";
 import { ExportControl } from "./geoportail/ExportControl";
 import { TOPONYMES } from "./geoportail/toponymes";
+import { ouvrageIcon, pointNoirIcon, posteIcon, chantierApproxIcon, TYPE_OUVRAGE_LABEL } from "./geoportail/symbols";
 import { TronconPicker } from "../components/TronconPicker";
 import {
   ETAT_COLORS,
@@ -757,6 +758,25 @@ export function GeoportailPage() {
             <LayerRow checked={layers.ouvrages} onChange={() => toggleLayer("ouvrages")} label="Ouvrages d'art" />
             <LayerRow checked={layers.postes} onChange={() => toggleLayer("postes")} label="Péage / Pesage" />
             <LayerRow checked={layers.pointsNoirs} onChange={() => toggleLayer("pointsNoirs")} label="Points noirs" />
+            {/* Légende des natures : la forme identifie l'objet, la couleur porte
+                l'information d'état/grité — sans cette clé, un dalot et un pont
+                se lisaient comme deux points identiques. */}
+            <div className="mt-2 pt-2 border-t border-gray-100 space-y-1">
+              <p className="text-[11px] font-medium text-gray-500">Nature des symboles</p>
+              <div className="grid grid-cols-2 gap-x-2 gap-y-0.5 text-[11px] text-gray-600">
+                <span><span className="font-bold text-gray-800">⌒</span> Pont / viaduc</span>
+                <span><span className="font-bold text-gray-800">▤</span> Dalot</span>
+                <span><span className="font-bold text-gray-800">◉</span> Buse / ponceau</span>
+                <span><span className="font-bold text-gray-800">≈</span> Radier</span>
+                <span><span className="font-bold text-gray-800">∩</span> Tunnel</span>
+                <span><span className="font-bold text-gray-800">▦</span> Mur soutènement</span>
+                <span><span className="font-bold text-gray-800">▮▮</span> Péage</span>
+                <span><span className="font-bold text-gray-800">⚖</span> Pesage</span>
+              </div>
+              <p className="text-[11px] text-gray-600">
+                Couleur des ouvrages = état (vert bon → rouge critique) · Points noirs : ▲ forte, ◆ moyenne, ● faible
+              </p>
+            </div>
           </PanelSection>
 
           <PanelSection icon={<Construction className="h-4 w-4" />} title="Travaux">
@@ -961,17 +981,16 @@ export function GeoportailPage() {
               filteredChantiers
                 .filter((c) => c.approximate && c.lat != null && c.lon != null)
                 .map((c) => (
-                  <CircleMarker
+                  <Marker
                     key={c.id}
-                    center={[c.lat as number, c.lon as number]}
-                    radius={8}
-                    pathOptions={{ color: "#fff", weight: 1, fillColor: CHANTIER_COLORS[c.statut], fillOpacity: 0.85 }}
+                    position={[c.lat as number, c.lon as number]}
+                    icon={chantierApproxIcon(CHANTIER_COLORS[c.statut])}
                     eventHandlers={{ click: () => setSelectedFeature({ kind: "chantier", data: c }) }}
                   >
                     <Tooltip>
                       {c.intitule} — {CHANTIER_STATUT_LABELS[c.statut]} (position approx., région {c.region})
                     </Tooltip>
-                  </CircleMarker>
+                  </Marker>
                 ))}
 
             {showToponymes &&
@@ -991,45 +1010,42 @@ export function GeoportailPage() {
               ouvrages
                 ?.filter((o) => !regionFilter || o.region === regionFilter)
                 .map((o) => (
-                  <CircleMarker
+                  <Marker
                     key={o.id}
-                    center={[o.lat, o.lon]}
-                    radius={7}
-                    pathOptions={{ color: "#fff", weight: 1, fillColor: ETAT_COLORS[o.etat] ?? "#1a2942", fillOpacity: 0.9 }}
+                    position={[o.lat, o.lon]}
+                    icon={ouvrageIcon(o.type, o.etat)}
                     eventHandlers={{ click: () => setSelectedFeature({ kind: "ouvrage", data: o }) }}
                   >
-                    <Tooltip>{o.nom}</Tooltip>
-                  </CircleMarker>
+                    <Tooltip>{TYPE_OUVRAGE_LABEL[o.type] ?? o.type} — {o.nom} ({ETAT_LABELS[o.etat]})</Tooltip>
+                  </Marker>
                 ))}
 
             {layers.postes &&
               postes
                 ?.filter((p) => !regionFilter || p.region === regionFilter)
                 .map((p) => (
-                  <CircleMarker
+                  <Marker
                     key={p.id}
-                    center={[p.lat, p.lon]}
-                    radius={6}
-                    pathOptions={{ color: "#fff", weight: 1, fillColor: "#7c3aed", fillOpacity: 0.9 }}
+                    position={[p.lat, p.lon]}
+                    icon={posteIcon(p.type)}
                     eventHandlers={{ click: () => setSelectedFeature({ kind: "poste", data: p }) }}
                   >
-                    <Tooltip>{p.nom}</Tooltip>
-                  </CircleMarker>
+                    <Tooltip>{p.type === "PESAGE" ? "Pesage" : "Péage"} — {p.nom}</Tooltip>
+                  </Marker>
                 ))}
 
             {layers.pointsNoirs &&
               pointsNoirs
                 ?.filter((p) => !regionFilter || p.region === regionFilter)
                 .map((p) => (
-                  <CircleMarker
+                  <Marker
                     key={p.id}
-                    center={[p.lat, p.lon]}
-                    radius={6}
-                    pathOptions={{ color: "#fff", weight: 1, fillColor: "#dc2626", fillOpacity: 0.95 }}
+                    position={[p.lat, p.lon]}
+                    icon={pointNoirIcon(p.gravite)}
                     eventHandlers={{ click: () => setSelectedFeature({ kind: "pointNoir", data: p }) }}
                   >
-                    <Tooltip>{p.description}</Tooltip>
-                  </CircleMarker>
+                    <Tooltip>Point noir ({p.gravite.toLowerCase()}) — {p.description}</Tooltip>
+                  </Marker>
                 ))}
           </MarkerClusterGroup>
         </MapContainer>
