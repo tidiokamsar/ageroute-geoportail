@@ -31,6 +31,8 @@ import { healthRouter } from "./modules/health/health.routes";
 import { errorHandler, notFoundHandler } from "./middleware/error.middleware";
 import { requireAuth } from "./middleware/auth.middleware";
 import { requireRole } from "./middleware/rbac.middleware";
+import { verifyOrigin } from "./middleware/origin.middleware";
+import cookieParser from "cookie-parser";
 import fs from "fs";
 import { UPLOAD_DIR } from "./middleware/upload-document.middleware";
 import { PHOTOS_UPLOAD_DIR } from "./middleware/upload-photo.middleware";
@@ -74,6 +76,12 @@ export function createApp() {
   app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
   app.use(express.json({ limit: "5mb" }));
   app.use(morgan(env.NODE_ENV === "development" ? "dev" : "combined"));
+  // P3-B : lecture des cookies (transport HttpOnly du refresh token) et
+  // validation d'origine sur les endpoints porteurs de session — HttpOnly
+  // n'est pas une protection CSRF, SameSite=Strict fait l'essentiel et
+  // verifyOrigin ajoute la ceinture (voir middleware/origin.middleware.ts).
+  app.use(cookieParser());
+  app.use("/api/auth", verifyOrigin);
 
   app.use(
     "/api/auth/login",

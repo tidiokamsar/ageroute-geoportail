@@ -5,8 +5,11 @@ export const loginSchema = z.object({
   password: z.string().min(1, "Mot de passe requis"),
 });
 
+// P3-B : refreshToken optionnel — le nouveau transport le porte par cookie
+// HttpOnly ; le body reste accepte pour les anciens clients (transition
+// documentee : au premier refresh body, la session migre en cookie).
 export const refreshSchema = z.object({
-  refreshToken: z.string().min(1),
+  refreshToken: z.string().min(1).optional(),
 });
 
 export const twoFaLoginVerifySchema = z.object({
