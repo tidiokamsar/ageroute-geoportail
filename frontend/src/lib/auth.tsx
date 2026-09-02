@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { api, setAccessToken, getRefreshToken, setRefreshToken, refreshAccessToken } from "./api";
+import { api, setAccessToken, refreshAccessToken } from "./api";
+import { lireLegacyRefreshToken, poserMarqueurSession, purgerMarqueurSession, marqueurSessionPresent } from "./session";
 import type { User } from "../types";
 
 interface AuthContextValue {
@@ -8,6 +9,7 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<{ requires2FA: true; challengeToken: string } | void>;
   verifyTwoFa: (challengeToken: string, code: string) => Promise<void>;
   logout: () => Promise<void>;
+  logoutAll: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -18,7 +20,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     (async () => {
-      if (getRefreshToken()) {
+      // P3-B : la session vit dans le cookie HttpOnly. Un ancien token
+      // localStorage (client d'avant la mise à jour) sert UNE fois à migrer
+      // la session — refreshAccessToken l'envoie en body puis purge la clé.
+      // Sans marqueur ni ancien token, inutile de lancer un refresh condamné.
+      if (lireLegacyRefreshToken() || marqueurSessionPresent()) {
         const token = await refreshAccessToken();
         if (token) {
           try {
@@ -38,33 +44,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (data.requires2FA) {
       return { requires2FA: true as const, challengeToken: data.challengeToken as string };
     }
+    // Le refresh est arrivé en cookie HttpOnly : data.refreshToken (présent
+    // uniquement pour les anciens clients) n'est jamais stocké ni conservé.
     setAccessToken(data.accessToken);
-    setRefreshToken(data.refreshToken);
+    poserMarqueurSession();
     setUser(data.user);
   }
 
   async function verifyTwoFa(challengeToken: string, code: string) {
     const { data } = await api.post("/auth/2fa/login-verify", { challengeToken, code });
     setAccessToken(data.accessToken);
-    setRefreshToken(data.refreshToken);
+    poserMarqueurSession();
     setUser(data.user);
   }
 
   async function logout() {
-    const refreshToken = getRefreshToken();
-    if (refreshToken) {
-      try {
-        await api.post("/auth/logout", { refreshToken });
-      } catch {
-        // deconnexion locale malgre tout
-      }
+    try {
+      // Le cookie HttpOnly voyage seul — plus de token dans le body.
+      await api.post("/auth/logout", {});
+    } catch {
+      // deconnexion locale malgre tout
     }
     setAccessToken(null);
-    setRefreshToken(null);
+    purgerMarqueurSession();
     setUser(null);
   }
 
-  return <AuthContext.Provider value={{ user, loading, login, verifyTwoFa, logout }}>{children}</AuthContext.Provider>;
+  async function logoutAll() {
+    try {
+      await api.post("/auth/logout-all", {});
+    } catch {
+      // deconnexion locale malgre tout
+    }
+    setAccessToken(null);
+    purgerMarqueurSession();
+    setUser(null);
+  }
+
+  return (
+    <AuthContext.Provider value={{ user, loading, login, verifyTwoFa, logout, logoutAll }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {

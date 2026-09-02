@@ -5,9 +5,11 @@ import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { GlobalSearch } from "./GlobalSearch";
 import { SyncStatusBadge } from "./SyncStatusBadge";
+import { useConfirm } from "../../hooks/useConfirm";
 
 export function Header({ title, onMenuClick }: { title: string; onMenuClick?: () => void }) {
-  const { user, logout } = useAuth();
+  const { user, logout, logoutAll } = useAuth();
+  const { confirm } = useConfirm();
 
   return (
     <header className="no-print h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 md:px-6 gap-2 md:gap-4">
@@ -38,6 +40,20 @@ export function Header({ title, onMenuClick }: { title: string; onMenuClick?: ()
           </Link>
           <span className="hidden sm:inline text-sm text-gray-600 truncate max-w-[140px]">{user.nomComplet}</span>
           <Badge>{user.role}</Badge>
+          <Button
+            variant="ghost"
+            className="px-2 md:px-4 hidden lg:inline-flex"
+            title="Déconnecter toutes les sessions, tous appareils"
+            onClick={async () => {
+              const ok = await confirm(
+                "Toutes vos sessions seront révoquées, y compris sur les autres navigateurs. Vous devrez vous reconnecter partout.",
+                { title: "Déconnecter tous les appareils ?", danger: true }
+              );
+              if (ok) await logoutAll();
+            }}
+          >
+            Tous appareils
+          </Button>
           <Button variant="ghost" className="px-2 md:px-4" onClick={() => logout()}>
             <span className="hidden sm:inline">Déconnexion</span>
             <span className="sm:hidden">Quitter</span>
