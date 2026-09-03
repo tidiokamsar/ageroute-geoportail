@@ -76,7 +76,7 @@ export function PublicCartePage() {
   });
   // Voirie locale : traces charges par emprise au-dela du zoom 12. Seules les voies
   // carrossables par defaut — les chemins et sentiers font les deux tiers du volume.
-  const [etatVoirie, setEtatVoirie] = useState({ zoomSuffisant: false, voies: 0, chargement: false });
+  const [etatVoirie, setEtatVoirie] = useState({ zoomSuffisant: false, voies: 0, promues: 0, chargement: false });
   const categoriesVoirie = useMemo(
     () => new Set<CategorieVoirie>(["VOIE_LOCALE", "RESIDENTIELLE", "ACCES"]),
     []
@@ -330,7 +330,10 @@ export function PublicCartePage() {
               publique
               categories={categoriesVoirie}
               onChargement={(e) =>
-                setEtatVoirie({ zoomSuffisant: e.zoomSuffisant, voies: e.voies, chargement: e.chargement })
+                setEtatVoirie({
+                  zoomSuffisant: e.zoomSuffisant, voies: e.voies,
+                  promues: e.promues, chargement: e.chargement,
+                })
               }
             />
           )}

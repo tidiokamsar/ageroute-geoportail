@@ -2,6 +2,7 @@ import { ChevronDown } from "lucide-react";
 import { ETAT_COLORS, ETAT_LABELS, CHANTIER_COLORS } from "../geoportail/types";
 import { STATUT_LABELS } from "./types";
 import type { EtatPatrimoine, StatutChantier } from "../../types";
+import { legendeVoirie } from "../geoportail/VoirieLocaleLayer";
 
 export interface StatsReseau {
   totalKm: number;
@@ -82,7 +83,7 @@ export function PanneauInfos({
   onToggleDeplie: () => void;
   zoomInsuffisantPourNoms: boolean;
   /** Voirie locale : le zoom courant permet-il de la charger, et combien en vue. */
-  voirie: { zoomSuffisant: boolean; voies: number; chargement: boolean };
+  voirie: { zoomSuffisant: boolean; voies: number; promues?: number; chargement: boolean };
 }) {
   return (
     <div className="pointer-events-none w-full sm:absolute sm:bottom-6 sm:left-3 sm:z-[1000] sm:w-72">
@@ -214,7 +215,7 @@ export function PanneauInfos({
                   ? "Rapprochez la vue pour afficher les rues — 262 656 voies, chargées à l'échelle d'une ville."
                   : voirie.chargement
                     ? "Chargement…"
-                    : `${voirie.voies.toLocaleString("fr-FR")} voie(s) dans la vue — source OpenStreetMap 2023, donnée non validée par AGEROUTE`}
+                    : legendeVoirie(voirie.voies, voirie.promues ?? 0)}
               </p>
             )}
 

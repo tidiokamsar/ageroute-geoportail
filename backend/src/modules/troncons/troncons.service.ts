@@ -63,9 +63,28 @@ async function itineraire(fromId: string, toId: string) {
   return row;
 }
 
-// Geometrie LineString exposee en GeoJSON pour le Geoportail (Prisma ne lit pas les
-// colonnes "Unsupported(geometry...)" nativement).
-async function listGeo() {
+/**
+ * Geometrie LineString exposee en GeoJSON (Prisma ne lit pas les colonnes
+ * "Unsupported(geometry...)" nativement).
+ *
+ * LE RESEAU DE REFERENCE, ET POURQUOI IL EST LE DEFAUT
+ *
+ * La promotion de la voirie porte cette table a environ 264 000 lignes. Les cartes
+ * qui appellent cette fonction ne demandent aucune emprise : elles peignent tout.
+ *
+ * Mesure du 03/09/2026 : 2 040 troncons pesent 3,0 Mo bruts ; les 262 306 voies
+ * restantes representent 132 Mo de GeoJSON. Servies ici, elles rendraient la carte
+ * publique inutilisable, d'abord sur les connexions mobiles.
+ *
+ * Le defaut exclut donc les troncons issus de la voirie locale. Ce n'est pas un
+ * masquage : ils sont au registre, dans les exports, et peuvent porter des chantiers.
+ * Ils sont aussi DEJA affiches — par la couche voirie, cadree par emprise au-dela du
+ * zoom 12, ou chacun s'ouvre en fiche et renvoie a son troncon. Les servir une
+ * seconde fois, sans emprise, n'ajouterait rien et couterait 132 Mo.
+ *
+ * `tout: true` leve l'exclusion, pour un appelant qui sait ce qu'il demande.
+ */
+async function listGeo({ tout = false }: { tout?: boolean } = {}) {
   return prisma.$queryRaw`
     SELECT t.id, t.code, t.nom, t.classe, t.etat, t."longueurKm", r.nom AS region,
            t.revetement, t."pkDebut", t."pkFin", t."traficMoyenJma",
@@ -85,6 +104,11 @@ async function listGeo() {
     FROM troncons t
     LEFT JOIN regions r ON r.id = t."regionId"
     WHERE t."deletedAt" IS NULL AND t.geom IS NOT NULL
+      AND (
+        ${tout}::boolean
+        OR t."sourceReference" IS NULL
+        OR t."sourceReference" NOT LIKE 'voirie_locale:%'
+      )
   `;
 }
 

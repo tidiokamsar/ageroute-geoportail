@@ -34,8 +34,7 @@ import {
   VoirieLocaleLayer,
   LIBELLE_VOIRIE,
   ZOOM_MINIMUM,
-  type CategorieVoirie,
-} from "./geoportail/VoirieLocaleLayer";
+  type CategorieVoirie, legendeVoirie } from "./geoportail/VoirieLocaleLayer";
 import { RechercheVille } from "../components/RechercheVille";
 import { tronconDansFiltre, type FiltreVille } from "../lib/villes";
 import axios from "axios";
@@ -227,7 +226,7 @@ export function GeoportailPage() {
     () => new Set<CategorieVoirie>(["VOIE_LOCALE", "RESIDENTIELLE", "ACCES"])
   );
   const [etatVoirie, setEtatVoirie] = useState({
-    zoomSuffisant: false, chargement: false, voies: 0, tronque: false,
+    zoomSuffisant: false, chargement: false, voies: 0, promues: 0, tronque: false,
     erreur: null as string | null,
   });
   const [drawPhase, setDrawPhase] = useState<DrawPhase>("drawing");
@@ -965,7 +964,7 @@ export function GeoportailPage() {
                     <p className="text-[11px] text-gray-500">
                       {etatVoirie.chargement
                         ? "Chargement…"
-                        : `${etatVoirie.voies.toLocaleString("fr-FR")} voie(s) dans la vue`}
+                        : legendeVoirie(etatVoirie.voies, etatVoirie.promues)}
                       {etatVoirie.tronque && (
                         <span className="text-amber-700"> — affichage tronqué, rapprochez la vue</span>
                       )}

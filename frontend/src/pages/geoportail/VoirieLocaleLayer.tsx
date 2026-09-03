@@ -113,6 +113,28 @@ export const LIBELLE_VOIRIE: Record<CategorieVoirie, string> = {
   INCONNU: "Non qualifiées",
 };
 
+/**
+ * Legende de la couche voirie.
+ *
+ * Elle disait « donnee OpenStreetMap non validee par AGEROUTE ». C'etait vrai tant
+ * qu'aucune voie n'etait promue. Depuis la promotion, une voie rattachee a un
+ * troncon EST au registre, et le lui refuser serait faux — dans l'autre sens cette
+ * fois, mais faux quand meme.
+ *
+ * La legende compte donc, plutot que d'affirmer.
+ */
+export function legendeVoirie(voies: number, promues: number): string {
+  const n = voies.toLocaleString("fr-FR");
+  if (voies === 0) return "Aucune voie dans la vue.";
+  if (promues === 0) {
+    return `${n} voie(s) dans la vue — source OpenStreetMap 2023, donnée non validée par AGEROUTE`;
+  }
+  if (promues >= voies) {
+    return `${n} voie(s) dans la vue — rattachées au registre AGEROUTE, tracé OpenStreetMap 2023`;
+  }
+  return `${n} voie(s) dans la vue, dont ${promues.toLocaleString("fr-FR")} rattachées au registre AGEROUTE — les autres restent de la donnée OpenStreetMap non validée`;
+}
+
 /** GeoJSON rend [lon, lat] ; Leaflet attend [lat, lon]. */
 function versLatLng(geometry: string): [number, number][] {
   try {
@@ -219,6 +241,11 @@ export function VoirieLocaleLayer({
     zoomSuffisant: boolean;
     chargement: boolean;
     voies: number;
+    /**
+     * Parmi elles, celles rattachees a un troncon. La legende en depend : dire
+     * « donnee non validee » d'une voie entree au registre serait faux.
+     */
+    promues: number;
     tronque: boolean;
     erreur: string | null;
   }) => void;
@@ -283,10 +310,12 @@ export function VoirieLocaleLayer({
     return () => { annule = true; };
   }, [vue?.bbox, zoomSuffisant, listeCategories, categories.size, publique]);
 
+  const promues = useMemo(() => voies.filter((v) => v.tronconId).length, [voies]);
+
   useEffect(() => {
-    onChargement?.({ zoomSuffisant, chargement, voies: voies.length, tronque, erreur });
+    onChargement?.({ zoomSuffisant, chargement, voies: voies.length, promues, tronque, erreur });
     /* eslint-disable-next-line react-hooks/exhaustive-deps */
-  }, [zoomSuffisant, chargement, voies.length, tronque, erreur]);
+  }, [zoomSuffisant, chargement, voies.length, promues, tronque, erreur]);
 
   if (!zoomSuffisant) return null;
 
