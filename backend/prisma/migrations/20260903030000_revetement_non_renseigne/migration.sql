@@ -1,0 +1,48 @@
+-- Revetement : une valeur pour « on ne sait pas » (P4).
+--
+-- POURQUOI
+--
+-- `Troncon.revetement` est NOT NULL et l'enumeration ne propose que BITUME, TERRE,
+-- LATERITE et PAVE. Quatre revetements, aucun moyen de dire qu'on ignore lequel.
+--
+-- Ce n'est pas une lacune theorique : c'est la cause mesurable de l'anomalie la plus
+-- visible de la base. Le 01/09/2026, `revetement` valait BITUME sur les 1 690
+-- troncons, sans une seule exception, alors que 29 intitules de chantiers decrivent
+-- des routes en terre a rehabiliter. Personne n'a decide que la Guinee etait
+-- integralement bitumee ; l'import a du remplir une colonne obligatoire et a pris la
+-- premiere valeur de la liste.
+--
+-- Tant que cette valeur n'existe pas, toute creation de troncon reproduit la meme
+-- faute. C'est exactement le cas qui se presente avec la voirie de Kaloum : la source
+-- OpenStreetMap porte NATURE (la praticabilite), pas le type de couche de roulement.
+-- Le revetement de ces rues n'est pas inconnu par negligence, il est absent de la
+-- source.
+--
+-- CE QUE CETTE MIGRATION NE FAIT PAS
+--
+-- Elle ne touche aucune ligne. Les 1 690 troncons restent a BITUME : requalifier une
+-- valeur existante est une decision metier, pas un effet de bord de migration. Elle
+-- ouvre seulement la possibilite de ne pas mentir sur les prochains.
+--
+-- REVERSIBILITE
+--
+-- PostgreSQL ne sait pas retirer une valeur d'un enum. Le retour arriere consiste a
+-- recreer le type sans la valeur, ce qui exige qu'aucune ligne ne la porte :
+--
+--     ALTER TYPE "Revetement" RENAME TO "Revetement_old";
+--     CREATE TYPE "Revetement" AS ENUM ('BITUME','TERRE','LATERITE','PAVE');
+--     ALTER TABLE "troncons" ALTER COLUMN "revetement"
+--       TYPE "Revetement" USING "revetement"::text::"Revetement";
+--     DROP TYPE "Revetement_old";
+--
+-- C'est pourquoi l'ajout est separe de tout script qui l'utilise : la migration seule
+-- s'annule sans perte tant qu'aucune donnee ne s'en sert.
+--
+-- NOTE POSTGRESQL
+--
+-- Avant la version 12, ADD VALUE etait interdit dans un bloc transactionnel — donc
+-- dans une migration Prisma. Depuis, c'est permis, a condition de ne pas UTILISER la
+-- valeur dans la meme transaction. La production tourne en 17.5, et cette migration
+-- n'ecrit aucune donnee : les deux conditions sont tenues.
+
+ALTER TYPE "Revetement" ADD VALUE IF NOT EXISTS 'NON_RENSEIGNE';

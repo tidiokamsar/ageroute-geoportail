@@ -30,6 +30,10 @@ enum Revetement {
   TERRE
   LATERITE
   PAVE
+  /// Ajoutee le 03/09/2026. Sans elle, une colonne obligatoire force a choisir un
+  /// revetement qu'on ignore — c'est ainsi que les 1 690 troncons se sont retrouves
+  /// a BITUME sans exception. Voir 20260903030000_revetement_non_renseigne.
+  NON_RENSEIGNE
 }
 
 // ===================== QUALITE, PROVENANCE, CONFIANCE =====================
