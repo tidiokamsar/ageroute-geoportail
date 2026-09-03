@@ -27,11 +27,15 @@ vi.mock("../../lib/prisma", () => ({
   },
 }));
 
-vi.mock("../../middleware/auth.middleware", () => ({
-  requireAuth: (_req: unknown, _res: unknown, next: () => void) => next(),
-}));
+// Le controleur ne connait pas l'authentification : elle est posee au montage
+// (requireAuth cote geoportail, limitation de debit cote carte publique). On monte
+// donc les handlers nus, ce qui teste exactement ce que les deux surfaces partagent.
+import { voirieGeoHandler, voirieStatsHandler } from "./voirie-locale.controller";
+import { Router } from "express";
 
-import { voirieLocaleRouter } from "./voirie-locale.routes";
+const voirieLocaleRouter = Router();
+voirieLocaleRouter.get("/geo", voirieGeoHandler);
+voirieLocaleRouter.get("/stats", voirieStatsHandler);
 
 function app() {
   const a = express();

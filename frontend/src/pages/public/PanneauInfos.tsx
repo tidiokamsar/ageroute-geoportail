@@ -10,7 +10,7 @@ export interface StatsReseau {
   pointsNoirs: number;
 }
 
-export type CoucheKey = "troncons" | "chantiers" | "pointsNoirs" | "ouvrages" | "pontsOsm" | "noms";
+export type CoucheKey = "troncons" | "chantiers" | "pointsNoirs" | "ouvrages" | "pontsOsm" | "voirie" | "noms";
 
 function Case({
   coche,
@@ -71,6 +71,7 @@ export function PanneauInfos({
   deplie,
   onToggleDeplie,
   zoomInsuffisantPourNoms,
+  voirie,
 }: {
   stats: StatsReseau;
   couches: Record<CoucheKey, boolean>;
@@ -80,6 +81,8 @@ export function PanneauInfos({
   deplie: boolean;
   onToggleDeplie: () => void;
   zoomInsuffisantPourNoms: boolean;
+  /** Voirie locale : le zoom courant permet-il de la charger, et combien en vue. */
+  voirie: { zoomSuffisant: boolean; voies: number; chargement: boolean };
 }) {
   return (
     <div className="pointer-events-none w-full sm:absolute sm:bottom-6 sm:left-3 sm:z-[1000] sm:w-72">
@@ -200,6 +203,21 @@ export function PanneauInfos({
                 Ponts, dalots, buses… — positions héritées, non vérifiées
               </p>
             )}
+            {/* Voirie locale : les traces des rues et chemins, par opposition aux
+                franchissements qui ne sont que des ouvrages ponctuels. */}
+            <Case coche={couches.voirie} onChange={() => onToggleCouche("voirie")} gras>
+              Rues et voirie locale
+            </Case>
+            {couches.voirie && (
+              <p className="ml-7 text-[10px] leading-snug text-slate-400">
+                {!voirie.zoomSuffisant
+                  ? "Rapprochez la vue pour afficher les rues — 262 656 voies, chargées à l'échelle d'une ville."
+                  : voirie.chargement
+                    ? "Chargement…"
+                    : `${voirie.voies.toLocaleString("fr-FR")} voie(s) dans la vue — source OpenStreetMap 2023, donnée non validée par AGEROUTE`}
+              </p>
+            )}
+
             <Case coche={couches.pontsOsm} onChange={() => onToggleCouche("pontsOsm")} gras>
               Franchissements OSM (propositions)
             </Case>

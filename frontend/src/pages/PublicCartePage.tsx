@@ -13,6 +13,7 @@ import { Ecusson, ecussonHtml } from "./public/Ecusson";
 import { FicheElement } from "./public/FicheElement";
 import { PanneauInfos, type CoucheKey, type StatsReseau } from "./public/PanneauInfos";
 import { RechercheRoute, type RouteIndexee } from "./public/RechercheRoute";
+import { VoirieLocaleLayer, type CategorieVoirie } from "./geoportail/VoirieLocaleLayer";
 import { geoJsonToLatLngs, STATUT_LABELS, type PublicCarteData, type SelectedFeature } from "./public/types";
 import type { EtatPatrimoine } from "../types";
 import type { FeatureCollection } from "geojson";
@@ -70,8 +71,16 @@ export function PublicCartePage() {
     pointsNoirs: true,
     ouvrages: false,
     pontsOsm: false,
+    voirie: false,
     noms: true,
   });
+  // Voirie locale : traces charges par emprise au-dela du zoom 12. Seules les voies
+  // carrossables par defaut — les chemins et sentiers font les deux tiers du volume.
+  const [etatVoirie, setEtatVoirie] = useState({ zoomSuffisant: false, voies: 0, chargement: false });
+  const categoriesVoirie = useMemo(
+    () => new Set<CategorieVoirie>(["VOIE_LOCALE", "RESIDENTIELLE", "ACCES"]),
+    []
+  );
   const [etatsMasques, setEtatsMasques] = useState<Set<EtatPatrimoine>>(new Set());
   const [selected, setSelected] = useState<SelectedFeature | null>(null);
   const [vue, setVue] = useState<{ zoom: number; bounds: LatLngBounds } | null>(null);
@@ -315,6 +324,16 @@ export function PublicCartePage() {
             crossOrigin="anonymous"
           />
           <SuiviVue onChange={onVueChange} />
+          {/* Voirie locale avant les troncons : le reseau AGEROUTE reste au-dessus. */}
+          {couches.voirie && (
+            <VoirieLocaleLayer
+              publique
+              categories={categoriesVoirie}
+              onChargement={(e) =>
+                setEtatVoirie({ zoomSuffisant: e.zoomSuffisant, voies: e.voies, chargement: e.chargement })
+              }
+            />
+          )}
           <CaptureCarte onReady={onCarteReady} />
 
           {couches.troncons &&
@@ -529,6 +548,7 @@ export function PublicCartePage() {
             onToggleEtat={toggleEtat}
             deplie={deplie}
             onToggleDeplie={() => setDeplie((d) => !d)}
+            voirie={etatVoirie}
             zoomInsuffisantPourNoms={!!vue && vue.zoom < ZOOM_MIN_ETIQUETTES}
           />
         </div>

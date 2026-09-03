@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Polyline, Tooltip, useMapEvents } from "react-leaflet";
+import axios from "axios";
 import { api } from "../../lib/api";
 
 /**
@@ -104,8 +105,15 @@ function versLatLng(geometry: string): [number, number][] {
 export function VoirieLocaleLayer({
   categories,
   onChargement,
+  publique = false,
 }: {
   categories: Set<CategorieVoirie>;
+  /**
+   * Carte publique : meme couche, meme handler cote serveur, mais servi par la
+   * route ouverte — la donnee est deja publique, c'est de l'OpenStreetMap. Le
+   * client authentifie ne convient pas la : la carte publique n'a pas de session.
+   */
+  publique?: boolean;
   /** Remonte l'état au panneau : zoom insuffisant, comptes, troncature. */
   onChargement?: (etat: {
     zoomSuffisant: boolean;
@@ -154,10 +162,11 @@ export function VoirieLocaleLayer({
     let annule = false;
     setChargement(true);
     setErreur(null);
-    api
-      .get<ReponseVoirie>("/voirie-locale/geo", {
-        params: { bbox: vue.bbox, categories: listeCategories },
-      })
+    const params = { bbox: vue.bbox, categories: listeCategories };
+    const requete = publique
+      ? axios.get<ReponseVoirie>("/api/public/voirie-locale/geo", { params })
+      : api.get<ReponseVoirie>("/voirie-locale/geo", { params });
+    requete
       .then(({ data }) => {
         if (annule) return;
         setVoies(data.voies);
@@ -172,7 +181,7 @@ export function VoirieLocaleLayer({
       })
       .finally(() => { if (!annule) setChargement(false); });
     return () => { annule = true; };
-  }, [vue?.bbox, zoomSuffisant, listeCategories, categories.size]);
+  }, [vue?.bbox, zoomSuffisant, listeCategories, categories.size, publique]);
 
   useEffect(() => {
     onChargement?.({ zoomSuffisant, chargement, voies: voies.length, tronque, erreur });
