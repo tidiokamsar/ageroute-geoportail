@@ -1,15 +1,11 @@
 import { ChevronDown } from "lucide-react";
 import { ETAT_COLORS, ETAT_LABELS, CHANTIER_COLORS } from "../geoportail/types";
-import { STATUT_LABELS } from "./types";
+import { STATUT_LABELS, CLASSE_LABELS } from "./types";
 import type { EtatPatrimoine, StatutChantier } from "../../types";
 import { legendeVoirie } from "../geoportail/VoirieLocaleLayer";
+import type { StatsReseau } from "./stats";
 
-export interface StatsReseau {
-  totalKm: number;
-  parEtat: { etat: EtatPatrimoine; km: number; pct: number }[];
-  chantiersEnCours: number;
-  pointsNoirs: number;
-}
+export type { StatsReseau };
 
 export type CoucheKey = "troncons" | "chantiers" | "pointsNoirs" | "ouvrages" | "pontsOsm" | "voirie" | "noms";
 
@@ -69,6 +65,8 @@ export function PanneauInfos({
   onToggleCouche,
   etatsMasques,
   onToggleEtat,
+  classesMasquees,
+  onToggleClasse,
   deplie,
   onToggleDeplie,
   zoomInsuffisantPourNoms,
@@ -79,6 +77,9 @@ export function PanneauInfos({
   onToggleCouche: (k: CoucheKey) => void;
   etatsMasques: Set<EtatPatrimoine>;
   onToggleEtat: (e: EtatPatrimoine) => void;
+  /** Filtre par type de route. Vide = tout affiche. */
+  classesMasquees: Set<string>;
+  onToggleClasse: (c: string) => void;
   deplie: boolean;
   onToggleDeplie: () => void;
   zoomInsuffisantPourNoms: boolean;
@@ -133,6 +134,14 @@ export function PanneauInfos({
               />
             ))}
           </div>
+          {/* Sans cette ligne, la barre ferait passer des declarations pour des
+              releves. Le pourcentage seul ne dit pas d'ou il vient. */}
+          {stats.kmDeclare > 0 && (
+            <p className="mt-1.5 text-[11px] leading-snug text-amber-700">
+              Dont {stats.kmDeclare.toLocaleString("fr-FR")} km d'état déclaré,
+              sans relevé de terrain.
+            </p>
+          )}
         </div>
 
         {/* 42dvh et non 60vh : sur un ecran de 640 px la feuille depliee mangeait les
@@ -154,12 +163,51 @@ export function PanneauInfos({
                       className="h-3.5 w-3.5 shrink-0 accent-navy"
                     />
                     <TraitLegende couleur={ETAT_COLORS[e.etat]} />
-                    <span className="min-w-0 flex-1 truncate text-slate-600">{ETAT_LABELS[e.etat]}</span>
+                    <span className="min-w-0 flex-1 truncate text-slate-600">
+                      {ETAT_LABELS[e.etat]}
+                      {e.kmDeclare > 0 && (
+                        <span
+                          className="ml-1 text-amber-700"
+                          title={`${Math.round(e.kmDeclare).toLocaleString("fr-FR")} km déclarés, non vérifiés`}
+                        >
+                          ·&nbsp;déclaré
+                        </span>
+                      )}
+                    </span>
                     <span className="shrink-0 tabular-nums text-slate-400">{e.pct} %</span>
                   </label>
                 </li>
               ))}
             </ul>
+
+            {/* Type de route : la question qu'un lecteur se pose avant l'etat.
+                Elle devient decisive maintenant que le registre melange des routes
+                nationales et des rues de quartier promues. */}
+            {stats.parClasse.length > 1 && (
+              <>
+                <p className="mb-2 font-semibold text-navy">Type de route</p>
+                <ul className="mb-4 space-y-0.5">
+                  {stats.parClasse.map((c) => (
+                    <li key={c.classe}>
+                      <label className="flex cursor-pointer items-center gap-2 py-0.5">
+                        <input
+                          type="checkbox"
+                          checked={!classesMasquees.has(c.classe)}
+                          onChange={() => onToggleClasse(c.classe)}
+                          className="h-3.5 w-3.5 shrink-0 accent-navy"
+                        />
+                        <span className="min-w-0 flex-1 truncate text-slate-600">
+                          {CLASSE_LABELS[c.classe] ?? c.classe}
+                        </span>
+                        <span className="shrink-0 tabular-nums text-slate-400">
+                          {c.km.toLocaleString("fr-FR")} km
+                        </span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
 
             <p className="mb-1 font-semibold text-navy">Afficher sur la carte</p>
             <Case coche={couches.troncons} onChange={() => onToggleCouche("troncons")} gras>

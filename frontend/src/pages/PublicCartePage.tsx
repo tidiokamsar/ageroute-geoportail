@@ -11,7 +11,8 @@ import { RechercheVille } from "../components/RechercheVille";
 import { tronconDansFiltre, filtrerParRoute, filtrerParVille, type FiltreVille } from "../lib/villes";
 import { Ecusson, ecussonHtml } from "./public/Ecusson";
 import { FicheElement } from "./public/FicheElement";
-import { PanneauInfos, type CoucheKey, type StatsReseau } from "./public/PanneauInfos";
+import { PanneauInfos, type CoucheKey } from "./public/PanneauInfos";
+import { calculerStats, type StatsReseau } from "./public/stats";
 import { RechercheRoute, type RouteIndexee } from "./public/RechercheRoute";
 import { VoirieLocaleLayer, type CategorieVoirie } from "./geoportail/VoirieLocaleLayer";
 import { geoJsonToLatLngs, STATUT_LABELS, type PublicCarteData, type SelectedFeature } from "./public/types";
@@ -26,8 +27,6 @@ const GUINEE_CENTER: [number, number] = [10.5, -10.8];
 const ZOOM_MIN_ETIQUETTES = 9;
 const ETIQUETTES_COLS = 6;
 const ETIQUETTES_ROWS = 5;
-
-const ORDRE_ETATS: EtatPatrimoine[] = ["BON", "MOYEN", "MAUVAIS", "CRITIQUE", "NON_EVALUE"];
 
 /** Remonte zoom et emprise a chaque deplacement, pour n'etiqueter que le visible. */
 function SuiviVue({ onChange }: { onChange: (v: { zoom: number; bounds: LatLngBounds }) => void }) {
@@ -86,6 +85,10 @@ export function PublicCartePage() {
     []
   );
   const [etatsMasques, setEtatsMasques] = useState<Set<EtatPatrimoine>>(new Set());
+  // Filtre par type de route. Il devient decisif depuis que le registre melange des
+  // routes nationales et des rues de quartier promues : sans lui, un lecteur qui
+  // cherche le reseau structurant le lit au milieu de centaines de dessertes.
+  const [classesMasquees, setClassesMasquees] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<SelectedFeature | null>(null);
   const [vue, setVue] = useState<{ zoom: number; bounds: LatLngBounds } | null>(null);
   const [maPosition, setMaPosition] = useState<[number, number] | null>(null);
@@ -141,10 +144,11 @@ export function PublicCartePage() {
       tronconLines.filter(
         ({ t }) =>
           !etatsMasques.has(t.etat) &&
+          !classesMasquees.has(t.classe) &&
           (routeIsolee === null || t.nom === routeIsolee) &&
           (!villeFiltre || tronconDansFiltre(t.geometry ?? "", villeFiltre))
       ),
-    [tronconLines, etatsMasques, routeIsolee, villeFiltre]
+    [tronconLines, etatsMasques, classesMasquees, routeIsolee, villeFiltre]
   );
   const chantierLines = useMemo(
     () =>
@@ -159,20 +163,15 @@ export function PublicCartePage() {
     [data]
   );
 
-  const stats = useMemo<StatsReseau>(() => {
-    const troncons = data?.troncons ?? [];
-    const totalKm = troncons.reduce((s, t) => s + (t.longueurKm || 0), 0);
-    const parEtat = ORDRE_ETATS.map((etat) => {
-      const km = troncons.filter((t) => t.etat === etat).reduce((s, t) => s + (t.longueurKm || 0), 0);
-      return { etat, km, pct: totalKm > 0 ? Math.round((km / totalKm) * 100) : 0 };
-    }).filter((e) => e.km > 0);
-    return {
-      totalKm: Math.round(totalKm),
-      parEtat,
-      chantiersEnCours: (data?.chantiers ?? []).filter((c) => c.statut === "EN_COURS").length,
-      pointsNoirs: (data?.pointsNoirs ?? []).length,
-    };
-  }, [data]);
+  const stats = useMemo<StatsReseau>(
+    () =>
+      calculerStats(
+        data?.troncons ?? [],
+        (data?.chantiers ?? []).filter((c) => c.statut === "EN_COURS").length,
+        (data?.pointsNoirs ?? []).length,
+      ),
+    [data],
+  );
 
   // Index de recherche : un axe (RN1) est decoupe en plusieurs troncons ; on le
   // presente comme une seule route, dont on additionne longueur et geometries.
@@ -552,6 +551,14 @@ export function PublicCartePage() {
             couches={couches}
             onToggleCouche={toggleCouche}
             etatsMasques={etatsMasques}
+            classesMasquees={classesMasquees}
+            onToggleClasse={(c) =>
+              setClassesMasquees((prev) => {
+                const n = new Set(prev);
+                n.has(c) ? n.delete(c) : n.add(c);
+                return n;
+              })
+            }
             onToggleEtat={toggleEtat}
             deplie={deplie}
             onToggleDeplie={() => setDeplie((d) => !d)}
