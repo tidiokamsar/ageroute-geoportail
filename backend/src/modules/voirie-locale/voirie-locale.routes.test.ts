@@ -43,11 +43,14 @@ function app() {
   return a;
 }
 
-function voie(id: string, categorie = "VOIE_LOCALE") {
+function voie(id: string, categorie = "VOIE_LOCALE", promue = false) {
   return {
     id, nature: "Route non classifiée", nom: null, reference: null,
-    categorie, statut: "SOURCE_EXTERNE", source: "OSM", source_id: `w${id}`,
+    categorie, statut: promue ? "VALIDEE" : "SOURCE_EXTERNE",
+    source: "OSM", source_id: `w${id}`,
     source_date: null, longueur_km: 0.4, region: null, region_methode: null,
+    troncon_id: promue ? `t-${id}` : null,
+    troncon_code: promue ? `KALOUM-OSM-w${id}` : null,
     geometry: '{"type":"LineString","coordinates":[[-13.7,9.5],[-13.6,9.6]]}',
   };
 }
@@ -145,5 +148,22 @@ describe("Ce que la réponse expose", () => {
     expect(v.source).toBe("OSM");
     expect(v.sourceId).toBe("wa");
     expect(v.statut).toBe("SOURCE_EXTERNE");
+  });
+
+  it("ne rattache aucun troncon a une voie non promue", async () => {
+    etat.lignes = [voie("a")];
+    const r = await request(app()).get("/api/voirie-locale/geo?bbox=-13.75,9.48,-13.55,9.65");
+    expect(r.body.voies[0].tronconId).toBeNull();
+    expect(r.body.voies[0].tronconCode).toBeNull();
+  });
+
+  it("expose le troncon d'une voie promue — c'est ce qui la rend actif AGEROUTE", async () => {
+    // VALIDEE ne dit que « le trace est juge correct ». Seul tronconId materialise
+    // le classement institutionnel, et la fiche s'appuie dessus pour le dire.
+    etat.lignes = [voie("b", "RESIDENTIELLE", true)];
+    const r = await request(app()).get("/api/voirie-locale/geo?bbox=-13.75,9.48,-13.55,9.65");
+    const v = r.body.voies[0];
+    expect(v.tronconId).toBe("t-b");
+    expect(v.tronconCode).toBe("KALOUM-OSM-wb");
   });
 });

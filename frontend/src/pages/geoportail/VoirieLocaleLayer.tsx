@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Polyline, Tooltip, useMapEvents } from "react-leaflet";
+import { Fragment, useEffect, useMemo, useState } from "react";
+import { Polyline, Popup, Tooltip, useMapEvents } from "react-leaflet";
 import axios from "axios";
 import { api } from "../../lib/api";
 
@@ -29,6 +29,25 @@ import { api } from "../../lib/api";
 /** En dessous, la couche ne se charge pas : l'emprise serait trop large. */
 export const ZOOM_MINIMUM = 12;
 
+/**
+ * A partir de ce zoom, chaque voie recoit une zone de prehension.
+ *
+ * POURQUOI PAS TOUJOURS
+ *
+ * Ces traits font 1 a 1,4 px : le stroke SVG est la seule surface cliquable, donc
+ * viser une voie relevait de l'adresse. La solution est un second trace transparent
+ * et epais qui porte l'interaction.
+ *
+ * Mais elle double le nombre de chemins SVG, et le plafond de la couche est de
+ * 12 000 objets — 24 000 chemins sur une vue large. Au-dela du zoom 14, une emprise
+ * ne contient plus que quelques centaines de voies : le cout devient negligeable, et
+ * c'est aussi la seule echelle ou l'on cherche vraiment a interroger une rue.
+ */
+const ZOOM_PREHENSION = 14;
+
+/** Epaisseur de la zone de prehension, invisible. */
+const PREHENSION_PX = 12;
+
 export type CategorieVoirie =
   | "VOIE_RAPIDE" | "PRINCIPALE" | "SECONDAIRE" | "TERTIAIRE"
   | "VOIE_LOCALE" | "RESIDENTIELLE" | "ACCES"
@@ -47,6 +66,9 @@ export interface VoieLocale {
   longueurKm: number;
   region: string | null;
   regionMethode: string | null;
+  /** Non nul quand la voie a ete promue : elle est alors aussi un actif AGEROUTE. */
+  tronconId: string | null;
+  tronconCode: string | null;
   geometry: string;
 }
 
@@ -100,6 +122,84 @@ function versLatLng(geometry: string): [number, number][] {
   } catch {
     return [];
   }
+}
+
+
+function distance(km: number): string {
+  return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(2)} km`;
+}
+
+function Ligne({ label, valeur }: { label: string; valeur: React.ReactNode }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-1">
+      <span className="shrink-0 text-[11px] text-gray-500">{label}</span>
+      <span className="text-right text-[12px] font-medium text-navy">{valeur}</span>
+    </div>
+  );
+}
+
+/**
+ * Fiche d'une voie locale.
+ *
+ * L'infobulle qui precedait donnait trois lignes au survol et rien de plus : on
+ * voyait la voie sans pouvoir l'interroger. C'etait la vraie lacune — l'affichage
+ * etait la, l'exploitabilite non.
+ *
+ * CE QUE LA FICHE DOIT ETABLIR AVANT TOUT
+ *
+ * Le statut de l'objet. Une voie OpenStreetMap n'est pas un actif AGEROUTE, sauf si
+ * elle a ete promue — et cela se voit au `tronconId`, pas au statut cartographique.
+ * VALIDEE ne veut dire que « le trace est juge correct ». La fiche l'annonce donc en
+ * tete, avant les mesures, parce que c'est ce qui commande la lecture de tout le
+ * reste.
+ *
+ * La longueur est un CALCUL, jamais une donnee source : le libelle le dit.
+ */
+function FicheVoirie({ v }: { v: VoieLocale }) {
+  const promue = Boolean(v.tronconId);
+  const couleur = promue ? "#16a34a" : "#6b7280";
+
+  return (
+    <div style={{ minWidth: 244 }}>
+      <div className="min-w-0">
+        <p className="text-[13px] font-bold leading-tight text-navy">
+          {v.nom ?? v.reference ?? "Voie sans nom"}
+        </p>
+        <p className="text-[11px] leading-tight text-gray-500">
+          {LIBELLE_VOIRIE[v.categorie]} · {v.region ?? "région non rattachée"}
+        </p>
+      </div>
+
+      <div className="mt-2.5 rounded-md px-2 py-1.5" style={{ backgroundColor: `${couleur}14` }}>
+        <p className="text-[11px] font-bold uppercase tracking-wide" style={{ color: couleur }}>
+          {promue ? "Tronçon du patrimoine" : "Donnée cartographique"}
+        </p>
+        <p className="text-[10.5px] leading-snug text-gray-600">
+          {promue
+            ? `Promue en tronçon ${v.tronconCode ?? ""} — son état et son revêtement sont portés par la fiche du tronçon.`
+            : "Source externe. Cette voie n'est pas un actif AGEROUTE : ni état de chaussée, ni revêtement, ni chantier."}
+        </p>
+      </div>
+
+      <div className="mt-2 border-t border-gray-100 pt-1">
+        <Ligne label="Nature (source)" valeur={v.nature} />
+        <Ligne label="Longueur calculée" valeur={distance(v.longueurKm)} />
+        {v.reference && <Ligne label="Référence" valeur={v.reference} />}
+        <Ligne label="Provenance" valeur={`${v.source} · ${v.sourceId}`} />
+        {v.sourceDate && (
+          <Ligne
+            label="Mise à jour source"
+            valeur={new Date(v.sourceDate).toLocaleDateString("fr-FR")}
+          />
+        )}
+        {v.regionMethode && <Ligne label="Rattachement" valeur={v.regionMethode} />}
+      </div>
+
+      <p className="mt-1.5 border-t border-gray-100 pt-1.5 text-[10px] leading-snug text-gray-400">
+        La longueur est calculée sur le tracé, ce n'est pas une longueur métier.
+      </p>
+    </div>
+  );
 }
 
 export function VoirieLocaleLayer({
@@ -190,30 +290,57 @@ export function VoirieLocaleLayer({
 
   if (!zoomSuffisant) return null;
 
+  const prehensible = (vue?.zoom ?? 0) >= ZOOM_PREHENSION;
+
   return (
     <>
       {voies.map((v) => {
         const pts = versLatLng(v.geometry);
         if (pts.length < 2) return null;
         const s = STYLE[v.categorie] ?? STYLE.INCONNU;
-        return (
-          <Polyline
-            key={v.id}
-            positions={pts}
-            pathOptions={{ color: s.couleur, weight: s.poids, opacity: s.opacite }}
-          >
+        // Survol : de quoi identifier. Clic : la fiche complete.
+        const interaction = (
+          <>
             <Tooltip sticky>
               <span className="text-[11px]">
                 <strong>{v.nom ?? v.reference ?? "Voie sans nom"}</strong>
                 <br />
-                {v.nature} · {v.longueurKm < 1
-                  ? `${Math.round(v.longueurKm * 1000)} m`
-                  : `${v.longueurKm.toFixed(1)} km`}
-                <br />
-                <span style={{ color: "#6b7280" }}>Source {v.source} — donnée externe</span>
+                {v.nature} · {distance(v.longueurKm)}
               </span>
             </Tooltip>
-          </Polyline>
+            <Popup>
+              <FicheVoirie v={v} />
+            </Popup>
+          </>
+        );
+
+        if (!prehensible) {
+          return (
+            <Polyline
+              key={v.id}
+              positions={pts}
+              pathOptions={{ color: s.couleur, weight: s.poids, opacity: s.opacite }}
+            >
+              {interaction}
+            </Polyline>
+          );
+        }
+
+        return (
+          <Fragment key={v.id}>
+            {/* Le trace visible ne capte rien : sinon les deux se disputeraient le clic. */}
+            <Polyline
+              positions={pts}
+              interactive={false}
+              pathOptions={{ color: s.couleur, weight: s.poids, opacity: s.opacite }}
+            />
+            <Polyline
+              positions={pts}
+              pathOptions={{ color: s.couleur, weight: PREHENSION_PX, opacity: 0 }}
+            >
+              {interaction}
+            </Polyline>
+          </Fragment>
         );
       })}
     </>

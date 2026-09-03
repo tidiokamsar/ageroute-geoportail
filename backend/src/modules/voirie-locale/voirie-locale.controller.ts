@@ -54,6 +54,8 @@ interface LigneVoirie {
   longueur_km: number;
   region: string | null;
   region_methode: string | null;
+  troncon_id: string | null;
+  troncon_code: string | null;
   geometry: string;
 }
 
@@ -148,6 +150,10 @@ export async function voirieGeoHandler(req: Request, res: Response, next: NextFu
         v."longueurCalculeeKm"   AS longueur_km,
         r.nom                    AS region,
         v."regionMethode"        AS region_methode,
+        -- Une voie promue porte un troncon. La fiche doit pouvoir le dire : c'est la
+        -- difference entre une donnee cartographique et un actif du patrimoine.
+        v."tronconId"            AS troncon_id,
+        t.code                   AS troncon_code,
         ST_AsGeoJSON(
           CASE WHEN ${tolerance}::float8 > 0
                THEN ST_SimplifyPreserveTopology(v.geom, ${tolerance}::float8)
@@ -155,6 +161,7 @@ export async function voirieGeoHandler(req: Request, res: Response, next: NextFu
         )                        AS geometry
       FROM voirie_locale v
       LEFT JOIN regions r ON r.id = v."regionId"
+      LEFT JOIN troncons t ON t.id = v."tronconId"
       WHERE v.geom && ST_MakeEnvelope(${minLon}, ${minLat}, ${maxLon}, ${maxLat}, 4326)
         AND v.categorie::text = ANY(${categories})
         AND v.statut <> 'ARCHIVEE'
@@ -182,6 +189,8 @@ export async function voirieGeoHandler(req: Request, res: Response, next: NextFu
         longueurKm: l.longueur_km,
         region: l.region,
         regionMethode: l.region_methode,
+        tronconId: l.troncon_id,
+        tronconCode: l.troncon_code,
         geometry: l.geometry,
       })),
     });
