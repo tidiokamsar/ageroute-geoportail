@@ -13,6 +13,12 @@ export interface PublicTroncon {
   longueurKm: number;
   region: string | null;
   geometry: string | null;
+  /**
+   * L'etat a ete declare, jamais constate sur le terrain. La carte peint la meme
+   * pastille verte dans les deux cas : sans cette distinction, la fiche publique
+   * ferait passer une declaration pour une inspection.
+   */
+  etatDeclare?: boolean;
 }
 
 export interface PublicPointNoir {

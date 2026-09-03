@@ -5,6 +5,19 @@ import { Ecusson } from "./Ecusson";
 import { CLASSE_LABELS, STATUT_LABELS, type SelectedFeature } from "./types";
 import { TYPE_OUVRAGE_LABEL } from "../geoportail/symbols";
 
+/**
+ * Longueur lisible.
+ *
+ * Le tronçon affichait la valeur brute : les 1 690 tronçons importes portaient des
+ * nombres ronds, le defaut ne se voyait pas. Les longueurs calculees sur la
+ * geometrie l'ont revele — « 1.2219212507954644 km ». Sous le kilometre, le metre
+ * est l'unite juste : une desserte de 145 m ne se lit pas « 0,14 km ».
+ */
+function longueur(km: number): string {
+  if (!Number.isFinite(km)) return "—";
+  return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(2).replace(".", ",")} km`;
+}
+
 function Ligne({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-baseline justify-between gap-4 border-b border-slate-100 py-2.5 last:border-b-0">
@@ -97,10 +110,15 @@ export function FicheElement({ feature, onClose }: { feature: SelectedFeature; o
                 <span className="inline-flex items-center gap-2">
                   <Pastille couleur={ETAT_COLORS[feature.data.etat] ?? "#9ca3af"} />
                   {ETAT_LABELS[feature.data.etat] ?? feature.data.etat}
+                  {feature.data.etatDeclare && (
+                    <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700">
+                      déclaré
+                    </span>
+                  )}
                 </span>
               </Ligne>
               <Ligne label="Longueur">
-                <span className="tabular-nums">{feature.data.longueurKm} km</span>
+                <span className="tabular-nums">{longueur(feature.data.longueurKm)}</span>
               </Ligne>
               <Ligne label="Région">{feature.data.region ?? "Non renseignée"}</Ligne>
               {/* La reference interne ne vaut d'etre montree que si elle dit autre
@@ -109,6 +127,12 @@ export function FicheElement({ feature, onClose }: { feature: SelectedFeature; o
                 <Ligne label="Référence">
                   <span className="tabular-nums text-xs text-slate-500">{feature.data.code}</span>
                 </Ligne>
+              )}
+              {feature.data.etatDeclare && (
+                <p className="border-t border-slate-100 py-2 text-[11px] leading-snug text-amber-700">
+                  Cet état est déclaré par le gestionnaire et n'a pas fait l'objet d'un
+                  relevé de terrain.
+                </p>
               )}
             </>
           )}

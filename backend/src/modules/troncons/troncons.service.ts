@@ -69,6 +69,18 @@ async function listGeo() {
   return prisma.$queryRaw`
     SELECT t.id, t.code, t.nom, t.classe, t.etat, t."longueurKm", r.nom AS region,
            t.revetement, t."pkDebut", t."pkFin", t."traficMoyenJma",
+           -- Un etat DECLARE n'est pas un etat CONSTATE. La carte affiche la meme
+           -- pastille verte dans les deux cas ; sans ce drapeau, un « bon etat »
+           -- annonce par un gestionnaire serait indiscernable d'une inspection.
+           --
+           -- Vrai UNIQUEMENT si valeurs_qualite porte la mention explicite. L'absence
+           -- de ligne ne vaut pas verification : elle ne dit rien, et on ne fait donc
+           -- rien dire aux 1 690 troncons anterieurs.
+           EXISTS (
+             SELECT 1 FROM valeurs_qualite q
+              WHERE q."entityType" = 'Troncon' AND q."entityId" = t.id
+                AND q.champ = 'etat' AND q.statut = 'IMPORTED_UNVERIFIED'
+           ) AS "etatDeclare",
            ST_AsGeoJSON(t.geom) AS geometry
     FROM troncons t
     LEFT JOIN regions r ON r.id = t."regionId"

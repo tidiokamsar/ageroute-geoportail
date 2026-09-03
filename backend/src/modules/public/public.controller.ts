@@ -7,6 +7,8 @@ import { chantiersService } from "../chantiers/chantiers.service";
 interface TronconGeoRow {
   id: string; code: string; nom: string; classe: string; etat: string;
   longueurKm: number; region: string | null; geometry: string | null;
+  /** L'etat vient d'une declaration, pas d'un releve terrain. */
+  etatDeclare: boolean;
 }
 interface PointNoirGeoRow {
   id: string; gravite: string; region: string | null; lat: number; lon: number;
@@ -48,6 +50,7 @@ export async function carteGeoHandler(_req: Request, res: Response, next: NextFu
       troncons: troncons.map((t) => ({
         id: t.id, code: t.code, nom: t.nom, classe: t.classe, etat: t.etat,
         longueurKm: t.longueurKm, region: t.region, geometry: t.geometry,
+        etatDeclare: t.etatDeclare,
       })),
       pointsNoirs: pointsNoirs.map((p) => ({ id: p.id, gravite: p.gravite, region: p.region, lat: p.lat, lon: p.lon })),
       chantiers: chantiers.map((c) => ({
