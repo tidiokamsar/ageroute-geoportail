@@ -75,6 +75,10 @@ export const CLASSE_LABELS: Record<string, string> = {
   RN: "Route nationale",
   RR: "Route régionale",
   RU: "Voirie urbaine",
+  PISTE: "Piste rurale",
+  // Une voie entree au registre dont le rang dans la hierarchie routiere
+  // nationale reste a decider. Absence de decision, pas decision negative.
+  NON_CLASSEE: "Non classée",
 };
 
 export function geoJsonToLatLngs(geometry: string | null): [number, number][] {

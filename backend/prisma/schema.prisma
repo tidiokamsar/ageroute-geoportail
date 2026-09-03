@@ -23,6 +23,11 @@ enum ClasseRoute {
   RR // Route Régionale
   RU // Route Urbaine
   PISTE
+  /// Ajoutee le 04/09/2026. Les quatre valeurs ci-dessus sont des DESIGNATIONS
+  /// ADMINISTRATIVES ; une voie issue d'une source cartographique n'en porte aucune.
+  /// Sans cette valeur, la promotion aurait du en inventer une — la faute exacte du
+  /// BITUME. Voir 20260904100000_classe_non_classee.
+  NON_CLASSEE
 }
 
 enum Revetement {

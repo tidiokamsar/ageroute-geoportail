@@ -14,7 +14,18 @@ export const CATEGORIES_VALIDES = [
 ] as const;
 
 export const ETATS_VALIDES = ["BON", "MOYEN", "MAUVAIS", "CRITIQUE", "NON_EVALUE"] as const;
-export const CLASSES_VALIDES = ["RN", "RR", "RU", "PISTE"] as const;
+export const REVETEMENTS_VALIDES = ["BITUME", "TERRE", "LATERITE", "PAVE", "NON_RENSEIGNE"] as const;
+export const CLASSES_VALIDES = ["RN", "RR", "RU", "PISTE", "NON_CLASSEE"] as const;
+
+/**
+ * Surface maximale d'une emprise DECOUPEE en tuiles.
+ *
+ * L'etendue de la Guinee fait environ 42 deg². Le plafond de 0,25 deg² protege une
+ * promotion ponctuelle d'un derapage ; il n'a pas de sens pour une execution
+ * nationale assumee, qui traite le pays tuile par tuile. Ce second plafond borne
+ * quand meme la commande : au-dela, c'est une faute de frappe, pas une intention.
+ */
+export const SURFACE_MAX_TUILEE_DEG2 = 100;
 
 /** Meme plafond que l'API cartographique : au-dela, ce n'est plus une promotion. */
 export const SURFACE_MAX_DEG2 = 0.25;
@@ -30,7 +41,62 @@ export const LIBELLE: Record<string, string> = {
 
 export type Emprise = [number, number, number, number];
 
+/**
+ * Emprise etendue, destinee au decoupage en tuiles.
+ *
+ * Meme validation de forme que `analyserEmprise`, plafond different : ici on accepte
+ * l'echelle d'un pays parce que le traitement, lui, restera cadre tuile par tuile.
+ */
+export function analyserEmpriseEtendue(brut: string | undefined): Emprise {
+  const e = analyserForme(brut);
+  const surface = (e[2] - e[0]) * (e[3] - e[1]);
+  if (surface > SURFACE_MAX_TUILEE_DEG2) {
+    throw new Error(
+      `Emprise de ${surface.toFixed(1)} deg² : au-dela de ${SURFACE_MAX_TUILEE_DEG2}, ` +
+      "c'est une erreur de saisie plutot qu'une intention.",
+    );
+  }
+  return e;
+}
+
+/**
+ * Decoupe une emprise en tuiles dont chacune respecte le plafond ordinaire.
+ *
+ * POURQUOI TUILE PAR TUILE ET NON D'UN SEUL BLOC
+ *
+ * Une transaction unique sur 262 306 lignes tiendrait un verrou long sur `troncons`
+ * pendant que l'application sert la carte, et un echec a la 250 000e ligne annulerait
+ * tout. Une tuile est une transaction : ce qui est pose reste pose, et la reprise est
+ * gratuite puisque le script est idempotent.
+ *
+ * Une voie a cheval sur deux tuiles est vue par les deux — `&&` teste l'intersection.
+ * La seconde ne la reprend pas : elle n'a plus `tronconId IS NULL`, et son code est
+ * deja pris.
+ */
+export function decouperEnTuiles(e: Emprise, cote = 0.5): Emprise[] {
+  if (cote <= 0 || cote * cote > SURFACE_MAX_DEG2) {
+    throw new Error(`Cote de tuile invalide : ${cote}² doit tenir sous ${SURFACE_MAX_DEG2} deg².`);
+  }
+  const [ouest, sud, est, nord] = e;
+  const tuiles: Emprise[] = [];
+  for (let x = ouest; x < est; x += cote) {
+    for (let y = sud; y < nord; y += cote) {
+      tuiles.push([x, y, Math.min(x + cote, est), Math.min(y + cote, nord)]);
+    }
+  }
+  return tuiles;
+}
+
 export function analyserEmprise(brut: string | undefined): Emprise {
+  const [o, s, e, n] = analyserForme(brut);
+  const surface = (e - o) * (n - s);
+  if (surface > SURFACE_MAX_DEG2) {
+    throw new Error(`Emprise trop large (${surface.toFixed(3)} deg² pour ${SURFACE_MAX_DEG2} max).`);
+  }
+  return [o, s, e, n];
+}
+
+function analyserForme(brut: string | undefined): Emprise {
   if (!brut) {
     throw new Error("--bbox est obligatoire : ce script ne s'execute pas sur tout le pays.");
   }
@@ -42,10 +108,6 @@ export function analyserEmprise(brut: string | undefined): Emprise {
   if (o >= e || s >= n) throw new Error("--bbox : ouest<est et sud<nord");
   if (Math.abs(o) > 180 || Math.abs(e) > 180 || Math.abs(s) > 90 || Math.abs(n) > 90) {
     throw new Error("--bbox : coordonnees hors du domaine WGS 84");
-  }
-  const surface = (e - o) * (n - s);
-  if (surface > SURFACE_MAX_DEG2) {
-    throw new Error(`Emprise trop large (${surface.toFixed(3)} deg² pour ${SURFACE_MAX_DEG2} max).`);
   }
   return [o, s, e, n];
 }
@@ -93,6 +155,27 @@ export function analyserClasse(brut: string | undefined): string {
  */
 export function estDeclaration(etat: string): boolean {
   return etat !== "NON_EVALUE";
+}
+
+/**
+ * Meme raisonnement pour le revetement.
+ *
+ * NON_RENSEIGNE est la verite par defaut : la source decrit la praticabilite, pas la
+ * couche de roulement. Toute autre valeur vient d'un gestionnaire qui connait le
+ * terrain — « les grands axes du Grand Conakry sont en bitume » est une affirmation
+ * plausible et utile, mais ce n'est pas un releve. Elle est donc acceptee et tracee
+ * comme declaration, jamais presentee comme constatee.
+ */
+export function analyserRevetement(brut: string | undefined): string {
+  const r = (brut ?? "NON_RENSEIGNE").toUpperCase();
+  if (!(REVETEMENTS_VALIDES as readonly string[]).includes(r)) {
+    throw new Error(`--revetement invalide : ${r}`);
+  }
+  return r;
+}
+
+export function revetementDeclare(revetement: string): boolean {
+  return revetement !== "NON_RENSEIGNE";
 }
 
 /**

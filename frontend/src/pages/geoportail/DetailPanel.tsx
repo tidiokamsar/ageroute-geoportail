@@ -28,6 +28,7 @@ const CLASSE_LABELS: Record<string, string> = {
   RR: "Route Préfectorale",
   RU: "Voirie Urbaine",
   PISTE: "Piste Rurale",
+  NON_CLASSEE: "Non classée",
 };
 
 const REVETEMENT_LABELS: Record<string, string> = {

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  analyserEmprise, analyserCategories, analyserPrefixe,
-  analyserEtat, analyserClasse, estDeclaration, casLibelleSql,
-  CATEGORIES_VALIDES, LIBELLE,
+  analyserEmprise, analyserEmpriseEtendue, decouperEnTuiles, analyserCategories,
+  analyserPrefixe, analyserEtat, analyserClasse, analyserRevetement,
+  estDeclaration, revetementDeclare, casLibelleSql,
+  CATEGORIES_VALIDES, LIBELLE, SURFACE_MAX_DEG2,
 } from "./promotion";
 
 /**
@@ -114,5 +115,74 @@ describe("Le libelle de repli suit la categorie de la ligne", () => {
     // Chaque apostrophe doit etre appariee : un nombre impair trahirait une chaine
     // laissee ouverte, donc une injection possible par le libelle.
     expect((sql.match(/'/g) ?? []).length % 2).toBe(0);
+  });
+});
+
+describe("Le découpage en tuiles", () => {
+  it("refuse une emprise plus large que le plafond ordinaire sans --tuiles", () => {
+    expect(() => analyserEmprise("-15.15,7.10,-7.60,12.72")).toThrow(/trop large/i);
+  });
+
+  it("accepte l'étendue du pays quand elle sera découpée", () => {
+    const e = analyserEmpriseEtendue("-15.15,7.10,-7.60,12.72");
+    expect(e).toEqual([-15.15, 7.1, -7.6, 12.72]);
+  });
+
+  it("refuse une emprise absurde même en mode tuilé", () => {
+    // Le second plafond n'est pas décoratif : au-delà, c'est une faute de frappe.
+    expect(() => analyserEmpriseEtendue("-180,-85,180,85")).toThrow(/erreur de saisie/i);
+  });
+
+  it("couvre toute l'emprise sans trou ni débordement", () => {
+    const e = analyserEmpriseEtendue("-15,7,-7,13");
+    const t = decouperEnTuiles(e, 0.5);
+    expect(t.length).toBe(16 * 12);
+    // Aucune tuile ne sort de l'emprise.
+    for (const [o, s, es, n] of t) {
+      expect(o).toBeGreaterThanOrEqual(-15);
+      expect(es).toBeLessThanOrEqual(-7 + 1e-9);
+      expect(s).toBeGreaterThanOrEqual(7);
+      expect(n).toBeLessThanOrEqual(13 + 1e-9);
+    }
+    // La somme des surfaces vaut celle de l'emprise : ni trou, ni recouvrement.
+    const somme = t.reduce((a, [o, s, es, n]) => a + (es - o) * (n - s), 0);
+    expect(somme).toBeCloseTo(8 * 6, 6);
+  });
+
+  it("rogne la dernière tuile plutôt que de déborder", () => {
+    const t = decouperEnTuiles([0, 0, 0.7, 0.5], 0.5);
+    expect(t).toContainEqual([0.5, 0, 0.7, 0.5]);
+  });
+
+  it("refuse une tuile qui dépasserait le plafond ordinaire", () => {
+    expect(() => decouperEnTuiles([0, 0, 10, 10], 0.6)).toThrow(/Cote de tuile/i);
+  });
+
+  it("chaque tuile tient sous le plafond ordinaire", () => {
+    for (const [o, s, e, n] of decouperEnTuiles([-15, 7, -7, 13], 0.5)) {
+      expect((e - o) * (n - s)).toBeLessThanOrEqual(SURFACE_MAX_DEG2 + 1e-9);
+    }
+  });
+});
+
+describe("Le revêtement suit la même règle que l'état", () => {
+  it("vaut NON_RENSEIGNE par défaut — la source ne porte pas la couche de roulement", () => {
+    expect(analyserRevetement(undefined)).toBe("NON_RENSEIGNE");
+    expect(revetementDeclare(analyserRevetement(undefined))).toBe(false);
+  });
+
+  it("traite BITUME comme une déclaration", () => {
+    expect(analyserRevetement("bitume")).toBe("BITUME");
+    expect(revetementDeclare("BITUME")).toBe(true);
+  });
+
+  it("refuse une valeur hors énumération", () => {
+    expect(() => analyserRevetement("MACADAM")).toThrow(/invalide/i);
+  });
+});
+
+describe("La classe admet l'absence de classement", () => {
+  it("accepte NON_CLASSEE", () => {
+    expect(analyserClasse("NON_CLASSEE")).toBe("NON_CLASSEE");
   });
 });

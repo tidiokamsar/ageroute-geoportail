@@ -86,12 +86,13 @@ const BASEMAPS = {
 type BasemapKey = keyof typeof BASEMAPS;
 const LAYER_KEYS = ["troncons", "chantiers", "ouvrages", "postes", "pointsNoirs"] as const;
 type LayerKey = (typeof LAYER_KEYS)[number];
-const CLASSE_KEYS = ["RN", "RR", "RU", "PISTE"] as const;
+const CLASSE_KEYS = ["RN", "RR", "RU", "PISTE", "NON_CLASSEE"] as const;
 const CLASSE_LABELS: Record<(typeof CLASSE_KEYS)[number], string> = {
   RN: "Routes nationales (RN)",
   RR: "Routes préfectorales (RP)",
   RU: "Voiries urbaines (VU)",
   PISTE: "Pistes rurales",
+  NON_CLASSEE: "Non classées",
 };
 const CHANTIER_STATUT_KEYS = ["PLANIFIE", "EN_COURS", "SUSPENDU", "TERMINE"] as const;
 const CHANTIER_STATUT_LABELS: Record<StatutChantier, string> = {

@@ -1,0 +1,51 @@
+-- ClasseRoute : une valeur pour « pas de classement institutionnel » (P4).
+--
+-- POURQUOI
+--
+-- `Troncon.classe` est NOT NULL et n'offre que RN, RR, RU et PISTE. Ces quatre
+-- valeurs sont des DESIGNATIONS ADMINISTRATIVES : une route nationale, une regionale,
+-- une voirie urbaine, une piste. Elles disent un statut decide par l'Etat.
+--
+-- La promotion nationale fait entrer 262 306 voies OpenStreetMap. Aucune ne porte de
+-- classement institutionnel — la source decrit la praticabilite, pas le statut.
+-- Choisir parmi les quatre reviendrait a en inventer un :
+--
+--   RU sur une piste de brousse a 200 km de la premiere ville est faux.
+--   PISTE sur une voie rapide de Conakry est faux.
+--   RN ou RR sur quoi que ce soit d'OSM serait pire : cela conferrerait a une donnee
+--   externe le statut le plus fort du referentiel.
+--
+-- C'est exactement le mecanisme qui a produit `revetement = BITUME` sur les 1 690
+-- troncons : une colonne obligatoire, quatre choix, aucun juste, et une valeur par
+-- defaut qui devient une contreverite durable. La migration
+-- 20260903030000_revetement_non_renseigne a corrige le premier cas ; celle-ci corrige
+-- le second, pour la meme raison.
+--
+-- NON_CLASSEE NE VEUT PAS DIRE « SANS IMPORTANCE »
+--
+-- Elle veut dire : cette voie est au registre, sa geometrie est connue, et son rang
+-- dans la hierarchie routiere nationale reste a decider par AGEROUTE. C'est une
+-- absence de decision, pas une decision negative. Le jour ou un arrete classe l'une
+-- de ces voies, la valeur change — et l'historique dira quand.
+--
+-- CE QUE CETTE MIGRATION NE FAIT PAS
+--
+-- Elle ne touche aucune ligne. Les 2 040 troncons existants gardent leur classe.
+--
+-- REVERSIBILITE
+--
+-- PostgreSQL ne retire pas une valeur d'un enum. Le retour arriere recree le type
+-- sans elle, ce qui exige qu'aucune ligne ne la porte :
+--
+--     ALTER TYPE "ClasseRoute" RENAME TO "ClasseRoute_old";
+--     CREATE TYPE "ClasseRoute" AS ENUM ('RN','RR','RU','PISTE');
+--     ALTER TABLE "troncons" ALTER COLUMN "classe"
+--       TYPE "ClasseRoute" USING "classe"::text::"ClasseRoute";
+--     DROP TYPE "ClasseRoute_old";
+--
+-- L'ajout est separe de tout script qui l'utilise : depuis PostgreSQL 12, ADD VALUE
+-- est permis dans une transaction a condition de ne pas UTILISER la valeur dans la
+-- meme transaction. La production tourne en 17.5 et cette migration n'ecrit aucune
+-- donnee.
+
+ALTER TYPE "ClasseRoute" ADD VALUE IF NOT EXISTS 'NON_CLASSEE';

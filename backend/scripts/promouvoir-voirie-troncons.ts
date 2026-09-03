@@ -12,8 +12,16 @@
  * un actif du patrimoine : elle compte dans les indicateurs, apparait dans les
  * exports, et peut porter des chantiers.
  *
- * Il ne s'execute donc jamais sur tout le pays. Il prend une emprise, une liste de
- * categories, et rend compte de chaque valeur qu'il n'a pas trouvee.
+ * Il prend une emprise, une liste de categories, et rend compte de chaque valeur
+ * qu'il n'a pas trouvee.
+ *
+ * A L'ECHELLE DU PAYS : `--tuiles`
+ *
+ * Le plafond ordinaire de 0,25 deg² protege une promotion ponctuelle d'un derapage.
+ * Une execution nationale assumee passe par `--tuiles=0.5`, qui decoupe l'emprise et
+ * traite chaque tuile dans SA PROPRE TRANSACTION. Un seul bloc sur 262 306 lignes
+ * tiendrait un verrou long sur `troncons` pendant que l'application sert la carte, et
+ * un echec tardif annulerait tout. Ici, ce qui est pose reste pose.
  *
  * LES SIX CHAMPS OBLIGATOIRES, ET CE QU'ON EN SAIT
  *
@@ -25,8 +33,7 @@
  * Ce script refuse de rejouer cela. Chaque champ sans source donne une ligne dans
  * `valeurs_qualite` qui dit ce qu'on ignore :
  *
- *     revetement   UNKNOWN     absent de la source (OSM porte NATURE, pas la couche
- *                              de roulement)
+ *     revetement   selon --revetement, meme regle que --etat
  *     etat         selon --etat, voir plus bas
  *     longueurKm   DERIVED     calcul geometrique, seule valeur disponible
  *     pkDebut/Fin  DERIVED     0 -> longueur, kilometrage local
@@ -37,18 +44,25 @@
  * ces troncons n'existent pas encore, il n'y a aucune longueur metier a preserver.
  * La longueur calculee est la seule disponible, et elle est marquee comme telle.
  *
- * `--etat` : LA SEULE DECISION METIER
+ * `--etat` ET `--revetement` : LES DEUX DECISIONS METIER
  *
- * Par defaut NON_EVALUE, qui est la verite : personne n'a inspecte ces voies.
+ * Par defaut NON_EVALUE et NON_RENSEIGNE, qui sont la verite : personne n'a inspecte
+ * ces voies, et la source ne porte pas la couche de roulement.
  *
  * Toute autre valeur est traitee comme une DECLARATION. Elle est acceptee — un
  * gestionnaire peut connaitre son reseau sans l'avoir formellement inspecte — mais
- * elle est enregistree comme IMPORTED_UNVERIFIED, avec sa date et son auteur, pour
- * que les tableaux de bord puissent l'exclure. Une declaration n'est pas une mesure.
+ * elle est enregistree comme IMPORTED_UNVERIFIED, avec sa date, pour que les tableaux
+ * de bord puissent l'exclure. Une declaration n'est pas une mesure.
+ *
+ * C'est ce qui permet d'appliquer une regle metier par lot sans mentir : « les grands
+ * axes du Grand Conakry sont bitumes et en bon etat » devient un passage avec
+ * --categories=VOIE_RAPIDE,PRINCIPALE,SECONDAIRE,TERTIAIRE --etat=BON
+ * --revetement=BITUME, et chaque troncon cree porte la trace que ces deux valeurs
+ * sont declarees.
  *
  * Contexte a garder en tete : au 03/09/2026 le pays compte 121 troncons BON sur
- * 1 690. Promouvoir 315 rues en BON ferait passer ce chiffre a 436, dont 72 % de
- * voies jamais inspectees.
+ * 1 690. Une declaration large deplace cet indicateur sans qu'aucune route ne se soit
+ * amelioree — d'ou la trace, qui permet de le recalculer sans elles.
  *
  * IDEMPOTENCE
  *
@@ -65,13 +79,17 @@
  *   ... --categories=VOIE_LOCALE,RESIDENTIELLE,ACCES,CHEMIN
  *   ... --prefixe=KALOUM --classe=RU --region=1
  *   ... --etat=BON            (declaration ; defaut NON_EVALUE)
+ *   ... --revetement=BITUME   (declaration ; defaut NON_RENSEIGNE)
+ *   ... --tuiles=0.5          (decoupe une emprise a l'echelle du pays)
  *   ... --apply               (ecrit ; sans lui, lecture seule)
  */
 import { PrismaClient } from "@prisma/client";
 import "dotenv/config";
 import {
-  analyserEmprise, analyserCategories, analyserPrefixe,
-  analyserEtat, analyserClasse, estDeclaration, casLibelleSql,
+  analyserEmprise, analyserEmpriseEtendue, decouperEnTuiles, analyserCategories,
+  analyserPrefixe, analyserEtat, analyserClasse, analyserRevetement,
+  estDeclaration, revetementDeclare, casLibelleSql,
+  type Emprise,
 } from "./lib/promotion";
 
 const prisma = new PrismaClient();
@@ -82,11 +100,20 @@ function argument(nom: string): string | undefined {
 }
 
 async function main() {
-  const [ouest, sud, est, nord] = analyserEmprise(argument("bbox"));
+  // `--tuiles` accepte une emprise a l'echelle du pays et la decoupe ; sans lui, le
+  // plafond ordinaire de 0,25 deg² s'applique.
+  const cote = Number(argument("tuiles") ?? 0);
+  const tuile = Number.isFinite(cote) && cote > 0;
+  const emprise: Emprise = tuile
+    ? analyserEmpriseEtendue(argument("bbox"))
+    : analyserEmprise(argument("bbox"));
+  const emprises: Emprise[] = tuile ? decouperEnTuiles(emprise, cote) : [emprise];
+  const [ouest, sud, est, nord] = emprise;
   const categories = analyserCategories(argument("categories"));
   const prefixe = analyserPrefixe(argument("prefixe"));
   const classe = analyserClasse(argument("classe"));
   const etat = analyserEtat(argument("etat"));
+  const revetement = analyserRevetement(argument("revetement"));
   const regionId = Number(argument("region") ?? 1);
   const appliquer = process.argv.includes("--apply");
   if (!Number.isInteger(regionId)) throw new Error("--region attend un entier.");
@@ -95,12 +122,15 @@ async function main() {
   if (!region) throw new Error(`--region ${regionId} : region inexistante.`);
 
   const declare = estDeclaration(etat);
+  const revDeclare = revetementDeclare(revetement);
 
   console.log("=== Promotion de voirie locale en troncons ===");
-  console.log(`Emprise      : ${ouest},${sud},${est},${nord}`);
+  console.log(`Emprise      : ${ouest},${sud},${est},${nord}`
+    + (tuile ? `   decoupee en ${emprises.length} tuiles de ${cote}°` : ""));
   console.log(`Categories   : ${categories.join(", ")}`);
   console.log(`Classe       : ${classe}   Region : ${region.nom} (${regionId})   Prefixe : ${prefixe}`);
   console.log(`Etat         : ${etat}${declare ? "   << DECLARATION, enregistree comme non verifiee" : "   (aucune inspection : c'est la verite)"}`);
+  console.log(`Revetement   : ${revetement}${revDeclare ? "   << DECLARATION, enregistree comme non verifiee" : "   (absent de la source)"}`);
   console.log(`Mode         : ${appliquer ? "ECRITURE" : "LECTURE SEULE (ajouter --apply pour ecrire)"}`);
   console.log("");
 
@@ -151,11 +181,11 @@ async function main() {
   console.log(`Troncons sans nom reel  : ${anonymes} des ${total} promus`);
   console.log("");
   console.log("--- Valeurs sans source, tracees dans valeurs_qualite ---");
-  console.log(`  revetement  UNKNOWN   ${total} lignes — OSM porte NATURE, pas la couche de roulement`);
+  console.log(`  revetement  ${revDeclare ? "IMPORTED_UNVERIFIED" : "UNKNOWN  "}   ${total} lignes${revDeclare ? ` — ${revetement} declare le ` + new Date().toISOString().slice(0, 10) : " — OSM porte NATURE, pas la couche de roulement"}`);
   console.log(`  etat        ${declare ? "IMPORTED_UNVERIFIED" : "UNKNOWN  "}   ${total} lignes${declare ? " — declaration du " + new Date().toISOString().slice(0, 10) : ""}`);
   console.log(`  longueurKm  DERIVED   ${total} lignes — calcul geometrique`);
   console.log(`  pkDebut/Fin DERIVED   ${total * 2} lignes — kilometrage local 0 -> longueur`);
-  console.log(`  regionId    DERIVED   ${total} lignes — deduction, l'emprise est un rectangle`);
+  console.log(`  regionId    ${regionId === 9 ? "UNKNOWN" : "DERIVED"}   ${total} lignes — ${regionId === 9 ? "aucun decoupage administratif en base" : "deduction, l'emprise est un rectangle"}`);
   if (anonymes > 0) console.log(`  nom         UNKNOWN   ${anonymes} lignes — non nomme dans la source`);
   console.log("");
 
@@ -170,111 +200,155 @@ async function main() {
 
   const caseLibelle = casLibelleSql();
 
-  await prisma.$transaction(async (tx) => {
-    // 1. Les troncons. La geometrie est copiee telle quelle : aucune retouche du
-    //    trace, c'est la meme ligne, sous un autre statut institutionnel.
-    const crees = await tx.$executeRawUnsafe(
-      `insert into troncons (
-         id, code, nom, classe, "regionId", "longueurKm", revetement, etat,
-         "pkDebut", "pkFin", observations,
-         "sourceType", "sourceReference", "sourceConfidence", "sourceDetectedAt",
-         geom, "createdAt", "updatedAt")
-       select gen_random_uuid()::text,
-              $6 || '-OSM-' || v."sourceId",
-              -- Le libelle de repli suit la categorie DE LA LIGNE : une desserte
-              -- anonyme ne doit pas s'annoncer comme une voie residentielle.
-              coalesce(v.nom, ${caseLibelle} || ' · ' || v."sourceId"),
-              $7::"ClasseRoute",
-              $8::int,
-              v."longueurCalculeeKm",
-              'NON_RENSEIGNE'::"Revetement",
-              $9::"EtatPatrimoine",
-              0, v."longueurCalculeeKm",
-              'Promu depuis la voirie locale OpenStreetMap (' || v.nature || '). '
-                || 'Lot ' || $10 || '. Revetement et etat sans releve terrain.',
-              'IMPORT_DOCUMENTE'::"SourceType",
-              'voirie_locale:' || v.id,
-              'LOW'::"NiveauConfiance",
-              $11::timestamp,
-              v.geom, now(), now()
-         from voirie_locale v
-        where v.geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
-          and v.categorie::text = any($5::text[])
-          and v."tronconId" is null
-       on conflict (code) do nothing`,
-      ouest, sud, est, nord, categories, prefixe,
-      classe, regionId, etat, lot, maintenant,
-    );
+  let cumulTroncons = 0, cumulLiees = 0, cumulQualite = 0, tuilesVides = 0;
 
-    // 2. Le lien retour. La voie reste dans voirie_locale — on ne deplace rien, on
-    //    dit d'ou vient le troncon. VALIDEE porte le trace, pas le classement.
-    const liees = await tx.$executeRawUnsafe(
-      `update voirie_locale v
-          set "tronconId" = t.id, statut = 'VALIDEE'::"StatutVoirie", "updatedAt" = now()
-         from troncons t
-        where t.code = $6 || '-OSM-' || v."sourceId"
-          and v.geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
-          and v.categorie::text = any($5::text[])
-          and v."tronconId" is null`,
-      ouest, sud, est, nord, categories, prefixe,
-    );
+  /**
+   * Une tuile, une transaction.
+   *
+   * Un seul bloc sur 262 306 lignes tiendrait un verrou long sur `troncons` pendant
+   * que l'application sert la carte, et un echec a la 250 000e ligne annulerait tout.
+   * Ici ce qui est pose reste pose, et la reprise est gratuite : le script est
+   * idempotent.
+   */
+  async function promouvoirTuile([ouest, sud, est, nord]: Emprise) {
+    return prisma.$transaction(async (tx) => {
+      // 1. Les troncons. La geometrie est copiee telle quelle : aucune retouche du
+      //    trace, c'est la meme ligne, sous un autre statut institutionnel.
+      const crees = await tx.$executeRawUnsafe(
+        `insert into troncons (
+           id, code, nom, classe, "regionId", "longueurKm", revetement, etat,
+           "pkDebut", "pkFin", observations,
+           "sourceType", "sourceReference", "sourceConfidence", "sourceDetectedAt",
+           geom, "createdAt", "updatedAt")
+         select gen_random_uuid()::text,
+                $6 || '-OSM-' || v."sourceId",
+                -- Le libelle de repli suit la categorie DE LA LIGNE : une desserte
+                -- anonyme ne doit pas s'annoncer comme une voie residentielle.
+                coalesce(v.nom, ${caseLibelle} || ' · ' || v."sourceId"),
+                $7::"ClasseRoute",
+                $8::int,
+                v."longueurCalculeeKm",
+                $12::"Revetement",
+                $9::"EtatPatrimoine",
+                0, v."longueurCalculeeKm",
+                'Promu depuis la voirie locale OpenStreetMap (' || v.nature || '). '
+                  || 'Lot ' || $10 || '. Revetement et etat sans releve terrain.',
+                'IMPORT_DOCUMENTE'::"SourceType",
+                'voirie_locale:' || v.id,
+                'LOW'::"NiveauConfiance",
+                $11::timestamp,
+                v.geom, now(), now()
+           from voirie_locale v
+          where v.geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+            and v.categorie::text = any($5::text[])
+            and v."tronconId" is null
+         on conflict (code) do nothing`,
+        ouest, sud, est, nord, categories, prefixe,
+        classe, regionId, etat, lot, maintenant, revetement,
+      );
 
-    // 3. Ce qu'on ignore, champ par champ. Sans ces lignes, les valeurs ci-dessus
-    //    seraient indiscernables de valeurs relevees — la faute exacte du BITUME.
-    const qualite = await tx.$executeRawUnsafe(
-      `insert into valeurs_qualite (id, "entityType", "entityId", champ, statut, source, methode, "observedAt", confiance, note, "createdAt", "updatedAt")
-       select gen_random_uuid()::text, 'Troncon', t.id, q.champ, q.statut::"StatutValeur",
-              q.source, q.methode, $2::timestamp, q.confiance::"NiveauConfiance", q.note, now(), now()
-         from troncons t
-         join voirie_locale v on v."tronconId" = t.id
-         cross join lateral (values
-           ('revetement', 'UNKNOWN', 'OSM ROUTE.shp', 'ABSENT_DE_LA_SOURCE', 'LOW',
-            'La source decrit la praticabilite (NATURE), pas la couche de roulement.'),
-           ('etat', $3::text, $4::text, $5::text, 'LOW', $6::text),
-           ('longueurKm', 'DERIVED', 'ST_Length(geom::geography)', 'CALCUL_GEOMETRIQUE', 'MEDIUM',
-            'Longueur du trace. Aucune longueur metier n''existait pour cette voie.'),
-           ('pkDebut', 'DERIVED', 'convention', 'CALCUL_GEOMETRIQUE', 'LOW',
-            'Kilometrage local : 0 au debut du trace. Non raccorde au PK de la route.'),
-           ('pkFin', 'DERIVED', 'ST_Length(geom::geography)', 'CALCUL_GEOMETRIQUE', 'LOW',
-            'Kilometrage local : longueur du trace. Non raccorde au PK de la route.'),
-           ('regionId', 'DERIVED', 'emprise geographique', 'DEDUCTION_ADMINISTRATIVE', 'LOW',
-            'Deduit de l''emprise, qui est un rectangle et non une limite administrative. Aucun decoupage officiel n''est en base.')
-         ) as q(champ, statut, source, methode, confiance, note)
-        where t.observations like '%Lot ' || $1 || '.%'
-       on conflict ("entityType", "entityId", champ) do nothing`,
-      lot, maintenant,
-      declare ? "IMPORTED_UNVERIFIED" : "UNKNOWN",
-      declare ? "DECLARATION_GESTIONNAIRE" : "AUCUNE",
-      declare ? "DECLARATION" : "AUCUNE",
-      declare
-        ? `Etat ${etat} declare le ${maintenant.toISOString().slice(0, 10)}, sans inspection. A exclure de tout indicateur d'etat du reseau tant qu'aucun releve terrain ne le confirme.`
-        : "Aucune inspection. L'etat de cette voie est inconnu.",
-    );
+      // 2. Le lien retour. La voie reste dans voirie_locale — on ne deplace rien, on
+      //    dit d'ou vient le troncon. VALIDEE porte le trace, pas le classement.
+      const liees = await tx.$executeRawUnsafe(
+        `update voirie_locale v
+            set "tronconId" = t.id, statut = 'VALIDEE'::"StatutVoirie", "updatedAt" = now()
+           from troncons t
+          where t.code = $6 || '-OSM-' || v."sourceId"
+            and v.geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
+            and v.categorie::text = any($5::text[])
+            and v."tronconId" is null`,
+        ouest, sud, est, nord, categories, prefixe,
+      );
 
-    // Le nom, seulement pour celles qu'OSM ne nomme pas.
-    const noms = await tx.$executeRawUnsafe(
-      `insert into valeurs_qualite (id, "entityType", "entityId", champ, statut, source, methode, "observedAt", confiance, note, "createdAt", "updatedAt")
-       select gen_random_uuid()::text, 'Troncon', t.id, 'nom', 'UNKNOWN'::"StatutValeur",
-              'OSM ROUTE.shp', 'ABSENT_DE_LA_SOURCE', $1::timestamp, 'LOW'::"NiveauConfiance",
-              'Voie non nommee dans la source. Le libelle affiche est genere.', now(), now()
-         from troncons t
-         join voirie_locale v on v."tronconId" = t.id
-        where t.observations like '%Lot ' || $2 || '.%' and v.nom is null
-       on conflict ("entityType", "entityId", champ) do nothing`,
-      maintenant, lot,
-    );
+      // 3. Ce qu'on ignore, champ par champ. Sans ces lignes, les valeurs ci-dessus
+      //    seraient indiscernables de valeurs relevees — la faute exacte du BITUME.
+      const qualite = await tx.$executeRawUnsafe(
+        `insert into valeurs_qualite (id, "entityType", "entityId", champ, statut, source, methode, "observedAt", confiance, note, "createdAt", "updatedAt")
+         select gen_random_uuid()::text, 'Troncon', t.id, q.champ, q.statut::"StatutValeur",
+                q.source, q.methode, $2::timestamp, q.confiance::"NiveauConfiance", q.note, now(), now()
+           from troncons t
+           join voirie_locale v on v."tronconId" = t.id
+           cross join lateral (values
+             ('revetement', $7::text, $8::text, $9::text, 'LOW', $10::text),
+             ('etat', $3::text, $4::text, $5::text, 'LOW', $6::text),
+             ('longueurKm', 'DERIVED', 'ST_Length(geom::geography)', 'CALCUL_GEOMETRIQUE', 'MEDIUM',
+              'Longueur du trace. Aucune longueur metier n''existait pour cette voie.'),
+             ('pkDebut', 'DERIVED', 'convention', 'CALCUL_GEOMETRIQUE', 'LOW',
+              'Kilometrage local : 0 au debut du trace. Non raccorde au PK de la route.'),
+             ('pkFin', 'DERIVED', 'ST_Length(geom::geography)', 'CALCUL_GEOMETRIQUE', 'LOW',
+              'Kilometrage local : longueur du trace. Non raccorde au PK de la route.'),
+             ('regionId', $11::text, 'emprise geographique', 'DEDUCTION_ADMINISTRATIVE', 'LOW', $12::text)
+           ) as q(champ, statut, source, methode, confiance, note)
+          where t.observations like '%Lot ' || $1 || '.%'
+         on conflict ("entityType", "entityId", champ) do nothing`,
+        lot, maintenant,
+        declare ? "IMPORTED_UNVERIFIED" : "UNKNOWN",
+        declare ? "DECLARATION_GESTIONNAIRE" : "AUCUNE",
+        declare ? "DECLARATION" : "AUCUNE",
+        declare
+          ? `Etat ${etat} declare le ${maintenant.toISOString().slice(0, 10)}, sans inspection. A exclure de tout indicateur d'etat du reseau tant qu'aucun releve terrain ne le confirme.`
+          : "Aucune inspection. L'etat de cette voie est inconnu.",
+        revDeclare ? "IMPORTED_UNVERIFIED" : "UNKNOWN",
+        revDeclare ? "DECLARATION_GESTIONNAIRE" : "OSM ROUTE.shp",
+        revDeclare ? "DECLARATION" : "ABSENT_DE_LA_SOURCE",
+        revDeclare
+          ? `Revetement ${revetement} declare le ${maintenant.toISOString().slice(0, 10)}, sans releve. La source ne porte pas la couche de roulement.`
+          : "La source decrit la praticabilite (NATURE), pas la couche de roulement.",
+        // Rattacher a « Non renseigne » n'est pas une deduction, c'est un aveu : aucun
+        // decoupage administratif n'existe en base, donc rien ne permet de trancher.
+        regionId === 9 ? "UNKNOWN" : "DERIVED",
+        regionId === 9
+          ? "Aucun decoupage administratif n'est en base ; la region reste indeterminee. Voir docs/phase5/P5-REFERENTIEL-EXTERNE-2026.md."
+          : "Deduit de l'emprise, qui est un rectangle et non une limite administrative. Aucun decoupage officiel n'est en base.",
+      );
 
-    console.log("--- Applique ---");
-    console.log(`  troncons crees            : ${crees}`);
-    console.log(`  voies rattachees          : ${liees}`);
-    console.log(`  lignes valeurs_qualite    : ${qualite + noms}`);
-    console.log("");
-    const cible = `(select id from troncons where observations like '%Lot ${lot}.%')`;
-    console.log("Retour arriere :");
-    console.log(`  delete from valeurs_qualite where "entityType"='Troncon' and "entityId" in ${cible};`);
-    console.log(`  update voirie_locale set "tronconId"=null, statut='SOURCE_EXTERNE' where "tronconId" in ${cible};`);
-    console.log(`  delete from troncons where observations like '%Lot ${lot}.%';`);
-  });
+      // Le nom, seulement pour celles qu'OSM ne nomme pas.
+      const noms = await tx.$executeRawUnsafe(
+        `insert into valeurs_qualite (id, "entityType", "entityId", champ, statut, source, methode, "observedAt", confiance, note, "createdAt", "updatedAt")
+         select gen_random_uuid()::text, 'Troncon', t.id, 'nom', 'UNKNOWN'::"StatutValeur",
+                'OSM ROUTE.shp', 'ABSENT_DE_LA_SOURCE', $1::timestamp, 'LOW'::"NiveauConfiance",
+                'Voie non nommee dans la source. Le libelle affiche est genere.', now(), now()
+           from troncons t
+           join voirie_locale v on v."tronconId" = t.id
+          where t.observations like '%Lot ' || $2 || '.%' and v.nom is null
+         on conflict ("entityType", "entityId", champ) do nothing`,
+        maintenant, lot,
+      );
+
+      return { crees: Number(crees), liees: Number(liees), qualite: Number(qualite) + Number(noms) };
+    });
+  }
+
+  for (const [i, t] of emprises.entries()) {
+    const r = await promouvoirTuile(t);
+    cumulTroncons += r.crees;
+    cumulLiees += r.liees;
+    cumulQualite += r.qualite;
+    if (r.crees === 0) tuilesVides++;
+    // Une ligne par tuile productive seulement : sur deux cents tuiles, journaliser
+    // les vides noierait ce qui compte.
+    if (r.crees > 0 || !tuile) {
+      console.log(
+        `  tuile ${String(i + 1).padStart(3)}/${emprises.length}  ` +
+        `${t.map((v) => v.toFixed(2)).join(",")}  ` +
+        `${String(r.crees).padStart(6)} troncons, ${String(r.qualite).padStart(7)} lignes de qualite`,
+      );
+    }
+  }
+
+  console.log("");
+  console.log("--- Applique ---");
+  console.log(`  troncons crees            : ${cumulTroncons}`);
+  console.log(`  voies rattachees          : ${cumulLiees}`);
+  console.log(`  lignes valeurs_qualite    : ${cumulQualite}`);
+  if (tuile) console.log(`  tuiles sans aucune voie   : ${tuilesVides} sur ${emprises.length}`);
+  console.log("");
+
+  const cible = `(select id from troncons where observations like '%Lot ${lot}.%')`;
+  console.log("Retour arriere :");
+  console.log(`  delete from valeurs_qualite where "entityType"='Troncon' and "entityId" in ${cible};`);
+  console.log(`  update voirie_locale set "tronconId"=null, statut='SOURCE_EXTERNE' where "tronconId" in ${cible};`);
+  console.log(`  delete from troncons where observations like '%Lot ${lot}.%';`);
 }
 
 main()
