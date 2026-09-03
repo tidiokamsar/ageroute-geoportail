@@ -71,7 +71,11 @@ export function PublicCartePage() {
     pointsNoirs: true,
     ouvrages: false,
     pontsOsm: false,
-    voirie: false,
+    // Cochee par defaut depuis la promotion : la vue d'ensemble ne transporte plus
+    // les troncons issus de la voirie (132 Mo), et cette couche est le seul endroit
+    // ou ils s'affichent. La laisser decochee rendrait le registre invisible.
+    // Elle ne coute rien tant qu'on n'a pas zoome : rien ne part sous le zoom 12.
+    voirie: true,
     noms: true,
   });
   // Voirie locale : traces charges par emprise au-dela du zoom 12. Seules les voies

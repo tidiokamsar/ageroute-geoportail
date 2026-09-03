@@ -2,6 +2,8 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { Polyline, Popup, Tooltip, useMapEvents } from "react-leaflet";
 import axios from "axios";
 import { api } from "../../lib/api";
+import { ETAT_COLORS, ETAT_LABELS } from "./types";
+import type { EtatPatrimoine } from "../../types";
 
 /**
  * Voirie locale — les tracés eux-mêmes, chargés selon la vue.
@@ -69,6 +71,9 @@ export interface VoieLocale {
   /** Non nul quand la voie a ete promue : elle est alors aussi un actif AGEROUTE. */
   tronconId: string | null;
   tronconCode: string | null;
+  /** Etat du troncon porteur : c'est lui qui colore une voie promue. */
+  tronconEtat: EtatPatrimoine | null;
+  tronconEtatDeclare: boolean | null;
   geometry: string;
 }
 
@@ -135,6 +140,31 @@ export function legendeVoirie(voies: number, promues: number): string {
   return `${n} voie(s) dans la vue, dont ${promues.toLocaleString("fr-FR")} rattachées au registre AGEROUTE — les autres restent de la donnée OpenStreetMap non validée`;
 }
 
+/**
+ * Trait d'une voie.
+ *
+ * LE GRIS N'ETAIT PAS UN CHOIX ESTHETIQUE
+ *
+ * Il disait quelque chose : une voie OpenStreetMap n'a pas d'etat de chausse releve,
+ * et lui donner la palette du reseau ferait lire un sentier comme une route degradee.
+ *
+ * Une voie PROMUE a change de nature. Elle porte un troncon, donc un etat, et la
+ * carte publique la peignait en vert avant que la vue d'ensemble ne cesse de la
+ * transporter. Elle doit continuer a se lire ainsi — sinon la promotion se traduirait
+ * a l'ecran par une perte.
+ *
+ * L'epaisseur reste celle de la categorie : une desserte promue reste une desserte.
+ */
+function trait(v: VoieLocale): { poids: number; couleur: string; opacite: number } {
+  const s = STYLE[v.categorie] ?? STYLE.INCONNU;
+  if (!v.tronconId || !v.tronconEtat) return s;
+  return {
+    poids: Math.max(s.poids, 2),
+    couleur: ETAT_COLORS[v.tronconEtat] ?? s.couleur,
+    opacite: 0.9,
+  };
+}
+
 /** GeoJSON rend [lon, lat] ; Leaflet attend [lat, lon]. */
 function versLatLng(geometry: string): [number, number][] {
   try {
@@ -198,10 +228,37 @@ function FicheVoirie({ v }: { v: VoieLocale }) {
         </p>
         <p className="text-[10.5px] leading-snug text-gray-600">
           {promue
-            ? `Promue en tronçon ${v.tronconCode ?? ""} — son état et son revêtement sont portés par la fiche du tronçon.`
+            ? `Au registre sous ${v.tronconCode ?? "un tronçon"}.`
             : "Source externe. Cette voie n'est pas un actif AGEROUTE : ni état de chaussée, ni revêtement, ni chantier."}
         </p>
       </div>
+
+      {promue && v.tronconEtat && (
+        <div className="mt-2 border-t border-gray-100 pt-1">
+          <Ligne
+            label="État de la chaussée"
+            valeur={
+              <span className="inline-flex items-center gap-1.5">
+                <span
+                  className="inline-block h-2 w-2 rounded-full"
+                  style={{ backgroundColor: ETAT_COLORS[v.tronconEtat] }}
+                />
+                {ETAT_LABELS[v.tronconEtat]}
+                {v.tronconEtatDeclare && (
+                  <span className="rounded bg-amber-50 px-1 py-0.5 text-[9px] font-semibold uppercase text-amber-700">
+                    déclaré
+                  </span>
+                )}
+              </span>
+            }
+          />
+          {v.tronconEtatDeclare && (
+            <p className="pb-1 text-[10px] leading-snug text-amber-700">
+              Déclaré par le gestionnaire, sans relevé de terrain.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="mt-2 border-t border-gray-100 pt-1">
         <Ligne label="Nature (source)" valeur={v.nature} />
@@ -326,7 +383,7 @@ export function VoirieLocaleLayer({
       {voies.map((v) => {
         const pts = versLatLng(v.geometry);
         if (pts.length < 2) return null;
-        const s = STYLE[v.categorie] ?? STYLE.INCONNU;
+        const s = trait(v);
         // Survol : de quoi identifier. Clic : la fiche complete.
         const interaction = (
           <>

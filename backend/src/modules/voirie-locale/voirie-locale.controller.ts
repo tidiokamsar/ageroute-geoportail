@@ -56,6 +56,8 @@ interface LigneVoirie {
   region_methode: string | null;
   troncon_id: string | null;
   troncon_code: string | null;
+  troncon_etat: string | null;
+  troncon_etat_declare: boolean | null;
   geometry: string;
 }
 
@@ -154,6 +156,15 @@ export async function voirieGeoHandler(req: Request, res: Response, next: NextFu
         -- difference entre une donnee cartographique et un actif du patrimoine.
         v."tronconId"            AS troncon_id,
         t.code                   AS troncon_code,
+        -- L'etat du troncon porteur. C'est lui qui colore la voie : une fois promue,
+        -- elle n'est plus un trait gris de fond de plan, c'est un actif dont l'etat
+        -- se lit comme celui du reste du reseau.
+        t.etat::text             AS troncon_etat,
+        CASE WHEN v."tronconId" IS NULL THEN NULL ELSE EXISTS (
+          SELECT 1 FROM valeurs_qualite q
+           WHERE q."entityType" = 'Troncon' AND q."entityId" = t.id
+             AND q.champ = 'etat' AND q.statut = 'IMPORTED_UNVERIFIED'
+        ) END                    AS troncon_etat_declare,
         ST_AsGeoJSON(
           CASE WHEN ${tolerance}::float8 > 0
                THEN ST_SimplifyPreserveTopology(v.geom, ${tolerance}::float8)
@@ -191,6 +202,8 @@ export async function voirieGeoHandler(req: Request, res: Response, next: NextFu
         regionMethode: l.region_methode,
         tronconId: l.troncon_id,
         tronconCode: l.troncon_code,
+        tronconEtat: l.troncon_etat,
+        tronconEtatDeclare: l.troncon_etat_declare,
         geometry: l.geometry,
       })),
     });
