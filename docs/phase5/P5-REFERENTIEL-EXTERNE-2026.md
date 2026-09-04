@@ -99,9 +99,22 @@ Axes cités, confrontés à la base :
 | Boké – Québo (RN12) | 86 km | 1 |
 | Lola – N'zoo – Frontière CI (RN2) | — | 1 |
 | Tanènè – Koba | 70 km | 1 |
-| **Nzérékoré – Yomou – Frontière Libéria (RN11)** | **75 km** | **0** |
+| Nzérékoré – Yomou – Frontière Libéria (RN11) | 75 km | **1** *(voir correction ci-dessous)* |
 
-**MESURÉ.** Dix des onze axes annoncés sont représentés. Un seul est absent.
+**MESURÉ, puis CORRIGÉ le 4 septembre 2026.** Les **onze** axes annoncés sont
+représentés — aucun ne manque.
+
+> **Correction d'une erreur de ma part.** La première version de ce document annonçait
+> « 0 chantier » pour RN11 Nzérékoré – Yomou. C'était un artefact de ma requête, pas un
+> fait : je cherchais `nz[ée]r[ée]kor[ée]`, et l'intitulé porte « N'Zérékoré », avec une
+> apostrophe entre le N et le Z. Le chantier existe bien — `b01b3d95`, « Projet de
+> construction et de bitumage de la route nationale RN11 N'Zérékoré - Yomou - Frontière
+> Liberia (74 Km)_MPS-62 », EN_COURS à 12 %, région Nzérékoré. Le linéaire annoncé
+> (74 km) concorde d'ailleurs avec les 75 km publiés.
+>
+> Conséquence à retenir : une recherche par nom de localité dans du texte libre échoue
+> silencieusement sur une variante orthographique. Elle ne rend pas d'erreur, elle rend
+> zéro — ce qui se lit comme une absence.
 Par ailleurs **60 chantiers portent une date en 2025 ou 2026** ; le plus récent début
 prévu est en janvier 2026. Le registre des chantiers n'est pas à l'abandon.
 
@@ -165,8 +178,8 @@ type par type**. Le total, lui, est robuste.
 1. Le référentiel régional est périmé depuis le 20 août 2026 (8 régions au lieu de 10).
 2. La source des limites administratives existe et est nommée — mais elle décrit
    l'ancien découpage.
-3. Le registre des chantiers couvre 10 des 11 grands axes 2025 ; RN11 Nzérékoré –
-   Yomou manque.
+3. Le registre des chantiers couvre **les 11** grands axes 2025 — aucun ne manque.
+   *(Rectifié : la première version annonçait RN11 absent, sur une erreur de requête.)*
 4. Notre instantané OSM accuse 3 ans et demi de retard, soit +12 % d'objets.
 
 **Ce qui ne doit pas en découler automatiquement**
@@ -180,8 +193,10 @@ Rien de tout cela n'autorise une correction automatique. En particulier :
 - **Ne pas réimporter OSM par-dessus l'existant.** 350 voies portent désormais un
   tronçon du patrimoine ; un réimport naïf casserait ce rattachement. Un rafraîchissement
   doit être différentiel et préserver `tronconId`.
-- **Ne pas créer le chantier RN11 manquant** sur la foi d'un article de presse. Une
-  publication n'est pas un dossier de marché.
+- **Ne pas chercher une localité par expression régulière sans traiter les variantes
+  orthographiques.** « N'Zérékoré » et « Nzérékoré » sont deux chaînes ; une recherche
+  naïve rend zéro et se lit comme une absence. C'est ainsi que RN11 a été déclaré
+  manquant à tort, et qu'un doublon de marché public a failli être créé.
 
 **À_VALIDER par AGEROUTE**
 
@@ -189,7 +204,6 @@ Rien de tout cela n'autorise une correction automatique. En particulier :
 |---|---|
 | Ancien ou nouveau découpage comme référence ? | Les deux coexisteront ; il faut une date de validité |
 | Les 50 chantiers en « Non renseigné » relèvent de quelles régions ? | Correction de saisie, pas algorithme |
-| RN11 Nzérékoré – Yomou : chantier réel à enregistrer ? | Seul un dossier de marché fait foi |
 | Rafraîchir OSM à l'extrait 2026-09-02 ? | +32 520 objets ; impose un import différentiel |
 
 ---
