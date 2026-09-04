@@ -19,6 +19,17 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const etat = { texte: "", valeurs: [] as unknown[] };
 
+/**
+ * Le drapeau `tout` est cherche PAR SON TYPE, pas par sa position.
+ *
+ * Deux fois deja, une assertion sur `valeurs[n]` a casse parce qu'une interpolation
+ * s'etait ajoutee plus haut dans le gabarit SQL — la tolerance de simplification
+ * cette fois. L'indice n'a aucun sens metier ; le seul booleen de la requete, si.
+ */
+function drapeauTout(valeurs: unknown[]): boolean | undefined {
+  return valeurs.find((v) => typeof v === "boolean") as boolean | undefined;
+}
+
 vi.mock("../../lib/prisma", () => ({
   prisma: {
     $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...valeurs: unknown[]) => {
@@ -40,12 +51,12 @@ describe("listGeo borne ce qui part sur le reseau", () => {
   it("exclut la voirie promue par defaut", async () => {
     await tronconsService.listGeo();
     expect(etat.texte).toContain("voirie_locale:%");
-    expect(etat.valeurs[0]).toBe(false);
+    expect(drapeauTout(etat.valeurs)).toBe(false);
   });
 
   it("laisse passer un appelant qui demande explicitement tout", async () => {
     await tronconsService.listGeo({ tout: true });
-    expect(etat.valeurs[0]).toBe(true);
+    expect(drapeauTout(etat.valeurs)).toBe(true);
   });
 
   it("retient les troncons sans provenance — sinon la promotion effacerait les 1 690", async () => {

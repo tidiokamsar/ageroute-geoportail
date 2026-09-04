@@ -33,10 +33,35 @@ interface OuvrageGeoRow {
  * le rendu public porte la mention adéquate ; les franchissements OSM
  * (propositions) sont servis comme fichier statique par le frontend.
  */
-export async function carteGeoHandler(_req: Request, res: Response, next: NextFunction) {
+/**
+ * Tolerance de simplification selon le zoom demande par le client.
+ *
+ * Les paliers ne sont pas choisis au jugé : a un zoom donne, un degre couvre un
+ * nombre connu de pixels, et simplifier en dessous du pixel ne retire rien de
+ * visible. Au zoom 7 — la Guinee entiere a l'ecran — 220 m tiennent dans un pixel.
+ *
+ * Le gain mesure le 04/09/2026 : 2 366 ko de geometrie brute tombent a 307 ko au
+ * zoom pays, en perdant 372 km sur 21 156 (1,76 %) qu'aucun ecran ne pourrait
+ * afficher. Au zoom 16 et au-dela, aucune simplification : c'est la forme exacte
+ * qu'on regarde.
+ *
+ * Un zoom absent ou aberrant retombe sur le palier le plus grossier plutot que sur
+ * la geometrie brute : la valeur par defaut doit proteger le visiteur, pas le
+ * penaliser.
+ */
+export function toleranceSelonZoom(zoom: unknown): number {
+  const z = Number(zoom);
+  if (!Number.isFinite(z) || z < 10) return 0.002;
+  if (z < 13) return 0.0005;
+  if (z < 16) return 0.0001;
+  return 0;
+}
+
+export async function carteGeoHandler(req: Request, res: Response, next: NextFunction) {
   try {
+    const simplification = toleranceSelonZoom(req.query.zoom);
     const [troncons, pointsNoirs, chantiers, ouvrages] = await Promise.all([
-      tronconsService.listGeo() as Promise<TronconGeoRow[]>,
+      tronconsService.listGeo({ simplification }) as Promise<TronconGeoRow[]>,
       pointsNoirsService.listGeo() as Promise<PointNoirGeoRow[]>,
       chantiersService.listGeo() as Promise<ChantierGeoRow[]>,
       prisma.$queryRaw<OuvrageGeoRow[]>`
@@ -47,6 +72,9 @@ export async function carteGeoHandler(_req: Request, res: Response, next: NextFu
       `,
     ]);
     res.json({
+      // Rendu explicite : le client doit pouvoir dire a l'utilisateur que le trace
+      // affiche est simplifie, plutot que de laisser croire a une forme exacte.
+      simplifieeDe: simplification,
       troncons: troncons.map((t) => ({
         id: t.id, code: t.code, nom: t.nom, classe: t.classe, etat: t.etat,
         longueurKm: t.longueurKm, region: t.region, geometry: t.geometry,

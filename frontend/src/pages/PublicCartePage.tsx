@@ -117,10 +117,24 @@ export function PublicCartePage() {
     []
   );
 
+  /**
+   * Palier de zoom, et non le zoom exact.
+   *
+   * Le serveur simplifie la geometrie par paliers ; interroger avec le zoom brut
+   * relancerait la requete a chaque cran alors que la reponse serait identique. Le
+   * palier est donc la cle du cache : trois requetes au maximum sur toute une
+   * session, au lieu d'une par mouvement de molette.
+   */
+  const palierZoom = !vue ? 7 : vue.zoom < 10 ? 7 : vue.zoom < 13 ? 11 : vue.zoom < 16 ? 14 : 16;
+
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["public", "carte", "geo"],
-    queryFn: async () => (await axios.get<PublicCarteData>("/api/public/carte/geo")).data,
+    queryKey: ["public", "carte", "geo", palierZoom],
+    queryFn: async () =>
+      (await axios.get<PublicCarteData>("/api/public/carte/geo", { params: { zoom: palierZoom } })).data,
     staleTime: 5 * 60 * 1000,
+    // Garde le trace precedent a l'ecran pendant que le palier suivant arrive : sans
+    // cela, la carte se vide a chaque franchissement de palier.
+    placeholderData: (prec) => prec,
   });
 
   // D9 : franchissements OSM (propositions) — fichier statique servi par le

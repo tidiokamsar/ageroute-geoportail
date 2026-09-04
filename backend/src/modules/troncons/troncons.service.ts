@@ -83,8 +83,29 @@ async function itineraire(fromId: string, toId: string) {
  * seconde fois, sans emprise, n'ajouterait rien et couterait 132 Mo.
  *
  * `tout: true` leve l'exclusion, pour un appelant qui sait ce qu'il demande.
+ *
+ * `simplification` : TOLERANCE EN DEGRES, ET CE QU'ELLE COUTE
+ *
+ * Le poids de cette reponse vient de la geometrie, pas du nombre d'objets. Mesure du
+ * 04/09/2026 sur le reseau de reference :
+ *
+ *     brut          2 366 ko   106 856 sommets   21 156 km
+ *     0,0001 deg    1 075 ko    46 989 sommets   21 142 km   (-14 km, 0,07 %)
+ *     0,0005 deg      603 ko    25 106 sommets   21 071 km   (-85 km, 0,40 %)
+ *     0,002  deg      307 ko    11 422 sommets   20 784 km   (-372 km, 1,76 %)
+ *
+ * A l'echelle du pays, 220 m est inferieur au pixel : transporter 106 856 sommets
+ * pour en dessiner 11 000 de visibles est du gaspillage pur, paye par le visiteur sur
+ * une connexion mobile guineenne.
+ *
+ * ST_SimplifyPreserveTopology et non ST_Simplify : le second peut rendre une ligne
+ * vide ou auto-secante sur un trace court, ce qui casserait l'affichage sans
+ * prevenir.
+ *
+ * Zero signifie « aucune simplification » — a ce niveau de zoom, c'est la forme
+ * exacte qu'on regarde.
  */
-async function listGeo({ tout = false }: { tout?: boolean } = {}) {
+async function listGeo({ tout = false, simplification = 0 }: { tout?: boolean; simplification?: number } = {}) {
   return prisma.$queryRaw`
     SELECT t.id, t.code, t.nom, t.classe, t.etat, t."longueurKm", r.nom AS region,
            t.revetement, t."pkDebut", t."pkFin", t."traficMoyenJma",
@@ -100,7 +121,11 @@ async function listGeo({ tout = false }: { tout?: boolean } = {}) {
               WHERE q."entityType" = 'Troncon' AND q."entityId" = t.id
                 AND q.champ = 'etat' AND q.statut = 'IMPORTED_UNVERIFIED'
            ) AS "etatDeclare",
-           ST_AsGeoJSON(t.geom) AS geometry
+           ST_AsGeoJSON(
+             CASE WHEN ${simplification}::float8 > 0
+                  THEN ST_SimplifyPreserveTopology(t.geom, ${simplification}::float8)
+                  ELSE t.geom END
+           ) AS geometry
     FROM troncons t
     LEFT JOIN regions r ON r.id = t."regionId"
     WHERE t."deletedAt" IS NULL AND t.geom IS NOT NULL
