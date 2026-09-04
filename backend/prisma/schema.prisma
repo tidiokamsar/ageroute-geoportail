@@ -355,6 +355,11 @@ model Troncon {
   etat            EtatPatrimoine @default(NON_EVALUE)
   pkDebut         Float
   pkFin           Float
+  /// Section de referencement kilometrique, lue dans le code (« GN N0001 3-1216 »
+  /// -> section 3). Les PK ne sont pas globaux sur l'axe : chaque section repart de
+  /// zero. Mesure du 05/09/2026 : 88 sections sur 90 chainees sans trou ni
+  /// recouvrement. Nulle pour la voirie promue, qui n'en a pas.
+  sectionPk       String?
   traficMoyenJma          Int?
   traficDateComptage      DateTime?
   criticiteStrategique    Int?

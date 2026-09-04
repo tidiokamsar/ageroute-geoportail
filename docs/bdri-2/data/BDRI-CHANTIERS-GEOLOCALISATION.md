@@ -143,9 +143,33 @@ de propositions qu'un agent tranche, avec l'intitulé d'origine, les PK lus, la 
 citée et la liste des tronçons candidats. Aucune géométrie n'est posée sans décision
 humaine.
 
-Ce n'est pas un échec du ticket : c'est le référencement linéaire de la BDRI qui n'est
-pas exploitable en l'état. Le rendre cohérent — un kilométrage continu par route — est
-un chantier à part entière, et il conditionne aussi le routage.
+> **Correction du 5 septembre 2026 — cette conclusion était fausse.**
+>
+> Le référencement linéaire n'est pas incohérent. Il est **relatif à une section**, et
+> chaque section repart de zéro. Le code du tronçon la porte depuis le début :
+> `GN N0001 3-1216` est la route 0001, section 3.
+>
+> Mesuré sur tout le réseau : **88 sections sur 90 sont chaînées sans trou ni
+> recouvrement** à moins de 500 m près — 549 tronçons sur 551. Et les 551 intervalles
+> concordent avec la longueur réelle du tracé à moins de 5 % : 13,5 km d'intervalle
+> moyen pour 13,5 km de géométrie.
+>
+> Les six tronçons de la RN5 qui « commencent à PK 0 » sont donc six sections, pas six
+> incohérences. La somme de 433 km pour un PK maximum de 156 est ce qu'on obtient en
+> additionnant des kilométrages qui ne se suivent pas — l'erreur était dans l'addition,
+> pas dans la donnée.
+>
+> **Ce qui manquait n'était pas un kilométrage continu, c'était une colonne.** Rien
+> dans le schéma ne déclarait la section, donc tout consommateur supposant un PK global
+> produisait du non-sens — y compris la projection d'emprises décrite ci-dessus.
+>
+> Effet mesuré une fois la section connue : sur les 12 chantiers dont l'intitulé porte
+> une désignation et deux PK, **4 se résolvent à une seule section** — donc directement
+> localisables — et 5 à deux ou trois, qu'un agent tranche sur pièce. Contre zéro
+> auparavant.
+>
+> Voir la migration `20260905090000_troncon_section_pk` et
+> `scripts/extraire-section-pk.ts`.
 
 **Condition impérative** : chaque extraction est **proposée**, jamais appliquée. Un
 agent valide ou corrige. Le §18 l'exige, et les intitulés le justifient — `PK50-Marela
