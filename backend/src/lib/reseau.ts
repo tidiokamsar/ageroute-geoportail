@@ -105,8 +105,33 @@ const nombre = (v: bigint | number | null | undefined): number => (v == null ? 0
 /** Deux decimales suffisent : au-dela, on afficherait une precision que la donnee n'a pas. */
 const arrondi = (v: number): number => Math.round(v * 100) / 100;
 
-export async function longueurReseau(): Promise<LongueurReseau> {
-  const lignes = await prisma.$queryRaw<LigneBrute[]>`
+/**
+ * Perimetre de mesure.
+ *
+ * POURQUOI CE PARAMETRE EXISTE
+ *
+ * La promotion de la voirie a porte `troncons` de 1 690 a 261 386 lignes. Sans
+ * distinction, le tableau de bord annonce 185 264 km de reseau routier — c'est-a-dire
+ * les sentiers d'OpenStreetMap. Le reseau classe de Guinee fait environ 21 000 km.
+ *
+ * Le meme discriminant protege deja la carte (voir tronconsService.listGeo) ; il
+ * manquait aux indicateurs. Une voie promue EST au registre, elle n'est simplement
+ * pas du reseau classe, et melanger les deux rend tout chiffre inutilisable.
+ */
+export type PerimetreReseau = "reference" | "voirie" | "tout";
+
+function clausePerimetre(p: PerimetreReseau): string {
+  if (p === "tout") return "";
+  const promue = `"sourceReference" LIKE 'voirie_locale:%'`;
+  // NULL NOT LIKE '...' vaut NULL, donc faux : sans le IS NULL, les 1 690 troncons
+  // anterieurs — qui n'ont pas de sourceReference — disparaitraient tous.
+  return p === "reference"
+    ? `AND ("sourceReference" IS NULL OR NOT ${promue})`
+    : `AND ${promue}`;
+}
+
+export async function longueurReseau(perimetre: PerimetreReseau = "reference"): Promise<LongueurReseau> {
+  const lignes = await prisma.$queryRawUnsafe<LigneBrute[]>(`
     SELECT
       classe::text                                                       AS classe,
       count(*)                                                           AS troncons,
@@ -128,10 +153,10 @@ export async function longueurReseau(): Promise<LongueurReseau> {
       COALESCE(SUM("longueurKm"), 0)                                     AS km_metier,
       COALESCE(SUM(ST_Length(geom::geography) / 1000.0), 0)              AS km_geometrique
     FROM troncons t
-    WHERE "deletedAt" IS NULL
+    WHERE "deletedAt" IS NULL ${clausePerimetre(perimetre)}
     GROUP BY classe
     ORDER BY classe
-  `;
+  `);
 
   const parClasse: LongueurParClasse[] = lignes.map((l) => ({
     classe: l.classe,

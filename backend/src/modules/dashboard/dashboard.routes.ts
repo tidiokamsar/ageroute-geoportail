@@ -2,7 +2,21 @@ import { Router } from "express";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middleware/auth.middleware";
 import { requireModuleAccess } from "../../middleware/module-access.middleware";
+import { Prisma } from "@prisma/client";
 import { longueurReseau } from "../../lib/reseau";
+
+/**
+ * Le reseau classe : tout sauf les troncons issus de la promotion de voirie.
+ *
+ * Le IS NULL n'est pas decoratif — les 1 690 troncons anterieurs n'ont pas de
+ * `sourceReference`, et un simple `not: { startsWith }` les exclurait tous.
+ */
+const RESEAU_REFERENCE: Prisma.TronconWhereInput = {
+  OR: [
+    { sourceReference: null },
+    { sourceReference: { not: { startsWith: "voirie_locale:" } } },
+  ],
+};
 
 export const dashboardRouter = Router();
 
@@ -24,20 +38,29 @@ dashboardRouter.get("/kpis", requireAuth, requireModuleAccess("dashboard"), asyn
       alertesTroncons,
       alertesOuvrages,
       reseau,
+      voirieRattacheeCount,
     ] = await Promise.all([
-      prisma.troncon.count({ where: notDeleted }),
+      // Le RESEAU CLASSE, pas le registre entier. La promotion de la voirie a porte
+      // `troncons` a 261 386 lignes ; compter le tout ferait annoncer 185 264 km de
+      // reseau routier, c'est-a-dire les sentiers d'OpenStreetMap. Le reseau classe
+      // de Guinee fait environ 21 000 km. La voirie rattachee est comptee a part,
+      // plus bas, et dite explicitement.
+      prisma.troncon.count({ where: { ...notDeleted, ...RESEAU_REFERENCE } }),
       prisma.ouvrage.count({ where: notDeleted }),
       prisma.pointNoir.count({ where: notDeleted }),
       prisma.poste.count({ where: notDeleted }),
       prisma.document.count({ where: notDeleted }),
       prisma.chantier.count({ where: { ...notDeleted, statut: "EN_COURS" } }),
-      prisma.troncon.groupBy({ by: ["etat"], where: notDeleted, _count: { _all: true } }),
+      prisma.troncon.groupBy({ by: ["etat"], where: { ...notDeleted, ...RESEAU_REFERENCE }, _count: { _all: true } }),
       prisma.ouvrage.groupBy({ by: ["etat"], where: notDeleted, _count: { _all: true } }),
       prisma.chantier.groupBy({ by: ["statut"], where: notDeleted, _count: { _all: true } }),
-      prisma.troncon.aggregate({ where: notDeleted, _sum: { longueurKm: true } }),
-      prisma.troncon.count({ where: { ...notDeleted, etat: { in: ["MAUVAIS", "CRITIQUE"] } } }),
+      prisma.troncon.aggregate({ where: { ...notDeleted, ...RESEAU_REFERENCE }, _sum: { longueurKm: true } }),
+      prisma.troncon.count({ where: { ...notDeleted, ...RESEAU_REFERENCE, etat: { in: ["MAUVAIS", "CRITIQUE"] } } }),
       prisma.ouvrage.count({ where: { ...notDeleted, etat: { in: ["MAUVAIS", "CRITIQUE"] } } }),
-      longueurReseau(),
+      longueurReseau("reference"),
+      // Compte a part : ces troncons sont au registre et doivent se voir, mais ils ne
+      // sont pas le reseau classe et ne peuvent pas se fondre dans ses indicateurs.
+      prisma.troncon.count({ where: { ...notDeleted, sourceReference: { startsWith: "voirie_locale:" } } }),
     ]);
 
     res.json({
@@ -54,6 +77,9 @@ dashboardRouter.get("/kpis", requireAuth, requireModuleAccess("dashboard"), asyn
       // L'ecart — 7 933 km contre 21 156 — ne vient pas d'une donnee abimee mais d'un
       // champ jamais renseigne sur les 1 029 regionales. Voir lib/reseau.ts.
       reseau,
+      // Rendu explicite pour que l'interface puisse le dire, plutot que de laisser
+      // croire que le registre se limite au reseau classe.
+      voirieRattachee: { troncons: voirieRattacheeCount },
       alertesCount: alertesTroncons + alertesOuvrages,
       tronconsParEtat: tronconsParEtat.map((r) => ({ etat: r.etat, total: r._count._all })),
       ouvragesParEtat: ouvragesParEtat.map((r) => ({ etat: r.etat, total: r._count._all })),
@@ -193,7 +219,7 @@ dashboardRouter.get("/decision", requireAuth, requireModuleAccess("decision"), a
     const now = new Date();
 
     const [longueurAgg, etatsRaw, tronconsRaw, chantiersRaw, parBailleurRaw, budgetRow] = await Promise.all([
-      prisma.troncon.aggregate({ where: notDeleted, _sum: { longueurKm: true } }),
+      prisma.troncon.aggregate({ where: { ...notDeleted, ...RESEAU_REFERENCE }, _sum: { longueurKm: true } }),
       prisma.troncon.groupBy({ by: ["etat"], where: notDeleted, _sum: { longueurKm: true }, _count: { _all: true } }),
       prisma.troncon.findMany({
         where: { ...notDeleted, etat: { in: ["MAUVAIS", "CRITIQUE"] } },

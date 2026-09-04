@@ -19,9 +19,14 @@ const PRODUCTION = [
 ];
 
 let lignes: unknown[] = PRODUCTION;
+/** Dernier SQL emis : c'est la clause de perimetre qu'on veut pouvoir verifier. */
+let dernierSql = "";
 
 vi.mock("./prisma", () => ({
-  prisma: { $queryRaw: vi.fn(async () => lignes) },
+  prisma: {
+    $queryRaw: vi.fn(async () => lignes),
+    $queryRawUnsafe: vi.fn(async (sql: string) => { dernierSql = sql; return lignes; }),
+  },
 }));
 
 import { longueurReseau } from "./reseau";
@@ -90,5 +95,33 @@ describe("Longueur du reseau", () => {
 
     expect(r.geometrique.totalKm).toBe(0);
     expect(r.parClasse[0].kmGeometrique).toBe(0);
+  });
+});
+
+describe("Le perimetre separe le reseau classe de la voirie promue", () => {
+  it("exclut la voirie promue par defaut", async () => {
+    // Sans cela, le tableau de bord annonce 185 264 km de reseau routier — les
+    // sentiers d'OpenStreetMap. Le reseau classe de Guinee fait environ 21 000 km.
+    await longueurReseau();
+    expect(dernierSql).toContain("voirie_locale:%");
+    expect(dernierSql).toMatch(/"sourceReference" IS NULL OR NOT/);
+  });
+
+  it("retient les troncons sans provenance — sinon les 1 690 disparaissent", async () => {
+    // En SQL, NULL NOT LIKE '...' vaut NULL, donc faux. Les troncons anterieurs n'ont
+    // pas de sourceReference : le IS NULL n'est pas decoratif.
+    await longueurReseau("reference");
+    expect(dernierSql).toMatch(/"sourceReference" IS NULL/);
+  });
+
+  it("cible la voirie seule quand on la demande", async () => {
+    await longueurReseau("voirie");
+    expect(dernierSql).toMatch(/AND "sourceReference" LIKE 'voirie_locale:%'/);
+    expect(dernierSql).not.toMatch(/IS NULL OR NOT/);
+  });
+
+  it("ne filtre rien en perimetre complet", async () => {
+    await longueurReseau("tout");
+    expect(dernierSql).not.toContain("voirie_locale:%");
   });
 });

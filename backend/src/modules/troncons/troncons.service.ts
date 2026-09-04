@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { createCrudService, type ListParams } from "../../lib/crud-factory";
 import { buildExportBuffer, parseImportBuffer, formatImportError, type ImportReport } from "../../lib/excel";
@@ -150,9 +151,53 @@ const EXPORT_COLUMNS = [
   { key: "traficMoyenJma", header: "Trafic moyen (jma)" },
 ];
 
-async function exportXlsx(): Promise<Buffer> {
+/**
+ * Plafond d'export.
+ *
+ * Excel accepte un million de lignes, mais ce n'est pas la contrainte : construire le
+ * classeur en memoire l'est. Le tas du conteneur fait 2 Go, et charger 261 386
+ * troncons avec leurs relations pour les serialiser y tient mal.
+ *
+ * Personne ne veut d'ailleurs ce fichier : on exporte le reseau AGEROUTE, pas un
+ * vidage d'OpenStreetMap.
+ */
+const PLAFOND_EXPORT = 20_000;
+
+/**
+ * Export du RESEAU CLASSE par defaut.
+ *
+ * Avant la promotion de la voirie, `troncons` comptait 1 690 lignes et l'export sans
+ * filtre etait sans danger. Il en compte 261 386 : le meme code aurait produit un
+ * fichier inexploitable, apres avoir probablement fait tomber le conteneur.
+ *
+ * `perimetre: "tout"` reste possible pour un appelant qui sait ce qu'il demande, et
+ * se heurte alors au plafond plutot qu'a une panne.
+ */
+async function exportXlsx({ perimetre = "reference" }: { perimetre?: "reference" | "tout" } = {}): Promise<Buffer> {
+  const where: Prisma.TronconWhereInput = perimetre === "tout"
+    ? { deletedAt: null }
+    : {
+        deletedAt: null,
+        // Le IS NULL est indispensable : les 1 690 troncons anterieurs n'ont pas de
+        // `sourceReference`, et un simple `not: { startsWith }` les exclurait tous.
+        OR: [
+          { sourceReference: null },
+          { sourceReference: { not: { startsWith: "voirie_locale:" } } },
+        ],
+      };
+
+  const total = await prisma.troncon.count({ where });
+  if (total > PLAFOND_EXPORT) {
+    throw new ApiError(
+      413,
+      `Export de ${total.toLocaleString("fr-FR")} tronçons refusé : au-delà de `
+      + `${PLAFOND_EXPORT.toLocaleString("fr-FR")}, le fichier serait inexploitable. `
+      + "Restreignez le périmètre.",
+    );
+  }
+
   const rows = await prisma.troncon.findMany({
-    where: { deletedAt: null },
+    where,
     include: { region: true },
     orderBy: { code: "asc" },
   });
