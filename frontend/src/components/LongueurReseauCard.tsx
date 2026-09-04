@@ -69,6 +69,15 @@ export function LongueurReseauCard({ reseau }: { reseau: LongueurReseau }) {
         Longueur saisie sur {reseau.metier.tronconsRenseignes} tronçons sur{" "}
         {reseau.metier.tronconsTotal} ({reseau.metier.couverturePct.toFixed(0)} %)
       </p>
+      {/* Sans cette ligne, une longueur calculee lors d'une promotion se lirait
+          comme une saisie, et l'indicateur de couverture monterait en important de
+          la donnee externe au lieu de mesurer le travail de renseignement. */}
+      {(reseau.metier.tronconsDerives ?? 0) > 0 && (
+        <p className="mt-0.5 text-[11px] text-amber-300/80">
+          + {reseau.metier.tronconsDerives} tronçons dont la longueur est calculée sur
+          la géométrie, non saisie — exclus du taux ci-dessus.
+        </p>
+      )}
 
       {aGeometrie && (
         <>

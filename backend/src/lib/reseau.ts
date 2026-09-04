@@ -38,13 +38,31 @@ import { prisma } from "./prisma";
  * que celle des nationales (2,2 points/km contre 12,0). L'effet mesure sur la longueur
  * reste sous 1 % — degrader la geometrie des nationales jusqu'a 1,6 point/km conserve
  * 99,09 % de leur longueur — mais la valeur calculee reste une borne basse.
+ *
+ * UNE LONGUEUR DERIVEE N'EST PAS UNE LONGUEUR SAISIE (correction du 04/09/2026)
+ *
+ * `longueurKm > 0` a longtemps suffi a dire « la longueur est renseignee », parce que
+ * la seule facon d'y mettre une valeur etait de la saisir. La promotion de la voirie a
+ * change cela : chaque troncon promu recoit une longueur CALCULEE sur sa geometrie,
+ * faute d'une longueur metier — legitime, et trace comme DERIVED dans
+ * `valeurs_qualite`.
+ *
+ * Le compteur les a aussitot comptes comme renseignes. Mesure : la couverture est
+ * passee de 662/1690 (39 %) a 1012/2040 (50 %) sans qu'une seule longueur metier
+ * n'ait ete saisie. L'indicateur de qualite MONTAIT en promouvant de la donnee
+ * externe — exactement l'illusion que ce module a ete ecrit pour dissiper.
+ *
+ * Le filtre exclut donc ce que `valeurs_qualite` declare DERIVED. Ces troncons ne
+ * disparaissent pas pour autant : `tronconsLongueurDerivee` les compte a part.
  */
 
 export interface LongueurParClasse {
   classe: string;
   troncons: number;
-  /** Troncons dont la longueur metier est saisie et non nulle. */
+  /** Troncons dont la longueur metier est SAISIE et non nulle. */
   tronconsAvecLongueurMetier: number;
+  /** Troncons dont la longueur est portee mais CALCULEE sur la geometrie. */
+  tronconsLongueurDerivee: number;
   /** Somme de `longueurKm`. Valeur SAISIE. */
   kmMetier: number;
   /** Somme de ST_Length(geom::geography). Valeur CALCULEE, jamais ecrite en base. */
@@ -56,6 +74,11 @@ export interface LongueurReseau {
     totalKm: number;
     tronconsRenseignes: number;
     tronconsTotal: number;
+    /**
+     * Troncons dont la longueur vient d'un calcul geometrique, pas d'une saisie.
+     * Comptes a part pour qu'ils ne gonflent pas la couverture.
+     */
+    tronconsDerives: number;
     /** Part des troncons dont la longueur metier est connue. */
     couverturePct: number;
   };
@@ -71,6 +94,7 @@ interface LigneBrute {
   classe: string;
   troncons: bigint;
   avec_longueur: bigint;
+  derivees: bigint;
   km_metier: number | null;
   km_geometrique: number | null;
 }
@@ -86,10 +110,24 @@ export async function longueurReseau(): Promise<LongueurReseau> {
     SELECT
       classe::text                                                       AS classe,
       count(*)                                                           AS troncons,
-      count(*) FILTER (WHERE "longueurKm" > 0)                           AS avec_longueur,
+      count(*) FILTER (
+        WHERE "longueurKm" > 0
+          AND NOT EXISTS (
+            SELECT 1 FROM valeurs_qualite q
+             WHERE q."entityType" = 'Troncon' AND q."entityId" = t.id
+               AND q.champ = 'longueurKm' AND q.statut = 'DERIVED'
+          )
+      )                                                                  AS avec_longueur,
+      count(*) FILTER (
+        WHERE EXISTS (
+          SELECT 1 FROM valeurs_qualite q
+           WHERE q."entityType" = 'Troncon' AND q."entityId" = t.id
+             AND q.champ = 'longueurKm' AND q.statut = 'DERIVED'
+        )
+      )                                                                  AS derivees,
       COALESCE(SUM("longueurKm"), 0)                                     AS km_metier,
       COALESCE(SUM(ST_Length(geom::geography) / 1000.0), 0)              AS km_geometrique
-    FROM troncons
+    FROM troncons t
     WHERE "deletedAt" IS NULL
     GROUP BY classe
     ORDER BY classe
@@ -99,18 +137,21 @@ export async function longueurReseau(): Promise<LongueurReseau> {
     classe: l.classe,
     troncons: nombre(l.troncons),
     tronconsAvecLongueurMetier: nombre(l.avec_longueur),
+    tronconsLongueurDerivee: nombre(l.derivees),
     kmMetier: arrondi(nombre(l.km_metier)),
     kmGeometrique: arrondi(nombre(l.km_geometrique)),
   }));
 
   const tronconsTotal = parClasse.reduce((s, c) => s + c.troncons, 0);
   const tronconsRenseignes = parClasse.reduce((s, c) => s + c.tronconsAvecLongueurMetier, 0);
+  const tronconsDerives = parClasse.reduce((s, c) => s + c.tronconsLongueurDerivee, 0);
 
   return {
     metier: {
       totalKm: arrondi(parClasse.reduce((s, c) => s + c.kmMetier, 0)),
       tronconsRenseignes,
       tronconsTotal,
+      tronconsDerives,
       couverturePct: tronconsTotal > 0 ? arrondi((tronconsRenseignes / tronconsTotal) * 100) : 0,
     },
     geometrique: {

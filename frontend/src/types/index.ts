@@ -259,6 +259,8 @@ export interface LongueurReseau {
     totalKm: number;
     tronconsRenseignes: number;
     tronconsTotal: number;
+    /** Longueurs portees mais CALCULEES sur la geometrie, jamais saisies. */
+    tronconsDerives?: number;
     couverturePct: number;
   };
   geometrique: {
