@@ -342,6 +342,20 @@ async function main() {
       );
 
       return { crees: Number(crees), liees: Number(liees), qualite: Number(qualite) + Number(noms) };
+    }, {
+      /**
+       * Le defaut de Prisma est de 5 SECONDES, et il a fait echouer la premiere
+       * execution nationale a la sixieme tuile : « 5530 ms passed ». Une tuile dense
+       * — Conakry en compte plus de 5 000 voies — depasse ce budget sans rien avoir
+       * d'anormal.
+       *
+       * Cinq minutes laissent passer une tuile soixante fois plus lourde que celle
+       * qui a echoue. Le decoupage garde de toute facon le verrou borne : c'est lui
+       * qui protege l'application, pas la brievete du delai.
+       */
+      timeout: 300_000,
+      // Attente maximale pour obtenir une connexion du pool avant d'abandonner.
+      maxWait: 60_000,
     });
   }
 
