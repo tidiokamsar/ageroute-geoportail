@@ -450,6 +450,39 @@ export function GeoportailPage() {
     sub: string;
     onSelect: () => void;
   }
+  /**
+   * Ouvre la fiche editable d'un troncon issu de la voirie promue.
+   *
+   * Ces troncons ne sont PAS dans `troncons` : la couche de la carte ne transporte
+   * que le reseau de reference, sans quoi elle pesserait 132 Mo. La recherche du
+   * geoportail filtrant ce tableau, ils en etaient absents aussi — plus de cent mille
+   * troncons au registre et injoignables depuis l'interface.
+   *
+   * On va donc chercher la fiche par son identifiant, ce qui est de toute facon la
+   * seule maniere d'obtenir les champs que la couche voirie ne porte pas (revetement,
+   * PK, trafic).
+   */
+  const ouvrirTronconPromu = useCallback(async (tronconId: string) => {
+    try {
+      // L'endpoint rend la relation `region` en objet la ou la carte attend le nom
+      // seul : le type est donc volontairement large ici, et normalise juste apres.
+      const { data } = await api.get<Record<string, unknown>>(`/troncons/${tronconId}`);
+      const region = data.region;
+      setSelectedFeature({
+        kind: "troncon",
+        data: {
+          ...data,
+          region:
+            typeof region === "string"
+              ? region
+              : ((region as { nom?: string } | null)?.nom ?? null),
+        } as unknown as TronconGeoFeature,
+      });
+    } catch (e) {
+      toast.error(parseApiError(e).message);
+    }
+  }, []);
+
   const searchResults = useMemo<SearchHit[]>(() => {
     const q = search.trim().toLowerCase();
     if (!q) return [];
@@ -532,6 +565,46 @@ export function GeoportailPage() {
     return hits.slice(0, 10);
   }, [troncons, ouvrages, chantiers, pointsNoirs, postes, search]);
 
+  /**
+   * Complement serveur : les troncons que la carte ne transporte pas.
+   *
+   * La recherche ci-dessus filtre `troncons`, c'est-a-dire ce que /troncons/geo a
+   * rendu — le reseau de reference seul. Les troncons issus de la voirie promue en
+   * sont exclus pour que la couche ne pese pas 132 Mo, et ils etaient donc
+   * introuvables : plus de cent mille au registre, absents de la recherche de la
+   * carte.
+   *
+   * On n'interroge le serveur que si la recherche locale ne suffit pas. Cadrer le
+   * complement sur ce qui manque evite un appel a chaque frappe quand la reponse est
+   * deja a l'ecran.
+   */
+  const requeteDistante = search.trim().length >= 3 && searchResults.length < 10 ? search.trim() : "";
+
+  const { data: resultatsDistants } = useQuery({
+    queryKey: ["recherche-troncons", requeteDistante],
+    queryFn: async () =>
+      (await api.get<{ troncons: { id: string; code: string; nom: string }[] }>(
+        "/search", { params: { q: requeteDistante } },
+      )).data.troncons ?? [],
+    enabled: requeteDistante.length >= 3,
+    staleTime: 30_000,
+  });
+
+  const resultatsComplets = useMemo<SearchHit[]>(() => {
+    const dejaVus = new Set((troncons ?? []).map((t) => t.id));
+    const complement = (resultatsDistants ?? [])
+      .filter((t) => !dejaVus.has(t.id))
+      .slice(0, 10 - searchResults.length)
+      .map<SearchHit>((t) => ({
+        key: `distant-${t.id}`,
+        label: `${t.code} — ${t.nom}`,
+        sub: "Tronçon (hors carte)",
+        // La geometrie n'est pas chargee : on ouvre la fiche, qui va la chercher.
+        onSelect: () => { void ouvrirTronconPromu(t.id); },
+      }));
+    return [...searchResults, ...complement];
+  }, [searchResults, resultatsDistants, troncons, ouvrirTronconPromu]);
+
   // Rendu en une seule couche GeoJSON plutot qu'en ~1700 <Polyline> React individuelles :
   // le nombre d'elements SVG dessines par Leaflet reste le meme, mais on supprime le cout
   // de reconciliation React (diff de ~1700 composants) a chaque re-render (changement de
@@ -601,38 +674,6 @@ export function GeoportailPage() {
     if (measureMode === "off") clearMeasure();
   }, [measureMode]);
 
-  /**
-   * Ouvre la fiche editable d'un troncon issu de la voirie promue.
-   *
-   * Ces troncons ne sont PAS dans `troncons` : la couche de la carte ne transporte
-   * que le reseau de reference, sans quoi elle pesserait 132 Mo. La recherche du
-   * geoportail filtrant ce tableau, ils en etaient absents aussi — plus de cent mille
-   * troncons au registre et injoignables depuis l'interface.
-   *
-   * On va donc chercher la fiche par son identifiant, ce qui est de toute facon la
-   * seule maniere d'obtenir les champs que la couche voirie ne porte pas (revetement,
-   * PK, trafic).
-   */
-  const ouvrirTronconPromu = useCallback(async (tronconId: string) => {
-    try {
-      // L'endpoint rend la relation `region` en objet la ou la carte attend le nom
-      // seul : le type est donc volontairement large ici, et normalise juste apres.
-      const { data } = await api.get<Record<string, unknown>>(`/troncons/${tronconId}`);
-      const region = data.region;
-      setSelectedFeature({
-        kind: "troncon",
-        data: {
-          ...data,
-          region:
-            typeof region === "string"
-              ? region
-              : ((region as { nom?: string } | null)?.nom ?? null),
-        } as unknown as TronconGeoFeature,
-      });
-    } catch (e) {
-      toast.error(parseApiError(e).message);
-    }
-  }, []);
 
   return (
     <div
@@ -710,9 +751,9 @@ export function GeoportailPage() {
             <X className="h-3 w-3" />
           </button>
         )}
-        {searchResults.length > 0 && (
+        {resultatsComplets.length > 0 && (
           <div className="w-full bg-white rounded-lg shadow-lg border border-gray-100 overflow-hidden">
-            {searchResults.map((hit) => (
+            {resultatsComplets.map((hit) => (
               <button
                 key={hit.key}
                 className="flex w-full items-center justify-between gap-2 text-left px-3 py-2 text-sm hover:bg-gray-50"
