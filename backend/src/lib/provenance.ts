@@ -1,197 +1,113 @@
-import type { SourceType, NiveauConfiance } from "@prisma/client";
+import { prisma } from "./prisma";
 
 /**
- * Deduit la provenance d'un troncon depuis son code.
+ * Provenance des valeurs saisies dans l'application.
  *
- * POURQUOI C'EST POSSIBLE
+ * LE DEFAUT QUE CE MODULE CORRIGE
  *
- * Le journal d'audit contient 1 155 modifications de troncons et ZERO creation : les
- * 1 690 troncons sont entres par un chemin qui n'ecrit pas dans le journal. Leur
- * origine n'etait donc consignee nulle part.
+ * Constate le 04/09/2026, par accident. Un script comblait les revetements inconnus ;
+ * une ligne resistait — « 2e Boulevard », qu'un agent avait corrigee depuis
+ * l'interface le matin meme. Sa valeur etait bonne. Sa ligne de `valeurs_qualite`
+ * disait toujours « ABSENT_DE_LA_SOURCE ».
  *
- * Elle est pourtant lisible dans le code, qui porte la marque de son lot d'import.
- * Mesure du 01/09/2026 sur les 1 690 troncons :
+ * Autrement dit : les scripts d'import et de promotion entretenaient la tracabilite,
+ * l'interface non. Chaque correction faite a la main degradait silencieusement
+ * l'appareil meme qui sert a distinguer ce qu'on sait de ce qu'on suppose. Avec
+ * 1,2 million de lignes de qualite en base, cette asymetrie l'aurait fait pourrir par
+ * le milieu — sans qu'aucune erreur n'apparaisse jamais.
  *
- *   famille              classe   nb   longueur saisie   PK exploitable
- *   RES-*                RR    1 028         0 / 1 028        0 / 1 028
- *   GN N*                RN      551       551 / 551        551 / 551
- *   *-OSM-*              RN       70        70 / 70            0 / 70
- *   suffixe -w<chiffres> RU       20        20 / 20            0 / 20
- *   DI* sans suffixe     RU        4         4 / 4             0 / 4
- *   autre                RU       16        16 / 16            0 / 16
- *   code « test »        RR        1         1 / 1             0 / 1
+ * UNE SAISIE EST LA MEILLEURE PROVENANCE DISPONIBLE
  *
- * Le decoupage n'est pas cosmetique : il explique entierement le probleme des
- * longueurs nulles, qui coincide EXACTEMENT avec la famille RES-*, et celui des PK,
- * exploitables sur la seule famille GN N*.
+ * Elle passe en OBSERVED, avec l'auteur et la date. Ce n'est pas une inspection
+ * formelle, mais c'est un humain qui affirme, ici et maintenant, contre un import qui
+ * ne dit rien de personne. Le champ `observedById` existait deja dans le modele et
+ * n'etait alimente nulle part.
  *
- * DEDUIT N'EST PAS DOCUMENTE
+ * CE QU'IL NE FAIT PAS
  *
- * `IMPORT_CODE_PATTERN` dit « provenance deduite du prefixe », jamais « provenance
- * documentee ». Ce que le prefixe designe est un LOT D'IMPORT ; ce que recouvre
- * reellement « RES-* » reste a etablir aupres d'AGEROUTE. La confiance porte donc sur
- * le rattachement au lot, pas sur l'identification de la source primaire.
- *
- * LE SUFFIXE -w<chiffres>
- *
- * `w` suivi de chiffres est la notation OpenStreetMap d'un identifiant de way
- * (`DI 002-w1096262465`). Ces 20 troncons urbains viennent donc d'OSM eux aussi, par
- * un nommage different des 70 nationales en `*-OSM-*`. Le depot porte d'ailleurs un
- * script `merge:osm-routes` qui corrobore cette lecture.
+ * Il n'invente pas de ligne pour un champ absent de la requete. Modifier le nom d'un
+ * troncon ne dit rien de son revetement, et pretendre le contraire serait le meme
+ * genre de mensonge, en sens inverse.
  */
 
-export interface ProvenanceDeduite {
-  sourceType: SourceType;
-  /** Le motif reconnu, tel qu'il sera lisible en base. Null quand rien n'est reconnu. */
-  sourceReference: string | null;
-  sourceConfidence: NiveauConfiance;
-  /** Ce qui a motive la deduction, pour l'audit et pour l'ecran de qualite. */
-  motif: string;
-}
-
-const INCONNUE: ProvenanceDeduite = {
-  sourceType: "INCONNUE",
-  sourceReference: null,
-  sourceConfidence: "LOW",
-  motif: "aucun motif reconnu dans le code",
+/**
+ * Champs dont la provenance est suivie, par type d'entite.
+ *
+ * Volontairement restreint aux valeurs qui portent une DECISION : l'etat commande la
+ * programmation des travaux, le revetement et la longueur commandent les couts. Le
+ * reste — observations, coordonnees de contact — n'a pas besoin d'un appareil de
+ * confiance, et en suivre trop noierait le signal.
+ */
+export const CHAMPS_SUIVIS: Record<string, readonly string[]> = {
+  Troncon: ["etat", "revetement", "longueurKm", "pkDebut", "pkFin", "regionId", "nom", "classe"],
+  Ouvrage: ["etat", "typeOuvrage", "longueurM", "regionId"],
+  Chantier: ["regionId", "statut", "avancementPct", "montantGnf"],
 };
 
-export function provenanceDepuisCode(code: string | null | undefined): ProvenanceDeduite {
-  if (!code) return INCONNUE;
-  const c = code.trim();
-  if (!c) return INCONNUE;
-
-  // Enregistrement d'essai laisse en production. Il porte le nom « RN2 », la classe RR
-  // et 56,4 km — et c'est l'UNIQUE regionale avec une longueur saisie. Le signaler
-  // plutot que de le ranger dans une famille d'import lui donnerait une legitimite
-  // qu'il n'a pas.
-  if (c.toLowerCase() === "test") {
-    return {
-      sourceType: "INCONNUE",
-      sourceReference: null,
-      sourceConfidence: "LOW",
-      motif: "code d'essai — enregistrement a examiner, non un lot d'import",
-    };
-  }
-
-  // OSM d'abord : le motif est le plus specifique et le mieux corrobore (script
-  // merge:osm-routes dans le depot).
-  if (c.includes("-OSM-")) {
-    return {
-      sourceType: "IMPORT_CODE_PATTERN",
-      sourceReference: "OSM",
-      sourceConfidence: "HIGH",
-      motif: "le code porte le marqueur -OSM-",
-    };
-  }
-
-  // `w` + chiffres en fin de code : notation OpenStreetMap d'un identifiant de way.
-  if (/-w\d+$/.test(c)) {
-    return {
-      sourceType: "IMPORT_CODE_PATTERN",
-      sourceReference: "OSM",
-      sourceConfidence: "HIGH",
-      motif: "le code se termine par un identifiant de way OSM (-w<chiffres>)",
-    };
-  }
-
-  if (c.startsWith("RES-")) {
-    return {
-      sourceType: "IMPORT_CODE_PATTERN",
-      sourceReference: "RES-*",
-      sourceConfidence: "HIGH",
-      motif: "1 028 troncons partagent ce prefixe, tous regionaux, aucun avec longueur saisie",
-    };
-  }
-
-  if (c.startsWith("GN N")) {
-    return {
-      sourceType: "IMPORT_CODE_PATTERN",
-      sourceReference: "GN N*",
-      sourceConfidence: "HIGH",
-      motif: "551 troncons partagent ce prefixe, seule famille dont les PK sont exploitables",
-    };
-  }
-
-  // Deux lettres majuscules, un point facultatif, un nombre : DI 002, KA 004, MA 006,
-  // RO. 001. Vingt troncons, TOUS urbains, repartis en quatre prefixes.
-  //
-  // La regle a d'abord ete ecrite pour le seul prefixe DI, puis elargie apres l'avoir
-  // eprouvee sur les 1 690 codes reels : seize codes de meme forme restaient non
-  // reconnus. C'est la raison de tester une regle de deduction sur la totalite des
-  // donnees plutot que sur un echantillon.
-  //
-  // Confiance MEDIUM : la forme est constante et la classe homogene, mais ce que
-  // designe le prefixe — vraisemblablement une commune — n'est pas etabli. Le
-  // rattachement au lot est probable, sa signification ne l'est pas.
-  const prefixeUrbain = c.match(/^([A-Z]{2})\.?\s+\d/);
-  if (prefixeUrbain) {
-    return {
-      sourceType: "IMPORT_CODE_PATTERN",
-      sourceReference: `${prefixeUrbain[1]}*`,
-      sourceConfidence: "MEDIUM",
-      motif: `prefixe ${prefixeUrbain[1]}, famille urbaine de faible effectif, signification non etablie`,
-    };
-  }
-
-  return INCONNUE;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Etat de provenance d'un troncon tel qu'il est en base avant remplissage. */
-export interface TronconProvenance {
-  id: string;
-  code: string;
-  sourceType: SourceType | null;
-  sourceReference: string | null;
-  sourceConfidence: NiveauConfiance | null;
-}
-
-export interface PlanProvenance {
-  /** Les seuls troncons a mettre a jour : ceux dont la provenance differe. */
-  aEcrire: { id: string; code: string; provenance: ProvenanceDeduite }[];
-  /** Repartition par famille, pour que l'operateur voie ce qu'il s'apprete a faire. */
-  parReference: { reference: string; total: number; aEcrire: number; motif: string }[];
-  total: number;
-}
-
 /**
- * Prepare le remplissage sans rien ecrire.
+ * Construit les ecritures de provenance SANS les executer.
  *
- * Separer la decision de l'ecriture permet trois choses : montrer a blanc ce qui va
- * se passer, garantir qu'un second passage ne reecrit rien, et eprouver la logique
- * sans base de donnees.
+ * POURQUOI RENDRE DES PROMESSES PLUTOT QU'ECRIRE
+ *
+ * L'appelant les passe a `prisma.$transaction([...])` avec sa propre mise a jour :
+ * la valeur et sa provenance changent ensemble, ou pas du tout. Un echec entre les
+ * deux laisserait une valeur sans provenance, ou une provenance sans valeur, et rien
+ * ne permettrait de savoir laquelle croire.
+ *
+ * Un premier montage passait un client transactionnel a ce module, qui retrouvait le
+ * modele par son nom. Il fonctionnait, mais court-circuitait le delegue injecte dans
+ * la fabrique CRUD — et le test qui verifie cet appel s'est mis a echouer. Rendre des
+ * promesses laisse l'appelant maitre de SON modele.
  */
-export function planifierProvenance(troncons: TronconProvenance[]): PlanProvenance {
-  const aEcrire: PlanProvenance["aEcrire"] = [];
-  const stats = new Map<string, { total: number; aEcrire: number; motif: string }>();
+export function construireSaisies(
+  entityType: keyof typeof CHAMPS_SUIVIS | string,
+  entityId: string,
+  donnees: Record<string, unknown>,
+  auteurId: string,
+): unknown[] {
+  const suivis = CHAMPS_SUIVIS[entityType];
+  if (!suivis) return [];
 
-  for (const t of troncons) {
-    const provenance = provenanceDepuisCode(t.code);
-    const cle = provenance.sourceReference ?? "(inconnue)";
-    const s = stats.get(cle) ?? { total: 0, aEcrire: 0, motif: provenance.motif };
-    s.total++;
+  // Seuls les champs REELLEMENT presents dans la requete. `undefined` signifie « non
+  // touche » ; `null` est une valeur, et efface donc bien ce qu'on croyait savoir.
+  const champs = suivis.filter((c) => Object.prototype.hasOwnProperty.call(donnees, c));
+  if (champs.length === 0) return [];
 
-    // Idempotence : un troncon deja porteur de cette provenance est laisse tel quel,
-    // ce qui preserve aussi la date de la deduction d'origine.
-    const inchange =
-      t.sourceType === provenance.sourceType &&
-      t.sourceReference === provenance.sourceReference &&
-      t.sourceConfidence === provenance.sourceConfidence;
-
-    if (!inchange) {
-      s.aEcrire++;
-      aEcrire.push({ id: t.id, code: t.code, provenance });
-    }
-    stats.set(cle, s);
-  }
-
-  return {
-    aEcrire,
-    parReference: [...stats.entries()]
-      .map(([reference, s]) => ({ reference, ...s }))
-      .sort((a, b) => b.total - a.total),
-    total: troncons.length,
+  const client = prisma as unknown as {
+    valeurQualite: { upsert: (args: unknown) => unknown };
   };
+  const observedAt = new Date();
+  const ecritures: unknown[] = [];
+
+  for (const champ of champs) {
+    const commun = {
+      statut: "OBSERVED" as const,
+      source: "SAISIE_APPLICATIVE",
+      methode: "SAISIE_MANUELLE",
+      observedAt,
+      observedById: auteurId,
+      confiance: "MEDIUM" as const,
+      // MEDIUM et non HIGH : un agent qui corrige une fiche depuis un bureau sait
+      // souvent, mais n'a pas mesure. HIGH reste pour un releve de terrain date.
+      note: `Valeur saisie dans l'application le ${observedAt.toISOString().slice(0, 10)}.`,
+    };
+    ecritures.push(client.valeurQualite.upsert({
+      where: { entityType_entityId_champ: { entityType, entityId, champ } },
+      create: { entityType, entityId, champ, ...commun },
+      update: commun,
+    }));
+  }
+  return ecritures;
+}
+
+/** Variante immediate, pour un appelant sans transaction en cours. */
+export async function enregistrerSaisie(
+  entityType: string,
+  entityId: string,
+  donnees: Record<string, unknown>,
+  auteurId: string,
+): Promise<number> {
+  const ecritures = construireSaisies(entityType, entityId, donnees, auteurId);
+  await Promise.all(ecritures as Promise<unknown>[]);
+  return ecritures.length;
 }

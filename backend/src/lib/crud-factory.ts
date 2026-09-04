@@ -1,6 +1,8 @@
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
 import { logAudit } from "../utils/audit";
+import { prisma } from "./prisma";
+import { construireSaisies } from "./provenance";
 import { ApiError } from "../middleware/error.middleware";
 
 export interface ListParams {
@@ -69,7 +71,25 @@ export function createCrudService(model: PrismaDelegate, entityName: string, def
     // retirée des listes opérationnelles restait modifiable par identifiant.
     const before = await model.findFirst({ where: { id, deletedAt: null } });
     if (!before) throw new ApiError(404, `${entityName} introuvable`);
-    const updated = await model.update({ where: { id }, data });
+
+    /**
+     * La valeur et sa provenance changent ENSEMBLE, ou pas du tout.
+     *
+     * Avant cette transaction, une correction faite depuis l'interface laissait sa
+     * ligne de `valeurs_qualite` intacte : la base continuait d'affirmer « absent de
+     * la source » pour une valeur qu'un agent venait de taper. Constate le
+     * 04/09/2026 sur « 2e Boulevard », et systemique — les scripts entretenaient la
+     * tracabilite, l'application non.
+     *
+     * Ecrire les deux hors transaction aurait seulement deplace le probleme : un
+     * echec entre les deux laisserait une valeur sans provenance, ou une provenance
+     * sans valeur, et rien ne permettrait de savoir laquelle croire.
+     */
+    const [updated] = await prisma.$transaction([
+      model.update({ where: { id }, data }),
+      ...construireSaisies(entityName, id, data, userId),
+    ]);
+
     await logAudit({ userId, action: "UPDATE", entityType: entityName, entityId: id, before, after: updated });
     return updated;
   }

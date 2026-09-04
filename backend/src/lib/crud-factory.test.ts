@@ -2,8 +2,24 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 vi.mock("../utils/audit", () => ({ logAudit: vi.fn() }));
 
+/**
+ * `update` ecrit desormais la valeur ET sa provenance dans une meme transaction :
+ * l'une sans l'autre laisserait la base dans un etat qu'on ne saurait plus expliquer.
+ *
+ * La forme tableau de `$transaction` execute les promesses qu'on lui passe ; la
+ * simuler par `Promise.all` preserve exactement l'ordre et le resultat attendus, et
+ * garde le modele injecte visible du test — c'est lui qu'on verifie.
+ */
+vi.mock("./prisma", () => ({
+  prisma: {
+    $transaction: vi.fn(async (ops: unknown[]) => Promise.all(ops as Promise<unknown>[])),
+    valeurQualite: { upsert: vi.fn(async () => ({})) },
+  },
+}));
+
 import { createCrudService } from "./crud-factory";
 import { logAudit } from "../utils/audit";
+import { prisma } from "./prisma";
 
 function matchesDeletedAt(row: Record<string, unknown>, deletedAt: unknown): boolean {
   if (deletedAt === null) return row.deletedAt == null;
@@ -137,6 +153,41 @@ describe("createCrudService", () => {
     const updated = await service.update("a", { nom: "B" }, "user-1");
     expect((updated as { nom: string }).nom).toBe("B");
     expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "UPDATE" }));
+  });
+
+  it("update() enregistre la provenance des champs saisis", async () => {
+    // Le defaut d'origine : une correction faite depuis l'interface laissait sa ligne
+    // de qualite intacte, et la base affirmait « absent de la source » pour une
+    // valeur qu'un agent venait de taper.
+    const model = makeFakeModel([{ id: "a", etat: "MOYEN", deletedAt: null }]);
+    const service = createCrudService(model, "Troncon");
+
+    await service.update("a", { etat: "BON" }, "user-7");
+
+    expect(prisma.valeurQualite.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { entityType_entityId_champ: { entityType: "Troncon", entityId: "a", champ: "etat" } },
+        create: expect.objectContaining({ statut: "OBSERVED", observedById: "user-7" }),
+      }),
+    );
+  });
+
+  it("update() n'invente aucune provenance pour un champ non suivi", async () => {
+    const model = makeFakeModel([{ id: "a", observations: "x", deletedAt: null }]);
+    const service = createCrudService(model, "Troncon");
+
+    await service.update("a", { observations: "y" }, "user-7");
+
+    expect(prisma.valeurQualite.upsert).not.toHaveBeenCalled();
+  });
+
+  it("update() ne suit rien sur une entite hors perimetre", async () => {
+    const model = makeFakeModel([{ id: "m", statut: "X", deletedAt: null }]);
+    const service = createCrudService(model, "Marche");
+
+    await service.update("m", { statut: "Y" }, "user-7");
+
+    expect(prisma.valeurQualite.upsert).not.toHaveBeenCalled();
   });
 
   it("bulkRestore() reactive plusieurs lignes archivees", async () => {
