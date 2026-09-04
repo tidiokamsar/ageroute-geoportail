@@ -87,6 +87,7 @@ async function main() {
     pkFin: number | null;
     longueurCiteeKm: number | null;
     motif: string;
+    sectionPk: string | null;
     candidats: number;
   }[] = [];
 
@@ -167,6 +168,7 @@ async function main() {
       methode: r.methode,
       sourceTexte: c.intitule,
       confiance,
+      sectionPk: sectionRetenue,
       tronconId,
       pkDebut: r.pkDebut,
       pkFin: r.pkFin,
@@ -230,6 +232,10 @@ async function main() {
         pkDebut: p.pkDebut,
         pkFin: p.pkFin,
         longueurCiteeKm: p.longueurCiteeKm,
+        // Le motif etait calcule puis jete : l'agent voyait une confiance LOW sans
+        // savoir pourquoi, ni ce qui restait a trancher.
+        motif: p.motif,
+        sectionPk: p.sectionPk,
         motifRejet: null,
       },
     });

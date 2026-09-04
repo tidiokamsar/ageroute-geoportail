@@ -972,6 +972,15 @@ model PropositionLocalisation {
   pkDebut            Float?
   pkFin              Float?
   longueurCiteeKm    Float?
+  /// Pourquoi la proposition est ce qu'elle est, en clair : « section 3 identifiée »,
+  /// « 3 sections compatibles, l'intitulé ne dit pas laquelle », « 12 tronçons
+  /// candidats, aucun ne couvre l'emprise ». Sans ce champ, l'agent devait refaire le
+  /// raisonnement que le script avait déjà fait.
+  motif              String?
+  /// Section de référencement retenue, quand une seule couvre l'emprise. Distincte du
+  /// motif parce que c'est une clé, pas une phrase : « les propositions dont la
+  /// section est identifiée » est la requête qui sert à distribuer le travail.
+  sectionPk          String?
   longueurCalculeeKm Float?
   ecartPct           Float?
   geom               Unsupported("geometry(LineString,4326)")?
