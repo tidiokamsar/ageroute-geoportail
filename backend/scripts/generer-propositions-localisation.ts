@@ -14,13 +14,24 @@
  *   1. Les emprises de chantier font 40 a 55 km, les troncons quelques kilometres.
  *      Chaque emprise chevauche 4 a 36 troncons : il n'y a pas de cible unique.
  *
- *   2. Les PK ne forment pas un kilometrage continu par route. Sur la RN5, six
- *      troncons commencent a PK 0, et la somme des intervalles vaut 433 km pour un
- *      PK maximum de 156. 24 designations de route sur 42 ont des PK de depart
- *      dupliques. « RN5 PK24 » ne designe donc pas un point unique.
+ *   2. CORRIGE LE 05/09/2026 — cette cause etait mal lue. Les PK ne forment pas un
+ *      kilometrage continu par ROUTE, mais ils en forment un par SECTION : les six
+ *      troncons de la RN5 qui commencent a PK 0 sont six sections, pas six
+ *      incoherences. Mesure : 88 sections sur 90 chainees sans trou ni recouvrement.
+ *      « RN5 PK24 » ne designe pas un point unique parce que la SECTION manque a
+ *      l'intitule — pas parce que la donnee serait abimee.
  *
  *   3. Certains PK tombent hors de l'etendue referencee : le chantier RN38
  *      PK94+300 -> PK135+100 vise une route dont le PK maximum en base est 61,6.
+ *
+ * CE QUE LA SECTION CHANGE
+ *
+ * Le script cherche d'abord les SECTIONS de la route dont l'etendue couvre l'emprise
+ * demandee. Quand une seule y suffit, les candidats se restreignent a elle — et la
+ * cible devient souvent unique.
+ *
+ * Mesure sur les 12 chantiers portant une designation et deux PK : 4 se resolvent a
+ * une seule section, 5 a deux ou trois. Contre zero auparavant.
  *
  * CONSEQUENCE
  *
@@ -86,12 +97,34 @@ async function main() {
     // le script doit savoir traiter si la donnee s'ameliore.
     let tronconId: string | null = null;
     let candidats: Candidat[] = [];
+    let sectionRetenue: string | null = null;
+    let sectionsCandidates = 0;
 
     if (r.route) {
+      // Les PK etant relatifs a la section, chercher sur toute la route revient a
+      // comparer des kilometrages qui ne se suivent pas. On identifie donc d'abord
+      // les sections dont l'etendue couvre l'emprise demandee.
+      if (r.pkDebut != null && r.pkFin != null) {
+        const sections = await prisma.$queryRaw<{ section: string }[]>`
+          SELECT "sectionPk" AS section
+          FROM troncons
+          WHERE "deletedAt" IS NULL AND nom = ${r.route}
+            AND "sectionPk" IS NOT NULL AND "pkFin" > "pkDebut"
+          GROUP BY "sectionPk"
+          HAVING min("pkDebut") <= ${r.pkDebut}::float8 AND max("pkFin") >= ${r.pkFin}::float8
+        `;
+        sectionsCandidates = sections.length;
+        // Une seule section compatible : c'est elle. Plusieurs, on ne tranche pas —
+        // l'intitule ne porte pas la section, et deviner rattacherait le chantier au
+        // mauvais endroit de la route sans que personne ne s'en apercoive.
+        if (sections.length === 1) sectionRetenue = sections[0].section;
+      }
+
       candidats = await prisma.$queryRaw<Candidat[]>`
         SELECT id, code, "pkDebut", "pkFin"
         FROM troncons
         WHERE "deletedAt" IS NULL AND nom = ${r.route} AND "pkFin" > "pkDebut"
+          AND (${sectionRetenue}::text IS NULL OR "sectionPk" = ${sectionRetenue}::text)
           AND (${r.pkDebut}::float8 IS NULL OR ("pkFin" > ${r.pkDebut}::float8 AND "pkDebut" < ${r.pkFin}::float8))
         ORDER BY "pkDebut"
       `;
@@ -105,9 +138,14 @@ async function main() {
     // Sans troncon unique, la confiance ne peut pas rester haute quoi qu'en dise
     // l'extraction du texte : le texte est clair, la cible ne l'est pas.
     const confiance = tronconId ? r.confiance! : "LOW";
+    const section = sectionRetenue
+      ? ` — section ${sectionRetenue} identifiée`
+      : sectionsCandidates > 1
+        ? ` — ${sectionsCandidates} sections compatibles, l'intitulé ne dit pas laquelle`
+        : "";
     const motif = tronconId
-      ? r.motif
-      : `${r.motif} — ${candidats.length} tronçon(s) candidat(s), aucun ne couvre l'emprise à lui seul`;
+      ? `${r.motif}${section}`
+      : `${r.motif}${section} — ${candidats.length} tronçon(s) candidat(s), aucun ne couvre l'emprise à lui seul`;
 
     if (r.methode === "INTITULE_ROUTE_PK") stats.emprise++;
     else stats.routeSeule++;
