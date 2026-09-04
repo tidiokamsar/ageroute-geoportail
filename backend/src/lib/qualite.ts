@@ -216,6 +216,22 @@ export async function repartitionQualite(entityType: string): Promise<Repartitio
   const dateesParChamp = new Map(datees.map((d) => [d.champ, d._count._all]));
 
   const parChamp = new Map<string, RepartitionChamp>();
+
+  /**
+   * Les champs de decision sont amorces a zero AVANT le regroupement.
+   *
+   * Sans cela, un champ sur lequel aucune ligne de qualite n'existe disparaissait
+   * simplement du tableau — et une dimension dont on ne sait absolument rien se
+   * lisait comme une dimension sans probleme. C'est l'inverse du but.
+   *
+   * La fiche d'un enregistrement applique deja ce principe : « les six champs sont
+   * toujours rendus, meme sans ligne de qualite ». La vue d'ensemble ne le faisait
+   * pas, et les deux se contredisaient.
+   */
+  for (const champ of CHAMPS_DECISION) {
+    parChamp.set(champ, { champ, total: 0, parStatut: {}, datees: dateesParChamp.get(champ) ?? 0 });
+  }
+
   for (const l of lignes) {
     const r =
       parChamp.get(l.champ) ??

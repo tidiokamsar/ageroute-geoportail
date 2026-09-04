@@ -13,6 +13,7 @@ const sections = [
       { to: "/rapports", label: "Rapports" },
       { to: "/rapports/bailleur", label: "Rapport bailleur" },
       { to: "/decision", label: "Aide à la décision" },
+      { to: "/qualite", label: "Qualité des données" },
     ],
   },
   {

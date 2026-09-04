@@ -23,6 +23,7 @@ const AlertesPage = lazy(() => import("./pages/AlertesPage").then((m) => ({ defa
 const RapportsPage = lazy(() => import("./pages/RapportsPage").then((m) => ({ default: m.RapportsPage })));
 const ProgrammationPage = lazy(() => import("./pages/ProgrammationPage").then((m) => ({ default: m.ProgrammationPage })));
 const DecisionPage = lazy(() => import("./pages/DecisionPage").then((m) => ({ default: m.DecisionPage })));
+const QualitePage = lazy(() => import("./pages/QualitePage").then((m) => ({ default: m.QualitePage })));
 const MarchesPage = lazy(() => import("./pages/MarchesPage").then((m) => ({ default: m.MarchesPage })));
 const InspectionTerrainPage = lazy(() => import("./pages/InspectionTerrainPage").then((m) => ({ default: m.InspectionTerrainPage })));
 const RapportBailleurPage = lazy(() => import("./pages/RapportBailleurPage").then((m) => ({ default: m.RapportBailleurPage })));
@@ -72,6 +73,7 @@ const router = createBrowserRouter(
           <Route path="inspections/terrain" element={<LazyPage><InspectionTerrainPage /></LazyPage>} handle={{ title: "Inspection terrain" }} />
           <Route path="documents" element={<LazyPage><DocumentsPage /></LazyPage>} handle={{ title: "Base documentaire" }} />
           <Route path="decision" element={<LazyPage><DecisionPage /></LazyPage>} handle={{ title: "Aide à la décision" }} />
+          <Route path="qualite" element={<LazyPage><QualitePage /></LazyPage>} handle={{ title: "Qualité des données" }} />
           <Route path="ordres-travaux" element={<LazyPage><OrdresTravauxPage /></LazyPage>} handle={{ title: "Ordres de travaux" }} />
           <Route path="securite" element={<LazyPage><SecuritePage /></LazyPage>} handle={{ title: "Sécurité du compte" }} />
         </Route>
