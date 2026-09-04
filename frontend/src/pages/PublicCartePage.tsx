@@ -313,6 +313,7 @@ export function PublicCartePage() {
         <MapContainer
           center={GUINEE_CENTER}
           zoom={7}
+          maxZoom={20}
           renderer={renderer}
           zoomControl={false}
           style={{ height: "100%", width: "100%" }}
@@ -321,10 +322,16 @@ export function PublicCartePage() {
               basemaps.cartocdn.com renvoie desormais une tuile "API KEY REQUIRED"
               sans cle. Cette page etant ouverte a tous, elle ne peut pas dependre
               d'un service a cle. */}
+          {/* maxNativeZoom : au-dela de 19, OSM n'a pas de tuile. Sans cela, la carte
+              demande des tuiles inexistantes et le fond disparait exactement a
+              l'echelle ou l'on regarde une rue. Leaflet agrandit alors la derniere
+              tuile disponible — flou plutot qu'absent, et les traces restent nets. */}
           <TileLayer
             attribution='&copy; les contributeurs <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             crossOrigin="anonymous"
+            maxZoom={20}
+            maxNativeZoom={19}
           />
           <SuiviVue onChange={onVueChange} />
           {/* Voirie locale avant les troncons : le reseau AGEROUTE reste au-dessus. */}

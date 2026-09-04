@@ -61,6 +61,24 @@ import type { StatutChantier } from "../types";
 const GUINEE_CENTER: [number, number] = [10.5, -10.8];
 const DEFAULT_ZOOM = 7;
 
+/**
+ * Fonds de plan.
+ *
+ * `maxNativeZoom` N'EST PAS UN DETAIL
+ *
+ * Chaque service s'arrete a un niveau de zoom. Au-dela, Esri ne renvoie pas une
+ * erreur : il renvoie une tuile grise portant « Map data not yet available », en
+ * HTTP 200. La carte devient donc uniformement grise sans qu'aucun code ne detecte
+ * quoi que ce soit — c'est ce qui s'est produit le 04/09/2026 en consultant la
+ * voirie de Conakry.
+ *
+ * `maxNativeZoom` dit a Leaflet d'arreter de DEMANDER des tuiles au-dela, et
+ * d'agrandir les dernieres disponibles. Le fond devient flou plutot qu'absent, et
+ * les traces — qui sont vectoriels et restent nets — continuent de se lire.
+ *
+ * La voirie locale se consulte entre les zooms 14 et 18 : sans cela, le fond
+ * disparaissait exactement a l'echelle ou l'on regarde une rue.
+ */
 const BASEMAPS = {
   // Esri Light Gray et non le fond clair CARTO : basemaps.cartocdn.com renvoie
   // desormais une tuile filigranee "API KEY REQUIRED" (en HTTP 200, donc sans
@@ -70,18 +88,27 @@ const BASEMAPS = {
     label: "Plan clair",
     url: "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
     attribution: "&copy; Esri, HERE, Garmin, &copy; OpenStreetMap",
+    // Le service de canevas gris s'arrete a 16, partout.
+    maxNativeZoom: 16,
   },
   osm: {
     label: "OpenStreetMap",
     url: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
     attribution: "&copy; OpenStreetMap",
+    maxNativeZoom: 19,
   },
   satellite: {
     label: "Satellite",
     url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
     attribution: "&copy; Esri",
+    // L'imagerie descend plus bas en ville qu'en brousse ; 18 est le niveau
+    // disponible partout en Guinee.
+    maxNativeZoom: 18,
   },
 } as const;
+
+/** Zoom maximal de la carte, tous fonds confondus. */
+const ZOOM_MAX = 20;
 
 type BasemapKey = keyof typeof BASEMAPS;
 const LAYER_KEYS = ["troncons", "chantiers", "ouvrages", "postes", "pointsNoirs"] as const;
@@ -1173,8 +1200,19 @@ export function GeoportailPage() {
           ne cree aucun contexte d'empilement, et ses enfants positionnes (panes)
           sont compares directement aux elements de la racine. */}
       <div className="flex-1 relative z-0">
-        <MapContainer center={initialView.center} zoom={initialView.zoom} style={{ height: "100%", width: "100%" }}>
-          <TileLayer attribution={bm.attribution} url={bm.url} crossOrigin="anonymous" />
+        <MapContainer
+          center={initialView.center}
+          zoom={initialView.zoom}
+          maxZoom={ZOOM_MAX}
+          style={{ height: "100%", width: "100%" }}
+        >
+          <TileLayer
+            attribution={bm.attribution}
+            url={bm.url}
+            crossOrigin="anonymous"
+            maxZoom={ZOOM_MAX}
+            maxNativeZoom={bm.maxNativeZoom}
+          />
           {flyTarget && <FlyTo position={flyTarget} />}
           <ViewTracker onChange={handleViewChange} />
           <MeasureLayer
