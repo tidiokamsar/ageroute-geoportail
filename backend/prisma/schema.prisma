@@ -306,9 +306,30 @@ model RefreshToken {
 
 // ===================== REFERENTIELS =====================
 
+/// Region administrative, avec sa validite dans le temps.
+///
+/// Les decrets du 20 aout 2026 portent la Guinee de 8 a 10 regions (creation de
+/// Siguiri et Beyla). Une region n'est donc pas une constante : un chantier de 2019
+/// et un chantier de 2026 ne se lisent pas dans le meme decoupage. `validFrom` et
+/// `validTo` portent cette distinction, faute de quoi la base affirmerait que
+/// l'organisation actuelle a toujours existe.
+///
+/// `code` vient du decret D/2025/055 du 14 avril 2025 et sert de cle d'appariement
+/// stable : « Nzerekore », « N'Zerekore » et « Nzérékoré » sont trois chaines et une
+/// seule region. Il est nul pour Siguiri et Beyla, auxquelles aucun code n'a encore
+/// ete publie — l'inventer par symetrie serait un comblement, pas une donnee.
 model Region {
   id        Int        @id @default(autoincrement())
   nom       String     @unique
+  /// Code officiel a deux chiffres. Nul tant que le decret n'en attribue pas.
+  code      String?    @unique
+  /// Date d'entree en vigueur du decoupage qui cree cette region.
+  validFrom DateTime?
+  /// Date de fin de validite. Nulle tant que la region est en vigueur.
+  validTo   DateTime?
+  /// Texte dont la region tient son existence, cite explicitement.
+  source     String?
+  sourceDate DateTime?
   troncons  Troncon[]
   ouvrages  Ouvrage[]
   pointsNoirs PointNoir[]

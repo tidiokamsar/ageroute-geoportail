@@ -116,6 +116,30 @@ async function main() {
   const revetement = analyserRevetement(argument("revetement"));
   const regionId = Number(argument("region") ?? 1);
   const appliquer = process.argv.includes("--apply");
+  /**
+   * Ecarte les voies qui doublent le reseau de reference.
+   *
+   * Mesure du 04/09/2026 : sur les 5 097 grands axes OSM restants, 2 926 passent a
+   * moins de 25 m d'un troncon deja en base, et representent 15 493 des 21 211 km —
+   * 73 %. Les voies rapides sont a 98 % les memes routes physiques. Les promouvoir
+   * compterait le reseau national deux fois.
+   *
+   * 25 m, et non zero : deux relevés du meme axe ne se superposent jamais au metre
+   * pres. C'est le seuil retenu par la comparaison BDRI/OSM de la phase 4.
+   *
+   * Le test porte sur `geometry` et non `geography` : ST_DWithin n'utilise l'index
+   * GIST que sur la premiere, et le plan devient quadratique sur la seconde.
+   * 0,000225 degre vaut environ 25 m a la latitude de la Guinee.
+   */
+  const sansDoublons = process.argv.includes("--sans-doublons");
+  const clauseDoublon = sansDoublons
+    ? `and not exists (
+         select 1 from troncons t
+          where t."deletedAt" is null and t.geom is not null
+            and (t."sourceReference" is null or t."sourceReference" not like 'voirie_locale:%')
+            and ST_DWithin(v.geom, t.geom, 0.000225)
+       )`
+    : "";
   if (!Number.isInteger(regionId)) throw new Error("--region attend un entier.");
 
   const region = await prisma.region.findUnique({ where: { id: regionId } });
@@ -146,6 +170,7 @@ async function main() {
       where v.geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
         and v.categorie::text = any($5::text[])
         and v."tronconId" is null
+        ${clauseDoublon}
       group by 1 order by 2 desc`,
     ouest, sud, est, nord, categories,
   );
@@ -242,6 +267,7 @@ async function main() {
           where v.geom && ST_MakeEnvelope($1, $2, $3, $4, 4326)
             and v.categorie::text = any($5::text[])
             and v."tronconId" is null
+            ${clauseDoublon}
          on conflict (code) do nothing`,
         ouest, sud, est, nord, categories, prefixe,
         classe, regionId, etat, lot, maintenant, revetement,
