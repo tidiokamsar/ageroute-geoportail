@@ -207,7 +207,12 @@ function Ligne({ label, valeur }: { label: string; valeur: React.ReactNode }) {
  *
  * La longueur est un CALCUL, jamais une donnee source : le libelle le dit.
  */
-function FicheVoirie({ v }: { v: VoieLocale }) {
+function FicheVoirie({
+  v, onOuvrirTroncon,
+}: {
+  v: VoieLocale;
+  onOuvrirTroncon?: (tronconId: string) => void;
+}) {
   const promue = Boolean(v.tronconId);
   const couleur = promue ? "#16a34a" : "#6b7280";
 
@@ -274,6 +279,20 @@ function FicheVoirie({ v }: { v: VoieLocale }) {
         {v.regionMethode && <Ligne label="Rattachement" valeur={v.regionMethode} />}
       </div>
 
+      {/* Sans ce bouton, un troncon promu etait injoignable : il est exclu de la
+          couche des troncons (qui ne transporte que le reseau de reference) et donc
+          aussi de la recherche du geoportail, qui filtre ce que la carte a charge.
+          Plus de cent mille troncons etaient au registre et hors d'atteinte. */}
+      {promue && v.tronconId && onOuvrirTroncon && (
+        <button
+          type="button"
+          onClick={() => onOuvrirTroncon(v.tronconId!)}
+          className="mt-2.5 w-full rounded-md bg-navy px-2 py-1.5 text-[11px] font-semibold text-white hover:bg-navy/90 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+        >
+          Ouvrir la fiche du tronçon
+        </button>
+      )}
+
       <p className="mt-1.5 border-t border-gray-100 pt-1.5 text-[10px] leading-snug text-gray-400">
         La longueur est calculée sur le tracé, ce n'est pas une longueur métier.
       </p>
@@ -284,9 +303,15 @@ function FicheVoirie({ v }: { v: VoieLocale }) {
 export function VoirieLocaleLayer({
   categories,
   onChargement,
+  onOuvrirTroncon,
   publique = false,
 }: {
   categories: Set<CategorieVoirie>;
+  /**
+   * Ouvre la fiche editable du troncon porteur. Absent sur la carte publique, qui
+   * est en consultation seule.
+   */
+  onOuvrirTroncon?: (tronconId: string) => void;
   /**
    * Carte publique : meme couche, meme handler cote serveur, mais servi par la
    * route ouverte — la donnee est deja publique, c'est de l'OpenStreetMap. Le
@@ -395,7 +420,7 @@ export function VoirieLocaleLayer({
               </span>
             </Tooltip>
             <Popup>
-              <FicheVoirie v={v} />
+              <FicheVoirie v={v} onOuvrirTroncon={onOuvrirTroncon} />
             </Popup>
           </>
         );

@@ -601,6 +601,39 @@ export function GeoportailPage() {
     if (measureMode === "off") clearMeasure();
   }, [measureMode]);
 
+  /**
+   * Ouvre la fiche editable d'un troncon issu de la voirie promue.
+   *
+   * Ces troncons ne sont PAS dans `troncons` : la couche de la carte ne transporte
+   * que le reseau de reference, sans quoi elle pesserait 132 Mo. La recherche du
+   * geoportail filtrant ce tableau, ils en etaient absents aussi — plus de cent mille
+   * troncons au registre et injoignables depuis l'interface.
+   *
+   * On va donc chercher la fiche par son identifiant, ce qui est de toute facon la
+   * seule maniere d'obtenir les champs que la couche voirie ne porte pas (revetement,
+   * PK, trafic).
+   */
+  const ouvrirTronconPromu = useCallback(async (tronconId: string) => {
+    try {
+      // L'endpoint rend la relation `region` en objet la ou la carte attend le nom
+      // seul : le type est donc volontairement large ici, et normalise juste apres.
+      const { data } = await api.get<Record<string, unknown>>(`/troncons/${tronconId}`);
+      const region = data.region;
+      setSelectedFeature({
+        kind: "troncon",
+        data: {
+          ...data,
+          region:
+            typeof region === "string"
+              ? region
+              : ((region as { nom?: string } | null)?.nom ?? null),
+        } as unknown as TronconGeoFeature,
+      });
+    } catch (e) {
+      toast.error(parseApiError(e).message);
+    }
+  }, []);
+
   return (
     <div
       className={
@@ -1314,7 +1347,11 @@ export function GeoportailPage() {
           {/* Voirie locale AVANT les troncons : le reseau AGEROUTE doit rester
               au-dessus, c'est lui qu'on consulte. */}
           {showVoirie && (
-            <VoirieLocaleLayer categories={categoriesVoirie} onChargement={setEtatVoirie} />
+            <VoirieLocaleLayer
+              categories={categoriesVoirie}
+              onChargement={setEtatVoirie}
+              onOuvrirTroncon={ouvrirTronconPromu}
+            />
           )}
 
           {showPontsOsm && pontsOsm && (
