@@ -68,7 +68,15 @@ async function main() {
     ORDER BY intitule
   `;
 
-  const stats = { emprise: 0, routeSeule: 0, refus: 0, sansRoute: 0 };
+  const stats = {
+    emprise: 0, routeSeule: 0, refus: 0, sansRoute: 0,
+    // La section est le vrai gain, et il faut le compter pour ce qu'il est : elle
+    // designe QUELLE PARTIE de la route, pas un troncon. Une emprise de 42 km ne
+    // tiendra jamais dans un troncon de 13,5 km — attendre une cible unique etait
+    // une erreur de lecture. Ce que la section supprime, c'est l'ambiguite sur le
+    // kilometrage, pas l'ecart d'echelle.
+    sectionUnique: 0, sectionsMultiples: 0, aucuneSection: 0,
+  };
   const aEcrire: {
     chantierId: string;
     methode: string;
@@ -147,8 +155,12 @@ async function main() {
       ? `${r.motif}${section}`
       : `${r.motif}${section} — ${candidats.length} tronçon(s) candidat(s), aucun ne couvre l'emprise à lui seul`;
 
-    if (r.methode === "INTITULE_ROUTE_PK") stats.emprise++;
-    else stats.routeSeule++;
+    if (r.methode === "INTITULE_ROUTE_PK") {
+      stats.emprise++;
+      if (sectionRetenue) stats.sectionUnique++;
+      else if (sectionsCandidates > 1) stats.sectionsMultiples++;
+      else stats.aucuneSection++;
+    } else stats.routeSeule++;
 
     aEcrire.push({
       chantierId: c.id,
@@ -173,6 +185,12 @@ async function main() {
   console.log(`  sans route citee                    ${stats.sansRoute}`);
   console.log("");
   const avecTroncon = aEcrire.filter((p) => p.tronconId).length;
+  console.log("");
+  console.log("  Sur les emprises (route + 2 PK), ce que la section apporte :");
+  console.log(`    section unique identifiee          ${stats.sectionUnique}`);
+  console.log(`    plusieurs sections compatibles     ${stats.sectionsMultiples}`);
+  console.log(`    aucune section ne couvre l'emprise ${stats.aucuneSection}`);
+  console.log("");
   console.log(`  propositions rattachees a UN troncon ${avecTroncon}`);
   console.log(`  propositions a trancher par un agent ${aEcrire.length - avecTroncon}`);
   console.log("");
