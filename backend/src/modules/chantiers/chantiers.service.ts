@@ -67,22 +67,35 @@ async function list(params: ChantierListParams) {
 // Tous statuts confondus (pas seulement EN_COURS) : les chantiers termines doivent rester
 // visibles sur la carte (historique des travaux realises), distingues par couleur/style
 // cote frontend plutot que d'etre purement et simplement masques.
-// Centroides approximatifs des regions (capitales regionales) : la plupart des 484
-// chantiers importes depuis le tableau de contrats n'ont qu'une "zone" (region/prefecture),
-// pas de troncon/PK precis -> impossible de tracer un trajet reel. Plutot que de les
-// laisser invisibles sur la carte, on les positionne au centre approximatif de leur region
-// (point, pas une ligne), avec un flag "approximate" pour que le frontend les distingue
-// clairement des chantiers a tracé reel.
-const REGION_CENTROIDS: Record<string, [number, number]> = {
-  Conakry: [9.6412, -13.5784],
-  Boké: [10.9333, -14.3],
-  Kindia: [10.05, -12.85],
-  Mamou: [10.3833, -12.0833],
-  Labé: [11.3167, -12.2833],
-  Faranah: [10.0333, -10.75],
-  Kankan: [10.3833, -9.3],
-  Nzérékoré: [7.75, -8.8167],
-};
+/**
+ * L'ancre regionale se CALCULE, elle n'est plus codee.
+ *
+ * POURQUOI CE CHANGEMENT
+ *
+ * Une table de huit couples codes en dur (`REGION_CENTROIDS`) portait la position de
+ * repli des chantiers connus a la region pres. Deux consequences :
+ *
+ * D'ABORD, toute reforme administrative devenait une modification de code. Le decret
+ * du 05/09/2026 cree les regions de Siguiri et de Beyla, et promeut onze
+ * sous-prefectures en prefectures. Avec la table codee, leurs chantiers seraient
+ * tombes hors carte tant que personne n'aurait edite ce fichier.
+ *
+ * ENSUITE, la table etait muette sur ce qu'elle contenait vraiment : les chefs-lieux
+ * regionaux, pas des centres de region. L'ecart mesure entre les deux va de 3,5 km
+ * (Conakry) a 71,4 km (Nzerekore). Ce n'etait pas faux — les deux points tombent bien
+ * dans leur region — mais un chantier « en region de Nzerekore, position inconnue »
+ * epingle sur la ville de Nzerekore laisse croire qu'il s'y trouve.
+ *
+ * CE QU'ON CALCULE, ET POURQUOI PAS LE CENTROIDE
+ *
+ * `ST_PointOnSurface` et non `ST_Centroid` : le centroide d'une region concave tombe
+ * hors de la region. Sur une carte, une epingle posee dans le pays voisin est pire
+ * qu'une absence d'epingle. `ST_PointOnSurface` garantit un point INTERIEUR.
+ *
+ * Une region sans limite chargee n'a pas d'ancre : ses chantiers sortent de la carte
+ * et rejoignent la liste « sans localisation ». C'est le comportement voulu — mieux
+ * vaut une absence qu'une position inventee.
+ */
 
 async function listGeo() {
   const rows = await prisma.$queryRaw<
@@ -92,14 +105,22 @@ async function listGeo() {
       numContrat: string | null; observations: string | null;
       tronconId: string | null; pkDebut: number | null; pkFin: number | null;
       geometry: string | null;
+      ancreLat: number | null; ancreLon: number | null;
     }[]
   >`
     SELECT c.id, c.intitule, c.statut, c."avancementPct", r.nom AS region,
            c.entreprise, c.bailleur, c."montantGnf"::text AS "montantGnf", c."numContrat", c.observations,
            c."tronconId", c."pkDebut", c."pkFin",
-           ST_AsGeoJSON(c.geom) AS geometry
+           ST_AsGeoJSON(c.geom) AS geometry,
+           -- Ancre calculee sur la limite officielle de la region. Jointure sans
+           -- accents ni casse : la source COD-AB ecrit « Boke » et « Nzerekore »
+           -- la ou le referentiel ecrit « Boké » et « Nzérékoré ».
+           ST_Y(ST_PointOnSurface(la.geom)) AS "ancreLat",
+           ST_X(ST_PointOnSurface(la.geom)) AS "ancreLon"
     FROM chantiers c
     LEFT JOIN regions r ON r.id = c."regionId"
+    LEFT JOIN limites_admin la
+      ON la.niveau = 1 AND unaccent(lower(la.nom)) = unaccent(lower(r.nom))
     WHERE c."deletedAt" IS NULL
   `;
   return rows
@@ -130,19 +151,18 @@ async function listGeo() {
       }
 
       /**
-       * Une region sans centroide connu n'est PAS Conakry.
+       * Pas de limite chargee pour cette region : pas d'ancre, donc pas d'epingle.
        *
-       * Le repli `|| REGION_CENTROIDS.Conakry` posait l'epingle a Conakry tout en
-       * affichant « Position regionale, non localisee · region Nzerekore ». L'epingle
-       * et l'etiquette se contredisaient, et c'etait la meme position inventee que le
-       * bloc ci-dessus venait de retirer aux chantiers « Non renseigne ».
+       * Le code precedent repliait sur Conakry (`|| REGION_CENTROIDS.Conakry`) tout en
+       * affichant « Position regionale, non localisee · region Nzerekore » : l'epingle
+       * et l'etiquette se contredisaient. Une absence assumee vaut mieux.
        *
-       * `REGION_CENTROIDS` couvre les 8 regions administratives d'aujourd'hui. Une
-       * neuvieme region, ou un simple changement d'orthographe, suffisait a envoyer
-       * tous ses chantiers a Conakry sans que rien ne le signale.
+       * Le chantier n'est pas perdu pour autant : `listSansLocalisation` le recueille,
+       * par le meme critere — c'est ce qui empeche qu'un retrait de la carte devienne
+       * un effacement.
        */
-      const centroid = r.region ? REGION_CENTROIDS[r.region] : undefined;
-      if (!centroid) return null;
+      if (r.ancreLat == null || r.ancreLon == null) return null;
+      const centroid: [number, number] = [r.ancreLat, r.ancreLon];
       // Dispersion deterministe (hash de l'id) autour du centroide : sans ca, des dizaines
       // de chantiers de la meme region se superposeraient exactement au meme pixel.
       let hash = 0;
@@ -178,13 +198,20 @@ async function listSansLocalisation() {
     WHERE c."deletedAt" IS NULL
       AND c.geom IS NULL
       AND c."tronconId" IS NULL
-      -- Le troisieme cas est le pendant obligatoire du retrait ci-dessus : un chantier
-      -- dont la region n'a pas de centroide sort de la carte, il doit donc entrer ici.
-      -- Sans cette ligne, il ne serait nulle part — et retirer un chantier de la carte
-      -- sans le rendre visible ailleurs revient a l'effacer.
+      -- Le troisieme cas est le pendant obligatoire du retrait cote carte : un chantier
+      -- dont la region n'a pas de limite chargee n'a pas d'ancre, sort de la carte, et
+      -- doit donc entrer ici. Sans cette ligne il ne serait nulle part — et retirer un
+      -- chantier de la carte sans le montrer ailleurs revient a l'effacer.
+      --
+      -- Le critere est le MEME des deux cotes (absence de polygone de niveau 1), et non
+      -- deux listes a tenir en parallele : c'est ce qui garantit qu'aucun chantier ne
+      -- tombe entre les deux.
       AND (r.nom IS NULL
            OR r.nom = ${REGION_NON_RENSEIGNEE}
-           OR NOT (r.nom = ANY(${Object.keys(REGION_CENTROIDS)})))
+           OR NOT EXISTS (
+                SELECT 1 FROM limites_admin la
+                 WHERE la.niveau = 1
+                   AND unaccent(lower(la.nom)) = unaccent(lower(r.nom))))
     ORDER BY c.intitule
   `;
   return rows.map((r) => ({ ...r, motif: "Aucune région exploitable — position inconnue" }));
