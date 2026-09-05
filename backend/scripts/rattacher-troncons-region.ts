@@ -23,13 +23,18 @@
  * tombe la plus grande part du trace — est un choix defendable, pas une verite. La
  * valeur precedente est conservee dans la trace, avec la part exacte.
  *
- * LE DECOUPAGE UTILISE EST CELUI DE 2016
+ * LE DECOUPAGE UTILISE
  *
- * Les limites COD-AB ignorent Siguiri et Beyla, devenues regions le 20 aout 2026. Les
- * troncons qui s'y trouvent tombent donc dans Kankan et Nzerekore. C'est un choix
- * assume : mieux vaut la region d'un decoupage date et coherent qu'une region
- * inventee. Quand des limites posterieures a la reforme seront publiees, il suffira de
- * rejouer ce script.
+ * Les limites COD-AB de 2016 ignoraient Siguiri et Beyla, devenues regions le 20 aout
+ * 2026 : les troncons qui s'y trouvent tombaient dans Kankan et Nzerekore. C'etait un
+ * choix assume — mieux vaut la region d'un decoupage date et coherent qu'une region
+ * inventee — et le present script portait cet avertissement en dur.
+ *
+ * Depuis le 05/09/2026, les deux regions existent au niveau 1, derivees des polygones
+ * officiels par union et difference (voir appliquer-decoupage-2026.ts). L'avertissement
+ * est donc devenu faux, et il a ete remplace par un CONSTAT : le script imprime les
+ * regions qu'il trouve reellement au niveau 1, avec leur provenance. Un outil qui
+ * affirme au lieu de mesurer finit toujours par mentir apres une reforme.
  *
  * Usage :
  *   tsx scripts/rattacher-troncons-region.ts            (lecture seule)
@@ -103,8 +108,15 @@ async function main() {
   console.log("");
   console.log(`Troncons hors de toute limite : ${Number(orphelins[0].n)} — laisses tels quels.`);
   console.log("");
-  console.log("Le decoupage utilise est celui de 2016 : Siguiri et Beyla n'y sont pas,");
-  console.log("leurs troncons tombent dans Kankan et Nzerekore.");
+  // Constate, plutot qu'affirme : ce bloc disait « Siguiri et Beyla n'y sont pas »
+  // alors qu'elles y etaient depuis le 05/09. On lit la table.
+  const provenances = await prisma.$queryRawUnsafe<{ source: string; n: bigint }[]>(
+    `SELECT source, count(*) AS n FROM limites_admin WHERE niveau = 1 GROUP BY source ORDER BY count(*) DESC`,
+  );
+  console.log("Decoupage utilise :");
+  for (const p of provenances) {
+    console.log(`  ${String(Number(p.n)).padStart(3)} region(s)  ${p.source}`);
+  }
   console.log("");
 
   if (!appliquer || aChanger === 0) {
