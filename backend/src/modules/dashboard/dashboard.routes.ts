@@ -11,6 +11,19 @@ import { longueurReseau } from "../../lib/reseau";
  * Le IS NULL n'est pas decoratif — les 1 690 troncons anterieurs n'ont pas de
  * `sourceReference`, et un simple `not: { startsWith }` les exclurait tous.
  */
+/**
+ * L'inventaire de reference des ouvrages : tout sauf les franchissements repris d'une
+ * source externe. Meme raison que pour les troncons — 963 ponts repris noieraient les
+ * 126 inventories par AGEROUTE, et « ouvrages d'art » cesserait de designer ce que
+ * l'agence a visite.
+ */
+const INVENTAIRE_REFERENCE: Prisma.OuvrageWhereInput = {
+  OR: [
+    { sourceReference: null },
+    { sourceReference: { not: { startsWith: "ouvrage_osm:" } } },
+  ],
+};
+
 const RESEAU_REFERENCE: Prisma.TronconWhereInput = {
   OR: [
     { sourceReference: null },
@@ -39,6 +52,7 @@ dashboardRouter.get("/kpis", requireAuth, requireModuleAccess("dashboard"), asyn
       alertesOuvrages,
       reseau,
       voirieRattacheeCount,
+      franchissementsRepisCount,
     ] = await Promise.all([
       // Le RESEAU CLASSE, pas le registre entier. La promotion de la voirie a porte
       // `troncons` a 261 386 lignes ; compter le tout ferait annoncer 185 264 km de
@@ -46,21 +60,22 @@ dashboardRouter.get("/kpis", requireAuth, requireModuleAccess("dashboard"), asyn
       // de Guinee fait environ 21 000 km. La voirie rattachee est comptee a part,
       // plus bas, et dite explicitement.
       prisma.troncon.count({ where: { ...notDeleted, ...RESEAU_REFERENCE } }),
-      prisma.ouvrage.count({ where: notDeleted }),
+      prisma.ouvrage.count({ where: { ...notDeleted, ...INVENTAIRE_REFERENCE } }),
       prisma.pointNoir.count({ where: notDeleted }),
       prisma.poste.count({ where: notDeleted }),
       prisma.document.count({ where: notDeleted }),
       prisma.chantier.count({ where: { ...notDeleted, statut: "EN_COURS" } }),
       prisma.troncon.groupBy({ by: ["etat"], where: { ...notDeleted, ...RESEAU_REFERENCE }, _count: { _all: true } }),
-      prisma.ouvrage.groupBy({ by: ["etat"], where: notDeleted, _count: { _all: true } }),
+      prisma.ouvrage.groupBy({ by: ["etat"], where: { ...notDeleted, ...INVENTAIRE_REFERENCE }, _count: { _all: true } }),
       prisma.chantier.groupBy({ by: ["statut"], where: notDeleted, _count: { _all: true } }),
       prisma.troncon.aggregate({ where: { ...notDeleted, ...RESEAU_REFERENCE }, _sum: { longueurKm: true } }),
       prisma.troncon.count({ where: { ...notDeleted, ...RESEAU_REFERENCE, etat: { in: ["MAUVAIS", "CRITIQUE"] } } }),
-      prisma.ouvrage.count({ where: { ...notDeleted, etat: { in: ["MAUVAIS", "CRITIQUE"] } } }),
+      prisma.ouvrage.count({ where: { ...notDeleted, ...INVENTAIRE_REFERENCE, etat: { in: ["MAUVAIS", "CRITIQUE"] } } }),
       longueurReseau("reference"),
       // Compte a part : ces troncons sont au registre et doivent se voir, mais ils ne
       // sont pas le reseau classe et ne peuvent pas se fondre dans ses indicateurs.
       prisma.troncon.count({ where: { ...notDeleted, sourceReference: { startsWith: "voirie_locale:" } } }),
+      prisma.ouvrage.count({ where: { ...notDeleted, sourceReference: { startsWith: "ouvrage_osm:" } } }),
     ]);
 
     res.json({
@@ -79,7 +94,10 @@ dashboardRouter.get("/kpis", requireAuth, requireModuleAccess("dashboard"), asyn
       reseau,
       // Rendu explicite pour que l'interface puisse le dire, plutot que de laisser
       // croire que le registre se limite au reseau classe.
-      voirieRattachee: { troncons: voirieRattacheeCount },
+      voirieRattachee: {
+        troncons: voirieRattacheeCount,
+        ouvrages: franchissementsRepisCount,
+      },
       alertesCount: alertesTroncons + alertesOuvrages,
       tronconsParEtat: tronconsParEtat.map((r) => ({ etat: r.etat, total: r._count._all })),
       ouvragesParEtat: ouvragesParEtat.map((r) => ({ etat: r.etat, total: r._count._all })),

@@ -430,6 +430,15 @@ model Ouvrage {
   remarques       String?
   travauxAPrevoir String?
   photos          String[]       @default([])
+  /// Provenance de l'enregistrement, alignee sur `Troncon`. NULL pour les 126
+  /// ouvrages inventories par AGEROUTE — leur origine n'est documentee nulle part et
+  /// leur en attribuer une retrospectivement serait inventer.
+  /// « ouvrage_osm:<id> » pour un franchissement repris d'une source cartographique :
+  /// c'est ce qui permet aux indicateurs de ne pas noyer l'inventaire de reference.
+  sourceType       SourceType?
+  sourceReference  String?
+  sourceConfidence NiveauConfiance?
+  sourceDetectedAt DateTime?
   geom            Unsupported("geometry(Point,4326)")?
   inspections     Inspection[]
   ordresTravaux   OrdreTravaux[]

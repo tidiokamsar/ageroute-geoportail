@@ -101,7 +101,8 @@ export function DashboardPage() {
               champ n'est renseigne que sur 662 troncons sur 1 690. Voir
               components/LongueurReseauCard.tsx. */}
           {data.reseau ? (
-            <LongueurReseauCard reseau={data.reseau} voirieRattachee={data.voirieRattachee?.troncons} />
+            <LongueurReseauCard reseau={data.reseau} voirieRattachee={data.voirieRattachee?.troncons}
+              ouvragesRepris={data.voirieRattachee?.ouvrages} />
           ) : (
             <div className="text-right">
               <p className="text-2xl font-black">
@@ -128,7 +129,10 @@ export function DashboardPage() {
           />
         </Link>
         <Link to="/ouvrages">
-          <KpiCard label="Ouvrages d'art" value={data.ouvragesCount} icon={<Landmark className="h-5 w-5" />} accent="#0891b2" />
+          {/* L'inventaire AGEROUTE seul. Les franchissements repris d'une source
+              externe sont comptes a part : « ouvrages d'art » doit continuer a
+              designer ce que l'agence a visite. */}
+          <KpiCard label="Ouvrages inventoriés" value={data.ouvragesCount} icon={<Landmark className="h-5 w-5" />} accent="#0891b2" />
         </Link>
         <Link to="/points-noirs">
           <KpiCard label="Points noirs" value={data.pointsNoirsCount} icon={<AlertOctagon className="h-5 w-5" />} accent="#dc2626" />

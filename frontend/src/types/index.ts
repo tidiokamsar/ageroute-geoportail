@@ -292,7 +292,7 @@ export interface DashboardKpis {
   /** Le RESEAU CLASSE seul : 261 386 troncons au registre, mais 1 691 classes. */
   tronconsCount: number;
   /** Troncons issus de la promotion de voirie. Comptes a part, jamais fondus. */
-  voirieRattachee?: { troncons: number };
+  voirieRattachee?: { troncons: number; ouvrages?: number };
   ouvragesCount: number;
   pointsNoirsCount: number;
   postesCount: number;

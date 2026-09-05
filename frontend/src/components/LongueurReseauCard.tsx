@@ -39,6 +39,7 @@ const km = (v: number) => v.toLocaleString("fr-FR", { maximumFractionDigits: 0 }
 export function LongueurReseauCard({
   reseau,
   voirieRattachee,
+  ouvragesRepris,
 }: {
   reseau: LongueurReseau;
   /**
@@ -47,6 +48,8 @@ export function LongueurReseauCard({
    * ou la Guinee en a 21 000.
    */
   voirieRattachee?: number;
+  /** Franchissements repris d'une source externe, hors inventaire AGEROUTE. */
+  ouvragesRepris?: number;
 }) {
   const [ouvert, setOuvert] = useState(false);
 
@@ -86,7 +89,8 @@ export function LongueurReseauCard({
       {voirieRattachee != null && voirieRattachee > 0 && (
         <p className="mt-0.5 text-[11px] text-white/45">
           + {voirieRattachee.toLocaleString("fr-FR")} tronçons de voirie rattachée au
-          registre, hors réseau classé — comptés à part.
+          registre{ouvragesRepris ? ` et ${ouvragesRepris.toLocaleString("fr-FR")} franchissements repris` : ""},
+          hors réseau classé — comptés à part.
         </p>
       )}
       {(reseau.metier.tronconsDerives ?? 0) > 0 && (
