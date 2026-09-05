@@ -35,29 +35,33 @@
  * deduite) + COD-AB'` : un auditeur voit d'un coup d'oeil ce qui vient du decret et ce
  * qui vient d'une deduction. Le retour arriere est imprime a la fin.
  *
- * DIALAKORO
+ * DIALAKORO — TRANCHE
  *
- * Le texte le place en region de Kankan ; le referentiel en fait une sous-prefecture
- * de Dinguiraye, region de Faranah. Un seul enregistrement, aucun homonyme — c'est
- * donc soit un transfert que le decret opere, soit une erreur du texte, soit un
- * COD-AB en retard. Le script ne tranche pas : il l'ecarte, sauf `--dialakoro=kankan`
- * ou `--dialakoro=faranah` pour dire explicitement lequel.
+ * Le texte de presse le placait en region de Kankan ; le referentiel en fait une
+ * sous-prefecture de Dinguiraye, region de Faranah. Un seul enregistrement, aucun
+ * homonyme, donc pas de confusion possible entre deux lieux du meme nom.
+ *
+ * L'agence a tranche le 05/09/2026 : Dialakoro releve de Dinguiraye. Le texte etait
+ * donc en erreur, et le referentiel avait raison. Dialakoro devient prefecture DANS
+ * sa region actuelle, Faranah, comme Kamsar reste en Boke et Timbo en Mamou.
+ *
+ * La divergence est notee ici plutot qu'effacee : c'est la trace de ce qui a ete
+ * verifie, et elle evite qu'on la redecouvre au prochain article de presse.
  *
  * DEUX NIVEAUX DE PREUVE, DEUX PORTES SEPAREES
  *
- * Quatre promotions ne reposent que sur le texte de la reforme : Kamsar, Timbo,
- * Tokounou et Sabadou-Baranama restent dans leur region actuelle, qui existe deja.
- * Rien n'y est deduit.
+ * Cinq promotions ne reposent que sur le texte de la reforme : Kamsar, Timbo,
+ * Tokounou, Sabadou-Baranama et Dialakoro restent dans leur region actuelle, qui
+ * existe deja. Rien n'y est deduit.
  *
- * Les six autres exigent en plus que les regions de Siguiri et de Beyla existent, donc
+ * Les cinq autres exigent en plus que les regions de Siguiri et de Beyla existent, donc
  * que l'hypothese de composition tienne. Elles restent derriere `--regions-deduites`,
  * pour qu'on ne puisse pas les appliquer sans l'avoir voulu.
  *
  * Usage :
  *   tsx scripts/appliquer-decoupage-2026.ts                           (lecture seule)
- *   tsx scripts/appliquer-decoupage-2026.ts --apply                   (les 4 sures)
+ *   tsx scripts/appliquer-decoupage-2026.ts --apply                   (les 5 sures)
  *   tsx scripts/appliquer-decoupage-2026.ts --regions-deduites --apply
- *   tsx scripts/appliquer-decoupage-2026.ts --dialakoro=kankan --apply
  */
 import { PrismaClient } from "@prisma/client";
 import "dotenv/config";
@@ -74,12 +78,15 @@ interface Promotion {
   region: string;
 }
 
-/** Les onze, hors Dialakoro qui se decide en option. */
+/** Les onze promotions du decret. */
 const PROMOTIONS: Promotion[] = [
   { nom: "Kamsar", region: "GN001" },            // Boke, inchangee
   { nom: "Timbo", region: "GN007" },             // Mamou, inchangee
   { nom: "Tokounou", region: "GN004" },          // Kankan, inchangee
   { nom: "Sabadou Baranama", region: "GN004" },  // Kankan, inchangee
+  // Faranah et non Kankan : arbitrage de l'agence du 05/09/2026, conforme au
+  // referentiel (sous-prefecture de Dinguiraye) et contraire au texte de presse.
+  { nom: "Dialakoro", region: "GN003" },
   { nom: "Doko", region: "GN013" },              // nouvelle region Siguiri
   { nom: "Siguirini", region: "GN013" },
   { nom: "Kintinian", region: "GN013" },
@@ -115,20 +122,12 @@ function normaliser(n: string): string {
 async function main() {
   const appliquer = process.argv.includes("--apply");
   const regionsDeduites = process.argv.includes("--regions-deduites");
-  const optDialakoro = process.argv.find((a) => a.startsWith("--dialakoro="))?.split("=")[1];
-  if (optDialakoro && !["kankan", "faranah"].includes(optDialakoro)) {
-    throw new Error("--dialakoro attend « kankan » ou « faranah ».");
-  }
-
   // Sans `--regions-deduites`, on s'en tient a ce qui ne suppose rien : les
   // promotions dont la region d'accueil existe deja au referentiel.
   const promotions = regionsDeduites
     ? [...PROMOTIONS]
     : PROMOTIONS.filter((p) => !REGIONS_NOUVELLES.some((r) => r.pcode === p.region));
   const retenues = PROMOTIONS.length - promotions.length;
-  if (optDialakoro) {
-    promotions.push({ nom: "Dialakoro", region: optDialakoro === "kankan" ? "GN004" : "GN003" });
-  }
 
   // ---- Etat de depart, mesure et non suppose ----
   const avant = await prisma.$queryRawUnsafe<{ niveau: number; entites: bigint }[]>(
@@ -176,12 +175,10 @@ async function main() {
   }
   console.log("");
 
-  if (!optDialakoro) {
-    console.log("Dialakoro : ECARTE.");
-    console.log("  Le texte le place en region de Kankan, le referentiel sous Dinguiraye");
-    console.log("  (region de Faranah). Preciser --dialakoro=kankan ou --dialakoro=faranah.");
-    console.log("");
-  }
+  console.log("Dialakoro : Faranah, et non Kankan comme l'annoncait le texte de presse.");
+  console.log("  Arbitrage de l'agence, conforme au referentiel (sous-prefecture de");
+  console.log("  Dinguiraye). Un seul enregistrement, aucun homonyme.");
+  console.log("");
 
   if (regionsDeduites) {
     console.log("Regions creees, par derivation des polygones officiels :");
