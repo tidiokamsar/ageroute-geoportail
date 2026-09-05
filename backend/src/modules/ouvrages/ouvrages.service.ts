@@ -70,7 +70,20 @@ async function listGeo() {
            o.pk, o."ficheNumero", o.code, t.code AS "tronconCode", t.nom AS "tronconNom",
            o."longueurM", o."largeurM", o."hauteurM", o."nbTravees", o."longueurTravee",
            o."materiauAppuis", o."materiauTablier", o."materiauPiles", o."materiauAutre",
-           o."anneeConstruction", o."gabaritT", o.remarques, o."travauxAPrevoir"
+           o."anneeConstruction", o."gabaritT", o.remarques, o."travauxAPrevoir",
+           /**
+            * REPRIS D'UNE SOURCE EXTERNE, OU INVENTORIE PAR AGEROUTE.
+            *
+            * 963 ponts sont entres le 05/09/2026 depuis une source cartographique
+            * externe, aux cotes des 126 ouvrages qu'AGEROUTE a visites. Le tableau de
+            * bord et la carte publique font la distinction ; l'ecran de travail, non —
+            * il montrait 1 089 epingles identiques.
+            *
+            * C'est pourtant l'ecran ou la distinction compte le plus : c'est la que ces
+            * ouvrages doivent etre valides un par un. Sans elle, l'import ne sert a
+            * rien — personne ne peut voir ce qu'il reste a verifier.
+            */
+           (o."sourceReference" LIKE 'ouvrage_osm:%') AS repris
     FROM ouvrages o
     LEFT JOIN regions r ON r.id = o."regionId"
     LEFT JOIN troncons t ON t.id = o."tronconId"

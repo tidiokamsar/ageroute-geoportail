@@ -40,7 +40,13 @@ export const TYPE_OUVRAGE_LABEL: Record<string, string> = {
   MUR_SOUTENEMENT: "Mur de soutènement",
 };
 
-function badge(glyph: string, couleur: string, taille = 26, forme: "rond" | "carre" | "triangle" | "losange" = "rond"): L.DivIcon {
+function badge(
+  glyph: string,
+  couleur: string,
+  taille = 26,
+  forme: "rond" | "carre" | "triangle" | "losange" = "rond",
+  provisoire = false,
+): L.DivIcon {
   const radius = forme === "rond" ? "50%" : forme === "carre" ? "4px" : forme === "triangle" ? "3px" : "4px";
   const transform =
     forme === "triangle" ? "transform: rotate(45deg);" : forme === "losange" ? "transform: rotate(45deg);" : "";
@@ -50,16 +56,26 @@ function badge(glyph: string, couleur: string, taille = 26, forme: "rond" | "car
     iconSize: [taille, taille],
     iconAnchor: [taille / 2, taille / 2],
     html: `<div style="width:${taille}px;height:${taille}px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;
-      background:#ffffff;border:2px solid ${couleur};border-radius:${radius};${transform}
+      background:#ffffff;border:2px ${provisoire ? "dashed" : "solid"} ${couleur};border-radius:${radius};${transform}
       font-size:${taille <= 20 ? 10 : 12}px;line-height:1;color:${couleur};font-weight:700;
       box-shadow:0 1px 3px rgba(0,0,0,.35);">${glyph ? `<span style="${inner}">${glyph}</span>` : ""}</div>`,
   });
 }
 
-/** Ouvrage : forme = type, couleur = état patrimonial. */
-export function ouvrageIcon(type: string, etat: string): L.DivIcon {
+/**
+ * Ouvrage : forme = type, couleur = etat, TRAIT = provenance.
+ *
+ * Le contour discontinu marque un ouvrage repris d'une source externe et jamais
+ * visite. 963 des 1 089 en base sont dans ce cas ; ils apparaissaient jusqu'ici
+ * exactement comme les 126 qu'AGEROUTE a inventories.
+ *
+ * Le pointille plutot qu'une couleur : la couleur porte deja l'etat, et lui faire
+ * dire deux choses la rendrait illisible. Un contour discontinu se lit comme
+ * « provisoire » sans apprentissage, et reste visible en niveaux de gris.
+ */
+export function ouvrageIcon(type: string, etat: string, repris = false): L.DivIcon {
   const couleur = ETAT_COLORS[etat as keyof typeof ETAT_COLORS] ?? "#1a2942";
-  return badge(TYPE_OUVRAGE_GLYPH[type] ?? "◆", couleur, 26);
+  return badge(TYPE_OUVRAGE_GLYPH[type] ?? "◆", couleur, 26, "rond", repris);
 }
 
 /** Point noir : forme = gravité (triangle forte, losange moyenne, point faible). */

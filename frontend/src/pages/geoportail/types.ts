@@ -61,6 +61,11 @@ export interface OuvrageGeoPoint {
   remarques?: string | null;
   travauxAPrevoir?: string | null;
   derniereInspectionDate?: string | null;
+  /**
+   * Vrai si l'ouvrage vient d'une source cartographique externe et n'a pas ete
+   * visite. 963 des 1 089 sont dans ce cas depuis l'import du 05/09/2026.
+   */
+  repris?: boolean;
 }
 
 export interface PointNoirGeoPoint {

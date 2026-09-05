@@ -433,6 +433,17 @@ export function GeoportailPage() {
   );
   const alertOuvrages = useMemo(() => (ouvrages ?? []).filter((o) => o.etat === "CRITIQUE"), [ouvrages]);
 
+  /**
+   * Validation des ouvrages repris.
+   *
+   * `reprisSeulement` restreint la couche a ce qui reste a verifier. Sans ce filtre,
+   * retrouver 963 epingles a contour discontinu parmi 1 089 releve de la chasse au
+   * tresor, et la validation ne se fait pas.
+   */
+  const [reprisSeulement, setReprisSeulement] = useState(false);
+  const ouvragesRepris = useMemo(() => (ouvrages ?? []).filter((o) => o.repris).length, [ouvrages]);
+  const ouvragesInventories = (ouvrages?.length ?? 0) - ouvragesRepris;
+
   const toggleClasse = (key: string) => setClasseFilter((c) => ({ ...c, [key]: !c[key] }));
   const toggleChantierStatut = (key: string) => setChantierStatutFilter((c) => ({ ...c, [key]: !c[key] }));
   const filteredChantiers = useMemo(
@@ -1010,6 +1021,23 @@ export function GeoportailPage() {
 
           <PanelSection icon={<Landmark className="h-4 w-4" />} title="Patrimoine">
             <LayerRow checked={layers.ouvrages} onChange={() => toggleLayer("ouvrages")} label="Ouvrages d'art" />
+            {/* Le decompte n'est pas decoratif : il chiffre le travail de validation
+                restant. 963 des 1 089 ouvrages viennent d'une source externe et
+                n'ont jamais ete visites — c'est l'inventaire d'AGEROUTE qui est
+                minoritaire sur sa propre carte, et rien ne le disait. */}
+            {layers.ouvrages && ouvragesRepris > 0 && (
+              <div className="ml-6 space-y-1">
+                <LayerRow
+                  checked={reprisSeulement}
+                  onChange={() => setReprisSeulement((v) => !v)}
+                  label={`À valider seulement (${ouvragesRepris})`}
+                />
+                <p className="text-[11px] leading-snug text-gray-400">
+                  Contour discontinu : repris d'une source externe, jamais visité.
+                  {" "}{ouvragesInventories} inventorié{ouvragesInventories > 1 ? "s" : ""} par AGEROUTE.
+                </p>
+              </div>
+            )}
             <LayerRow checked={layers.postes} onChange={() => toggleLayer("postes")} label="Péage / Pesage" />
             <LayerRow checked={layers.pointsNoirs} onChange={() => toggleLayer("pointsNoirs")} label="Points noirs" />
             {/* Légende des natures : la forme identifie l'objet, la couleur porte
@@ -1443,17 +1471,25 @@ export function GeoportailPage() {
             {layers.ouvrages &&
               ouvrages
                 ?.filter((o) => !regionFilter || o.region === regionFilter)
+                .filter((o) => !reprisSeulement || o.repris)
                 .map((o) => (
                   <Marker
                     key={o.id}
                     position={[o.lat, o.lon]}
-                    icon={ouvrageIcon(o.type, o.etat)}
+                    icon={ouvrageIcon(o.type, o.etat, o.repris)}
                     eventHandlers={{ click: () => setSelectedFeature({ kind: "ouvrage", data: o }) }}
                   >
                     <Tooltip>
                       {TYPE_OUVRAGE_LABEL[o.type] ?? o.type} — {o.nom} ({ETAT_LABELS[o.etat]})
                       <br />
-                      <span className="text-gray-400">position héritée, non vérifiée</span>
+                      {/* Le contour discontinu se voit ; encore faut-il savoir ce
+                          qu'il veut dire. Le survol l'ecrit, plutot que d'attendre
+                          d'un agent qu'il devine une convention. */}
+                      <span className="text-gray-400">
+                        {o.repris
+                          ? "repris d'une source externe — à valider sur le terrain"
+                          : "position héritée, non vérifiée"}
+                      </span>
                     </Tooltip>
                   </Marker>
                 ))}
