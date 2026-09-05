@@ -101,7 +101,7 @@ export function DashboardPage() {
               champ n'est renseigne que sur 662 troncons sur 1 690. Voir
               components/LongueurReseauCard.tsx. */}
           {data.reseau ? (
-            <LongueurReseauCard reseau={data.reseau} />
+            <LongueurReseauCard reseau={data.reseau} voirieRattachee={data.voirieRattachee?.troncons} />
           ) : (
             <div className="text-right">
               <p className="text-2xl font-black">
@@ -117,7 +117,15 @@ export function DashboardPage() {
       {/* ── KPI Cards ─────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
         <Link to="/troncons">
-          <KpiCard label="Tronçons" value={data.tronconsCount} icon={<Route className="h-5 w-5" />} accent="#1a2942" />
+          {/* « Tronçons » designe le RESEAU CLASSE. Le registre en compte 261 386,
+              dont 259 696 issus de la promotion de voirie : les fondre ferait
+              annoncer 185 000 km de reseau routier la ou la Guinee en a 21 000. */}
+          <KpiCard
+            label="Tronçons classés"
+            value={data.tronconsCount}
+            icon={<Route className="h-5 w-5" />}
+            accent="#1a2942"
+          />
         </Link>
         <Link to="/ouvrages">
           <KpiCard label="Ouvrages d'art" value={data.ouvragesCount} icon={<Landmark className="h-5 w-5" />} accent="#0891b2" />

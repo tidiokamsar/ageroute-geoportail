@@ -26,16 +26,29 @@ const CLASSE_META: Record<ClasseRoute, { short: string; label: string; pill: str
   RR:    { short: "RP", label: "Route préfectorale", pill: "bg-blue-100 text-blue-700" },
   RU:    { short: "VU", label: "Voirie urbaine",     pill: "bg-teal-100 text-teal-700" },
   PISTE: { short: "PR", label: "Piste rurale",       pill: "bg-amber-100 text-amber-700" },
+  NON_CLASSEE: { short: "NC", label: "Non classée",  pill: "bg-gray-100 text-gray-600" },
 };
+
+/**
+ * Repli pour une classe absente de la table.
+ *
+ * Le 05/09/2026, la page est tombee en production sur « Cannot read properties of
+ * undefined (reading pill) » : `NON_CLASSEE` avait ete ajoute a l'enum de la base
+ * sans l'etre ici. Le type est desormais aligne, donc le compilateur l'aurait
+ * signale — mais une page de consultation ne doit pas s'effondrer parce qu'une valeur
+ * lui est inconnue. Elle affiche ce qu'elle recoit.
+ */
+const REPLI_CLASSE = { short: "?", label: "Classe inconnue", pill: "bg-gray-100 text-gray-500" };
 
 const REVETEMENT_LABELS: Record<string, string> = {
   BITUME: "Bitume", TERRE: "Terre", LATERITE: "Latérite", PAVE: "Pavé",
+  NON_RENSEIGNE: "Non renseigné",
 };
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function ClassePill({ classe }: { classe: ClasseRoute }) {
-  const m = CLASSE_META[classe];
+  const m = CLASSE_META[classe] ?? REPLI_CLASSE;
   return (
     <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-semibold ${m.pill}`}>
       {m.short}

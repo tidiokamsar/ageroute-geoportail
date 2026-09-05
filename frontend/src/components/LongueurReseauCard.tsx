@@ -36,7 +36,18 @@ const LIBELLE_CLASSE: Record<string, string> = {
 
 const km = (v: number) => v.toLocaleString("fr-FR", { maximumFractionDigits: 0 });
 
-export function LongueurReseauCard({ reseau }: { reseau: LongueurReseau }) {
+export function LongueurReseauCard({
+  reseau,
+  voirieRattachee,
+}: {
+  reseau: LongueurReseau;
+  /**
+   * Troncons issus de la promotion de voirie. Affiches A COTE du reseau classe, et
+   * jamais additionnes : les fondre ferait annoncer 185 264 km de reseau routier la
+   * ou la Guinee en a 21 000.
+   */
+  voirieRattachee?: number;
+}) {
   const [ouvert, setOuvert] = useState(false);
 
   // Sans geometrie exploitable, la ventilation n'apprend rien : on s'en tient au
@@ -72,6 +83,12 @@ export function LongueurReseauCard({ reseau }: { reseau: LongueurReseau }) {
       {/* Sans cette ligne, une longueur calculee lors d'une promotion se lirait
           comme une saisie, et l'indicateur de couverture monterait en important de
           la donnee externe au lieu de mesurer le travail de renseignement. */}
+      {voirieRattachee != null && voirieRattachee > 0 && (
+        <p className="mt-0.5 text-[11px] text-white/45">
+          + {voirieRattachee.toLocaleString("fr-FR")} tronçons de voirie rattachée au
+          registre, hors réseau classé — comptés à part.
+        </p>
+      )}
       {(reseau.metier.tronconsDerives ?? 0) > 0 && (
         <p className="mt-0.5 text-[11px] text-amber-300/80">
           + {reseau.metier.tronconsDerives} tronçons dont la longueur est calculée sur

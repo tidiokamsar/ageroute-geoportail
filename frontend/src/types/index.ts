@@ -1,7 +1,18 @@
 export type Role = "ADMIN" | "GESTIONNAIRE" | "INSPECTEUR" | "LECTEUR";
 export type EtatPatrimoine = "BON" | "MOYEN" | "MAUVAIS" | "CRITIQUE" | "NON_EVALUE";
-export type ClasseRoute = "RN" | "RR" | "RU" | "PISTE";
-export type Revetement = "BITUME" | "TERRE" | "LATERITE" | "PAVE";
+/**
+ * Ces deux types doivent suivre les enums Prisma.
+ *
+ * NON_CLASSEE et NON_RENSEIGNE ont ete ajoutes cote base les 03 et 04/09/2026 sans
+ * l'etre ici. `Record<ClasseRoute, …>` restait donc satisfait, `tsc` passait — et la
+ * page Troncons est tombee en production sur « Cannot read properties of undefined
+ * (reading pill) » des qu'un troncon NON_CLASSEE est arrive.
+ *
+ * Le type n'est pas une formalite : c'est lui qui transforme cette panne en erreur de
+ * compilation.
+ */
+export type ClasseRoute = "RN" | "RR" | "RU" | "PISTE" | "NON_CLASSEE";
+export type Revetement = "BITUME" | "TERRE" | "LATERITE" | "PAVE" | "NON_RENSEIGNE";
 export type TypeOuvrage =
   | "PONT" | "DALOT" | "BUSE" | "RADIER" | "PONCEAU" | "MUR_SOUTENEMENT" | "TUNNEL" | "PASSERELLE" | "VIADUC";
 export type Gravite = "FAIBLE" | "MOYENNE" | "FORTE";
@@ -278,7 +289,10 @@ export interface LongueurReseau {
 }
 
 export interface DashboardKpis {
+  /** Le RESEAU CLASSE seul : 261 386 troncons au registre, mais 1 691 classes. */
   tronconsCount: number;
+  /** Troncons issus de la promotion de voirie. Comptes a part, jamais fondus. */
+  voirieRattachee?: { troncons: number };
   ouvragesCount: number;
   pointsNoirsCount: number;
   postesCount: number;

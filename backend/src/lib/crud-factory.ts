@@ -60,7 +60,22 @@ export function createCrudService(model: PrismaDelegate, entityName: string, def
   }
 
   async function create(data: Record<string, unknown>, userId: string) {
+    /**
+     * La creation trace sa provenance, comme la mise a jour.
+     *
+     * L'asymetrie constatee le 05/09/2026 : un troncon cree depuis l'application
+     * n'avait AUCUNE ligne de qualite, alors qu'une simple modification en produisait.
+     * C'est l'inverse de ce qu'il faut — a la creation, TOUS les champs de decision
+     * recoivent leur premiere valeur, et aucune ne disait d'ou elle venait.
+     *
+     * Deux temps parce que l'identifiant n'existe pas avant l'insertion : la
+     * provenance ne peut pas se joindre a la meme transaction sans le connaitre. Un
+     * echec entre les deux laisse une entite sans provenance — visible, corrigeable,
+     * et bien moins grave qu'une provenance orpheline pointant vers rien.
+     */
     const created = await model.create({ data });
+    const saisies = construireSaisies(entityName, created.id, data, userId);
+    if (saisies.length > 0) await prisma.$transaction(saisies as never);
     await logAudit({ userId, action: "CREATE", entityType: entityName, entityId: created.id, after: created });
     return created;
   }

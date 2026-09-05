@@ -103,6 +103,32 @@ describe("createCrudService", () => {
     );
   });
 
+  it("create() enregistre la provenance des champs saisis", async () => {
+    // L'asymetrie constatee le 05/09 : une modification tracait sa provenance, une
+    // creation non — alors que c'est a la creation que TOUS les champs de decision
+    // recoivent leur premiere valeur.
+    const model = makeFakeModel([]);
+    const service = createCrudService(model, "Troncon");
+
+    await service.create({ nom: "RN99", etat: "BON", revetement: "TERRE" }, "user-4");
+
+    expect(prisma.valeurQualite.upsert).toHaveBeenCalledTimes(3);
+    expect(prisma.valeurQualite.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ statut: "OBSERVED", observedById: "user-4" }),
+      }),
+    );
+  });
+
+  it("create() n'ecrit aucune provenance pour une entite hors perimetre", async () => {
+    const model = makeFakeModel([]);
+    const service = createCrudService(model, "Marche");
+
+    await service.create({ statut: "PLANIFIE" }, "user-4");
+
+    expect(prisma.valeurQualite.upsert).not.toHaveBeenCalled();
+  });
+
   it("list({ archived: true }) renvoie uniquement les lignes soft-deleted", async () => {
     const model = makeFakeModel([
       { id: "a", nom: "Tronçon A", deletedAt: null },

@@ -51,6 +51,7 @@ const classeColors: Record<ClasseRoute, string> = {
   RR: "bg-blue-100 text-blue-700 border-transparent",
   RU: "bg-teal-100 text-teal-700 border-transparent",
   PISTE: "bg-amber-100 text-amber-700 border-transparent",
+  NON_CLASSEE: "bg-gray-100 text-gray-600",
 };
 
 const classeDisplayLabels: Record<ClasseRoute, string> = {
@@ -58,6 +59,7 @@ const classeDisplayLabels: Record<ClasseRoute, string> = {
   RR: "RP",
   RU: "VU",
   PISTE: "PISTE",
+  NON_CLASSEE: "NC",
 };
 
 function ClasseBadge({ classe }: { classe: ClasseRoute }) {
