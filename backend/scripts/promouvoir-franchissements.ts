@@ -46,91 +46,11 @@
  *   tsx scripts/promouvoir-franchissements.ts <fichier.geojson> --apply    (ecrit)
  */
 import fs from "fs";
+import { lire } from "./lib/franchissements";
 import { PrismaClient } from "@prisma/client";
 import "dotenv/config";
 
 const prisma = new PrismaClient();
-
-/** Voies dont un pont porte un enjeu de continuite du reseau structurant. */
-const RESEAU_STRUCTURANT = new Set([
-  "Voie rapide", "Bretelle voie rapide", "Route primaire",
-  "Route secondaire", "Route tertiaire",
-]);
-
-/** Au-dela, ce n'est plus le meme ouvrage. Seuil de la comparaison BDRI/OSM. */
-const SEUIL_DOUBLON_M = 250;
-
-interface Proprietes {
-  franchissement?: string;
-  nature?: string;
-  nom?: string | null;
-  numero?: string | null;
-  longueurM?: number | null;
-  distanceM?: number | null;
-}
-
-interface Retenu {
-  cle: string;
-  nom: string;
-  nomSource: boolean;
-  nature: string;
-  longueurM: number | null;
-  lat: number;
-  lon: number;
-}
-
-function lire(fichier: string): { retenus: Retenu[]; exclus: Record<string, number> } {
-  const brut = JSON.parse(fs.readFileSync(fichier, "utf8")) as {
-    features: { properties: Proprietes; geometry: { type: string; coordinates: number[][] } }[];
-  };
-
-  const exclus: Record<string, number> = {
-    "gué — absence d'ouvrage": 0,
-    "tunnel — buse ou passage couvert": 0,
-    "pont hors réseau structurant": 0,
-    "doublon d'un ouvrage inventorié": 0,
-    "géométrie inutilisable": 0,
-  };
-  const retenus: Retenu[] = [];
-
-  for (const [i, f] of brut.features.entries()) {
-    const p = f.properties;
-    if (p.franchissement === "Gué") { exclus["gué — absence d'ouvrage"]++; continue; }
-    if (p.franchissement === "Tunnel") { exclus["tunnel — buse ou passage couvert"]++; continue; }
-    if (!RESEAU_STRUCTURANT.has(String(p.nature))) { exclus["pont hors réseau structurant"]++; continue; }
-    if ((p.distanceM ?? Infinity) <= SEUIL_DOUBLON_M) { exclus["doublon d'un ouvrage inventorié"]++; continue; }
-
-    /**
-     * La source rend une LIGNE, pas un point : le franchissement est le segment de
-     * voie qui traverse. C'est plus riche que prevu — la longueur portee par la
-     * source est donc mesuree sur ce segment, pas declaree.
-     *
-     * `Ouvrage.geom` etant un point, on prend le MILIEU DE LA LIGNE et non le
-     * centroide : sur un pont courbe, le centroide tombe a cote de l'ouvrage.
-     */
-    const ligne = f.geometry?.coordinates;
-    if (f.geometry?.type !== "LineString" || !Array.isArray(ligne) || ligne.length < 2) {
-      exclus["géométrie inutilisable"]++; continue;
-    }
-    const c = ligne[Math.floor(ligne.length / 2)];
-    if (!Array.isArray(c) || c.length < 2) { exclus["géométrie inutilisable"]++; continue; }
-
-    // La cle doit etre STABLE d'un import a l'autre. Le numero source quand il existe,
-    // sinon la position arrondie au dix-millionieme de degre — environ un centimetre.
-    // L'index du tableau ne conviendrait pas : il change des que la source evolue.
-    const cle = p.numero ? `n${p.numero}` : `p${c[0].toFixed(7)},${c[1].toFixed(7)}`;
-
-    retenus.push({
-      cle,
-      nom: p.nom?.trim() || `Pont sur ${p.nature} · ${cle}`,
-      nomSource: Boolean(p.nom?.trim()),
-      nature: String(p.nature),
-      longueurM: p.longueurM ?? null,
-      lat: c[1], lon: c[0],
-    });
-  }
-  return { retenus, exclus };
-}
 
 async function main() {
   const fichier = process.argv[2];
@@ -166,11 +86,12 @@ async function main() {
   }
 
   const maintenant = new Date();
-  let crees = 0;
+  let presentes = 0;
+  let ecrites = 0;
 
   for (let i = 0; i < retenus.length; i += 100) {
     const lot = retenus.slice(i, i + 100);
-    await prisma.$transaction(
+    const effets = await prisma.$transaction(
       lot.map((r) =>
         prisma.$executeRawUnsafe(
           `INSERT INTO ouvrages
@@ -204,7 +125,29 @@ async function main() {
       ),
       { timeout: 300_000 },
     );
-    crees += lot.length;
+
+    /**
+     * COMPTER CE QUI EST ECRIT, PAS CE QUI EST PRESENTE.
+     *
+     * `$executeRawUnsafe` rend le nombre de lignes affectees : 1 si l'insertion a eu
+     * lieu, 0 si ON CONFLICT DO NOTHING l'a ecartee. La premiere version faisait
+     * `crees += lot.length` — elle comptait donc les intentions.
+     *
+     * Le 05/09, 963 ponts ont ete presentes et 614 ecrits. L'ecart n'est apparu qu'en
+     * recomptant la table apres coup : le compteur, lui, annoncait 963. Un ON CONFLICT
+     * DO NOTHING est un silence par construction ; le seul moyen de l'entendre est de
+     * lire ce que la base repond.
+     */
+    presentes += lot.length;
+    ecrites += (effets as number[]).reduce((a, b) => a + b, 0);
+  }
+
+  if (ecrites !== presentes) {
+    console.log("");
+    console.log(`ATTENTION : ${presentes - ecrites} ponts presentes n'ont pas ete ecrits.`);
+    console.log("  Soit ils etaient deja en base (import rejoue), soit deux ponts");
+    console.log("  partagent une cle — auquel cas la cle est fausse, pas la source.");
+    console.log("");
   }
 
   // La provenance de chaque valeur inventee, comme pour les troncons promus.
@@ -238,7 +181,8 @@ async function main() {
   const total = await prisma.ouvrage.count({ where: { deletedAt: null } });
 
   console.log("--- Applique ---");
-  console.log(`  ouvrages crees          : ${total - deja} (sur ${crees} presentes)`);
+  console.log(`  ouvrages crees          : ${total - deja} (sur ${presentes} presentes)`);
+  console.log(`  lignes ecartees         : ${presentes - ecrites}`);
   console.log(`  lignes valeurs_qualite  : ${qualite + noms}`);
   console.log(`  inventaire total        : ${total}`);
   console.log("");
