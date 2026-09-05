@@ -35,12 +35,23 @@
  * normalises — accents retires, ponctuation remplacee par des espaces — puis compares
  * entoures d'espaces.
  *
- * IL PEUT CONTREDIRE UNE ATTRIBUTION EXISTANTE
+ * IL NE CORRIGE JAMAIS UNE REGION EXISTANTE — LECON DES HOMONYMES
  *
- * Un premier rattachement a ete fait le 04/09 sur une liste de localites que j'avais
- * ecrite a la main. Ce script porte sur TOUS les chantiers, pas seulement ceux sans
- * region, precisement pour pouvoir corriger cette liste : un referentiel officiel vaut
- * mieux qu'une curation. Les desaccords sont comptes et affiches avant toute ecriture.
+ * Premiere version : le script proposait de corriger 80 chantiers dont la region
+ * differait de celle deduite. La verification a montre que c'etait dangereux.
+ *
+ * « Hafia » est un quartier de Conakry ET une sous-prefecture de Labe. « Lansanaya »
+ * est un carrefour de Conakry ET une sous-prefecture de Faranah. Les intitules de
+ * voirie urbaine citent ces noms au sens de Conakry ; le referentiel les resout vers
+ * l'interieur du pays. Le script aurait deplace 80 chantiers de la capitale vers des
+ * regions ou ils ne sont pas.
+ *
+ * Un nom de localite ne suffit donc pas a contredire une region deja etablie. Il
+ * suffit en revanche a en combler une absente : entre « Non renseigne » et une
+ * deduction tracee, la deduction vaut mieux.
+ *
+ * Les desaccords restent AFFICHES — ils signalent soit un homonyme, soit une vraie
+ * erreur — mais ils ne sont pas ecrits.
  *
  * Usage :
  *   tsx scripts/rattacher-chantiers-localite.ts            (lecture seule)
@@ -119,12 +130,15 @@ async function main() {
   const resolus = lignes.filter((l) => l.region_deduite_id != null);
 
   const aCombler = resolus.filter((l) => l.region_actuelle === "Non renseigné");
-  const concordants = resolus.filter(
-    (l) => l.region_actuelle !== "Non renseigné" && l.region_actuelle === l.region_deduite,
-  );
-  const desaccords = resolus.filter(
-    (l) => l.region_actuelle !== "Non renseigné" && l.region_actuelle !== l.region_deduite,
-  );
+  // Comparaison SANS accents : `regions.nom` porte « Nzérékoré », `limites_admin.nom`
+  // porte « Nzerekore ». Une comparaison de chaines brutes annoncait 80 desaccords
+  // dont la moitie n'etaient que des accents.
+  const sansAccent = (v: string | null) =>
+    (v ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const memeRegion = (l: Ligne) => sansAccent(l.region_actuelle) === sansAccent(l.region_deduite);
+
+  const concordants = resolus.filter((l) => l.region_actuelle !== "Non renseigné" && memeRegion(l));
+  const desaccords = resolus.filter((l) => l.region_actuelle !== "Non renseigné" && !memeRegion(l));
 
   console.log("=== Rattachement des chantiers par localite citee ===");
   console.log(`Mode : ${appliquer ? "ECRITURE" : "LECTURE SEULE (ajouter --apply)"}`);
@@ -140,8 +154,9 @@ async function main() {
   console.log("");
 
   if (desaccords.length > 0) {
-    console.log("Desaccords — la region actuelle vient d'une liste ecrite a la main le 04/09,");
-    console.log("le referentiel officiel dit autre chose :");
+    console.log("Desaccords — SIGNALES, JAMAIS ECRITS. Un nom de localite ne suffit pas a");
+    console.log("contredire une region etablie : « Hafia » est un quartier de Conakry ET une");
+    console.log("sous-prefecture de Labe. A verifier un par un sur le dossier de marche :");
     for (const d of desaccords.slice(0, 12)) {
       console.log(`  ${(d.region_actuelle ?? "?").padEnd(14)} -> ${(d.region_deduite ?? "?").padEnd(14)} ${d.entites.slice(0, 34).padEnd(34)} ${d.intitule.slice(0, 40)}`);
     }
@@ -149,7 +164,8 @@ async function main() {
     console.log("");
   }
 
-  const aEcrire = [...aCombler, ...desaccords];
+  // Seuls les vides sont combles. Les desaccords sont un signalement, pas une action.
+  const aEcrire = aCombler;
   if (!appliquer || aEcrire.length === 0) {
     console.log(appliquer ? "Rien a ecrire." : "LECTURE SEULE — rien n'a ete ecrit.");
     return;
@@ -160,10 +176,8 @@ async function main() {
     const note =
       `Région déduite des localités citées dans l'intitulé (${l.entites}), remontées `
       + "au référentiel COD-AB (OCHA). "
-      + (l.region_actuelle === "Non renseigné"
-        ? "Auparavant « Non renseigné »."
-        : `Valeur précédente : ${l.region_actuelle} — issue d'une liste manuelle, corrigée par le référentiel officiel.`)
-      + " Déduction, pas une saisie : à confirmer sur le dossier de marché.";
+      + "Auparavant « Non renseigné ». "
+      + "Déduction, pas une saisie : à confirmer sur le dossier de marché.";
 
     await prisma.$transaction([
       prisma.chantier.update({ where: { id: l.id }, data: { regionId: l.region_deduite_id! } }),
@@ -184,7 +198,7 @@ async function main() {
 
   console.log("--- Applique ---");
   console.log(`  chantiers combles        : ${aCombler.length}`);
-  console.log(`  chantiers corriges       : ${desaccords.length}`);
+  console.log(`  desaccords signales, non ecrits : ${desaccords.length}`);
   console.log(`  lignes valeurs_qualite   : ${aEcrire.length}`);
   console.log("");
   console.log("Les localites qui ont declenche chaque rattachement figurent dans la note.");
