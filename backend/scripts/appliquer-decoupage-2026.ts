@@ -24,16 +24,30 @@
  *     Region Nzerekore   = ancienne Nzerekore - prefecture Beyla - Kouankan
  *     Prefecture X residuelle = ancienne X - les sous-prefectures qui la quittent
  *
- * L'HYPOTHESE QUI RESTE, ET QUI N'EST PAS DEMONTREE
+ * LA COMPOSITION, CONFIRMEE LE 05/09/2026
  *
- * Que les deux nouvelles regions ne comprennent AUCUNE autre prefecture. Le texte
- * disponible ne donne que les onze promotions ; il ne dit pas si Mandiana rejoint
- * Siguiri, ni Lola ou Yomou Beyla. Si c'etait le cas, les emprises calculees ici
- * seraient trop petites — jamais fausses dans leur trace, mais incompletes.
+ * Elle etait deduite au moment d'ecrire ce script, et l'en-tete disait alors qu'elle
+ * n'etait pas demontree. Des sources concordantes rapportant le decret du 20 aout 2026
+ * l'ont depuis etablie, et elle correspond exactement a ce qui avait ete calcule :
  *
- * C'est pourquoi tout ce que le script ecrit porte `source = 'Decret 2026 (composition
- * deduite) + COD-AB'` : un auditeur voit d'un coup d'oeil ce qui vient du decret et ce
- * qui vient d'une deduction. Le retour arriere est imprime a la fin.
+ *     Region Siguiri : Siguiri (chef-lieu), Doko, Siguirini, Kintinian
+ *     Region Beyla   : Beyla (chef-lieu), Sinko, Kouankan, Karala
+ *
+ * Quatre prefectures chacune, et aucune autre. Les emprises derivees ici sont donc
+ * completes, non plus seulement plausibles.
+ *
+ * LE CHEF-LIEU EST UNE PREFECTURE COMME LES AUTRES
+ *
+ * Un premier jet promouvait les onze et retaillait les regions, mais laissait les
+ * prefectures d'ORIGINE — Siguiri et Beyla — rattachees a leur ancienne region. Chaque
+ * nouvelle region ne comptait donc que 3 prefectures au lieu de 4, et il manquait
+ * 12 249 km2 a Siguiri, 10 022 a Beyla : le polygone de la region etait juste, mais sa
+ * composition declaree ne le couvrait pas.
+ *
+ * L'oubli ne s'est vu qu'en confrontant la base a la composition publiee. Aucun des
+ * trois controles d'integrite ne pouvait l'attraper : il n'y avait ni geometrie
+ * invalide, ni parent orphelin, ni recouvrement — seulement une hierarchie qui ne
+ * decrivait plus le terrain.
  *
  * DIALAKORO — TRANCHE
  *
@@ -69,7 +83,18 @@ import "dotenv/config";
 const prisma = new PrismaClient();
 
 /** Provenance de tout ce que ce script ecrit. Distincte de COD-AB seul. */
-const SOURCE = "Decret 2026 (composition deduite) + COD-AB / OCHA";
+/**
+ * Provenance de tout ce que ce script ecrit.
+ *
+ * Elle disait « composition deduite » tant que la composition des deux regions
+ * relevait d'une inference. Des sources concordantes rapportant le decret du
+ * 20 aout 2026 l'ont confirmee le 05/09 : la mention change, parce qu'un auditeur qui
+ * lit « deduite » ecarte a juste titre la donnee, et qu'elle ne l'est plus.
+ *
+ * Le trace, lui, reste derive de COD-AB par union et difference : aucune frontiere
+ * n'a ete dessinee, et la source le dit toujours.
+ */
+const SOURCE = "Decret du 20/08/2026 (composition confirmee) + COD-AB / OCHA";
 
 interface Promotion {
   /** Nom de la sous-prefecture, tel qu'il figure dans limites_admin. */
@@ -196,10 +221,10 @@ async function main() {
   if (!appliquer) {
     console.log("LECTURE SEULE — rien n'a ete ecrit.");
     console.log("");
-    console.log("HYPOTHESE NON DEMONTREE : que les deux nouvelles regions ne comprennent");
-    console.log("aucune autre prefecture. Le texte disponible ne le dit pas. Si Mandiana");
-    console.log("rejoignait Siguiri, ou Lola et Yomou Beyla, les emprises calculees ici");
-    console.log("seraient incompletes — jamais fausses dans leur trace, mais trop petites.");
+    console.log("Composition confirmee le 05/09/2026 par sources concordantes :");
+    console.log("  Siguiri : Siguiri (chef-lieu), Doko, Siguirini, Kintinian");
+    console.log("  Beyla   : Beyla (chef-lieu), Sinko, Kouankan, Karala");
+    console.log("Quatre prefectures chacune, et aucune autre.");
     return;
   }
 
@@ -273,6 +298,19 @@ async function main() {
           WHERE p.pcode = partis.pcode`,
         promotions.map((p) => normaliser(p.nom)), SOURCE
       );
+
+      // 3 bis. Le chef-lieu suit sa region.
+      //
+      // La prefecture d'origine devient une prefecture de la NOUVELLE region. Sans
+      // cette etape, elle reste declaree dans l'ancienne, et la region ne contient
+      // que les sous-prefectures promues — soit 3 des 4 prefectures annoncees.
+      for (const [prefecture, region] of [["siguiri", "GN013"], ["beyla", "GN014"]]) {
+        await tx.$executeRawUnsafe(
+          `UPDATE limites_admin SET "parentPcode" = $2, source = $3, "validOn" = CURRENT_DATE
+            WHERE niveau = 2 AND unaccent(lower(nom)) = $1`,
+          prefecture, region, SOURCE
+        );
+      }
 
       // 4. La promotion elle-meme. La geometrie ne bouge pas : l'emprise d'une
       //    prefecture nouvelle vaut AU MOINS celle de l'ancienne sous-prefecture.
