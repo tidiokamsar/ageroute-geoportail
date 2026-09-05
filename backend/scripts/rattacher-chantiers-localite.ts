@@ -68,7 +68,7 @@ interface Ligne {
   region_actuelle: string | null;
   region_deduite: string | null;
   region_deduite_id: number | null;
-  regions_candidates: number;
+  regions_candidates: number | bigint;
   entites: string;
 }
 
@@ -125,8 +125,11 @@ async function main() {
 
   const lignes = await prisma.$queryRawUnsafe<Ligne[]>(REQUETE);
 
-  const sansIndice = lignes.filter((l) => l.regions_candidates === 0);
-  const ambigus = lignes.filter((l) => l.regions_candidates > 1);
+  // `count(*)` revient en BigInt depuis PostgreSQL, et `0n === 0` est faux : la
+  // comparaison stricte annoncait « 0 chantier sans indice » la ou il y en a 166.
+  const candidates = (l: Ligne) => Number(l.regions_candidates);
+  const sansIndice = lignes.filter((l) => candidates(l) === 0);
+  const ambigus = lignes.filter((l) => candidates(l) > 1);
   const resolus = lignes.filter((l) => l.region_deduite_id != null);
 
   const aCombler = resolus.filter((l) => l.region_actuelle === "Non renseigné");
