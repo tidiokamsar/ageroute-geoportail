@@ -1,4 +1,5 @@
 import type { EtatPatrimoine, StatutChantier } from "../../types";
+import { ORDRE_ETATS, SYMBOLES } from "../../features/geoportail/map/symbology";
 
 /**
  * Attribution des DONNEES, distincte de celle du fond de plan.
@@ -114,14 +115,44 @@ export type SelectedFeature =
   | { kind: "chantier"; data: ChantierGeoFeature }
   | { kind: "toponyme"; data: { nom: string; nature: string; lat: number; lon: number } };
 
-export const ETAT_COLORS: Record<EtatPatrimoine, string> = {
-  BON: "#16a34a",
-  MOYEN: "#84cc16",
-  MAUVAIS: "#f97316",
-  CRITIQUE: "#dc2626",
-  NON_EVALUE: "#9ca3af",
-};
+/**
+ * Couleurs d'etat : reprises de l'echelle unique, plus definies ici.
+ *
+ * Les anciennes valeurs (#16a34a, #84cc16, #f97316, #dc2626, #9ca3af) n'avaient jamais
+ * ete confrontees a un seuil de contraste. Elles vivaient par ailleurs en double avec
+ * la palette des badges, si bien qu'un meme etat n'avait pas la meme couleur d'un ecran
+ * a l'autre. `symbology.ts` les tient desormais, et un test recalcule chaque ratio.
+ */
+export const ETAT_COLORS: Record<EtatPatrimoine, string> = Object.fromEntries(
+  ORDRE_ETATS.map((e) => [e, SYMBOLES[e].trait]),
+) as Record<EtatPatrimoine, string>;
 
+/**
+ * FORMULATION PUBLIQUE DE L'ECHELLE — DIVERGENTE, ET EN ATTENTE D'ARBITRAGE.
+ *
+ * Ces libelles ne disent pas la meme chose que la valeur stockee. Constate le
+ * 05/09/2026 :
+ *
+ *     en base     ici (carte, carte publique)   ailleurs (listes, badges)
+ *     MOYEN       « Alternance Bon / Moyen »    « Moyen »
+ *     MAUVAIS     « Moyen etat general »        « Mauvais »
+ *     CRITIQUE    « Mauvais etat general »      « Critique »
+ *
+ * Le decalage joue d'un cran, systematiquement dans le sens favorable : un troncon
+ * enregistre CRITIQUE se lit « Mauvais etat general » sur le site public. Ces libelles
+ * viennent de l'instantane initial du depot, SANS justification ecrite, dans un code ou
+ * chaque decision porte pourtant la sienne.
+ *
+ * Deux lectures possibles, et une seule personne peut trancher :
+ *   — l'echelle interne a 4 niveaux a ete volontairement retranscrite dans un autre
+ *     vocabulaire pour le public, et il faut alors l'ecrire et l'assumer ;
+ *   — c'est une erreur heritee, et il faut aligner sur `SYMBOLES[...].libelle`.
+ *
+ * Changer le vocabulaire de l'indicateur d'etat du reseau routier national n'est pas
+ * une correction technique. En attendant l'arbitrage de l'agence, la formulation
+ * publique est CONSERVEE telle quelle — mais elle n'est plus subie : elle est ici,
+ * nommee, et le present commentaire est ce qui la separe d'un bug silencieux.
+ */
 export const ETAT_LABELS: Record<EtatPatrimoine, string> = {
   BON: "Bon état général",
   MOYEN: "Alternance Bon / Moyen",

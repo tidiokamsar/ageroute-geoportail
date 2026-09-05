@@ -3,6 +3,7 @@ import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 import type { ClasseRoute, EtatPatrimoine, Gravite, StatutPoste, StatutChantier, Role, DocumentType } from "../../types"
+import { libelleEtat, symbole } from "../../features/geoportail/map/symbology"
 
 const badgeVariants = cva(
   "inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2",
@@ -34,17 +35,46 @@ function Badge({ className, variant, ...props }: BadgeProps) {
   )
 }
 
+/**
+ * Classes issues des jetons, plus des teintes Tailwind choisies au juge.
+ *
+ * `bg-yellow-100 text-yellow-700` mesurait 3,1:1 — sous le seuil de 4,5:1 exige pour du
+ * texte. Les couples ci-dessous sont ceux de `symbology.ts`, ou chaque ratio est
+ * recalcule a chaque execution des tests.
+ */
 const etatColors: Record<EtatPatrimoine, string> = {
-  BON: "bg-green-100 text-green-700 border-transparent",
-  MOYEN: "bg-yellow-100 text-yellow-700 border-transparent",
-  MAUVAIS: "bg-orange-100 text-orange-700 border-transparent",
-  CRITIQUE: "bg-red-100 text-red-700 border-transparent",
-  NON_EVALUE: "bg-gray-100 text-gray-600 border-transparent",
+  BON: "bg-etat-bon-fond text-etat-bon border-transparent",
+  MOYEN: "bg-etat-moyen-fond text-etat-moyen border-transparent",
+  MAUVAIS: "bg-etat-mauvais-fond text-etat-mauvais border-transparent",
+  CRITIQUE: "bg-etat-critique-fond text-etat-critique border-transparent",
+  NON_EVALUE: "bg-etat-inconnu-fond text-etat-inconnu border-transparent",
 };
 
+/**
+ * Le badge affiche un LIBELLE, plus la valeur brute.
+ *
+ * Il rendait `etat.replace("_", " ")`, donc « NON EVALUE » a l'ecran — une valeur
+ * d'enumeration montree a un utilisateur. Et si `etat` arrivait nul depuis l'API,
+ * `.replace` faisait tomber la page entiere : c'est le meme mecanisme qui a casse
+ * l'ecran Troncons le 04/09. `libelleEtat` repond toujours.
+ */
 function EtatBadge({ etat }: { etat: EtatPatrimoine }) {
-  return <Badge className={etatColors[etat]}>{etat.replace("_", " ")}</Badge>;
+  const s = symbole(etat);
+  return (
+    <Badge className={etatColors[etat] ?? "bg-etat-inconnu-fond text-etat-inconnu"}>
+      {libelleEtat(etat)}
+      {/* La couleur ne porte jamais l'information seule : un lecteur d'ecran, une
+          impression en noir et blanc ou un daltonien lisent le libelle. */}
+      <span className="sr-only"> — état du patrimoine</span>
+      <span aria-hidden="true" className="ml-1 opacity-70">{FORME_SIGNE[s.forme]}</span>
+    </Badge>
+  );
 }
+
+/** Signe qui double la couleur, lisible sans elle. */
+const FORME_SIGNE: Record<string, string> = {
+  cercle: "●", losange: "◆", triangle: "▲", carre: "■",
+};
 
 const classeColors: Record<ClasseRoute, string> = {
   RN: "bg-navy/10 text-navy border-transparent",

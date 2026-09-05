@@ -22,3 +22,6 @@ npm-debug.log*
 Thumbs.db
 coverage/
 __pycache__/
+
+# Configuration de serveur de developpement local (port assigne dynamiquement).
+.claude/launch.json

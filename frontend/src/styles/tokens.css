@@ -1,0 +1,173 @@
+/**
+ * Jetons de conception de la Console BDRI.
+ *
+ * CE FICHIER ETEND, IL NE REMPLACE PAS
+ *
+ * `index.css` porte deja les variables shadcn (--background, --primary, --card...)
+ * et l'identite institutionnelle : navy #1a2942, gold #f5a623. Elles restent la
+ * reference et ne sont pas redefinies ici. Ce fichier ajoute ce qui manquait et que
+ * chaque ecran reinventait dans son coin : l'echelle d'etat, les niveaux
+ * d'elevation, les z-index nommes, les durees, l'espacement.
+ *
+ * LES COULEURS D'ETAT SONT DOUBLES, ET C'EST DELIBERE
+ *
+ * Une couleur lisible comme TRAIT sur une carte ne l'est pas comme TEXTE sur blanc.
+ * WCAG 2.1 demande 3:1 pour un element graphique et 4,5:1 pour du texte. Mesure de
+ * la palette demandee, sur blanc :
+ *
+ *     Bon      #1B8A5A   4,35:1   insuffisant en texte
+ *     Moyen    #E0A500   2,20:1   insuffisant en texte ET en graphique
+ *     Mauvais  #E0631D   3,52:1   insuffisant en texte
+ *     Critique #B91C1C   6,47:1   conforme
+ *     Inconnu  #8A8F98   3,25:1   insuffisant en texte
+ *
+ * Un seul des cinq passait. D'ou deux jeux : `--etat-*-trait` pour la carte et les
+ * aplats, `--etat-*-texte` pour tout ce qui se lit. Les valeurs texte sont assombries
+ * jusqu'a franchir 4,5:1, mesurees et notees en regard.
+ *
+ * DEUX TEINTES CORRIGEES MEME EN TRAIT
+ *
+ * Les seuils se mesurent contre le fond REEL, #f4f6f8, pas contre un blanc theorique.
+ * L'ecart est faible et decisif : #B88700 donne 3,23:1 sur blanc et 2,98:1 sur le fond
+ * applicatif, #8A8F98 donne 3,25:1 sur blanc et 2,999:1 sur le fond. Les deux
+ * echouaient la ou la couleur est reellement posee, et un arrondi a deux decimales le
+ * masquait. Ce sont les tests de `symbology.test.ts` qui l'ont vu.
+ *
+ *     Moyen    #E0A500 -> #B08200   3,21:1 sur le fond applicatif
+ *     Inconnu  #8A8F98 -> #848992   3,25:1
+ *
+ * Seuls ecarts pris avec la palette demandee, tous deux mesures.
+ */
+
+:root {
+  /* ---- Echelle d'etat : TRAIT (carte, aplats, pastilles) — seuil 3:1 ---- */
+  --etat-bon-trait: #1b8a5a;       /* 4,01:1 sur le fond applicatif */
+  --etat-moyen-trait: #b08200;     /* 3,21:1 sur le fond applicatif — cf. note */
+  --etat-mauvais-trait: #e0631d;   /* 3,25:1 sur le fond applicatif */
+  --etat-critique-trait: #b91c1c;  /* 5,97:1 sur le fond applicatif */
+  --etat-inconnu-trait: #848992;   /* 3,25:1 — #8a8f98 tombait a 2,999:1 */
+
+  /* ---- Echelle d'etat : TEXTE (badges, libelles, chiffres) — seuil 4,5:1 ---- */
+  --etat-bon-texte: #12694a;       /* 6,68:1 sur blanc */
+  --etat-moyen-texte: #7a5b00;     /* 6,32:1 */
+  --etat-mauvais-texte: #8f3d10;   /* 7,39:1 */
+  --etat-critique-texte: #b91c1c;  /* 6,47:1 */
+  --etat-inconnu-texte: #565b63;   /* 6,84:1 */
+
+  /* ---- Echelle d'etat : FOND de badge (teinte tres claire) ---- */
+  --etat-bon-fond: #e8f5ef;
+  --etat-moyen-fond: #f9f0d9;
+  --etat-mauvais-fond: #fdeee5;
+  --etat-critique-fond: #fdeaea;
+  --etat-inconnu-fond: #eef0f2;
+
+  /* ---- Semantiques d'interface (distinctes de l'etat du reseau) ----
+     Un message d'erreur applicative et une route en mauvais etat ne veulent pas
+     dire la meme chose ; les confondre rend les deux illisibles. */
+  --succes: #12694a;
+  --avertissement: #7a5b00;
+  --danger: #b91c1c;
+  --info: #1a2942;
+
+  /* ---- Espacement, echelle 4/8 ---- */
+  --espace-1: 4px;
+  --espace-2: 8px;
+  --espace-3: 12px;
+  --espace-4: 16px;
+  --espace-5: 24px;
+  --espace-6: 32px;
+  --espace-7: 48px;
+  --espace-8: 64px;
+
+  /* ---- Rayons ---- */
+  --rayon-sm: 6px;
+  --rayon-md: 10px;
+  --rayon-lg: 14px;
+
+  /* ---- Elevation ---- */
+  --ombre-1: 0 1px 2px rgb(26 41 66 / 0.06), 0 1px 3px rgb(26 41 66 / 0.10);
+  --ombre-2: 0 4px 8px rgb(26 41 66 / 0.08), 0 2px 4px rgb(26 41 66 / 0.06);
+  --ombre-3: 0 12px 24px rgb(26 41 66 / 0.12), 0 4px 8px rgb(26 41 66 / 0.08);
+
+  /**
+   * ---- Z-index nommes ----
+   *
+   * Ils demarrent au-dessus de Leaflet, qui pose les siens en dur : volet de tuiles
+   * 200, traces 400, marqueurs 600, infobulles 650, popups 700, CONTROLES 800.
+   * Un panneau a z-index 500 passerait donc SOUS les boutons de zoom. C'est le genre
+   * de conflit qu'on ne voit qu'a l'usage, une fois le panneau ouvert au mauvais
+   * endroit ; l'echelle commence a 810 pour qu'il ne puisse pas se produire.
+   */
+  --z-carte: 0;
+  --z-controles-carte: 810;
+  --z-panneau: 900;
+  --z-surcouche: 1000;
+  --z-modale: 1100;
+  --z-toast: 1200;
+
+  /* ---- Durees ---- */
+  --duree-rapide: 150ms;
+  --duree-normale: 200ms;
+  --duree-lente: 250ms;
+  --courbe: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ---- Cibles tactiles ---- */
+  --cible-min: 44px;      /* plancher WCAG 2.5.5 */
+  --cible-terrain: 48px;  /* mode terrain : gants, soleil, vehicule */
+}
+
+/**
+ * Mode sombre.
+ *
+ * Utile la nuit en mission, et sur les ecrans OLED d'entree de gamme ou il economise
+ * de la batterie. Les couleurs d'etat sont ECLAIRCIES, pas seulement inversees : sur
+ * fond sombre, ce sont les tons clairs qui portent le contraste.
+ */
+[data-theme="dark"] {
+  --etat-bon-trait: #34d399;
+  --etat-moyen-trait: #fbbf24;
+  --etat-mauvais-trait: #fb923c;
+  --etat-critique-trait: #f87171;
+  --etat-inconnu-trait: #9ca3af;
+
+  --etat-bon-texte: #6ee7b7;
+  --etat-moyen-texte: #fcd34d;
+  --etat-mauvais-texte: #fdba74;
+  --etat-critique-texte: #fca5a5;
+  --etat-inconnu-texte: #d1d5db;
+
+  --etat-bon-fond: #06291d;
+  --etat-moyen-fond: #2b2205;
+  --etat-mauvais-fond: #2e1608;
+  --etat-critique-fond: #2f0d0d;
+  --etat-inconnu-fond: #1f2429;
+
+  --succes: #6ee7b7;
+  --avertissement: #fcd34d;
+  --danger: #fca5a5;
+  --info: #cbd5e1;
+
+  --ombre-1: 0 1px 2px rgb(0 0 0 / 0.40);
+  --ombre-2: 0 4px 8px rgb(0 0 0 / 0.45);
+  --ombre-3: 0 12px 24px rgb(0 0 0 / 0.55);
+}
+
+/**
+ * Mouvement reduit.
+ *
+ * Ce n'est pas une preference esthetique : le mouvement declenche des vertiges chez
+ * une partie des utilisateurs. Les hachures animees des chantiers et les transitions
+ * de panneau s'arretent, le reste continue de fonctionner a l'identique.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duree-rapide: 0ms;
+    --duree-normale: 0ms;
+    --duree-lente: 0ms;
+  }
+}
+
+/** Les chiffres s'alignent en colonne : indispensable des qu'on empile des km. */
+.chiffres {
+  font-variant-numeric: tabular-nums;
+}

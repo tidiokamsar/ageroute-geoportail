@@ -19,7 +19,61 @@ import { geoJsonToLatLngs, STATUT_LABELS, type PublicCarteData, type SelectedFea
 import type { EtatPatrimoine } from "../types";
 import type { FeatureCollection } from "geojson";
 
-const GUINEE_CENTER: [number, number] = [10.5, -10.8];
+/**
+ * Emprise de la Guinee, et non un centre avec un zoom fixe.
+ *
+ * LE DEFAUT
+ *
+ * La carte s'ouvrait sur `center=[10.5, -10.8] zoom=7`, identique quelle que soit la
+ * largeur d'ecran. Or au zoom 7, la longitude visible depend de cette largeur :
+ *
+ *     telephone  375 px   4,12 deg   de -12,86 a  -8,74   Conakry HORS ECRAN
+ *     telephone  414 px   4,55 deg   de -13,07 a  -8,53   Conakry HORS ECRAN
+ *     tablette   768 px   8,44 deg   de -15,02 a  -6,58   visible
+ *     ecran     1280 px  14,06 deg   de -17,83 a  -3,77   visible, avec marge
+ *
+ * La Guinee fait 7,44 deg de large ; un telephone n'en montre que 4,12. Conakry est a
+ * -13,58. Autrement dit, tout visiteur ouvrant la carte routiere nationale depuis un
+ * telephone tombait sur le centre et l'est du pays, la capitale hors cadre, et devait
+ * faire glisser la carte pour la trouver — alors que 246 des 479 chantiers y sont.
+ *
+ * LA CORRECTION
+ *
+ * Cadrer sur l'emprise plutot que sur un zoom : Leaflet calcule alors le zoom qui fait
+ * tenir le pays dans le viewport dont il dispose. Le cadrage s'adapte de lui-meme au
+ * telephone comme au poste de bureau, et restera juste sur les formats a venir.
+ *
+ * Le centre fixe disparait : plus personne ne s'en sert une fois l'emprise posee.
+ */
+
+/** Sud-ouest et nord-est du territoire national. */
+const GUINEE_BOUNDS: [[number, number], [number, number]] = [
+  [7.19, -15.08],
+  [12.68, -7.64],
+];
+
+/**
+ * Marge autour de l'emprise.
+ *
+ * Elle n'est pas decorative : les surcouches mangent 18 % de la hauteur en haut
+ * (bandeau et recherches) et 12 % en bas (panneau de statistiques) sur un telephone.
+ * Sans marge, les frontieres nord et sud passeraient sous ces panneaux.
+ */
+const GUINEE_BOUNDS_OPTIONS = { padding: [24, 24] as [number, number], maxZoom: 9 };
+
+/**
+ * Paliers de zoom au quart, et non a l'unite.
+ *
+ * Leaflet n'accepte par defaut que des zooms entiers. Pour faire tenir la Guinee sur un
+ * telephone il choisit donc 5, alors que 5,95 suffirait : le pays n'occupe plus qu'un
+ * tiers du cadre, entoure de Mauritanie, du Mali et de la Cote d'Ivoire. Un cadrage
+ * juste mais lache reste un mauvais cadrage sur une carte routiere NATIONALE.
+ *
+ * Au quart de palier, l'ajustement retient 5,75 : le pays remplit le cadre sans qu'un
+ * bord soit coupe. Le cout est que les tuiles sont mises a l'echelle entre deux niveaux,
+ * donc tres legerement adoucies — compromis largement favorable ici.
+ */
+const PAS_DE_ZOOM = 0.25;
 
 // En dessous de ce zoom, la Guinee entiere tient a l'ecran : etiqueter 1690 troncons
 // y donnerait une bouillie illisible. Au dela, on n'etiquette que ce qui est dans la
@@ -341,8 +395,9 @@ export function PublicCartePage() {
 
       <div className="relative flex-1">
         <MapContainer
-          center={GUINEE_CENTER}
-          zoom={7}
+          bounds={GUINEE_BOUNDS}
+          boundsOptions={GUINEE_BOUNDS_OPTIONS}
+          zoomSnap={PAS_DE_ZOOM}
           maxZoom={20}
           renderer={renderer}
           zoomControl={false}
