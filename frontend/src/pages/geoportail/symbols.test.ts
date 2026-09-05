@@ -18,9 +18,17 @@ import { ouvrageIcon, TYPE_OUVRAGE_LABEL } from "./symbols";
  * l'etat patrimonial, et lui faire dire deux choses la rendrait illisible.
  */
 
-/** Le HTML rendu par le DivIcon, seul endroit ou la distinction est observable. */
-function html(icon: { options: { html?: string | HTMLElement } }): string {
-  return String(icon.options.html ?? "");
+/**
+ * Le HTML rendu par le DivIcon, seul endroit ou la distinction est observable.
+ *
+ * `options.html` est type `string | HTMLElement | false` chez Leaflet — le `false`
+ * signifie « pas de contenu ». Un type plus etroit compilait sous `tsc --noEmit` avec
+ * la configuration de developpement, et cassait le build de production, qui inclut
+ * les fichiers de test. D'ou `unknown` : c'est une chaine qu'on veut, et une seule
+ * conversion suffit a l'obtenir quel que soit ce que Leaflet a mis dedans.
+ */
+function html(icon: { options: { html?: unknown } }): string {
+  return typeof icon.options.html === "string" ? icon.options.html : "";
 }
 
 describe("Un ouvrage repris ne se confond pas avec un ouvrage inventorié", () => {
