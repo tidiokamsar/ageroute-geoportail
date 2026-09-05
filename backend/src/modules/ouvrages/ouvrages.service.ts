@@ -83,7 +83,13 @@ async function listGeo() {
             * ouvrages doivent etre valides un par un. Sans elle, l'import ne sert a
             * rien — personne ne peut voir ce qu'il reste a verifier.
             */
-           (o."sourceReference" LIKE 'ouvrage_osm:%') AS repris
+           -- COALESCE indispensable : NULL LIKE '...' vaut NULL, pas false. Les 126
+           -- ouvrages inventories par AGEROUTE n'ont pas de sourceReference, et l'API
+           -- leur renvoyait donc repris:null au lieu de repris:false. Le rendu restait
+           -- juste par accident, null etant falsy en JavaScript, mais un contrat d'API
+           -- qui promet un booleen doit en rendre un : le premier === false ecrit
+           -- ailleurs echouerait sans bruit.
+           COALESCE(o."sourceReference" LIKE 'ouvrage_osm:%', false) AS repris
     FROM ouvrages o
     LEFT JOIN regions r ON r.id = o."regionId"
     LEFT JOIN troncons t ON t.id = o."tronconId"
