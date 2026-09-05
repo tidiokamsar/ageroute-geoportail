@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { requireAuth } from "../../middleware/auth.middleware";
 import { requireModuleAccess } from "../../middleware/module-access.middleware";
+import { prisma } from "../../lib/prisma";
+import { REGION_NON_RENSEIGNEE } from "../../lib/localisation";
 import {
   chargerQualite,
   repartitionQualite,
@@ -49,7 +51,13 @@ qualiteRouter.get(
 
       // Se fermer sur une entite inconnue plutot que de rendre un tableau vide qui
       // laisserait croire qu'il n'y a rien a signaler.
-      if (!(entityType in MODULE_PAR_ENTITE)) {
+      //
+      // `hasOwnProperty` et non `in` : ce dernier traverse la chaine de prototypes,
+      // donc « constructor », « toString » et « __proto__ » franchissaient la garde.
+      // Le meme defaut existait dans le journal d'audit ; il avait ete corrige la et
+      // manque ici — preuve qu'une correction ponctuelle ne suffit pas quand le motif
+      // est duplique.
+      if (!Object.prototype.hasOwnProperty.call(MODULE_PAR_ENTITE, entityType)) {
         return res.status(400).json({ message: "Type d'entité inconnu" });
       }
 
@@ -127,3 +135,80 @@ qualiteRouter.get("/:entityType/:entityId", requireAuth, async (req, res, next) 
     return next(err);
   }
 });
+
+/**
+ * Ecart entre le referentiel des regions et les limites administratives chargees.
+ *
+ * POURQUOI CET ENDPOINT
+ *
+ * Le decret du 05/09/2026 cree les regions de Siguiri et de Beyla, et promeut onze
+ * sous-prefectures en prefectures. Le referentiel `regions` les porte deja ; les
+ * limites, non. Rien a l'ecran ne le disait.
+ *
+ * Une region sans limite n'est pas un incident : la carte cesse simplement d'y poser
+ * des epingles et la liste « sans localisation » recueille ses chantiers — c'est le
+ * comportement voulu. Mais c'est une DETTE, et une dette qu'on ne voit pas est une
+ * dette qu'on oublie. Elle se solde en chargeant les limites officielles, pas en
+ * dessinant des frontieres au jugé.
+ *
+ * CE QUE CET ENDPOINT NE FAIT PAS
+ *
+ * Il ne propose aucune geometrie de remplacement. Les sous-prefectures promues ne
+ * couvrent pas leur prefecture d'origine — Doko, Kintinian et Siguirini sont 3 des 12
+ * sous-prefectures de Siguiri — de sorte qu'aucune limite nouvelle ne se deduit des
+ * anciennes. Il faut le decret.
+ */
+qualiteRouter.get(
+  "/referentiel-administratif",
+  requireAuth,
+  requireModuleAccess("dashboard"),
+  async (_req, res, next) => {
+    try {
+      const [regions, niveaux] = await Promise.all([
+        prisma.$queryRaw<{ nom: string; aUneLimite: boolean; objets: bigint }[]>`
+          SELECT r.nom,
+                 EXISTS (
+                   SELECT 1 FROM limites_admin la
+                    WHERE la.niveau = 1
+                      AND unaccent(lower(la.nom)) = unaccent(lower(r.nom))
+                 ) AS "aUneLimite",
+                 (SELECT count(*) FROM chantiers c
+                   WHERE c."regionId" = r.id AND c."deletedAt" IS NULL)
+                 + (SELECT count(*) FROM ouvrages o
+                     WHERE o."regionId" = r.id AND o."deletedAt" IS NULL) AS objets
+            FROM regions r
+           WHERE r.nom <> ${REGION_NON_RENSEIGNEE}
+           ORDER BY r.nom
+        `,
+        prisma.$queryRaw<{ niveau: number; entites: bigint }[]>`
+          SELECT niveau, count(*) AS entites FROM limites_admin GROUP BY niveau ORDER BY niveau
+        `,
+      ]);
+
+      const sansLimite = regions.filter((r) => !r.aUneLimite);
+
+      return res.json({
+        regions: regions.map((r) => ({
+          nom: r.nom,
+          aUneLimite: r.aUneLimite,
+          // Le nombre d'objets dit l'URGENCE : une region sans limite mais vide
+          // n'empeche rien ; la meme avec des chantiers les retire de la carte.
+          objetsRattaches: Number(r.objets),
+        })),
+        limites: niveaux.map((n) => ({ niveau: n.niveau, entites: Number(n.entites) })),
+        ecart: {
+          regionsSansLimite: sansLimite.map((r) => r.nom),
+          objetsConcernes: sansLimite.reduce((s, r) => s + Number(r.objets), 0),
+          // Ce qu'il faut pour solder, en clair, plutot qu'un simple compteur rouge.
+          resolution:
+            sansLimite.length === 0
+              ? null
+              : "Charger les limites officielles de ces régions (décret ou mise à jour COD-AB). "
+                + "Elles ne se déduisent pas des limites existantes.",
+        },
+      });
+    } catch (err) {
+      return next(err);
+    }
+  }
+);

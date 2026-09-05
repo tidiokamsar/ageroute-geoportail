@@ -27,7 +27,20 @@ vi.mock("../../middleware/module-access.middleware", () => ({
   },
 }));
 
-vi.mock("../../lib/prisma", () => ({ prisma: {} }));
+/**
+ * Resultats bruts servis a `$queryRaw`, dans l'ordre des appels.
+ *
+ * L'endpoint « referentiel-administratif » emet deux requetes en parallele
+ * (`Promise.all`) : la liste des regions, puis le decompte par niveau. La file les
+ * rend dans cet ordre.
+ */
+const lignesBrutes: unknown[][] = [];
+
+vi.mock("../../lib/prisma", () => ({
+  prisma: {
+    $queryRaw: vi.fn(async () => lignesBrutes.shift() ?? []),
+  },
+}));
 
 const lignesQualite: Record<string, unknown>[] = [];
 
@@ -181,5 +194,74 @@ describe("GET /api/qualite/:entityType/:entityId", () => {
     compte.role = "ADMIN";
     compte.modules = ["chantiers"];
     expect((await request(app()).get("/api/qualite/Troncon/t1")).status).toBe(200);
+  });
+});
+
+/**
+ * Ecart entre le referentiel des regions et les limites chargees.
+ *
+ * Le decret du 05/09/2026 a rendu ce cas concret : Siguiri et Beyla figurent parmi
+ * les regions, aucune limite ne les couvre. Rien a l'ecran ne le signalait, et une
+ * dette invisible est une dette oubliee.
+ */
+describe("GET /api/qualite/referentiel-administratif", () => {
+  it("signale les régions dépourvues de limite", async () => {
+    lignesBrutes.length = 0;
+    lignesBrutes.push(
+      [
+        { nom: "Kankan", aUneLimite: true, objets: 50n },
+        { nom: "Siguiri", aUneLimite: false, objets: 0n },
+        { nom: "Beyla", aUneLimite: false, objets: 0n },
+      ],
+      [{ niveau: 1, entites: 8n }, { niveau: 2, entites: 34n }],
+    );
+
+    const res = await request(app()).get("/api/qualite/referentiel-administratif");
+
+    expect(res.status).toBe(200);
+    expect(res.body.ecart.regionsSansLimite).toEqual(["Siguiri", "Beyla"]);
+    // Aucun objet rattache : l'ecart existe mais n'empeche rien aujourd'hui.
+    expect(res.body.ecart.objetsConcernes).toBe(0);
+    expect(res.body.ecart.resolution).toMatch(/ne se déduisent pas/);
+  });
+
+  it("mesure l'urgence par le nombre d'objets concernés", async () => {
+    // Une region sans limite mais vide n'empeche rien ; la meme portant des chantiers
+    // les retire de la carte. Le compteur separe les deux situations.
+    lignesBrutes.length = 0;
+    lignesBrutes.push(
+      [{ nom: "Siguiri", aUneLimite: false, objets: 17n }],
+      [{ niveau: 1, entites: 8n }],
+    );
+
+    const res = await request(app()).get("/api/qualite/referentiel-administratif");
+    expect(res.body.ecart.objetsConcernes).toBe(17);
+  });
+
+  it("ne signale rien quand chaque région a sa limite", async () => {
+    lignesBrutes.length = 0;
+    lignesBrutes.push(
+      [{ nom: "Kankan", aUneLimite: true, objets: 50n }],
+      [{ niveau: 1, entites: 8n }],
+    );
+
+    const res = await request(app()).get("/api/qualite/referentiel-administratif");
+    expect(res.body.ecart.regionsSansLimite).toEqual([]);
+    expect(res.body.ecart.resolution).toBeNull();
+  });
+
+  it("convertit les BigInt de PostgreSQL", async () => {
+    // count(*) revient en bigint ; JSON.stringify le refuse et la reponse partirait
+    // en 500. Le meme piege a deja fait afficher « 0 chantier » pour 166.
+    lignesBrutes.length = 0;
+    lignesBrutes.push(
+      [{ nom: "Siguiri", aUneLimite: false, objets: 3n }],
+      [{ niveau: 1, entites: 8n }],
+    );
+
+    const res = await request(app()).get("/api/qualite/referentiel-administratif");
+    expect(res.status).toBe(200);
+    expect(res.body.regions[0].objetsRattaches).toBe(3);
+    expect(res.body.limites[0].entites).toBe(8);
   });
 });
