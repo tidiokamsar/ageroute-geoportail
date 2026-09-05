@@ -64,11 +64,29 @@ export async function carteGeoHandler(req: Request, res: Response, next: NextFun
       tronconsService.listGeo({ simplification }) as Promise<TronconGeoRow[]>,
       pointsNoirsService.listGeo() as Promise<PointNoirGeoRow[]>,
       chantiersService.listGeo() as Promise<ChantierGeoRow[]>,
+      /**
+       * La carte PUBLIQUE ne montre que l'inventaire d'AGEROUTE.
+       *
+       * 963 ponts ont ete repris d'une source cartographique externe le 05/09/2026.
+       * Ils portent tous `etat = NON_EVALUE` — personne ne les a visites — et sans ce
+       * filtre la carte officielle du domaine public en aurait presente 1 089 comme
+       * etant l'inventaire d'ouvrages d'art de l'agence. Une donnee reprise ne devient
+       * pas officielle parce qu'elle est en base ; il y faut une validation.
+       *
+       * Le meme predicat cadre deja le tableau de bord (INVENTAIRE_REFERENCE). Il
+       * manquait ici parce que jusqu'a cet import, `ouvrages` ne contenait que du
+       * verifie — le filtre n'avait rien a exclure.
+       *
+       * Le IS NULL est indispensable : NULL NOT LIKE '...' vaut NULL, donc faux, et
+       * les 126 ouvrages inventories disparaitraient tous.
+       */
       prisma.$queryRaw<OuvrageGeoRow[]>`
         SELECT o.id, o.nom, o.type, o.etat::text AS etat,
                ST_Y(o.geom) AS lat, ST_X(o.geom) AS lon
         FROM ouvrages o
         WHERE o."deletedAt" IS NULL AND o.geom IS NOT NULL
+          AND (o."sourceReference" IS NULL
+               OR o."sourceReference" NOT LIKE 'ouvrage_osm:%')
       `,
     ]);
     res.json({
