@@ -100,8 +100,12 @@ export function PanneauInfos({
           className="flex w-full items-center gap-3 px-4 py-3 text-left focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-navy"
         >
           <span className="min-w-0 flex-1">
+            {/* « routes classees » et non « routes » : le chiffre porte le reseau
+                classe — nationales, regionales, urbaines — et non la voirie locale,
+                qui compte 260 000 voies de plus. Sans le qualificatif, un lecteur
+                comprend « toutes les routes de Guinee ». */}
             <span className="block text-sm font-bold tabular-nums text-navy">
-              {stats.totalKm.toLocaleString("fr-FR")} km de routes
+              {stats.totalKm.toLocaleString("fr-FR")} km de routes classées
             </span>
             <span className="block truncate text-xs text-slate-500">
               {stats.chantiersEnCours} chantier{stats.chantiersEnCours > 1 ? "s" : ""} en cours ·{" "}
@@ -140,6 +144,15 @@ export function PanneauInfos({
             <p className="mt-1.5 text-[11px] leading-snug text-amber-700">
               Dont {stats.kmDeclare.toLocaleString("fr-FR")} km d'état déclaré,
               sans relevé de terrain.
+            </p>
+          )}
+          {/* D'ou vient le chiffre. Un lineaire national sans methode est une
+              affirmation ; avec sa methode, c'est une mesure que le lecteur peut
+              situer. La ligne disparait si le serveur ne l'a pas fournie, plutot que
+              d'attribuer une methode a une valeur qui n'en a pas. */}
+          {stats.totalMesure && (
+            <p className="mt-1 text-[11px] leading-snug text-slate-500">
+              Longueur mesurée sur les tracés numérisés.
             </p>
           )}
         </div>

@@ -197,3 +197,40 @@ export async function longueurReseau(perimetre: PerimetreReseau = "reference"): 
     parClasse,
   };
 }
+
+/**
+ * Longueur du reseau, memorisee brievement.
+ *
+ * POURQUOI UN CACHE ICI ET PAS AILLEURS
+ *
+ * `longueurReseau` coute 285 ms mesurees sur la production : elle somme
+ * `ST_Length(geom::geography)` sur 1 691 traces et teste `valeurs_qualite` pour
+ * chacun. C'est negligeable sur un tableau de bord consulte par une dizaine d'agents,
+ * et inacceptable sur la carte PUBLIQUE, ou chaque visiteur declenche la requete —
+ * souvent depuis une connexion mobile guineenne deja lente.
+ *
+ * Cinq minutes : le lineaire du reseau classe ne bouge qu'a l'import ou a la saisie,
+ * jamais a la minute. Un visiteur peut donc lire une valeur vieille de cinq minutes au
+ * plus, ce qui est sans consequence pour un chiffre qui evolue de quelques kilometres
+ * par an. La date de calcul accompagne la valeur, plutot que de laisser croire a une
+ * mesure instantanee.
+ *
+ * En memoire du processus et non en base : rien a invalider, rien a nettoyer, et un
+ * redemarrage repart d'un etat propre. Deux instances auraient chacune la leur, ce qui
+ * est sans importance pour une valeur de lecture.
+ */
+const DUREE_CACHE_MS = 5 * 60 * 1000;
+let cache: { valeur: LongueurReseau; calculeeA: number } | null = null;
+
+export async function longueurReseauPublique(): Promise<LongueurReseau & { calculeeA: string }> {
+  const maintenant = Date.now();
+  if (!cache || maintenant - cache.calculeeA > DUREE_CACHE_MS) {
+    cache = { valeur: await longueurReseau("reference"), calculeeA: maintenant };
+  }
+  return { ...cache.valeur, calculeeA: new Date(cache.calculeeA).toISOString() };
+}
+
+/** Reserve aux tests : force le prochain appel a recalculer. */
+export function _viderCacheReseau(): void {
+  cache = null;
+}

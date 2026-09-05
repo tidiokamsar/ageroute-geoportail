@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { prisma } from "../../lib/prisma";
+import { longueurReseauPublique } from "../../lib/reseau";
 import { tronconsService } from "../troncons/troncons.service";
 import { pointsNoirsService } from "../points-noirs/points-noirs.service";
 import { chantiersService } from "../chantiers/chantiers.service";
@@ -60,7 +61,7 @@ export function toleranceSelonZoom(zoom: unknown): number {
 export async function carteGeoHandler(req: Request, res: Response, next: NextFunction) {
   try {
     const simplification = toleranceSelonZoom(req.query.zoom);
-    const [troncons, pointsNoirs, chantiers, ouvrages] = await Promise.all([
+    const [troncons, pointsNoirs, chantiers, ouvrages, reseau] = await Promise.all([
       tronconsService.listGeo({ simplification }) as Promise<TronconGeoRow[]>,
       pointsNoirsService.listGeo() as Promise<PointNoirGeoRow[]>,
       chantiersService.listGeo() as Promise<ChantierGeoRow[]>,
@@ -88,11 +89,39 @@ export async function carteGeoHandler(req: Request, res: Response, next: NextFun
           AND (o."sourceReference" IS NULL
                OR o."sourceReference" NOT LIKE 'ouvrage_osm:%')
       `,
+      /**
+       * La longueur du reseau, CALCULEE cote serveur.
+       *
+       * Le panneau public l'obtenait en sommant `longueurKm` sur les troncons recus.
+       * Mesure du 05/09/2026 : 1 028 des 1 691 troncons servis (61 %) portent une
+       * longueur nulle ou absente, et ce sont TOUS des routes regionales — une seule
+       * des 1 029 RR a une longueur saisie. Le site annoncait donc « 7 933 km de
+       * routes » pour un reseau classe qui en mesure 21 157 : le reseau regional
+       * entier comptait pour zero.
+       *
+       * La somme n'etait pas fausse, l'enonce l'etait. `longueurKm` porte la longueur
+       * CONTRACTUELLE, celle qui engage aux marches ; l'additionner revient a demander
+       * « combien de kilometres ont ete saisis », pas « quelle est la longueur du
+       * reseau ». La seconde question se repond sur la geometrie.
+       *
+       * Le client ne peut pas la calculer lui-meme : les traces qu'il recoit sont
+       * simplifies selon le zoom, donc plus courts que le trace reel.
+       */
+      longueurReseauPublique(),
     ]);
     res.json({
       // Rendu explicite : le client doit pouvoir dire a l'utilisateur que le trace
       // affiche est simplifie, plutot que de laisser croire a une forme exacte.
       simplifieeDe: simplification,
+      reseau: {
+        /** Longueur mesuree sur les traces. La reponse a « combien de routes ». */
+        km: reseau.geometrique.totalKm,
+        methode: reseau.geometrique.methode,
+        /** Longueur contractuelle saisie, et sa couverture. Une autre question. */
+        kmSaisi: reseau.metier.totalKm,
+        couvertureSaisiePct: reseau.metier.couverturePct,
+        calculeeA: reseau.calculeeA,
+      },
       troncons: troncons.map((t) => ({
         id: t.id, code: t.code, nom: t.nom, classe: t.classe, etat: t.etat,
         longueurKm: t.longueurKm, region: t.region, geometry: t.geometry,

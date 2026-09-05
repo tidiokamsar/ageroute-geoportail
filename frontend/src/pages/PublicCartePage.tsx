@@ -253,6 +253,7 @@ export function PublicCartePage() {
         data?.troncons ?? [],
         (data?.chantiers ?? []).filter((c) => c.statut === "EN_COURS").length,
         (data?.pointsNoirs ?? []).length,
+        data?.reseau?.km,
       ),
     [data],
   );

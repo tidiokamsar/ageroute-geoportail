@@ -120,3 +120,57 @@ describe("La répartition par type de route", () => {
     expect(s.parClasse.map((c) => c.classe)).toEqual(["RN", "FUTURE"]);
   });
 });
+
+/**
+ * Le chiffre en tete d'affiche du site public.
+ *
+ * Il valait la somme de `longueurKm` — les seules longueurs SAISIES. Mesure du
+ * 05/09/2026 sur la charge utile reelle : 1 028 des 1 691 troncons servis (61 %)
+ * n'en portent aucune, et ce sont TOUS des routes regionales. Une seule des 1 029 RR
+ * est renseignee, pour 56 km, la ou leur trace en mesure 13 296.
+ *
+ * Le site annoncait donc « 7 933 km de routes » a un pays dont le reseau classe en
+ * mesure 21 157. La somme n'etait pas fausse ; l'enonce l'etait.
+ */
+describe("La longueur affichee est celle du reseau, pas celle des saisies", () => {
+  const reseauReel = [
+    // Une nationale renseignee, comme les 621 RN.
+    { classe: "RN", etat: "BON" as const, longueurKm: 120, etatDeclare: false },
+    // Quatre regionales sans longueur, comme 1 028 des 1 029 RR.
+    ...Array.from({ length: 4 }, () => ({
+      classe: "RR", etat: "MOYEN" as const, longueurKm: 0, etatDeclare: false,
+    })),
+  ];
+
+  it("prend la longueur mesuree quand le serveur la fournit", () => {
+    const s = calculerStats(reseauReel as never, 0, 0, 21157);
+    expect(s.totalKm).toBe(21157);
+    expect(s.totalMesure).toBe(true);
+  });
+
+  it("n'annonce plus le total des seules saisies", () => {
+    // Sans la mesure, ce jeu annoncerait 120 km pour cinq routes.
+    const s = calculerStats(reseauReel as never, 0, 0, 21157);
+    expect(s.totalKm).not.toBe(120);
+  });
+
+  it("retombe sur la somme si le serveur ne fournit rien", () => {
+    // Un serveur anterieur au changement ne doit pas faire afficher 0 km.
+    const s = calculerStats(reseauReel as never, 0, 0);
+    expect(s.totalKm).toBe(120);
+    expect(s.totalMesure).toBe(false);
+  });
+
+  it("ignore une mesure absurde plutot que de l'afficher", () => {
+    expect(calculerStats(reseauReel as never, 0, 0, 0).totalKm).toBe(120);
+    expect(calculerStats(reseauReel as never, 0, 0, -5).totalKm).toBe(120);
+  });
+
+  it("garde des parts d'etat qui totalisent 100 %", () => {
+    // Le piege : rapporter les parts au total MESURE alors qu'elles ne portent que
+    // sur le lineaire saisi ferait une barre d'etat vide a 99 %.
+    const s = calculerStats(reseauReel as never, 0, 0, 21157);
+    const somme = s.parEtat.reduce((t, e) => t + e.pct, 0);
+    expect(somme).toBe(100);
+  });
+});

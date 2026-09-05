@@ -49,7 +49,28 @@ export interface PublicOuvrage {
   lon: number;
 }
 
+/**
+ * Longueur du reseau, calculee cote serveur.
+ *
+ * Le panneau la sommait lui-meme sur `longueurKm`. C'etait la longueur CONTRACTUELLE,
+ * saisie pour 39 % du reseau seulement : le site annoncait 7 933 km la ou le reseau
+ * classe en mesure 21 157, le lineaire regional entier comptant pour zero.
+ *
+ * Le client ne peut pas la recalculer : les traces qu'il recoit sont simplifies selon
+ * le zoom, donc plus courts que la realite.
+ */
+export interface ReseauMesure {
+  /** Longueur mesuree sur les traces. */
+  km: number;
+  methode: string;
+  /** Longueur contractuelle saisie — une autre question, gardee distincte. */
+  kmSaisi: number;
+  couvertureSaisiePct: number;
+  calculeeA: string;
+}
+
 export interface PublicCarteData {
+  reseau?: ReseauMesure;
   troncons: PublicTroncon[];
   pointsNoirs: PublicPointNoir[];
   chantiers: PublicChantier[];
