@@ -193,7 +193,11 @@ async function main() {
                    '. Aucune inspection. Region deduite par intersection.',
                    'IMPORT_DOCUMENTE'::"SourceType", $6, 'LOW'::"NiveauConfiance", $8::timestamp,
                    ST_SetSRID(ST_MakePoint($3, $2), 4326), now(), now())
-           ON CONFLICT ("sourceReference") DO NOTHING`,
+           -- L'index d'unicite est PARTIEL (WHERE "sourceReference" IS NOT NULL) :
+           -- PostgreSQL exige que la clause ON CONFLICT reprenne son predicat, sinon
+           -- il ne sait pas quel index viser et rejette la requete (42P10).
+           ON CONFLICT ("sourceReference") WHERE "sourceReference" IS NOT NULL
+           DO NOTHING`,
           r.nom, r.lat, r.lon, r.longueurM, r.nature,
           `ouvrage_osm:${r.cle}`, nonRenseignee.id, maintenant,
         ),
