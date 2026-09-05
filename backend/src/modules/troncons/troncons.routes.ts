@@ -21,10 +21,19 @@ tronconsRouter.get("/", listHandler);
 tronconsRouter.get("/geo", listGeoHandler);
 tronconsRouter.get("/itineraire", itineraireHandler);
 tronconsRouter.get("/export", exportHandler);
-tronconsRouter.post("/import", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), uploadExcel, importHandler);
-tronconsRouter.use(requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), createBulkRouter(tronconsService));
+// Les lectures par identifiant AVANT le garde de role, comme les lectures de liste
+// ci-dessus. Elles etaient placees apres, et `router.use(...)` s'appliquant a tout ce
+// qui suit, un LECTEUR pouvait voir la liste et la carte mais pas ouvrir une fiche —
+// exactement l'inverse de ce que le commentaire ci-dessus annonce.
+//
+// L'ordre etait accidentel : ces deux routes ont ete ajoutees apres coup, sous la
+// ligne existante. Rien ne signalait la regression, parce qu'un ADMIN ne la voit
+// jamais. Constate le 04/09/2026.
 tronconsRouter.get("/:id/fiche", ficheHandler);
 tronconsRouter.get("/:id", getHandler);
+
+tronconsRouter.post("/import", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), uploadExcel, importHandler);
+tronconsRouter.use(requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), createBulkRouter(tronconsService));
 tronconsRouter.post("/", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), createHandler);
 tronconsRouter.put("/:id", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), updateHandler);
 tronconsRouter.patch("/:id/geom", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), updateGeomHandler);
