@@ -81,7 +81,7 @@ interface Retenu {
 
 function lire(fichier: string): { retenus: Retenu[]; exclus: Record<string, number> } {
   const brut = JSON.parse(fs.readFileSync(fichier, "utf8")) as {
-    features: { properties: Proprietes; geometry: { type: string; coordinates: number[] } }[];
+    features: { properties: Proprietes; geometry: { type: string; coordinates: number[][] } }[];
   };
 
   const exclus: Record<string, number> = {
@@ -100,10 +100,20 @@ function lire(fichier: string): { retenus: Retenu[]; exclus: Record<string, numb
     if (!RESEAU_STRUCTURANT.has(String(p.nature))) { exclus["pont hors réseau structurant"]++; continue; }
     if ((p.distanceM ?? Infinity) <= SEUIL_DOUBLON_M) { exclus["doublon d'un ouvrage inventorié"]++; continue; }
 
-    const c = f.geometry?.coordinates;
-    if (f.geometry?.type !== "Point" || !Array.isArray(c) || c.length < 2) {
+    /**
+     * La source rend une LIGNE, pas un point : le franchissement est le segment de
+     * voie qui traverse. C'est plus riche que prevu — la longueur portee par la
+     * source est donc mesuree sur ce segment, pas declaree.
+     *
+     * `Ouvrage.geom` etant un point, on prend le MILIEU DE LA LIGNE et non le
+     * centroide : sur un pont courbe, le centroide tombe a cote de l'ouvrage.
+     */
+    const ligne = f.geometry?.coordinates;
+    if (f.geometry?.type !== "LineString" || !Array.isArray(ligne) || ligne.length < 2) {
       exclus["géométrie inutilisable"]++; continue;
     }
+    const c = ligne[Math.floor(ligne.length / 2)];
+    if (!Array.isArray(c) || c.length < 2) { exclus["géométrie inutilisable"]++; continue; }
 
     // La cle doit etre STABLE d'un import a l'autre. Le numero source quand il existe,
     // sinon la position arrondie au dix-millionieme de degre — environ un centimetre.
