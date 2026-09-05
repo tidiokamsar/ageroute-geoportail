@@ -132,12 +132,12 @@ export function legendeVoirie(voies: number, promues: number): string {
   const n = voies.toLocaleString("fr-FR");
   if (voies === 0) return "Aucune voie dans la vue.";
   if (promues === 0) {
-    return `${n} voie(s) dans la vue — source OpenStreetMap 2023, donnée non validée par AGEROUTE`;
+    return `${n} voie(s) dans la vue — donnée externe non validée par AGEROUTE`;
   }
   if (promues >= voies) {
-    return `${n} voie(s) dans la vue — rattachées au registre AGEROUTE, tracé OpenStreetMap 2023`;
+    return `${n} voie(s) dans la vue — rattachées au registre AGEROUTE`;
   }
-  return `${n} voie(s) dans la vue, dont ${promues.toLocaleString("fr-FR")} rattachées au registre AGEROUTE — les autres restent de la donnée OpenStreetMap non validée`;
+  return `${n} voie(s) dans la vue, dont ${promues.toLocaleString("fr-FR")} rattachées au registre AGEROUTE — les autres restent de la donnée externe non validée`;
 }
 
 /**

@@ -5,7 +5,7 @@ import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, GeoJSON, Toolt
 import { canvas, divIcon, latLngBounds, type LatLngBounds, type Map as CarteLeaflet } from "leaflet";
 import { LogIn, AlertTriangle, LocateFixed, Loader2, Plus, Minus, MapPin, X } from "lucide-react";
 import axios from "axios";
-import { ETAT_COLORS, ETAT_LABELS, CHANTIER_COLORS } from "./geoportail/types";
+import { ETAT_COLORS, ETAT_LABELS, CHANTIER_COLORS, CREDIT_DONNEES } from "./geoportail/types";
 import { ouvrageIcon, TYPE_OUVRAGE_LABEL } from "./geoportail/symbols";
 import { RechercheVille } from "../components/RechercheVille";
 import { tronconDansFiltre, filtrerParRoute, filtrerParVille, type FiltreVille } from "../lib/villes";
@@ -341,7 +341,7 @@ export function PublicCartePage() {
               l'echelle ou l'on regarde une rue. Leaflet agrandit alors la derniere
               tuile disponible — flou plutot qu'absent, et les traces restent nets. */}
           <TileLayer
-            attribution='&copy; les contributeurs <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+            attribution={`&copy; les contributeurs <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> · ${CREDIT_DONNEES}`}
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             crossOrigin="anonymous"
             maxZoom={20}
@@ -465,7 +465,7 @@ export function PublicCartePage() {
                   `<b>${p.franchissement ?? ""}${p.numero ? " " + p.numero : ""}${p.nom ? " — " + p.nom : ""}</b><br>` +
                   `${p.nature ?? ""}<br>` +
                   `Proposition : <b>${p.classement === "PONT_SANS_OUVRAGE" ? "à instruire (aucun ouvrage AGEROUTE à 250 m)" : "correspondance AGEROUTE"}</b><br>` +
-                  `<span style="color:#6b7280">Source OpenStreetMap 2023 — à valider sur le terrain par AGEROUTE</span>`
+                  `<span style="color:#6b7280">Repère non inventorié — à valider sur le terrain par AGEROUTE</span>`
                 );
               }}
             />

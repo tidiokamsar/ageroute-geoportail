@@ -1175,7 +1175,7 @@ export function DetailPanel({
                 <CopyButton value={`${feature.data.lat.toFixed(5)}, ${feature.data.lon.toFixed(5)}`} />
               </span>
             </div>
-            <p className="text-[11px] text-gray-400 mt-2">Repère OpenStreetMap, à titre indicatif (non géré par AGEROUTE).</p>
+            <p className="text-[11px] text-gray-400 mt-2">Repère à titre indicatif, non géré par AGEROUTE. Source : OpenStreetMap (ODbL).</p>
           </div>
         )}
 

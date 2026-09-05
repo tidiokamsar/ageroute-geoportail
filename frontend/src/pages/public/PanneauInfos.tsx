@@ -268,11 +268,11 @@ export function PanneauInfos({
             )}
 
             <Case coche={couches.pontsOsm} onChange={() => onToggleCouche("pontsOsm")} gras>
-              Franchissements OSM (propositions)
+              Franchissements (propositions)
             </Case>
             {couches.pontsOsm && (
               <p className="ml-7 text-[10px] leading-snug text-slate-400">
-                Ponts cartographiés par OpenStreetMap (2023) sans inventaire AGEROUTE — à valider sur le terrain
+                Ponts repérés hors inventaire AGEROUTE — à valider sur le terrain
               </p>
             )}
 

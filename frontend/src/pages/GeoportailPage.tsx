@@ -54,8 +54,7 @@ import {
   type PointNoirGeoPoint,
   type PosteGeoPoint,
   type SelectedFeature,
-  type TronconGeoFeature,
-} from "./geoportail/types";
+  type TronconGeoFeature, CREDIT_DONNEES } from "./geoportail/types";
 import type { StatutChantier } from "../types";
 
 const GUINEE_CENTER: [number, number] = [10.5, -10.8];
@@ -1048,7 +1047,7 @@ export function GeoportailPage() {
               <LayerRow
                 checked={showVoirie}
                 onChange={() => setShowVoirie((v) => !v)}
-                label="Voirie locale (OpenStreetMap)"
+                label="Voirie locale"
               />
               {showVoirie && (
                 <div className="ml-6 mt-1 space-y-1.5">
@@ -1099,7 +1098,7 @@ export function GeoportailPage() {
             </div>
 
             <div className="mt-2 pt-2 border-t border-gray-100">
-              <LayerRow checked={showPontsOsm} onChange={() => setShowPontsOsm((v) => !v)} label="Franchissements OSM (propositions D9)" />
+              <LayerRow checked={showPontsOsm} onChange={() => setShowPontsOsm((v) => !v)} label="Franchissements (propositions)" />
               {showPontsOsm && (
                 <div className="ml-6 mt-1 space-y-1.5">
                   {/* Le filtre par categorie de voie n'est pas un confort d'affichage.
@@ -1161,8 +1160,8 @@ export function GeoportailPage() {
                   <p className="text-[11px] leading-snug text-gray-400">
                     Cette couche n'affiche <strong className="font-semibold">que des ouvrages
                     de franchissement</strong> — jamais le tracé des routes elles-mêmes.
-                    Source OpenStreetMap 2023, validée par AGEROUTE. Un franchissement sur
-                    chemin n'est pas nécessairement un ouvrage du patrimoine.
+                    Un franchissement sur chemin n'est pas nécessairement un ouvrage du
+                    patrimoine. La provenance figure sur la fiche de chaque objet.
                   </p>
 
                   {franchissementsAjoutes.size > 0 && (
@@ -1201,7 +1200,7 @@ export function GeoportailPage() {
           </PanelSection>
 
           <PanelSection icon={<MapPinned className="h-4 w-4" />} title="Repères" defaultOpen={false}>
-            <LayerRow checked={showToponymes} onChange={() => setShowToponymes((v) => !v)} label="Ponts, tunnels, parkings (OSM)" />
+            <LayerRow checked={showToponymes} onChange={() => setShowToponymes((v) => !v)} label="Ponts, tunnels, parkings" />
           </PanelSection>
 
           <PanelSection icon={<AlertTriangle className="h-4 w-4" />} title="Filtres" defaultOpen={false}>
@@ -1281,7 +1280,7 @@ export function GeoportailPage() {
           style={{ height: "100%", width: "100%" }}
         >
           <TileLayer
-            attribution={bm.attribution}
+            attribution={`${bm.attribution} · ${CREDIT_DONNEES}`}
             url={bm.url}
             crossOrigin="anonymous"
             maxZoom={ZOOM_MAX}

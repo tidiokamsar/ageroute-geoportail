@@ -1,5 +1,23 @@
 import type { EtatPatrimoine, StatutChantier } from "../../types";
 
+/**
+ * Attribution des DONNEES, distincte de celle du fond de plan.
+ *
+ * Les couches de voirie et de franchissements sont derivees d'OpenStreetMap, sous
+ * licence ODbL, qui impose l'attribution. La mention du fond de plan ne suffit pas :
+ * elle disparait quand on bascule sur le satellite, et elle ne couvre de toute facon
+ * que les tuiles.
+ *
+ * Les libelles de navigation ne portent plus « OSM » — un utilisateur n'a pas a lire
+ * un nom de source dans un menu — mais le credit reste, ici et sur la fiche de chaque
+ * objet. Effacer l'origine d'une donnee la rendrait indefendable devant un auditeur,
+ * et violerait la licence.
+ */
+export const CREDIT_DONNEES =
+  'Données de voirie : &copy; les contributeurs '
+  + '<a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> (ODbL)';
+
+
 export interface TronconGeoFeature {
   id: string;
   code: string;
