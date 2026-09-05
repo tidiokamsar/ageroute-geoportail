@@ -41,6 +41,94 @@ interface Repartition {
   fraicheur: { datees: number; total: number; pct: number };
 }
 
+/**
+ * Ecart entre le referentiel des regions et les limites administratives chargees.
+ *
+ * Le decret du 05/09/2026 cree les regions de Siguiri et de Beyla : elles figurent au
+ * referentiel, aucune limite ne les couvre. Ce n'est pas une panne — la carte cesse
+ * d'y poser des epingles et la liste « sans localisation » recueille leurs chantiers.
+ * C'est une dette, et elle n'apparaissait nulle part.
+ */
+interface ReferentielAdmin {
+  regions: { nom: string; aUneLimite: boolean; objetsRattaches: number }[];
+  limites: { niveau: number; entites: number }[];
+  ecart: { regionsSansLimite: string[]; objetsConcernes: number; resolution: string | null };
+}
+
+const NIVEAU_LIBELLE: Record<number, string> = {
+  1: "Régions", 2: "Préfectures", 3: "Sous-préfectures",
+};
+
+function EcartReferentiel() {
+  const { data, isLoading } = useQuery<ReferentielAdmin>({
+    queryKey: ["referentiel-administratif"],
+    queryFn: async () => (await api.get("/qualite/referentiel-administratif")).data,
+  });
+
+  if (isLoading || !data) return null;
+
+  const manquantes = data.ecart.regionsSansLimite;
+  const bloquant = data.ecart.objetsConcernes > 0;
+
+  return (
+    <section
+      className={`rounded-jeton-md border p-4 ${
+        manquantes.length === 0
+          ? "border-etat-bon/30 bg-etat-bon-fond"
+          : bloquant
+            ? "border-etat-mauvais/40 bg-etat-mauvais-fond"
+            : "border-etat-moyen/40 bg-etat-moyen-fond"
+      }`}
+    >
+      <h2 className="flex items-center gap-2 text-sm font-semibold text-navy">
+        {manquantes.length === 0
+          ? <ShieldCheck className="h-4 w-4 text-etat-bon" aria-hidden="true" />
+          : <AlertTriangle className={`h-4 w-4 ${bloquant ? "text-etat-mauvais" : "text-etat-moyen"}`} aria-hidden="true" />}
+        Découpage administratif
+      </h2>
+
+      {manquantes.length === 0 ? (
+        <p className="mt-1 text-[13px] text-slate-700">
+          Chaque région du référentiel dispose de sa limite officielle.
+        </p>
+      ) : (
+        <>
+          <p className="mt-1 text-[13px] text-slate-700">
+            <strong className="chiffres">{manquantes.length}</strong>{" "}
+            {manquantes.length > 1 ? "régions n'ont" : "région n'a"} pas de limite chargée :{" "}
+            <strong>{manquantes.join(", ")}</strong>.
+          </p>
+          <p className="mt-1 text-[13px] text-slate-700">
+            {bloquant ? (
+              <>
+                <strong className="chiffres">{data.ecart.objetsConcernes}</strong> objets y sont
+                rattachés : ils sortent de la carte et figurent dans la liste des chantiers sans
+                localisation.
+              </>
+            ) : (
+              // Distinguer les deux situations : une region vide n'empeche rien
+              // aujourd'hui, et presenter les deux en rouge banaliserait l'alerte.
+              <>Aucun objet n'y est rattaché : rien n'est masqué à ce jour.</>
+            )}
+          </p>
+          {data.ecart.resolution && (
+            <p className="mt-2 text-[12px] italic text-slate-600">{data.ecart.resolution}</p>
+          )}
+        </>
+      )}
+
+      <dl className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-[12px] text-slate-600">
+        {data.limites.map((l) => (
+          <div key={l.niveau} className="flex gap-1.5">
+            <dt>{NIVEAU_LIBELLE[l.niveau] ?? `Niveau ${l.niveau}`} :</dt>
+            <dd className="chiffres font-medium text-navy">{l.entites}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
+
 const ENTITES = [
   { cle: "Troncon", libelle: "Tronçons" },
   { cle: "Ouvrage", libelle: "Ouvrages d'art" },
@@ -125,6 +213,8 @@ export function QualitePage() {
           comme non fiable.
         </p>
       </header>
+
+      <EcartReferentiel />
 
       <div className="flex flex-wrap gap-2">
         {ENTITES.map((e) => (
