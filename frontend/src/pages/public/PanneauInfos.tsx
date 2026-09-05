@@ -1,7 +1,7 @@
 import { ChevronDown } from "lucide-react";
-import { ETAT_COLORS, ETAT_LABELS, CHANTIER_COLORS } from "../geoportail/types";
-import { STATUT_LABELS, CLASSE_LABELS } from "./types";
-import type { EtatPatrimoine, StatutChantier } from "../../types";
+import { ETAT_COLORS, ETAT_LABELS } from "../geoportail/types";
+import { CLASSE_LABELS } from "./types";
+import type { EtatPatrimoine } from "../../types";
 import { legendeVoirie } from "../geoportail/VoirieLocaleLayer";
 import type { StatsReseau } from "./stats";
 
@@ -225,17 +225,16 @@ export function PanneauInfos({
             </div>
 
             <Case coche={couches.chantiers} onChange={() => onToggleCouche("chantiers")} gras>
-              Chantiers
+              Chantiers en cours
             </Case>
+            {/* La legende ne liste plus les quatre statuts : la carte n'en dessine
+                qu'un. L'afficher laisserait croire qu'un chantier termine est visible
+                quelque part, et ferait chercher ce qui n'y est pas. */}
             {couches.chantiers && (
-              <ul className="mb-1 space-y-0.5 pl-5">
-                {(Object.keys(CHANTIER_COLORS) as StatutChantier[]).map((s) => (
-                  <li key={s} className="flex items-center gap-2 text-slate-600">
-                    <TraitLegende couleur={CHANTIER_COLORS[s]} tirets />
-                    {STATUT_LABELS[s]}
-                  </li>
-                ))}
-              </ul>
+              <p className="mb-1 pl-5 text-[11px] leading-snug text-slate-400">
+                Seuls les chantiers en cours sont cartographiés. Les travaux achevés,
+                planifiés ou suspendus restent au registre.
+              </p>
             )}
 
             <Case coche={couches.pointsNoirs} onChange={() => onToggleCouche("pointsNoirs")} gras>

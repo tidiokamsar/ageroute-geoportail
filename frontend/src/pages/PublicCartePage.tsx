@@ -66,7 +66,9 @@ function CaptureCarte({ onReady }: { onReady: (m: CarteLeaflet) => void }) {
 export function PublicCartePage() {
   const [couches, setCouches] = useState<Record<CoucheKey, boolean>>({
     troncons: true,
-    chantiers: true,
+    // Decochee au demarrage. Un visiteur vient d'abord voir l'etat des routes ; les
+    // chantiers se superposent au reseau et le masquent avant qu'on ait rien demande.
+    chantiers: false,
     pointsNoirs: true,
     ouvrages: false,
     pontsOsm: false,
@@ -164,17 +166,31 @@ export function PublicCartePage() {
       ),
     [tronconLines, etatsMasques, classesMasquees, routeIsolee, villeFiltre]
   );
+  /**
+   * Seuls les chantiers EN COURS sont cartographies.
+   *
+   * Sur 487 chantiers, 312 sont termines et 66 seulement planifies. Les afficher tous
+   * ferait lire comme des travaux en cours des marches acheves depuis 2019 — c'est
+   * l'inverse de ce qu'un citoyen vient chercher sur cette carte.
+   *
+   * Les termines et les planifies restent en base et dans les indicateurs ; ils ne
+   * sont simplement pas dessines.
+   */
+  const chantiersEnCours = useMemo(
+    () => (data?.chantiers ?? []).filter((c) => c.statut === "EN_COURS"),
+    [data]
+  );
   const chantierLines = useMemo(
     () =>
-      (data?.chantiers ?? [])
+      chantiersEnCours
         .filter((c) => !c.approximate)
         .map((c) => ({ c, positions: geoJsonToLatLngs(c.geometry) }))
         .filter((x) => x.positions.length > 0),
-    [data]
+    [chantiersEnCours]
   );
   const chantierPoints = useMemo(
-    () => (data?.chantiers ?? []).filter((c) => c.approximate && c.lat != null && c.lon != null),
-    [data]
+    () => chantiersEnCours.filter((c) => c.approximate && c.lat != null && c.lon != null),
+    [chantiersEnCours]
   );
 
   const stats = useMemo<StatsReseau>(
