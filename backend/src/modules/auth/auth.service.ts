@@ -10,30 +10,59 @@ import { env } from "../../config/env";
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
 
-// Compteur d'echecs par challenge 2FA : un code TOTP a 6 chiffres, sans plafond
-// il est bruteforcable pendant toute la validite du challenge (5 min). En memoire
-// car un challenge est court-lived ; le rate-limit IP d'app.ts reste la premiere
-// barriere, celui-ci empeche de concentrer les essais sur un meme challenge.
+/**
+ * Compteur d'echecs 2FA, indexe sur l'UTILISATEUR.
+ *
+ * Un code TOTP a six chiffres : sans plafond, il se devine. Deux defauts corriges
+ * le 05/09/2026, tous deux issus du choix de la cle.
+ *
+ * IL ETAIT INDEXE SUR LE JETON DE CHALLENGE. Or `login` en delivre un nouveau a la
+ * demande : cinq essais epuises, il suffisait de se reconnecter pour en obtenir cinq
+ * autres. Le plafond ne plafonnait rien, et la seule barriere reelle restait le
+ * limiteur par IP d'app.ts. Indexe sur `payload.sub`, il compte ce qu'il pretend
+ * compter : les essais contre UN compte, quel que soit le nombre de challenges.
+ *
+ * RIEN NE BALAYAIT LA TABLE. Une entree ne disparaissait qu'au succes, ou si le meme
+ * jeton se representait apres expiration — ce qu'un challenge abandonne ne fait
+ * jamais. Chaque connexion suivie d'un code faux laissait donc une entree definitive,
+ * portant un JWT complet en cle. Le processus grossissait jusqu'au redemarrage. Le
+ * balayage ci-dessous s'execute a l'ecriture : il n'exige aucun minuteur, donc rien
+ * qui retienne le processus a l'arret ou qui fuie entre deux tests.
+ */
 const TWO_FA_MAX_ATTEMPTS = 5;
-const TWO_FA_CHALLENGE_TTL_MS = 5 * 60 * 1000;
+const TWO_FA_WINDOW_MS = 15 * 60 * 1000;
 const twoFaFailedAttempts = new Map<string, { count: number; expiresAt: number }>();
 
-function isTwoFaChallengeExhausted(challengeToken: string): boolean {
-  const entry = twoFaFailedAttempts.get(challengeToken);
+function balayerTwoFa(maintenant: number): void {
+  for (const [cle, e] of twoFaFailedAttempts) {
+    if (e.expiresAt <= maintenant) twoFaFailedAttempts.delete(cle);
+  }
+}
+
+function isTwoFaChallengeExhausted(userId: string): boolean {
+  const entry = twoFaFailedAttempts.get(userId);
   if (!entry) return false;
   if (entry.expiresAt <= Date.now()) {
-    twoFaFailedAttempts.delete(challengeToken);
+    twoFaFailedAttempts.delete(userId);
     return false;
   }
   return entry.count >= TWO_FA_MAX_ATTEMPTS;
 }
 
-function registerTwoFaFailure(challengeToken: string): void {
-  const previous = twoFaFailedAttempts.get(challengeToken);
-  twoFaFailedAttempts.set(challengeToken, {
-    count: (previous?.count ?? 0) + 1,
-    expiresAt: previous?.expiresAt ?? Date.now() + TWO_FA_CHALLENGE_TTL_MS,
+function registerTwoFaFailure(userId: string): void {
+  const maintenant = Date.now();
+  balayerTwoFa(maintenant);
+  const previous = twoFaFailedAttempts.get(userId);
+  const encoreValable = previous && previous.expiresAt > maintenant;
+  twoFaFailedAttempts.set(userId, {
+    count: (encoreValable ? previous.count : 0) + 1,
+    expiresAt: encoreValable ? previous.expiresAt : maintenant + TWO_FA_WINDOW_MS,
   });
+}
+
+/** Reserve aux tests : vide le compteur entre deux cas. */
+export function _reinitialiserCompteurTwoFa(): void {
+  twoFaFailedAttempts.clear();
 }
 
 function refreshExpiryDate(): Date {
@@ -117,7 +146,9 @@ export async function verifyTwoFaLogin(challengeToken: string, code: string, ipA
     throw new ApiError(401, "Session de connexion expirée, veuillez vous reconnecter.");
   }
 
-  if (isTwoFaChallengeExhausted(challengeToken)) {
+  // Apres la verification de signature : `payload.sub` n'est exploitable qu'une fois
+  // le jeton reconnu, et un jeton falsifie ne doit pas pouvoir remplir la table.
+  if (isTwoFaChallengeExhausted(payload.sub)) {
     throw new ApiError(429, "Trop de tentatives, veuillez relancer la connexion.");
   }
 
@@ -127,12 +158,12 @@ export async function verifyTwoFaLogin(challengeToken: string, code: string, ipA
   }
 
   if (!verifyTotpCode(user.totpSecret, code)) {
-    registerTwoFaFailure(challengeToken);
+    registerTwoFaFailure(user.id);
     await logAudit({ userId: user.id, action: "LOGIN_FAILED", entityType: "User", entityId: user.id, ipAddress });
     throw new ApiError(401, "Code de vérification invalide.");
   }
 
-  twoFaFailedAttempts.delete(challengeToken);
+  twoFaFailedAttempts.delete(user.id);
   return issueSession(user, ipAddress);
 }
 

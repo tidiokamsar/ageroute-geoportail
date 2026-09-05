@@ -136,11 +136,16 @@ describe("GET /api/search — cloisonnement par module", () => {
     expect(typesRetournes(res.body)).toEqual(["chantier", "troncon"]);
   });
 
-  it("une liste vide vaut absence de restriction — comportement historique conservé", async () => {
+  it("une liste vide ne donne AUCUN module", async () => {
+    // Elle valait « aucune restriction », donc tous les modules. Mesure du 05/09/2026
+    // en production : les deux seuls comptes non-ADMIN actifs avaient une liste vide,
+    // et atteignaient donc tout. Un compte que l'on vient de creer s'ouvrait en grand
+    // tant que personne ne lui attribuait de modules — le systeme cedait exactement
+    // la ou la configuration avait ete oubliee.
     compte.modulesAutorises = [];
     const res = await request(app()).get("/api/search?q=RN").set("Authorization", `Bearer ${jeton()}`);
 
-    expect(typesRetournes(res.body)).toEqual(["chantier", "ouvrage", "pointNoir", "poste", "troncon"]);
+    expect(typesRetournes(res.body)).toEqual([]);
   });
 
   it("ADMIN n'est jamais restreint, même avec une liste de modules", async () => {

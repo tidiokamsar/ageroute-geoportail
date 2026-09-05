@@ -95,9 +95,11 @@ describe("Cloisonnement des routes Marchés", () => {
     expect((await lire()).status).toBe(200);
   });
 
-  it("une liste vide vaut absence de restriction", async () => {
+  it("une liste vide ne donne AUCUN module", async () => {
+    // Voir lib/access.ts : le vide valait « tout autorise ». Il vaut desormais
+    // « rien », et c'est a l'attribution des modules de decider.
     compte.modulesAutorises = [];
-    expect((await lire()).status).toBe(200);
+    expect((await lire()).status).toBe(403);
   });
 
   it("refuse l'appel sans jeton", async () => {

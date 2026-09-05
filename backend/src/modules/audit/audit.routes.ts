@@ -35,7 +35,11 @@ auditRouter.get("/", requireAuth, async (req, res, next) => {
   try {
     const q = querySchema.parse(req.query);
 
-    if (!(q.entityType in MODULE_PAR_ENTITE)) {
+    // `in` traverse la chaine de prototypes : « constructor », « toString » et
+    // « __proto__ » la franchissaient, et la table rendait alors une fonction — donc
+    // ni undefined ni null — ce qui menait a la branche « module » au lieu du refus.
+    // L'echec ferme annonce plus haut n'en etait pas un.
+    if (!Object.prototype.hasOwnProperty.call(MODULE_PAR_ENTITE, q.entityType)) {
       res.status(403).json({ error: "Type d'entité non autorisé" });
       return;
     }

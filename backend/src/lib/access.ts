@@ -9,10 +9,24 @@ export interface CompteAuthentifie {
 /**
  * Modules auxquels un compte a droit.
  *
- * Renvoie `null` lorsqu'il n'y a AUCUNE restriction — c'est le cas d'un ADMIN, et
- * celui d'un compte dont `modulesAutorises` est vide (comportement historique
- * conserve pour ne pas casser les comptes existants). Renvoie sinon l'ensemble des
- * cles autorisees.
+ * Renvoie `null` lorsqu'il n'y a AUCUNE restriction — le seul cas est le role ADMIN.
+ * Renvoie sinon l'ensemble des cles autorisees, eventuellement vide.
+ *
+ * UNE LISTE VIDE N'EST PAS UNE AUTORISATION (correction du 05/09/2026)
+ *
+ * Elle valait « aucune restriction », par report d'un comportement anterieur a
+ * l'existence meme des modules. Mesure du 05/09 sur la production : l'unique
+ * GESTIONNAIRE et l'unique LECTEUR actifs ont tous deux `modulesAutorises` vide.
+ * Le cloisonnement etait donc inopérant pour la totalite des comptes non-ADMIN,
+ * pendant que l'interface presentait l'affectation de modules comme une restriction.
+ *
+ * Le defaut portait sur le sens du vide : un compte que l'on vient de creer, et dont
+ * personne n'a encore choisi les modules, obtenait TOUS les modules. Le systeme
+ * s'ouvrait exactement au moment ou la configuration avait ete oubliee.
+ *
+ * Une liste vide vaut desormais « aucun module ». C'est un changement de
+ * comportement en production : les comptes sans modules perdent l'acces tant que
+ * personne ne leur en attribue — ce qui est la question qu'il fallait poser.
  *
  * Cette fonction est la source unique de la regle : `requireModuleAccess` s'appuie
  * dessus, comme les routes qui doivent filtrer plusieurs types d'entites a la fois
@@ -28,7 +42,6 @@ export async function modulesAutorisesDe(user: CompteAuthentifie): Promise<Set<M
   // Compte introuvable (supprime entre l'emission du jeton et l'appel) : on n'accorde
   // rien plutot que tout.
   if (!row) return new Set<ModuleKey>();
-  if (row.modulesAutorises.length === 0) return null;
   return new Set(row.modulesAutorises as ModuleKey[]);
 }
 

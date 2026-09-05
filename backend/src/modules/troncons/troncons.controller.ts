@@ -10,6 +10,10 @@ export async function listHandler(req: Request, res: Response, next: NextFunctio
     const result = await tronconsService.list({
       page: q.page, pageSize: q.pageSize, sortBy: q.sortBy, sortDir: q.sortDir,
       search: q.search, region: q.region, etat: q.etat, archived: q.archived, classe: q.type,
+      // Le reseau classe par defaut. `?perimetre=tout` reste ouvert a l'appelant qui
+      // sait qu'il demande aussi la voirie promue, et le repli sur "reference" vaut
+      // pour toute valeur inconnue : on ne devine pas un perimetre.
+      perimetre: req.query.perimetre === "tout" ? "tout" : "reference",
     });
     res.json(result);
   } catch (err) { next(err); }

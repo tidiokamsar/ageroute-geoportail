@@ -1,3 +1,4 @@
+import { randomUUID } from "crypto";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
 import { logAudit } from "../utils/audit";
@@ -68,14 +69,25 @@ export function createCrudService(model: PrismaDelegate, entityName: string, def
      * C'est l'inverse de ce qu'il faut — a la creation, TOUS les champs de decision
      * recoivent leur premiere valeur, et aucune ne disait d'ou elle venait.
      *
-     * Deux temps parce que l'identifiant n'existe pas avant l'insertion : la
-     * provenance ne peut pas se joindre a la meme transaction sans le connaitre. Un
-     * echec entre les deux laisse une entite sans provenance — visible, corrigeable,
-     * et bien moins grave qu'une provenance orpheline pointant vers rien.
+     * UN SEUL TEMPS (correction du 05/09/2026)
+     *
+     * La version precedente ecrivait l'entite, puis sa provenance dans une SECONDE
+     * transaction, en invoquant que « l'identifiant n'existe pas avant l'insertion ».
+     * C'etait faux : rien n'oblige a laisser la base tirer l'identifiant. Toutes les
+     * cles de ce schema sont des `@default(uuid())` ; en le tirant ici, la provenance
+     * connait sa cible avant meme l'insertion et rejoint la meme transaction.
+     *
+     * L'argument etait faux, et sa consequence reelle : une coupure entre les deux
+     * ecritures laissait une entite SANS provenance, sur le seul geste ou tous les
+     * champs de decision recoivent leur premiere valeur. Rien ne le rejouait, rien ne
+     * le signalait. `update` etait deja atomique : les deux chemins ne donnaient pas
+     * la meme garantie sur le meme invariant.
      */
-    const created = await model.create({ data });
-    const saisies = construireSaisies(entityName, created.id, data, userId);
-    if (saisies.length > 0) await prisma.$transaction(saisies as never);
+    const id = (data.id as string | undefined) ?? randomUUID();
+    const [created] = await prisma.$transaction([
+      model.create({ data: { ...data, id } }),
+      ...construireSaisies(entityName, id, data, userId),
+    ]);
     await logAudit({ userId, action: "CREATE", entityType: entityName, entityId: created.id, after: created });
     return created;
   }

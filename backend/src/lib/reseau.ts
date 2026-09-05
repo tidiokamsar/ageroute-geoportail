@@ -150,7 +150,18 @@ export async function longueurReseau(perimetre: PerimetreReseau = "reference"): 
              AND q.champ = 'longueurKm' AND q.statut = 'DERIVED'
         )
       )                                                                  AS derivees,
-      COALESCE(SUM("longueurKm"), 0)                                     AS km_metier,
+      -- Le MEME filtre que avec_longueur ci-dessus. Sans lui, la somme comptait
+      -- comme SAISIES des longueurs CALCULEES que le compte, lui, excluait : sur le
+      -- perimetre "voirie", 164 108 km presentes comme longueur metier — celle qui
+      -- engage aux marches — pour 0 troncon renseigne. Le module existe pour empecher
+      -- exactement cette confusion ; il l'avait corrigee sur le compte, pas sur la somme.
+      COALESCE(SUM("longueurKm") FILTER (
+        WHERE NOT EXISTS (
+          SELECT 1 FROM valeurs_qualite q
+           WHERE q."entityType" = 'Troncon' AND q."entityId" = t.id
+             AND q.champ = 'longueurKm' AND q.statut = 'DERIVED'
+        )
+      ), 0)                                                              AS km_metier,
       COALESCE(SUM(ST_Length(geom::geography) / 1000.0), 0)              AS km_geometrique
     FROM troncons t
     WHERE "deletedAt" IS NULL ${clausePerimetre(perimetre)}

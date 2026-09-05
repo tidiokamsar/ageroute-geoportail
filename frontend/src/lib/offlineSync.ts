@@ -43,7 +43,19 @@ export async function refreshPendingCount() {
 // validation refusee — se reproduirait sinon a chaque retour de reseau, sans fin et
 // sans que personne ne s'en apercoive. L'element est conserve pour que l'agent puisse
 // le corriger ou le supprimer, jamais efface en silence.
+//
+// Le compteur mesure des echecs CONSECUTIFS, pas des tentatives. Il comptait les
+// tentatives, et abandonnait donc une synchronisation qui avancait : une inspection
+// a six photos sur un reseau qui coupe en passe une par tentative, atteint cinq au
+// moment ou il n'en reste qu'une, et se retrouve marquee « abandonnee » — donc
+// ignoree pour toujours par la boucle. La derniere photo ne partait jamais, alors
+// que chaque tentative avait reussi en partie.
 const MAX_TENTATIVES = 5;
+
+/** Vrai si la tentative a fait avancer quoi que ce soit de durable. */
+function aProgresse(avant: PendingInspection, apres: PendingInspection): boolean {
+  return (!avant.serverId && !!apres.serverId) || apres.photos.length < avant.photos.length;
+}
 
 /**
  * Synchronise une inspection en attente.
@@ -104,11 +116,15 @@ async function syncOne(item: PendingInspection): Promise<boolean> {
     return true;
   } catch (err) {
     const message = err instanceof Error ? err.message : "Erreur de synchronisation";
-    const abandonnee = tentatives >= MAX_TENTATIVES;
+    // Une tentative qui a fait avancer l'envoi repart de zero : ce n'est pas
+    // l'erreur permanente que le plafond vise, c'est un reseau qui coupe.
+    const echecsConsecutifs = aProgresse(item, etat) ? 0 : tentatives;
+    const abandonnee = echecsConsecutifs >= MAX_TENTATIVES;
     await updatePendingInspection({
       ...etat,
+      tentatives: echecsConsecutifs,
       status: abandonnee ? "abandonnee" : "error",
-      errorMessage: abandonnee ? `${message} (abandon apres ${tentatives} tentatives)` : message,
+      errorMessage: abandonnee ? `${message} (abandon apres ${echecsConsecutifs} echecs consecutifs)` : message,
     });
     return false;
   }

@@ -129,7 +129,20 @@ async function listGeo() {
         return { ...r, approximate: false, lat: null, lon: null, localisation: loc.statut, localisationLibelle: loc.libelle };
       }
 
-      const centroid = (r.region && REGION_CENTROIDS[r.region]) || REGION_CENTROIDS.Conakry;
+      /**
+       * Une region sans centroide connu n'est PAS Conakry.
+       *
+       * Le repli `|| REGION_CENTROIDS.Conakry` posait l'epingle a Conakry tout en
+       * affichant « Position regionale, non localisee · region Nzerekore ». L'epingle
+       * et l'etiquette se contredisaient, et c'etait la meme position inventee que le
+       * bloc ci-dessus venait de retirer aux chantiers « Non renseigne ».
+       *
+       * `REGION_CENTROIDS` couvre les 8 regions administratives d'aujourd'hui. Une
+       * neuvieme region, ou un simple changement d'orthographe, suffisait a envoyer
+       * tous ses chantiers a Conakry sans que rien ne le signale.
+       */
+      const centroid = r.region ? REGION_CENTROIDS[r.region] : undefined;
+      if (!centroid) return null;
       // Dispersion deterministe (hash de l'id) autour du centroide : sans ca, des dizaines
       // de chantiers de la meme region se superposeraient exactement au meme pixel.
       let hash = 0;
@@ -165,7 +178,13 @@ async function listSansLocalisation() {
     WHERE c."deletedAt" IS NULL
       AND c.geom IS NULL
       AND c."tronconId" IS NULL
-      AND (r.nom IS NULL OR r.nom = ${REGION_NON_RENSEIGNEE})
+      -- Le troisieme cas est le pendant obligatoire du retrait ci-dessus : un chantier
+      -- dont la region n'a pas de centroide sort de la carte, il doit donc entrer ici.
+      -- Sans cette ligne, il ne serait nulle part — et retirer un chantier de la carte
+      -- sans le rendre visible ailleurs revient a l'effacer.
+      AND (r.nom IS NULL
+           OR r.nom = ${REGION_NON_RENSEIGNEE}
+           OR NOT (r.nom = ANY(${Object.keys(REGION_CENTROIDS)})))
     ORDER BY c.intitule
   `;
   return rows.map((r) => ({ ...r, motif: "Aucune région exploitable — position inconnue" }));

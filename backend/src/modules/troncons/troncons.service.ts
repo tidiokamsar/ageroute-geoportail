@@ -20,7 +20,31 @@ export interface TronconListParams extends ListParams {
   region?: string;
   etat?: string;
   classe?: string;
+  /** Reseau classe par defaut ; "tout" inclut la voirie promue. */
+  perimetre?: PerimetreTroncons;
 }
+
+export type PerimetreTroncons = "reference" | "tout";
+
+/**
+ * Le reseau classe, ecrit UNE fois.
+ *
+ * Le meme predicat vivait en trois exemplaires — carte, export, indicateurs — et
+ * manquait au quatrieme : la liste. Elle rendait 261 387 troncons quand les trois
+ * autres en rendaient 1 691. Un ecran annoncait donc 261 387 km de reseau routier
+ * pour un pays qui en a 21 000, et c'est par la qu'une classe NON_CLASSEE a atteint
+ * `CLASSE_META[...].pill` et fait tomber la page.
+ *
+ * Le IS NULL est indispensable : les 1 690 troncons anterieurs n'ont pas de
+ * `sourceReference`, et un simple `not: { startsWith }` les exclurait tous — en SQL,
+ * NULL NOT LIKE '...' vaut NULL, donc faux.
+ */
+const RESEAU_CLASSE: Prisma.TronconWhereInput = {
+  OR: [
+    { sourceReference: null },
+    { sourceReference: { not: { startsWith: "voirie_locale:" } } },
+  ],
+};
 
 async function list(params: TronconListParams) {
   const where: Record<string, unknown> = { ...params.where };
@@ -32,6 +56,11 @@ async function list(params: TronconListParams) {
       { code: { contains: params.search, mode: "insensitive" } },
       { nom: { contains: params.search, mode: "insensitive" } },
     ];
+  }
+  // Par AND et non par OR : `where.OR` porte deja la recherche texte, et fusionner
+  // les deux listes rendrait toute la voirie des qu'un utilisateur tape un caractere.
+  if ((params.perimetre ?? "reference") !== "tout") {
+    where.AND = [...((where.AND as unknown[]) ?? []), RESEAU_CLASSE];
   }
   return base.list({ ...params, where });
 }
@@ -173,18 +202,10 @@ const PLAFOND_EXPORT = 20_000;
  * `perimetre: "tout"` reste possible pour un appelant qui sait ce qu'il demande, et
  * se heurte alors au plafond plutot qu'a une panne.
  */
-async function exportXlsx({ perimetre = "reference" }: { perimetre?: "reference" | "tout" } = {}): Promise<Buffer> {
+async function exportXlsx({ perimetre = "reference" }: { perimetre?: PerimetreTroncons } = {}): Promise<Buffer> {
   const where: Prisma.TronconWhereInput = perimetre === "tout"
     ? { deletedAt: null }
-    : {
-        deletedAt: null,
-        // Le IS NULL est indispensable : les 1 690 troncons anterieurs n'ont pas de
-        // `sourceReference`, et un simple `not: { startsWith }` les exclurait tous.
-        OR: [
-          { sourceReference: null },
-          { sourceReference: { not: { startsWith: "voirie_locale:" } } },
-        ],
-      };
+    : { deletedAt: null, ...RESEAU_CLASSE };
 
   const total = await prisma.troncon.count({ where });
   if (total > PLAFOND_EXPORT) {
