@@ -20,7 +20,11 @@ interface ChantierGeoRow {
 }
 interface OuvrageGeoRow {
   id: string; nom: string; type: string; etat: string; lat: number; lon: number;
+  code: string | null; sourceReference: string | null;
 }
+
+/** Prefixe des ouvrages releves dans les documents de la DOA&A (import du 06/10/2026). */
+export const PREFIXE_DOC_DOAA = "doc_dtoaa:";
 
 /**
  * Aperçu public du réseau (pas d'authentification) — champs volontairement
@@ -83,7 +87,8 @@ export async function carteGeoHandler(req: Request, res: Response, next: NextFun
        */
       prisma.$queryRaw<OuvrageGeoRow[]>`
         SELECT o.id, o.nom, o.type, o.etat::text AS etat,
-               ST_Y(o.geom) AS lat, ST_X(o.geom) AS lon
+               ST_Y(o.geom) AS lat, ST_X(o.geom) AS lon,
+               o.code, o."sourceReference"
         FROM ouvrages o
         WHERE o."deletedAt" IS NULL AND o.geom IS NOT NULL
           AND (o."sourceReference" IS NULL
@@ -132,7 +137,15 @@ export async function carteGeoHandler(req: Request, res: Response, next: NextFun
         id: c.id, statut: c.statut, avancementPct: c.avancementPct, region: c.region,
         geometry: c.geometry, approximate: c.approximate, lat: c.lat, lon: c.lon,
       })),
-      ouvrages: ouvrages.map((o) => ({ id: o.id, nom: o.nom, type: o.type, etat: o.etat, lat: o.lat, lon: o.lon })),
+      /**
+       * `aValider` : position et identite relevees dans un document de la DOA&A, pas
+       * encore confirmees sur le terrain. Elles appartiennent a l'inventaire de
+       * l'agence (ce ne sont pas des donnees reprises), mais le rendu doit le dire.
+       */
+      ouvrages: ouvrages.map((o) => ({
+        id: o.id, nom: o.nom, type: o.type, etat: o.etat, lat: o.lat, lon: o.lon,
+        code: o.code, aValider: (o.sourceReference ?? "").startsWith(PREFIXE_DOC_DOAA),
+      })),
     });
   } catch (err) {
     next(err);

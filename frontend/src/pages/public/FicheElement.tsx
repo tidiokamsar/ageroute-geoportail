@@ -169,8 +169,11 @@ export function FicheElement({ feature, onClose }: { feature: SelectedFeature; o
                   {ETAT_LABELS[feature.data.etat as keyof typeof ETAT_LABELS] ?? feature.data.etat}
                 </span>
               </Ligne>
+              {feature.data.code && <Ligne label="Code">{feature.data.code}</Ligne>}
               <Ligne label="Position">
-                <span className="text-xs italic text-slate-500">héritée, non vérifiée</span>
+                <span className="text-xs italic text-slate-500">
+                  {feature.data.aValider ? "relevée dans un document DOA&A, à valider sur le terrain" : "héritée, non vérifiée"}
+                </span>
               </Ligne>
             </>
           )}

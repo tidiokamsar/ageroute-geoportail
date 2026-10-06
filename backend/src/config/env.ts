@@ -6,6 +6,8 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(4000),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   CORS_ORIGIN: z.string().default("http://localhost:5173"),
+  /** Origines autorisees en LECTURE sur /api/public, sans cookie (liste separee par des virgules). */
+  PUBLIC_CORS_ORIGINS: z.string().default("https://ageroutegn.sharepoint.com"),
   JWT_ACCESS_SECRET: z.string().min(32, "JWT_ACCESS_SECRET doit faire au moins 32 caracteres"),
   JWT_REFRESH_SECRET: z.string().min(32, "JWT_REFRESH_SECRET doit faire au moins 32 caracteres"),
   JWT_ACCESS_EXPIRES_IN: z.string().default("15m"),

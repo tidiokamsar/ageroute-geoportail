@@ -1,8 +1,10 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { MapContainer, TileLayer, Polyline, CircleMarker, Tooltip } from "react-leaflet";
+import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMap } from "react-leaflet";
 import axios from "axios";
 import { ETAT_COLORS, CHANTIER_COLORS } from "./geoportail/types";
+import { ouvrageIcon, TYPE_OUVRAGE_LABEL } from "./geoportail/symbols";
+import type { PublicOuvrage } from "./public/types";
 import type { EtatPatrimoine, StatutChantier } from "../types";
 
 const GUINEE_CENTER: [number, number] = [10.5, -10.8];
@@ -20,6 +22,27 @@ interface PublicCarteData {
   troncons: PublicTroncon[];
   pointsNoirs: PublicPointNoir[];
   chantiers: PublicChantier[];
+  ouvrages?: PublicOuvrage[];
+}
+
+/**
+ * Parametres de l'URL d'embed, lus une fois au chargement :
+ * - `couches=ouvrages` : n'afficher que les ouvrages d'art (espace DOA&A). Sans
+ *   ce parametre ni `ouvrage`, la carte reste celle des autres portails : reseau,
+ *   chantiers et points noirs, sans ouvrages ;
+ * - `ouvrage=<id>` : centrer et zoomer sur cet ouvrage (fiche SharePoint liee par son ID SIG).
+ */
+function lireParametres() {
+  const q = new URLSearchParams(window.location.search);
+  return { ouvragesSeuls: q.get("couches") === "ouvrages", focus: q.get("ouvrage") };
+}
+
+function CentrerSur({ position }: { position: [number, number] | null }) {
+  const map = useMap();
+  useEffect(() => {
+    if (position) map.setView(position, 15);
+  }, [map, position]);
+  return null;
 }
 
 function geoJsonToLatLngs(geometry: string | null): [number, number][] {
@@ -47,6 +70,12 @@ export function EmbedCartePage() {
     queryFn: async () => (await axios.get<PublicCarteData>("/api/public/carte/geo")).data,
   });
 
+  const params = useMemo(lireParametres, []);
+  const focus = useMemo<[number, number] | null>(() => {
+    const o = (data?.ouvrages ?? []).find((x) => x.id === params.focus);
+    return o ? [o.lat, o.lon] : null;
+  }, [data, params.focus]);
+
   const tronconLines = useMemo(
     () =>
       (data?.troncons ?? [])
@@ -69,27 +98,36 @@ export function EmbedCartePage() {
         {/* Esri Dark Gray et non le fond sombre CARTO : basemaps.cartocdn.com renvoie
             desormais une tuile filigranee "API KEY REQUIRED" (en HTTP 200). */}
         <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}" />
-        {tronconLines.map(({ t, positions }) => (
+        <CentrerSur position={focus} />
+        {!params.ouvragesSeuls && tronconLines.map(({ t, positions }) => (
           <Polyline key={t.id} positions={positions} pathOptions={{ color: ETAT_COLORS[t.etat] ?? "#8FA9C8", weight: 3 }}>
             <Tooltip sticky>{t.code} — {t.nom}</Tooltip>
           </Polyline>
         ))}
-        {chantierLines.map(({ c, positions }) => (
+        {!params.ouvragesSeuls && chantierLines.map(({ c, positions }) => (
           <Polyline key={c.id} positions={positions} pathOptions={{ color: CHANTIER_COLORS[c.statut], weight: 5, dashArray: "5 5" }}>
             <Tooltip sticky>Chantier — {c.statut} ({c.avancementPct}%)</Tooltip>
           </Polyline>
         ))}
-        {(data?.chantiers ?? [])
+        {!params.ouvragesSeuls && (data?.chantiers ?? [])
           .filter((c) => c.approximate && c.lat != null && c.lon != null)
           .map((c) => (
             <CircleMarker key={c.id} center={[c.lat as number, c.lon as number]} radius={6} pathOptions={{ color: "#fff", weight: 1, fillColor: CHANTIER_COLORS[c.statut], fillOpacity: 0.9 }}>
               <Tooltip>Chantier — {c.statut}</Tooltip>
             </CircleMarker>
           ))}
-        {(data?.pointsNoirs ?? []).map((p) => (
+        {!params.ouvragesSeuls && (data?.pointsNoirs ?? []).map((p) => (
           <CircleMarker key={p.id} center={[p.lat, p.lon]} radius={5} pathOptions={{ color: "#fff", weight: 1, fillColor: "#dc2626", fillOpacity: 0.9 }}>
             <Tooltip>Point noir — {p.gravite}</Tooltip>
           </CircleMarker>
+        ))}
+        {(params.ouvragesSeuls || params.focus) && (data?.ouvrages ?? []).map((o) => (
+          <Marker key={o.id} position={[o.lat, o.lon]} icon={ouvrageIcon(o.type, o.etat, o.aValider === true)}>
+            <Tooltip permanent={o.id === params.focus}>
+              {TYPE_OUVRAGE_LABEL[o.type] ?? o.type} — {o.code ?? o.nom}
+              {o.aValider ? " (à valider)" : ""}
+            </Tooltip>
+          </Marker>
         ))}
       </MapContainer>
     </div>

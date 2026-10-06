@@ -74,7 +74,16 @@ export function createApp() {
   // texte tres repetitif, gzip y gagne l'essentiel. Place ici pour couvrir toutes les
   // reponses, y compris les erreurs.
   app.use(compression());
-  app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
+  // /api/public est lu par l'intranet SharePoint (DigitalRoad DOA&A, 06/10/2026) :
+  // origine supplementaire autorisee, en lecture et SANS cookie. Le reste de l'API
+  // garde sa seule origine, avec les cookies de session.
+  const publicCors = cors({
+    origin: [env.CORS_ORIGIN, ...env.PUBLIC_CORS_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)],
+    credentials: false,
+    methods: ["GET", "HEAD"],
+  });
+  const appCors = cors({ origin: env.CORS_ORIGIN, credentials: true });
+  app.use((req, res, next) => (req.path.startsWith("/api/public/") ? publicCors : appCors)(req, res, next));
   app.use(express.json({ limit: "5mb" }));
   app.use(morgan(env.NODE_ENV === "development" ? "dev" : "combined"));
   // P3-B : lecture des cookies (transport HttpOnly du refresh token) et
