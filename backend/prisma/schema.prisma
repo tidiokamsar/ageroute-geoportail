@@ -298,6 +298,10 @@ model User {
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
 
+  defautsReleves Defaut[] @relation("DefautConstatant")
+
+  validationsRendues Validation[] @relation("ValidationDecideur")
+
   @@map("users")
 }
 
@@ -415,9 +419,24 @@ model Troncon {
   updatedAt                DateTime                                  @updatedAt
   Observation              Observation[]
 
+  defauts Defaut[]
+
+  statutValidation StatutValidation?
+
+  /// Perimetre statistique. NUL vaut NATIONAL pour les troncons anterieurs a ce
+  /// champ : ici l'omission est une absence de classement, pas une absence de
+  /// decision, et exclure par defaut effacerait le reseau entier.
+  perimetre        PerimetreReseau?
+  /// Pays ou territoire, quand le troncon sort de Guinee.
+  paysTerritoire   String?
+  motifPerimetre   String?
+  perimetreClasseA DateTime?
+
   @@index([regionId])
   @@index([etat])
   @@index([deletedAt])
+  @@index([statutValidation])
+  @@index([perimetre])
   @@map("troncons")
 }
 
@@ -466,9 +485,14 @@ model Ouvrage {
   updatedAt              DateTime                             @updatedAt
   Observation            Observation[]
 
+  defauts Defaut[]
+
+  statutValidation StatutValidation?
+
   @@index([regionId])
   @@index([etat])
   @@index([deletedAt])
+  @@index([statutValidation])
   @@map("ouvrages")
 }
 
@@ -490,8 +514,11 @@ model PointNoir {
   createdAt          DateTime                             @default(now())
   updatedAt          DateTime                             @updatedAt
 
+  statutValidation StatutValidation?
+
   @@index([regionId])
   @@index([deletedAt])
+  @@index([statutValidation])
   @@map("points_noirs")
 }
 
@@ -524,8 +551,11 @@ model Poste {
   createdAt             DateTime                             @default(now())
   updatedAt             DateTime                             @updatedAt
 
+  statutValidation StatutValidation?
+
   @@index([regionId])
   @@index([deletedAt])
+  @@index([statutValidation])
   @@map("postes")
 }
 
@@ -565,8 +595,11 @@ model Chantier {
   Mission            Mission[]
   Observation        Observation[]
 
+  statutValidation StatutValidation?
+
   @@index([regionId])
   @@index([deletedAt])
+  @@index([statutValidation])
   @@map("chantiers")
 }
 
@@ -1286,6 +1319,8 @@ model Mission {
   traces       Trace[]
   observations Observation[]
 
+  defauts Defaut[]
+
   @@index([statut])
   @@index([assigneId])
   @@index([regionId])
@@ -1406,6 +1441,8 @@ model Observation {
 
   medias MediaObservation[]
 
+  defauts Defaut[]
+
   @@index([missionId])
   @@index([tronconId])
   @@index([statut])
@@ -1489,4 +1526,378 @@ model ConflitSync {
 
   @@index([entityType, entityId])
   @@map("conflits_sync")
+}
+
+// ===================== GOUVERNANCE (validation et perimetre) =====================
+
+/// Etat de validation d'un objet du patrimoine.
+///
+/// Observation ou import n'est pas donnee officielle. Cette regle valait d'abord pour
+/// les observations de terrain ; elle est generalisee a tout objet du geoportail.
+///
+/// UN SEUL ETAT D'ATTENTE. Un objet importe attend la meme decision, du meme type de
+/// personne, avec les memes consequences qu'un defaut releve sur le terrain. Garder
+/// deux noms obligerait chaque requete a ecrire une liste, et un oubli quelque part
+/// laisserait passer pour officiel ce qui ne l'est pas. L'origine est une information,
+/// elle va dans `Validation.source`.
+enum StatutValidation {
+  A_VALIDER
+  VALIDE
+  REJETE
+  A_CORRIGER
+}
+
+/// Perimetre statistique : un objet compte-t-il dans les chiffres nationaux publies.
+///
+/// TROIS RESEAUX QUI NE SE CONFONDENT PAS. Le fond cartographique charge peut contenir
+/// des troncons hors Guinee, et il le doit : sans eux la carte s'arrete net a la
+/// frontiere. Le reseau national publie ne compte que ce qui est guineen.
+///
+/// Ce que ce champ remplace : l'exclusion reposait sur un PREFIXE dans
+/// `sourceReference` (`hors_territoire:`, `voirie_locale:`). Un prefixe de chaine n'est
+/// pas un statut — il ne porte ni pays, ni motif, ni date, ni validateur, et une faute
+/// de frappe le rend muet sans que rien ne le signale.
+enum PerimetreReseau {
+  NATIONAL
+  HORS_TERRITOIRE_NATIONAL
+  VOIRIE_LOCALE
+}
+
+/// Decisions de validation, conservees en HISTORIQUE et non comme un etat courant.
+///
+/// POURQUOI UNE TABLE ET NON SEULEMENT DES COLONNES
+///
+/// Un objet peut etre renvoye en correction puis represente plusieurs fois. Des colonnes
+/// `validePar` et `valideA` ne retiennent que la DERNIERE decision : la chaine qui dit
+/// comment une donnee est devenue officielle disparait, et c'est precisement ce qu'un
+/// audit demande a voir.
+///
+/// La table est polymorphe (`entityType` + `entityId`), comme `audit_logs` et
+/// `valeurs_qualite` qui suivent deja ce motif ici. Chaque entite porte en plus une
+/// colonne `statutValidation` denormalisee, pour pouvoir filtrer et indexer sans
+/// jointure ; les deux s'ecrivent dans la meme transaction.
+model Validation {
+  id String @id @default(uuid())
+
+  entityType String
+  entityId   String
+
+  /// Etat avant la decision. Nul pour la premiere entree d'un objet importe, qui
+  /// n'avait aucun statut auparavant.
+  statutAvant StatutValidation?
+  statutApres StatutValidation
+
+  decidePar   User?    @relation("ValidationDecideur", fields: [decideParId], references: [id])
+  decideParId String?
+  decideA     DateTime @default(now())
+
+  /// Qui ou quoi a produit l'objet valide. Une personne, ou un document : les 81
+  /// ouvrages DTOAA viennent d'un PDF et non d'un agent.
+  auteurId String?
+  source   String?
+
+  /// Motif obligatoire pour un rejet ou une demande de correction. Un refus sans raison
+  /// est un refus qu'on ne peut pas corriger.
+  commentaire String?
+
+  createdAt DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([statutApres])
+  @@index([decideParId])
+  @@map("validations")
+}
+
+// ===================== DEFAUTS (catalogue et constats) =====================
+
+/// Unite du metre. Portee par le CATALOGUE et non par l'agent : si chacun choisit, deux
+/// releves du meme nid-de-poule arrivent l'un en unites et l'autre en metres carres, et
+/// leur somme ne veut rien dire.
+enum UniteDefaut {
+  UNITE
+  METRE
+  METRE_CARRE
+  METRE_CUBE
+}
+
+/// Mesures qu'un catalogue peut exiger d'un releve.
+///
+/// Cette liste est DISTINCTE de l'unite du metre. Un ornierage exige une profondeur sans
+/// que celle-ci entre dans son metre, qui reste lineaire : la profondeur qualifie la
+/// gravite. Confondre les deux listes produirait des volumes la ou on veut des metres.
+enum MesureDefaut {
+  NOMBRE
+  LONGUEUR
+  LARGEUR
+  PROFONDEUR
+  QUANTITE
+}
+
+/// Famille de rattachement, qui dit quel metier traite le defaut.
+enum FamilleDefaut {
+  CHAUSSEE
+  ACCOTEMENT
+  ASSAINISSEMENT
+  OUVRAGE
+  SIGNALISATION
+  SECURITE
+  ENVIRONNEMENT
+}
+
+/// Par quelle voie la quantite a ete obtenue. Conservee parce qu'un chiffre qui servira
+/// a chiffrer un marche doit dire s'il a ete mesure ou calcule.
+enum MethodeQuantite {
+  SAISIE
+  COMPTAGE
+  LONGUEUR
+  LONGUEUR_LARGEUR
+  LONGUEUR_LARGEUR_PROFONDEUR
+}
+
+/// Importance spatiale du defaut sur le troncon, independante de sa gravite.
+///
+/// « Faiencage, gravite forte, etendue generalisee, 2 850 m2 » se traite ; « defaut
+/// important » ne se traite pas. Une gravite forte sur trois metres carres et la meme
+/// gravite sur trois mille ne demandent ni le meme chantier ni le meme budget.
+///
+/// POURQUOI UNE ECHELLE QUALITATIVE ET NON UN TAUX D'OCCUPATION. Un taux serait plus
+/// exploitable, mais il n'est pas calculable : `Troncon` ne porte que `longueurKm`,
+/// aucune largeur ni nombre de voies. La surface d'un troncon est donc inconnue sur la
+/// totalite du reseau, et un taux calcule dessus serait une invention.
+enum EtendueDefaut {
+  PONCTUEL
+  LOCALISE
+  ETENDU
+  GENERALISE
+}
+
+/// Existence physique du defaut, distincte de sa validation administrative.
+///
+/// DISPARU n'est pas TRAITE : un ravinement comble par une crue a disparu sans qu'on ait
+/// depense un franc, et confondre les deux fausserait le suivi des travaux realises.
+enum EtatDefaut {
+  ACTIF
+  TRAITE
+  DISPARU
+}
+
+/// Catalogue des types de defauts : le vocabulaire commun sans lequel rien ne se somme.
+///
+/// CE QU'IL REMPLACE
+///
+/// `Inspection.defautsConstates` est un champ texte. Un inspecteur y ecrit « nids de
+/// poule importants sur 2 km ». Cette phrase est lisible par un humain et inexploitable
+/// par tout le reste : on n'en tire ni surface, ni cout, ni priorite.
+///
+/// IL EST ADMINISTRABLE, PAS CODE DANS L'APPLICATION
+///
+/// Les types, leurs unites et leurs mesures obligatoires evoluent avec le referentiel
+/// metier. Les coder en dur obligerait a livrer une version du logiciel a chaque
+/// evolution.
+///
+/// CE QU'IL NE PORTE PAS
+///
+/// Les SEUILS de gravite, qui sont normatifs. « A partir de quelle profondeur une
+/// orniere est grave » se tranche dans un catalogue officiel, pas ici. `seuils` reste
+/// donc nul et VISIBLE : son absence dit que la gravite saisie est un jugement.
+model CatalogueDefaut {
+  id      Int           @id @default(autoincrement())
+  code    String        @unique
+  libelle String
+  famille FamilleDefaut
+
+  /// Sous-type, quand le referentiel en distingue. Une hierarchie plutot qu'un champ
+  /// libre : un sous-type ecrit a la main ne se regroupe pas.
+  parentId  Int?
+  parent    CatalogueDefaut?  @relation("SousTypeDefaut", fields: [parentId], references: [id])
+  sousTypes CatalogueDefaut[] @relation("SousTypeDefaut")
+
+  /// Unite dans laquelle le metre s'exprime.
+  unite UniteDefaut
+
+  /// Mesures sans lesquelles le releve est incomplet. Le moteur refuse alors le defaut
+  /// en NOMMANT ce qui manque, pendant que l'agent est encore sur place : c'est la seule
+  /// fenetre ou la correction coute une minute plutot qu'un deplacement.
+  mesuresRequises MesureDefaut[]
+
+  /// Nombre de crans de gravite. NUL pour les types qui ne se graduent pas : un panneau
+  /// manquant est absent ou present, le graduer remplirait un champ sans rien mesurer.
+  graviteMax Int? @default(4)
+
+  /// Seuils normatifs par cran, vides tant qu'aucun referentiel officiel n'est adopte.
+  seuils Json?
+
+  description String?
+
+  /// D'ou vient cette entree. La valeur par defaut dit franchement que le vocabulaire
+  /// est courant et non normatif, pour qu'on ne le prenne pas pour un arrete.
+  source String @default("vocabulaire_courant_a_valider")
+
+  version Int     @default(1)
+  actif   Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  defauts Defaut[]
+
+  @@index([famille])
+  @@index([actif])
+  @@index([parentId])
+  @@map("catalogue_defauts")
+}
+
+/// Un defaut constate : le premier objet de la chaine dont un cout pourra dependre.
+///
+/// LE PK N'EST PAS UNE DEPENDANCE STRUCTURELLE
+///
+/// Un defaut est d'abord un objet geospatial : un point GPS, un troncon apparie, une
+/// abscisse locale sur ce troncon. Le PK de route est DERIVE, affiche quand une
+/// calibration existe, absent sinon, et il ne bloque ni la creation, ni le metre, ni la
+/// validation.
+///
+/// Ce n'est pas une precaution theorique. Mesure du 07/10/2026 : 552 des 1 691 troncons
+/// du reseau classe portent des PK exploitables, et les 1 029 regionales n'ont meme pas
+/// de structure de route a laquelle rapporter un PK (docs/rai-v3/08). Exiger un PK
+/// rendrait le terrain impossible sur les deux tiers du reseau.
+model Defaut {
+  id String @id @default(uuid())
+
+  /// Reference lisible, pour se citer par radio ou dans un courrier.
+  code String? @unique
+
+  /// Cle d'idempotence generee par le CLIENT avant tout envoi, quand le defaut remonte
+  /// du terrain. Nulle pour un defaut saisi au bureau.
+  clientOperationId String? @unique
+
+  catalogueId Int
+  catalogue   CatalogueDefaut @relation(fields: [catalogueId], references: [id])
+
+  /// Observation d'origine, quand le defaut est issu d'une conversion. Conservee pour
+  /// que la chaine reste remontable jusqu'a la photo prise sur place.
+  observationId String?
+  observation   Observation? @relation(fields: [observationId], references: [id])
+
+  missionId String?
+  mission   Mission? @relation(fields: [missionId], references: [id])
+
+  tronconId String?
+  troncon   Troncon? @relation(fields: [tronconId], references: [id])
+  ouvrageId String?
+  ouvrage   Ouvrage? @relation(fields: [ouvrageId], references: [id])
+
+  /// LOCALISATION. Le GPS et l'abscisse locale sont la reference primaire.
+  lat        Float?
+  lon        Float?
+  precisionM Float?
+  geom       Unsupported("geometry(Point,4326)")?
+
+  /// Abscisse depuis le debut du SEGMENT, en metres. Ce n'est PAS un PK et ne doit
+  /// jamais etre presentee comme tel : elle ne vaut que sur un segment identifie.
+  abscisseM Float?
+
+  /// Confiance de l'appariement, entre 0 et 1. Distincte de la gravite : l'une dit a
+  /// quel point on sait ou, l'autre ce qu'on a vu.
+  confianceAppariement Float?
+
+  /// PK de route, derive. Nul quand le troncon n'en porte pas.
+  pk Float?
+
+  /// Emprise relevee, quand le defaut a ete contourne au GPS plutot que pointe.
+  /// Deliberement `geometry` et non `Polygon` : un defaut lineaire se releve en
+  /// LineString, un defaut surfacique en Polygon, et imposer l'un des deux obligerait a
+  /// migrer la colonne le jour ou l'autre se presente.
+  emprise Unsupported("geometry(Geometry,4326)")?
+
+  /// MESURES BRUTES, conservees meme quand la quantite est calculee.
+  ///
+  /// Une surface de 12 m2 dont on a perdu le 4 par 3 ne se verifie plus et ne se
+  /// corrige plus. On garde les facteurs pour pouvoir rejouer le calcul.
+  nombre         Int?
+  longueurM      Float?
+  largeurM       Float?
+  profondeurM    Float?
+  quantiteSaisie Float?
+
+  /// QUANTITE EXPLOITABLE, avec son unite et sa voie d'obtention.
+  ///
+  /// Nulle quand les mesures ne permettent pas de conclure. Zero serait pire : zero se
+  /// somme, s'affiche, et dirait « pas de degradation » la ou on veut dire « on ne sait
+  /// pas ».
+  quantite        Float?
+  uniteQuantite   UniteDefaut?
+  methodeQuantite MethodeQuantite?
+
+  /// Jugement de l'agent, borne par `CatalogueDefaut.graviteMax`. Jamais une mesure.
+  gravite Int?
+
+  /// Etendue spatiale, axe distinct de la gravite.
+  etendue EtendueDefaut?
+
+  etat EtatDefaut @default(ACTIF)
+
+  /// Tout defaut nait en attente d'une decision : il est une PROPOSITION. Le defaut de
+  /// colonne porte donc la regle, et non la bonne volonte de l'appelant.
+  statutValidation StatutValidation @default(A_VALIDER)
+
+  description String?
+
+  constateA     DateTime
+  constateParId String
+  constatePar   User     @relation("DefautConstatant", fields: [constateParId], references: [id])
+
+  /// Date de passage a TRAITE. Distincte de `updatedAt` : on veut savoir quand les
+  /// travaux ont eu lieu, pas quand la ligne a ete touchee.
+  traiteA DateTime?
+
+  /// Version pour la detection de conflit a la synchronisation.
+  version Int @default(1)
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  medias MediaDefaut[]
+
+  @@index([catalogueId])
+  @@index([tronconId])
+  @@index([ouvrageId])
+  @@index([observationId])
+  @@index([missionId])
+  @@index([statutValidation])
+  @@index([etat])
+  @@index([deletedAt])
+  @@map("defauts")
+}
+
+/// Preuve attachee a un defaut : photo, video, document.
+///
+/// Table distincte de `medias_observation` plutot qu'une colonne nullable ajoutee a
+/// celle-ci : les deux rattachements resteraient alors facultatifs et une ligne pourrait
+/// n'etre attachee a rien. Le cout est une structure proche ; le gain est une contrainte
+/// qui tient.
+model MediaDefaut {
+  id       String @id @default(uuid())
+  defautId String
+  defaut   Defaut @relation(fields: [defautId], references: [id], onDelete: Cascade)
+
+  type           String
+  chemin         String
+  cheminVignette String?
+  sha256         String  @unique
+  mimeType       String
+  tailleOctets   Int
+
+  /// Position et cap du cliche. Une photo de preuve sans coordonnees ne prouve pas ou
+  /// elle a ete prise.
+  lat        Float?
+  lon        Float?
+  precisionM Float?
+  cap        Float?
+  capturedA  DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([defautId])
+  @@map("medias_defaut")
 }

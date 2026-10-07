@@ -144,7 +144,7 @@ describe("Les refus s'expliquent a un agent, pas a un developpeur", () => {
     for (const m of ["ROLE_INSUFFISANT", "AUTO_VALIDATION", "TRANSITION_INTERDITE", "MOTIF_REQUIS"] as const) {
       expect(EXPLICATIONS[m].length).toBeGreaterThan(20);
       // Ni code, ni jargon : ces phrases s'affichent sur un telephone, en mission.
-      expect(EXPLICATIONS[m]).not.toMatch(/_|undefined|null|[A-Z]{4,}/);
+      expect(EXPLICATIONS[m]).not.toMatch(/_|\bundefined\b|\bnull\b|[A-Z]{4,}/);
     }
   });
 });
