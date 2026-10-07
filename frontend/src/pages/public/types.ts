@@ -47,6 +47,9 @@ export interface PublicOuvrage {
   etat: string;
   lat: number;
   lon: number;
+  code?: string | null;
+  /** Releve dans un document de la DOA&A, non confirme sur le terrain. */
+  aValider?: boolean;
 }
 
 /**

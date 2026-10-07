@@ -505,13 +505,15 @@ export function PublicCartePage() {
               <Marker
                 key={o.id}
                 position={[o.lat, o.lon]}
-                icon={ouvrageIcon(o.type, o.etat)}
+                icon={ouvrageIcon(o.type, o.etat, o.aValider === true)}
                 eventHandlers={{ click: () => setSelected({ kind: "ouvrage", data: o }) }}
               >
                 <Tooltip>
                   {TYPE_OUVRAGE_LABEL[o.type] ?? o.type} — {o.nom}
                   <br />
-                  <span style={{ color: "#6b7280" }}>position héritée, non vérifiée</span>
+                  <span style={{ color: "#6b7280" }}>
+                    {o.aValider ? "relevé dans un document DOA&A, à valider" : "position héritée, non vérifiée"}
+                  </span>
                 </Tooltip>
               </Marker>
             ))}

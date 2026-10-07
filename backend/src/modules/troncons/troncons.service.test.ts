@@ -33,8 +33,23 @@ function drapeauTout(valeurs: unknown[]): boolean | undefined {
 vi.mock("../../lib/prisma", () => ({
   prisma: {
     $queryRaw: vi.fn(async (strings: TemplateStringsArray, ...valeurs: unknown[]) => {
-      etat.texte = strings.join("?");
-      etat.valeurs = valeurs;
+      /**
+       * Reconstituer le SQL EFFECTIF, pas le gabarit.
+       *
+       * Un `Prisma.raw(...)` n'est pas un parametre : son texte part tel quel a la
+       * base. Le mock le remplacait par « ? » comme n'importe quelle valeur, si bien
+       * que deplacer le predicat de perimetre dans un helper partage a fait echouer
+       * deux assertions qui, elles, etaient justes. Le gabarit avait change, la
+       * requete envoyee non.
+       *
+       * On distingue donc les deux : un fragment SQL porte `strings`, une valeur non.
+       */
+      etat.texte = strings.reduce((acc, part, i) => {
+        if (i === 0) return part;
+        const v = valeurs[i - 1] as { strings?: readonly string[] } | undefined;
+        return acc + (Array.isArray(v?.strings) ? v!.strings!.join("?") : "?") + part;
+      }, "");
+      etat.valeurs = valeurs.filter((v) => !Array.isArray((v as { strings?: unknown })?.strings));
       return [];
     }),
   },

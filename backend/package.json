@@ -13,6 +13,7 @@
     "prisma:seed": "tsx prisma/seed.ts",
     "migrate:legacy": "tsx scripts/migrate-legacy-data.ts",
     "import:ouvrages-rn4": "tsx scripts/import-ouvrages-rn4.ts",
+    "import:ouvrages-doaa": "tsx scripts/import-ouvrages-doaa.ts",
     "merge:osm-routes": "tsx scripts/merge-osm-routes.ts",
     "update:ouvrages-etat-rn4": "tsx scripts/update-ouvrages-etat-rn4.ts",
     "import:chantiers-projets": "tsx scripts/import-chantiers-projets.ts",

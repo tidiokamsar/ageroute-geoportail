@@ -252,34 +252,44 @@ enum DecompteStatut {
 // ===================== UTILISATEURS =====================
 
 model User {
-  id              String    @id @default(uuid())
-  email           String    @unique
-  nomComplet      String
-  passwordHash    String
-  role            Role      @default(LECTEUR)
-  actif           Boolean   @default(true)
-  derniereConnexion DateTime?
-  totpSecret          String?
-  totpEnabled         Boolean   @default(false)
-  failedLoginAttempts Int       @default(0)
-  lockedUntil         DateTime?
+  id                    String                    @id @default(uuid())
+  email                 String                    @unique
+  nomComplet            String
+  passwordHash          String
+  role                  Role                      @default(LECTEUR)
+  actif                 Boolean                   @default(true)
+  derniereConnexion     DateTime?
+  totpSecret            String?
+  totpEnabled           Boolean                   @default(false)
+  failedLoginAttempts   Int                       @default(0)
+  lockedUntil           DateTime?
   // Tableau vide = pas de restriction (accès à tous les modules autorisés par le rôle,
   // comportement historique). Une fois renseigné, seuls les modules listés sont visibles
   // pour cet utilisateur, quel que soit son rôle — permet de retirer l'accès à un module
   // précis sans changer le rôle global.
-  modulesAutorises    String[]  @default([])
-  refreshTokens   RefreshToken[]
-  auditLogs       AuditLog[]
-  inspections     Inspection[]
-  otsAssignes     OrdreTravaux[] @relation("OtAssigne")
-  otsCrees        OrdreTravaux[] @relation("OtCreateur")
-  otPhotos        OtPhoto[]
-  otHistoriques   OtHistorique[]
+  modulesAutorises      String[]                  @default([])
+  refreshTokens         RefreshToken[]
+  auditLogs             AuditLog[]
+  inspections           Inspection[]
+  otsAssignes           OrdreTravaux[]            @relation("OtAssigne")
+  otsCrees              OrdreTravaux[]            @relation("OtCreateur")
+  otPhotos              OtPhoto[]
+  otHistoriques         OtHistorique[]
   signalementsQualifies SignalementCitoyen[]
   valeursConstatees     ValeurQualite[]
   propositionsDecidees  PropositionLocalisation[]
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+
+  // Terrain (AGEROUTE ROAD). Un agent possede des appareils, recoit et cree des
+  // missions, enregistre des traces, produit des observations et en valide.
+  appareils            Appareil[]
+  missionsCreees       Mission[]       @relation("MissionCreateur")
+  missionsAssignees    Mission[]       @relation("MissionAssigne")
+  traces               Trace[]
+  observations         Observation[]   @relation("ObservationAgent")
+  observationsValidees Observation[]   @relation("ObservationValidateur")
+  operationsSync       OperationSync[]
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
 
   @@map("users")
 }
@@ -299,9 +309,9 @@ model RefreshToken {
   reuseDetectedAt DateTime?
   createdAt       DateTime  @default(now())
 
-  @@map("refresh_tokens")
   @@index([userId])
   @@index([familyId])
+  @@map("refresh_tokens")
 }
 
 // ===================== REFERENTIELS =====================
@@ -319,24 +329,25 @@ model RefreshToken {
 /// seule region. Il est nul pour Siguiri et Beyla, auxquelles aucun code n'a encore
 /// ete publie — l'inventer par symetrie serait un comblement, pas une donnee.
 model Region {
-  id        Int        @id @default(autoincrement())
-  nom       String     @unique
+  id             Int            @id @default(autoincrement())
+  nom            String         @unique
   /// Code officiel a deux chiffres. Nul tant que le decret n'en attribue pas.
-  code      String?    @unique
+  code           String?        @unique
   /// Date d'entree en vigueur du decoupage qui cree cette region.
-  validFrom DateTime?
+  validFrom      DateTime?
   /// Date de fin de validite. Nulle tant que la region est en vigueur.
-  validTo   DateTime?
+  validTo        DateTime?
   /// Texte dont la region tient son existence, cite explicitement.
-  source     String?
-  sourceDate DateTime?
-  troncons  Troncon[]
-  ouvrages  Ouvrage[]
-  pointsNoirs PointNoir[]
-  postes    Poste[]
-  chantiers Chantier[]
-  ordresTravaux OrdreTravaux[]
+  source         String?
+  sourceDate     DateTime?
+  troncons       Troncon[]
+  ouvrages       Ouvrage[]
+  pointsNoirs    PointNoir[]
+  postes         Poste[]
+  chantiers      Chantier[]
+  ordresTravaux  OrdreTravaux[]
   voiriesLocales VoirieLocale[]
+  Mission        Mission[]
 
   @@map("regions")
 }
@@ -344,30 +355,30 @@ model Region {
 // ===================== PATRIMOINE =====================
 
 model Troncon {
-  id              String         @id @default(uuid())
-  code            String         @unique
-  nom             String
-  classe          ClasseRoute
-  regionId        Int
-  region          Region         @relation(fields: [regionId], references: [id])
-  longueurKm      Float
-  revetement      Revetement
-  etat            EtatPatrimoine @default(NON_EVALUE)
-  pkDebut         Float
-  pkFin           Float
+  id                       String                                    @id @default(uuid())
+  code                     String                                    @unique
+  nom                      String
+  classe                   ClasseRoute
+  regionId                 Int
+  region                   Region                                    @relation(fields: [regionId], references: [id])
+  longueurKm               Float
+  revetement               Revetement
+  etat                     EtatPatrimoine                            @default(NON_EVALUE)
+  pkDebut                  Float
+  pkFin                    Float
   /// Section de referencement kilometrique, lue dans le code (« GN N0001 3-1216 »
   /// -> section 3). Les PK ne sont pas globaux sur l'axe : chaque section repart de
   /// zero. Mesure du 05/09/2026 : 88 sections sur 90 chainees sans trou ni
   /// recouvrement. Nulle pour la voirie promue, qui n'en a pas.
-  sectionPk       String?
-  traficMoyenJma          Int?
-  traficDateComptage      DateTime?
-  criticiteStrategique    Int?
-  coutRehabEstime         Decimal?  @db.Decimal(12, 3)
-  dateDerniereEvaluation  DateTime?
-  prefecture      String?
-  commune         String?
-  observations    String?
+  sectionPk                String?
+  traficMoyenJma           Int?
+  traficDateComptage       DateTime?
+  criticiteStrategique     Int?
+  coutRehabEstime          Decimal?                                  @db.Decimal(12, 3)
+  dateDerniereEvaluation   DateTime?
+  prefecture               String?
+  commune                  String?
+  observations             String?
   // Provenance de l'ENREGISTREMENT (T2). Distincte du statut d'une valeur, qui est
   // porte par ValeurQualite : un troncon vient d'un lot d'import, mais chacun de ses
   // champs peut avoir ete constate, calcule ou jamais verifie.
@@ -376,115 +387,117 @@ model Troncon {
   // 1 690 troncons. Leur origine n'etait donc nulle part. Elle est pourtant lisible
   // dans le code — `GN N*`, `*-OSM-*`, `RES-*` — d'ou sourceType IMPORT_CODE_PATTERN,
   // qui dit bien « deduit », pas « documente ».
-  sourceType       SourceType?
-  sourceReference  String?
-  sourceConfidence NiveauConfiance?
-  sourceDetectedAt DateTime?
-  geom            Unsupported("geometry(LineString,4326)")?
+  sourceType               SourceType?
+  sourceReference          String?
+  sourceConfidence         NiveauConfiance?
+  sourceDetectedAt         DateTime?
+  geom                     Unsupported("geometry(LineString,4326)")?
   propositionsLocalisation PropositionLocalisation[]
   voiriesLocales           VoirieLocale[]
-  ouvrages        Ouvrage[]
-  pointsNoirs     PointNoir[]
-  postes          Poste[]
-  chantiers       Chantier[]
-  inspections     Inspection[]
-  documents       Document[]
-  marcheChantiers MarcheChantier[]
-  ordresTravaux   OrdreTravaux[]
-  signalements    SignalementCitoyen[]
-  deletedAt       DateTime?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  ouvrages                 Ouvrage[]
+  pointsNoirs              PointNoir[]
+  postes                   Poste[]
+  chantiers                Chantier[]
+  inspections              Inspection[]
+  documents                Document[]
+  marcheChantiers          MarcheChantier[]
+  ordresTravaux            OrdreTravaux[]
+  signalements             SignalementCitoyen[]
+  deletedAt                DateTime?
+  createdAt                DateTime                                  @default(now())
+  updatedAt                DateTime                                  @updatedAt
+  Observation              Observation[]
 
-  @@map("troncons")
   @@index([regionId])
   @@index([etat])
   @@index([deletedAt])
+  @@map("troncons")
 }
 
 model Ouvrage {
-  id              String         @id @default(uuid())
-  nom             String
-  type            TypeOuvrage
-  etat            EtatPatrimoine @default(NON_EVALUE)
-  regionId        Int
-  region          Region         @relation(fields: [regionId], references: [id])
-  tronconId       String?
-  troncon         Troncon?       @relation(fields: [tronconId], references: [id])
-  pk              Float?
-  longueurM       Float?
-  gabaritT        Float?
-  anneeConstruction Int?
-  materiau        String?
+  id                     String                               @id @default(uuid())
+  nom                    String
+  type                   TypeOuvrage
+  etat                   EtatPatrimoine                       @default(NON_EVALUE)
+  regionId               Int
+  region                 Region                               @relation(fields: [regionId], references: [id])
+  tronconId              String?
+  troncon                Troncon?                             @relation(fields: [tronconId], references: [id])
+  pk                     Float?
+  longueurM              Float?
+  gabaritT               Float?
+  anneeConstruction      Int?
+  materiau               String?
   derniereInspectionDate DateTime?
-  ficheNumero     String?
-  code            String?
-  largeurM        Float?
-  hauteurM        Float?
-  nbTravees       Int?
-  longueurTravee  Float?
-  materiauAppuis  String?
-  materiauTablier String?
-  materiauPiles   String?
-  materiauAutre   String?
-  remarques       String?
-  travauxAPrevoir String?
-  photos          String[]       @default([])
+  ficheNumero            String?
+  code                   String?
+  largeurM               Float?
+  hauteurM               Float?
+  nbTravees              Int?
+  longueurTravee         Float?
+  materiauAppuis         String?
+  materiauTablier        String?
+  materiauPiles          String?
+  materiauAutre          String?
+  remarques              String?
+  travauxAPrevoir        String?
+  photos                 String[]                             @default([])
   /// Provenance de l'enregistrement, alignee sur `Troncon`. NULL pour les 126
   /// ouvrages inventories par AGEROUTE — leur origine n'est documentee nulle part et
   /// leur en attribuer une retrospectivement serait inventer.
   /// « ouvrage_osm:<id> » pour un franchissement repris d'une source cartographique :
   /// c'est ce qui permet aux indicateurs de ne pas noyer l'inventaire de reference.
-  sourceType       SourceType?
-  sourceReference  String?
-  sourceConfidence NiveauConfiance?
-  sourceDetectedAt DateTime?
-  geom            Unsupported("geometry(Point,4326)")?
-  inspections     Inspection[]
-  ordresTravaux   OrdreTravaux[]
-  deletedAt       DateTime?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  sourceType             SourceType?
+  sourceReference        String?
+  sourceConfidence       NiveauConfiance?
+  sourceDetectedAt       DateTime?
+  geom                   Unsupported("geometry(Point,4326)")?
+  inspections            Inspection[]
+  ordresTravaux          OrdreTravaux[]
+  deletedAt              DateTime?
+  createdAt              DateTime                             @default(now())
+  updatedAt              DateTime                             @updatedAt
+  Observation            Observation[]
 
-  @@map("ouvrages")
   @@index([regionId])
   @@index([etat])
   @@index([deletedAt])
+  @@map("ouvrages")
 }
 
 model PointNoir {
-  id                  String    @id @default(uuid())
-  description         String
-  regionId            Int
-  region              Region    @relation(fields: [regionId], references: [id])
-  tronconId           String?
-  troncon             Troncon?  @relation(fields: [tronconId], references: [id])
-  pk                  Float?
-  gravite             Gravite
-  nbAccidents         Int       @default(0)
-  causes              String?
-  mesuresCorrectives  String?
-  geom                Unsupported("geometry(Point,4326)")?
-  ordresTravaux       OrdreTravaux[]
-  deletedAt           DateTime?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  id                 String                               @id @default(uuid())
+  description        String
+  regionId           Int
+  region             Region                               @relation(fields: [regionId], references: [id])
+  tronconId          String?
+  troncon            Troncon?                             @relation(fields: [tronconId], references: [id])
+  pk                 Float?
+  gravite            Gravite
+  nbAccidents        Int                                  @default(0)
+  causes             String?
+  mesuresCorrectives String?
+  geom               Unsupported("geometry(Point,4326)")?
+  ordresTravaux      OrdreTravaux[]
+  deletedAt          DateTime?
+  createdAt          DateTime                             @default(now())
+  updatedAt          DateTime                             @updatedAt
 
-  @@map("points_noirs")
   @@index([regionId])
   @@index([deletedAt])
+  @@map("points_noirs")
 }
 
 model Poste {
-  id                    String      @id @default(uuid())
+  id                    String                               @id @default(uuid())
   nom                   String
   type                  TypePoste
   regionId              Int
-  region                Region      @relation(fields: [regionId], references: [id])
+  region                Region                               @relation(fields: [regionId], references: [id])
   tronconId             String?
-  troncon               Troncon?    @relation(fields: [tronconId], references: [id])
+  troncon               Troncon?                             @relation(fields: [tronconId], references: [id])
   pk                    Float?
-  statut                StatutPoste @default(EN_SERVICE)
+  statut                StatutPoste                          @default(EN_SERVICE)
   recettesMensuellesGnf BigInt?
   traficJma             Int?
   // Recuperation depuis le journal d'audit (T9). Dix suppressions du 01/07/2026 se
@@ -496,77 +509,79 @@ model Poste {
   // valeurs de trafic et de recettes NE SONT PAS reprises : deux postes portaient
   // exactement 3 200, tous les montants etaient ronds, aucun n'avait de coordonnees.
   // C'est la signature d'un jeu de demonstration, pas d'une campagne de comptage.
-  historicalRecovered   Boolean     @default(false)
+  historicalRecovered   Boolean                              @default(false)
   recoveredFrom         String?
   recoveryStatus        StatutRecuperation?
   geom                  Unsupported("geometry(Point,4326)")?
   deletedAt             DateTime?
-  createdAt             DateTime    @default(now())
-  updatedAt             DateTime    @updatedAt
+  createdAt             DateTime                             @default(now())
+  updatedAt             DateTime                             @updatedAt
 
-  @@map("postes")
   @@index([regionId])
   @@index([deletedAt])
+  @@map("postes")
 }
 
 model Chantier {
-  id              String         @id @default(uuid())
-  intitule        String
-  entreprise      String
-  bailleur        String?
-  montantGnf      BigInt?
-  regionId        Int
-  region          Region         @relation(fields: [regionId], references: [id])
-  tronconId       String?
-  troncon         Troncon?       @relation(fields: [tronconId], references: [id])
-  pkDebut         Float?
-  pkFin           Float?
-  avancementPct   Int            @default(0)
-  statut          StatutChantier @default(PLANIFIE)
-  dateDebutPrevue   DateTime?
-  dateFinPrevue     DateTime?
-  dateDebutReelle   DateTime?
-  dateFinReelle     DateTime?
-  numContrat      String?
-  observations    String?
+  id                 String                                    @id @default(uuid())
+  intitule           String
+  entreprise         String
+  bailleur           String?
+  montantGnf         BigInt?
+  regionId           Int
+  region             Region                                    @relation(fields: [regionId], references: [id])
+  tronconId          String?
+  troncon            Troncon?                                  @relation(fields: [tronconId], references: [id])
+  pkDebut            Float?
+  pkFin              Float?
+  avancementPct      Int                                       @default(0)
+  statut             StatutChantier                            @default(PLANIFIE)
+  dateDebutPrevue    DateTime?
+  dateFinPrevue      DateTime?
+  dateDebutReelle    DateTime?
+  dateFinReelle      DateTime?
+  numContrat         String?
+  observations       String?
   // Niveau de localisation REEL (T6). Sans ce champ, la carte ne pouvait pas
   // distinguer un chantier dont on connait l'emprise d'un chantier dont on ne connait
   // que la region — et 50 chantiers dont on ne connait meme pas la region, rattaches
   // a une entree nommee « Non renseigne ».
   //
   // Valeur derivee, jamais saisie a la main : recalculee depuis geom, tronconId et pk.
-  statutLocalisation StatutLocalisation @default(NONE)
-  geom            Unsupported("geometry(LineString,4326)")?
-  propositions    PropositionLocalisation[]
-  marches         MarcheChantier[]
-  deletedAt       DateTime?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  statutLocalisation StatutLocalisation                        @default(NONE)
+  geom               Unsupported("geometry(LineString,4326)")?
+  propositions       PropositionLocalisation[]
+  marches            MarcheChantier[]
+  deletedAt          DateTime?
+  createdAt          DateTime                                  @default(now())
+  updatedAt          DateTime                                  @updatedAt
+  Mission            Mission[]
+  Observation        Observation[]
 
-  @@map("chantiers")
   @@index([regionId])
   @@index([deletedAt])
+  @@map("chantiers")
 }
 
 model Inspection {
-  id              String         @id @default(uuid())
-  tronconId       String?
-  troncon         Troncon?       @relation(fields: [tronconId], references: [id])
-  ouvrageId       String?
-  ouvrage         Ouvrage?       @relation(fields: [ouvrageId], references: [id])
-  inspecteurId    String
-  inspecteur      User           @relation(fields: [inspecteurId], references: [id])
-  dateInspection  DateTime
-  etatObserve     EtatPatrimoine
-  defautsConstates String?
-  recommandations String?
-  photos          String[]       @default([])
+  id                 String         @id @default(uuid())
+  tronconId          String?
+  troncon            Troncon?       @relation(fields: [tronconId], references: [id])
+  ouvrageId          String?
+  ouvrage            Ouvrage?       @relation(fields: [ouvrageId], references: [id])
+  inspecteurId       String
+  inspecteur         User           @relation(fields: [inspecteurId], references: [id])
+  dateInspection     DateTime
+  etatObserve        EtatPatrimoine
+  defautsConstates   String?
+  recommandations    String?
+  photos             String[]       @default([])
   // Position relevee sur le terrain. precisionM porte l'incertitude annoncee par
   // l'appareil : une position a plus ou moins 500 m ne vaut pas une position a 5 m,
   // et le distinguer evite de traiter la premiere comme exacte.
-  lat             Float?
-  lon             Float?
-  precisionM      Float?
+  lat                Float?
+  lon                Float?
+  precisionM         Float?
   // Identifiant genere par le CLIENT avant tout envoi (T7). C'est la cle
   // d'idempotence : le serveur refuse une seconde creation portant le meme
   // identifiant et renvoie l'inspection deja creee.
@@ -575,36 +590,36 @@ model Inspection {
   // reussie — supprime la cause la plus frequente du doublon, mais elle ne protege
   // pas de tout : une reponse perdue en chemin laisse le client croire a un echec
   // alors que le serveur a bien enregistre. Seule une garantie SERVEUR ferme ce cas.
-  clientInspectionId String?     @unique
-  deletedAt       DateTime?
-  createdAt       DateTime       @default(now())
+  clientInspectionId String?        @unique
+  deletedAt          DateTime?
+  createdAt          DateTime       @default(now())
 
-  @@map("inspections")
   @@index([tronconId])
   @@index([ouvrageId])
+  @@map("inspections")
 }
 
 // ===================== BASE DOCUMENTAIRE =====================
 
 model Document {
-  id          String       @id @default(uuid())
-  titre       String
-  type        DocumentType
-  annee       Int?
-  tronconId   String?
-  troncon     Troncon?     @relation(fields: [tronconId], references: [id])
-  fileName    String
-  filePath    String
-  mimeType    String
-  sizeBytes   Int
-  deletedAt   DateTime?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id        String       @id @default(uuid())
+  titre     String
+  type      DocumentType
+  annee     Int?
+  tronconId String?
+  troncon   Troncon?     @relation(fields: [tronconId], references: [id])
+  fileName  String
+  filePath  String
+  mimeType  String
+  sizeBytes Int
+  deletedAt DateTime?
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
 
-  @@map("documents")
   @@index([tronconId])
   @@index([type])
   @@index([deletedAt])
+  @@map("documents")
 }
 
 // ===================== MARCHÉS & BAILLEURS =====================
@@ -620,30 +635,30 @@ model Bailleur {
 }
 
 model Marche {
-  id                        String           @id @default(uuid()) @db.Uuid
+  id                        String             @id @default(uuid()) @db.Uuid
   intitule                  String
   bailleurId                Int?
-  bailleur                  Bailleur?        @relation(fields: [bailleurId], references: [id])
+  bailleur                  Bailleur?          @relation(fields: [bailleurId], references: [id])
   montantTotal              BigInt?
-  devise                    DeviseMarche     @default(GNF)
+  devise                    DeviseMarche       @default(GNF)
   dateSignature             DateTime?
   dateDebutPrevue           DateTime?
   dateFinPrevue             DateTime?
   dateReceptionProvisoire   DateTime?
   garantieBonneExecutionExp DateTime?
   tauxPenaliteRetardPct     Float?
-  statut                    StatutMarche     @default(PLANIFIE)
+  statut                    StatutMarche       @default(PLANIFIE)
   chantiers                 MarcheChantier[]
   avancements               AvancementMarche[]
   decomptes                 Decompte[]
   deletedAt                 DateTime?
-  createdAt                 DateTime         @default(now())
-  updatedAt                 DateTime         @updatedAt
+  createdAt                 DateTime           @default(now())
+  updatedAt                 DateTime           @updatedAt
 
-  @@map("marches")
   @@index([bailleurId])
   @@index([statut])
   @@index([deletedAt])
+  @@map("marches")
 }
 
 model Decompte {
@@ -661,9 +676,9 @@ model Decompte {
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
-  @@map("decomptes")
   @@index([marcheId])
   @@index([statut])
+  @@map("decomptes")
 }
 
 model MarcheChantier {
@@ -679,19 +694,19 @@ model MarcheChantier {
 }
 
 model AvancementMarche {
-  id                      Int      @id @default(autoincrement())
-  marcheId                String   @db.Uuid
-  marche                  Marche   @relation(fields: [marcheId], references: [id], onDelete: Cascade)
-  periode                 DateTime
-  avancementPhysiquePrevu Float    @default(0)
-  avancementPhysiqueReel  Float    @default(0)
-  avancementFinancierPrevu Float   @default(0)
-  avancementFinancierReel Float    @default(0)
-  createdAt               DateTime @default(now())
+  id                       Int      @id @default(autoincrement())
+  marcheId                 String   @db.Uuid
+  marche                   Marche   @relation(fields: [marcheId], references: [id], onDelete: Cascade)
+  periode                  DateTime
+  avancementPhysiquePrevu  Float    @default(0)
+  avancementPhysiqueReel   Float    @default(0)
+  avancementFinancierPrevu Float    @default(0)
+  avancementFinancierReel  Float    @default(0)
+  createdAt                DateTime @default(now())
 
   @@unique([marcheId, periode])
-  @@map("avancement_marche")
   @@index([marcheId])
+  @@map("avancement_marche")
 }
 
 // ===================== HISTORIQUE RÉSEAU =====================
@@ -709,8 +724,8 @@ model IndicateurReseauHistorique {
   budgetDecaisseCumul BigInt   @default(0)
   createdAt           DateTime @default(now())
 
-  @@map("indicateurs_reseau_historique")
   @@index([periode])
+  @@map("indicateurs_reseau_historique")
 }
 
 // ===================== AUDIT =====================
@@ -720,21 +735,21 @@ model IndicateurReseauHistorique {
 // Maille intervention entre l'alerte et le chantier : petit périmètre exécuté en régie
 // ou petite entreprise. Au-delà d'un seuil de coût (paramétrable), conversion en chantier.
 model OrdreTravaux {
-  id               String             @id @default(uuid())
-  numero           String             @unique
+  id               String              @id @default(uuid())
+  numero           String              @unique
   titre            String
   description      String?
   typeIntervention TypeInterventionOT
-  priorite         PrioriteOT         @default(NORMALE)
-  statut           StatutOT           @default(BROUILLON)
+  priorite         PrioriteOT          @default(NORMALE)
+  statut           StatutOT            @default(BROUILLON)
   regionId         Int?
-  region           Region?            @relation(fields: [regionId], references: [id])
+  region           Region?             @relation(fields: [regionId], references: [id])
   tronconId        String?
-  troncon          Troncon?           @relation(fields: [tronconId], references: [id])
+  troncon          Troncon?            @relation(fields: [tronconId], references: [id])
   ouvrageId        String?
-  ouvrage          Ouvrage?           @relation(fields: [ouvrageId], references: [id])
+  ouvrage          Ouvrage?            @relation(fields: [ouvrageId], references: [id])
   pointNoirId      String?
-  pointNoir        PointNoir?         @relation(fields: [pointNoirId], references: [id])
+  pointNoir        PointNoir?          @relation(fields: [pointNoirId], references: [id])
   signalementId    String?
   signalement      SignalementCitoyen? @relation(fields: [signalementId], references: [id])
   chantierId       String?
@@ -744,25 +759,25 @@ model OrdreTravaux {
   coutEstimeGnf    BigInt?
   coutReelGnf      BigInt?
   assigneAId       String?
-  assigneA         User?              @relation("OtAssigne", fields: [assigneAId], references: [id])
+  assigneA         User?               @relation("OtAssigne", fields: [assigneAId], references: [id])
   entreprise       String?
   dateEcheance     DateTime?
   dateDebutReel    DateTime?
   dateFinReelle    DateTime?
   creeParId        String
-  creePar          User               @relation("OtCreateur", fields: [creeParId], references: [id])
+  creePar          User                @relation("OtCreateur", fields: [creeParId], references: [id])
   photos           OtPhoto[]
   historique       OtHistorique[]
   deletedAt        DateTime?
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
 
-  @@map("ordres_travaux")
   @@index([statut])
   @@index([priorite])
   @@index([regionId])
   @@index([assigneAId])
   @@index([deletedAt])
+  @@map("ordres_travaux")
 }
 
 // Photos avant/pendant/après géolocalisées : preuve d'exécution pour audits et bailleurs.
@@ -780,8 +795,8 @@ model OtPhoto {
   // P1-02 : une photo d'OT est une preuve d'exécution — retrait logique, pas DELETE.
   deletedAt  DateTime?
 
-  @@map("ot_photos")
   @@index([otId])
+  @@map("ot_photos")
 }
 
 model OtHistorique {
@@ -796,8 +811,8 @@ model OtHistorique {
   user          User?        @relation(fields: [userId], references: [id])
   createdAt     DateTime     @default(now())
 
-  @@map("ot_historique")
   @@index([otId])
+  @@map("ot_historique")
 }
 
 // ===================== COURBES DE DÉGRADATION =====================
@@ -806,15 +821,15 @@ model OtHistorique {
 // transition par famille revêtement × classe de trafic. Valeurs initiales HDM-4
 // simplifiées, à recaler sur les inspections réelles (source=recale_donnees).
 model MatriceDegradation {
-  id                  Int      @id @default(autoincrement())
-  familleRevetement   String
-  classeTrafic        String
-  pBonVersMoyen       Float
-  pMoyenVersMauvais   Float
+  id                   Int      @id @default(autoincrement())
+  familleRevetement    String
+  classeTrafic         String
+  pBonVersMoyen        Float
+  pMoyenVersMauvais    Float
   pMauvaisVersCritique Float
-  source              String   @default("standard_initial")
-  version             Int      @default(1)
-  updatedAt           DateTime @updatedAt
+  source               String   @default("standard_initial")
+  version              Int      @default(1)
+  updatedAt            DateTime @updatedAt
 
   @@unique([familleRevetement, classeTrafic])
   @@map("matrices_degradation")
@@ -836,34 +851,34 @@ model BaremeIntervention {
 // ===================== SIGNALEMENTS CITOYENS =====================
 
 model SignalementCitoyen {
-  id                 String            @id @default(uuid())
-  numeroPublic       String            @unique
-  canal              CanalSignalement  @default(PWA)
-  typeProbleme       TypeProbleme
-  description        String?
-  lat                Float?
-  lon                Float?
-  localisationTexte  String?
-  tronconId          String?
-  troncon            Troncon?          @relation(fields: [tronconId], references: [id])
-  photoFileName      String?
-  statut             StatutSignalement @default(NOUVEAU)
-  motifRejet         String?
+  id                  String               @id @default(uuid())
+  numeroPublic        String               @unique
+  canal               CanalSignalement     @default(PWA)
+  typeProbleme        TypeProbleme
+  description         String?
+  lat                 Float?
+  lon                 Float?
+  localisationTexte   String?
+  tronconId           String?
+  troncon             Troncon?             @relation(fields: [tronconId], references: [id])
+  photoFileName       String?
+  statut              StatutSignalement    @default(NOUVEAU)
+  motifRejet          String?
   signalementParentId String?
-  signalementParent  SignalementCitoyen? @relation("Doublons", fields: [signalementParentId], references: [id])
-  doublons           SignalementCitoyen[] @relation("Doublons")
-  contactTel         String?
-  qualifieParId      String?
-  qualifiePar        User?             @relation(fields: [qualifieParId], references: [id])
-  ots                OrdreTravaux[]
-  qualifieLe         DateTime?
-  resoluLe           DateTime?
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  signalementParent   SignalementCitoyen?  @relation("Doublons", fields: [signalementParentId], references: [id])
+  doublons            SignalementCitoyen[] @relation("Doublons")
+  contactTel          String?
+  qualifieParId       String?
+  qualifiePar         User?                @relation(fields: [qualifieParId], references: [id])
+  ots                 OrdreTravaux[]
+  qualifieLe          DateTime?
+  resoluLe            DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
 
-  @@map("signalements_citoyens")
   @@index([statut])
   @@index([typeProbleme])
+  @@map("signalements_citoyens")
 }
 
 // ===================== PARAMÈTRES SYSTÈME =====================
@@ -882,20 +897,20 @@ model AppSetting {
 }
 
 model AuditLog {
-  id          String      @id @default(uuid())
-  userId      String?
-  user        User?       @relation(fields: [userId], references: [id])
-  action      AuditAction
-  entityType  String
-  entityId    String?
-  before      Json?
-  after       Json?
-  ipAddress   String?
-  createdAt   DateTime    @default(now())
+  id         String      @id @default(uuid())
+  userId     String?
+  user       User?       @relation(fields: [userId], references: [id])
+  action     AuditAction
+  entityType String
+  entityId   String?
+  before     Json?
+  after      Json?
+  ipAddress  String?
+  createdAt  DateTime    @default(now())
 
-  @@map("audit_logs")
   @@index([entityType, entityId])
   @@index([userId])
+  @@map("audit_logs")
 }
 
 // ===================== QUALITE DES DONNEES =====================
@@ -967,17 +982,17 @@ model ValeurQualite {
 /// `longueurCiteeKm` sert de controle : 221 intitules portent une longueur, et
 /// l'ecart avec la longueur de l'emprise calculee dit si l'extraction a vu juste.
 model PropositionLocalisation {
-  id                 String            @id @default(uuid())
+  id                 String                                    @id @default(uuid())
   chantierId         String
-  chantier           Chantier          @relation(fields: [chantierId], references: [id], onDelete: Cascade)
-  statut             StatutProposition @default(PROPOSED)
+  chantier           Chantier                                  @relation(fields: [chantierId], references: [id], onDelete: Cascade)
+  statut             StatutProposition                         @default(PROPOSED)
   /// "INTITULE_ROUTE_PK", "INTITULE_ROUTE_SEULE".
   methode            String
   /// L'intitule exact dont la proposition est tiree, pour que l'agent juge sur piece.
   sourceTexte        String
   confiance          NiveauConfiance
   tronconId          String?
-  troncon            Troncon?          @relation(fields: [tronconId], references: [id])
+  troncon            Troncon?                                  @relation(fields: [tronconId], references: [id])
   pkDebut            Float?
   pkFin              Float?
   longueurCiteeKm    Float?
@@ -993,10 +1008,10 @@ model PropositionLocalisation {
   longueurCalculeeKm Float?
   ecartPct           Float?
   geom               Unsupported("geometry(LineString,4326)")?
-  createdAt          DateTime          @default(now())
+  createdAt          DateTime                                  @default(now())
   decidedAt          DateTime?
   decidedById        String?
-  decidedBy          User?             @relation(fields: [decidedById], references: [id])
+  decidedBy          User?                                     @relation(fields: [decidedById], references: [id])
   motifRejet         String?
 
   @@index([chantierId])
@@ -1052,24 +1067,24 @@ enum StatutVoirie {
 /// revetement, etat, pkDebut, pkFin) exigeraient des valeurs inventees ; et la
 /// distinction entre actif AGEROUTE et donnee externe doit tenir dans le temps.
 model VoirieLocale {
-  id                 String       @id @default(uuid())
+  id String @id @default(uuid())
 
   // Provenance, obligatoire.
-  source             SourceVoirie
-  sourceId           String
-  sourceDate         DateTime?
-  importedAt         DateTime     @default(now())
+  source     SourceVoirie
+  sourceId   String
+  sourceDate DateTime?
+  importedAt DateTime     @default(now())
   /// Lot d'import, pour retrouver d'ou vient une ligne. Ex : « A_OSM_RESEAU_ROUTIER 2023-03-08 ».
-  importLot          String
+  importLot  String
 
   // Attributs de la source, tels quels.
   /// Valeur NATURE brute, non traduite — la trace de ce que la source disait.
-  nature             String
+  nature    String
   /// 0,4 % renseignes dans le jeu 2023.
-  nom                String?
+  nom       String?
   /// NUMERO, 0,6 % renseignes.
-  reference          String?
-  sens               String?
+  reference String?
+  sens      String?
 
   // Lecture derivee, marquee comme telle.
   categorie          CategorieVoirie
@@ -1077,24 +1092,394 @@ model VoirieLocale {
 
   // Rattachement faible. Nul tant qu'aucune methode ne l'a etabli : la source ne
   // porte aucun decoupage administratif.
-  regionId           Int?
-  region             Region?      @relation(fields: [regionId], references: [id])
-  regionMethode      String?
+  regionId      Int?
+  region        Region? @relation(fields: [regionId], references: [id])
+  regionMethode String?
 
   // Cycle de vie.
-  statut             StatutVoirie @default(SOURCE_EXTERNE)
+  statut    StatutVoirie @default(SOURCE_EXTERNE)
   /// Rempli quand la voie devient un actif AGEROUTE. L'identifiant source ne devient
   /// JAMAIS un identifiant BDRI : la relation est conservee, l'identite non.
-  tronconId          String?
-  troncon            Troncon?     @relation(fields: [tronconId], references: [id])
+  tronconId String?
+  troncon   Troncon?     @relation(fields: [tronconId], references: [id])
 
-  geom               Unsupported("geometry(LineString,4326)")?
+  geom Unsupported("geometry(LineString,4326)")?
 
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([source, sourceId])
   @@index([categorie])
   @@index([statut])
   @@map("voirie_locale")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AGEROUTE ROAD — socle terrain
+//
+// POURQUOI CES MODELES, ET POURQUOI MAINTENANT
+//
+// La collecte terrain existe deja, mais sous une forme qui ne porte pas le besoin :
+// une Inspection est attachee a UN troncon ou UN ouvrage, saisie dans un formulaire,
+// sans notion de deplacement ni de campagne. Le terrain reel est une MISSION — une
+// equipe, un vehicule, une zone, un trajet — au cours de laquelle des observations
+// tombent la ou elles tombent.
+//
+// Mesure du 07/10/2026 : aucun de ces concepts n'existe au schema. Mission, Appareil,
+// Trace et Observation sont absents des 27 modeles. C'est la premiere brique du
+// programme, et tout le reste s'y accroche.
+//
+// LA LANGUE
+//
+// Le dossier V2 nomme ces entites en anglais (FieldMission, Track, Observation). Les
+// 27 modeles existants sont en francais, sans exception. Un schema a moitie bilingue
+// coute plus cher a lire qu'il ne gagne en fidelite a un document : on garde le
+// francais, « Observation » se trouvant etre identique dans les deux.
+//
+// L'IDEMPOTENCE N'EST PAS INVENTEE ICI
+//
+// Inspection.clientInspectionId porte deja la regle : le client genere un identifiant
+// AVANT d'envoyer, le serveur refuse une seconde creation sous le meme. Elle est
+// generalisee en clientOperationId, pas remplacee. Sans elle, une reponse perdue en
+// chemin — le cas courant sur un reseau guineen — produit un doublon a chaque reessai.
+//
+// CE QUI N'EST PAS LA
+//
+// Le modele Asset generique du dossier. Il suppose de faire de Ouvrage une
+// specialisation, donc de toucher 1 089 lignes en production et tous les ecrans qui
+// les lisent. Ce n'est pas un premier increment, c'est une migration a part entiere.
+// Observation.ouvrageId suffit en attendant.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum TypeMission {
+  INSPECTION
+  INVENTAIRE
+  SURVEILLANCE
+  CONTROLE_CHANTIER
+  RECEPTION
+  SECURITE
+  URGENCE
+  RELEVE_SIG
+}
+
+/// Cycle de vie d'une mission. TELECHARGEE et SYNC_EN_ATTENTE ne sont pas decoratifs :
+/// ils distinguent « l'agent peut partir » de « l'agent est rentre mais rien n'est
+/// encore remonte », deux situations qu'un responsable doit voir differemment.
+enum StatutMission {
+  BROUILLON
+  PLANIFIEE
+  TELECHARGEE
+  EN_COURS
+  SUSPENDUE
+  TERMINEE
+  SYNC_EN_ATTENTE
+  ANNULEE
+}
+
+enum TypeObservation {
+  DEGRADATION
+  CHAUSSEE
+  ASSAINISSEMENT
+  SIGNALISATION
+  OUVRAGE
+  SECURITE
+  TRAFIC
+  ENVIRONNEMENT
+  CHANTIER
+  INCIDENT
+  AUTRE
+}
+
+/// Une observation de terrain n'est PAS une donnee officielle tant qu'elle n'a pas ete
+/// validee. C'est la regle centrale du dossier V2, et elle prolonge ce que
+/// PropositionLocalisation fait deja pour la geometrie des chantiers.
+enum StatutObservation {
+  BROUILLON
+  PROPOSEE
+  VALIDEE
+  REJETEE
+  CONVERTIE
+}
+
+enum StatutSync {
+  EN_ATTENTE
+  EN_COURS
+  SYNCHRONISE
+  CONFLIT
+  REJETE
+}
+
+/// Appareil enregistre, pour qu'une session mobile soit revocable sans toucher au
+/// compte. Un telephone perdu se revoque ; son porteur garde son acces web.
+model Appareil {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  nom        String?
+  plateforme String
+  modele     String?
+  versionOs  String?
+  versionApp String?
+
+  dernierVuA DateTime?
+  revoqueA   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  missions   Mission[]
+  traces     Trace[]
+  operations OperationSync[]
+
+  @@index([userId])
+  @@index([revoqueA])
+  @@map("appareils")
+}
+
+model Mission {
+  id       String        @id @default(uuid())
+  code     String        @unique
+  intitule String
+  type     TypeMission
+  statut   StatutMission @default(BROUILLON)
+
+  createurId String
+  createur   User    @relation("MissionCreateur", fields: [createurId], references: [id])
+  assigneId  String?
+  assigne    User?   @relation("MissionAssigne", fields: [assigneId], references: [id])
+
+  appareilId String?
+  appareil   Appareil? @relation(fields: [appareilId], references: [id])
+
+  regionId   Int?
+  region     Region?   @relation(fields: [regionId], references: [id])
+  chantierId String?
+  chantier   Chantier? @relation(fields: [chantierId], references: [id])
+
+  vehicule String?
+  equipe   String?
+
+  debutPrevu DateTime?
+  finPrevue  DateTime?
+  debutReel  DateTime?
+  finReelle  DateTime?
+
+  /// Emprise de la mission. PREMIER polygone du schema : tout le reste est en Point ou
+  /// LineString. La colonne est posee par la migration, Prisma ne sachant pas
+  /// manipuler les types geometriques.
+  emprise    Unsupported("geometry(Polygon,4326)")?
+  /// Itineraire prevu, distinct des traces reellement parcourues.
+  itineraire Unsupported("geometry(LineString,4326)")?
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  traces       Trace[]
+  observations Observation[]
+
+  @@index([statut])
+  @@index([assigneId])
+  @@index([regionId])
+  @@index([deletedAt])
+  @@map("missions")
+}
+
+/// Un trajet enregistre pendant une mission. Separe de la mission parce qu'une mission
+/// peut comporter plusieurs trajets : aller, retour, deviation.
+model Trace {
+  id        String  @id @default(uuid())
+  missionId String
+  mission   Mission @relation(fields: [missionId], references: [id])
+
+  userId     String
+  user       User      @relation(fields: [userId], references: [id])
+  appareilId String?
+  appareil   Appareil? @relation(fields: [appareilId], references: [id])
+
+  debutA DateTime
+  finA   DateTime?
+
+  distanceKm     Float?
+  dureeSec       Int?
+  vitesseMoyenne Float?
+  vitesseMax     Float?
+
+  geom Unsupported("geometry(LineString,4326)")?
+
+  createdAt DateTime @default(now())
+
+  points PointTrace[]
+
+  @@index([missionId])
+  @@index([userId])
+  @@map("traces")
+}
+
+/// Un point GPS brut, conserve tel que l'appareil l'a rendu, precision comprise : une
+/// position a plus ou moins 500 m ne vaut pas une position a 5 m, et le moteur
+/// d'appariement doit pouvoir refuser de conclure. Mesure du 07/10/2026 : a 15 m
+/// d'erreur en milieu urbain, l'appariement se trompe de rue.
+model PointTrace {
+  id      String @id @default(uuid())
+  traceId String
+  trace   Trace  @relation(fields: [traceId], references: [id], onDelete: Cascade)
+
+  horodatage DateTime
+  lat        Float
+  lon        Float
+  altitude   Float?
+  vitesse    Float?
+  cap        Float?
+  precisionM Float?
+  satellites Int?
+  hdop       Float?
+
+  geom Unsupported("geometry(Point,4326)")?
+
+  @@index([traceId, horodatage])
+  @@map("points_trace")
+}
+
+model Observation {
+  id String @id @default(uuid())
+
+  /// Cle d'idempotence generee par le CLIENT avant tout envoi. Meme regle que
+  /// Inspection.clientInspectionId, generalisee : une reponse perdue en chemin ne doit
+  /// pas produire un doublon au reessai.
+  clientOperationId String @unique
+
+  missionId String?
+  mission   Mission? @relation(fields: [missionId], references: [id])
+
+  agentId String
+  agent   User   @relation("ObservationAgent", fields: [agentId], references: [id])
+
+  type        TypeObservation
+  statut      StatutObservation @default(PROPOSEE)
+  gravite     Gravite?
+  description String?
+
+  /// Rattachements, tous facultatifs : une observation peut tomber la ou aucun objet
+  /// n'est encore inventorie, et c'est precisement ce qu'on veut savoir.
+  tronconId  String?
+  troncon    Troncon?  @relation(fields: [tronconId], references: [id])
+  ouvrageId  String?
+  ouvrage    Ouvrage?  @relation(fields: [ouvrageId], references: [id])
+  chantierId String?
+  chantier   Chantier? @relation(fields: [chantierId], references: [id])
+
+  /// PK apparie. Nul tant que le moteur ne sait pas conclure — mesure du 07/10/2026 :
+  /// seuls 551 des 1 691 troncons du reseau classe portent des PK exploitables.
+  pk Float?
+
+  lat        Float?
+  lon        Float?
+  precisionM Float?
+  geom       Unsupported("geometry(Point,4326)")?
+
+  /// Confiance de l'appariement, entre 0 et 1. Distincte de la gravite : l'une dit ce
+  /// qu'on a vu, l'autre a quel point on sait ou.
+  confianceAppariement Float?
+
+  observeA     DateTime
+  valideeA     DateTime?
+  validateurId String?
+  validateur   User?     @relation("ObservationValidateur", fields: [validateurId], references: [id])
+  motifRejet   String?
+
+  /// Version pour la detection de conflit a la synchronisation. Une modification partie
+  /// d'une version perimee ne doit jamais ecraser en silence.
+  version Int @default(1)
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  medias MediaObservation[]
+
+  @@index([missionId])
+  @@index([tronconId])
+  @@index([statut])
+  @@index([deletedAt])
+  @@map("observations")
+}
+
+/// Photo, video ou audio rattache a une observation. sha256 est unique : le meme
+/// fichier renvoye deux fois apres une coupure ne cree pas deux lignes.
+model MediaObservation {
+  id            String      @id @default(uuid())
+  observationId String
+  observation   Observation @relation(fields: [observationId], references: [id], onDelete: Cascade)
+
+  type           String
+  chemin         String
+  cheminVignette String?
+  sha256         String  @unique
+  mimeType       String
+  tailleOctets   Int
+
+  lat        Float?
+  lon        Float?
+  precisionM Float?
+  cap        Float?
+  capturedA  DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([observationId])
+  @@map("medias_observation")
+}
+
+/// Une operation en attente de synchronisation, telle que l'appareil l'a produite.
+/// operationId est unique : rejouer la meme operation ne la rejoue pas.
+model OperationSync {
+  id          String @id @default(uuid())
+  operationId String @unique
+
+  appareilId String
+  appareil   Appareil @relation(fields: [appareilId], references: [id])
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+
+  entityType String
+  entityId   String
+  operation  String
+
+  payload     Json
+  baseVersion Int?
+
+  statut         StatutSync @default(EN_ATTENTE)
+  tentatives     Int        @default(0)
+  derniereErreur String?
+
+  createdAt DateTime  @default(now())
+  traiteeA  DateTime?
+
+  @@index([appareilId, statut])
+  @@index([entityType, entityId])
+  @@map("operations_sync")
+}
+
+/// Un conflit non resolu. Il n'est JAMAIS tranche automatiquement sur une donnee
+/// patrimoniale : les deux versions sont conservees et un responsable decide.
+model ConflitSync {
+  id          String @id @default(uuid())
+  operationId String
+
+  entityType String
+  entityId   String
+
+  payloadLocal   Json
+  payloadServeur Json
+
+  resolution  String?
+  resoluParId String?
+  resoluA     DateTime?
+
+  createdAt DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@map("conflits_sync")
 }

@@ -29,7 +29,7 @@ vi.mock("./prisma", () => ({
   },
 }));
 
-import { longueurReseau } from "./reseau";
+import { longueurReseau, PREFIXES_HORS_RESEAU_CLASSE, clauseSqlReseauClasse, WHERE_RESEAU_CLASSE } from "./reseau";
 
 beforeEach(() => {
   lignes = PRODUCTION;
@@ -123,5 +123,57 @@ describe("Le perimetre separe le reseau classe de la voirie promue", () => {
   it("ne filtre rien en perimetre complet", async () => {
     await longueurReseau("tout");
     expect(dernierSql).not.toContain("voirie_locale:%");
+  });
+});
+
+/**
+ * Le perimetre du reseau classe, defini une seule fois.
+ *
+ * CE QUE CES TESTS DEFENDENT
+ *
+ * Le predicat vivait en cinq exemplaires dans quatre chemins de code. Tant qu'il
+ * n'excluait qu'un prefixe, la duplication tenait. Au deuxieme (`hors_territoire:`,
+ * ajoute le 07/10/2026 pour 7 troncons situes hors de Guinee), etendre quatre copies a
+ * la main revenait a parier qu'aucune ne serait oubliee. Le meme motif a deja echappe
+ * a une revue dans cette base : la garde `in` corrigee dans le journal d'audit et
+ * laissee en place dans la qualite.
+ *
+ * Ces tests parcourent la LISTE : ajouter un prefixe sans le couvrir des deux cotes
+ * fait echouer, sans qu'on ait a se souvenir d'ecrire un test de plus.
+ */
+describe("Le perimetre du reseau classe", () => {
+  it("exclut chaque prefixe declare, cote SQL", () => {
+    const sql = clauseSqlReseauClasse();
+    for (const p of PREFIXES_HORS_RESEAU_CLASSE) {
+      expect(sql, `le prefixe ${p} n'est pas exclu par la clause SQL`).toContain(`'${p}%'`);
+    }
+  });
+
+  it("exclut chaque prefixe declare, cote Prisma", () => {
+    const et = (WHERE_RESEAU_CLASSE.OR[1] as { AND: { sourceReference: { not: { startsWith: string } } }[] }).AND;
+    const couverts = et.map((c) => c.sourceReference.not.startsWith);
+    for (const p of PREFIXES_HORS_RESEAU_CLASSE) {
+      expect(couverts, `le prefixe ${p} n'est pas exclu cote Prisma`).toContain(p);
+    }
+  });
+
+  it("couvre exactement les memes prefixes des deux cotes", () => {
+    // Deux formes du meme predicat : si elles divergent, un ecran compte des troncons
+    // qu'un autre ecarte, et personne ne sait lequel a raison.
+    const et = (WHERE_RESEAU_CLASSE.OR[1] as { AND: { sourceReference: { not: { startsWith: string } } }[] }).AND;
+    expect(et).toHaveLength(PREFIXES_HORS_RESEAU_CLASSE.length);
+  });
+
+  it("garde les troncons sans provenance, des deux cotes", () => {
+    // Le piege de toute la session : NULL NOT LIKE '...' vaut NULL, donc faux. Sans le
+    // IS NULL, les 1 690 troncons anterieurs disparaitraient du reseau classe.
+    expect(clauseSqlReseauClasse()).toContain("IS NULL");
+    expect(WHERE_RESEAU_CLASSE.OR[0]).toEqual({ sourceReference: null });
+  });
+
+  it("accepte une colonne qualifiee, pour les requetes a jointure", () => {
+    const sql = clauseSqlReseauClasse('t."sourceReference"');
+    expect(sql).toContain('t."sourceReference" IS NULL');
+    expect(sql).not.toMatch(/(?<!t\.)"sourceReference" IS NULL/);
   });
 });
