@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, Tooltip, useMap } from "react-leaflet";
 import L from "leaflet";
@@ -26,9 +26,14 @@ interface PublicCarteData {
   ouvrages?: PublicOuvrage[];
 }
 
+export type Couche = "troncons" | "ouvrages" | "chantiers";
+
 export interface EmbedParametres {
-  /** `couches=ouvrages` : ouvrages seuls ; `couches=troncons` : reseau seul. */
-  couches: "ouvrages" | "troncons" | null;
+  /**
+   * Couches demandees (`couches=troncons,ouvrages`). Vide : la carte historique des portails
+   * (reseau, chantiers et points noirs). `ouvrages` seul et `troncons` seul gardent leur sens.
+   */
+  couches: Couche[];
   /** `ouvrage=<id>` : centrage et etiquette sur un ouvrage (ID SIG). */
   ouvrage: string | null;
   /** `troncon=<id>` : centrage et surbrillance d'un troncon (ID SIG). */
@@ -37,29 +42,47 @@ export interface EmbedParametres {
   etats: string[];
   /** `region=<nom>` : troncons, chantiers et points noirs de cette region (nom exact de l'API). */
   region: string | null;
+  /** `fond=satellite` : imagerie aerienne ; sinon le fond sombre. */
+  fond: "sombre" | "satellite";
 }
 
 /**
  * Parametres de l'URL d'embed, lus une fois au chargement. Tous facultatifs et cumulables ;
  * SANS parametre, la carte reste celle de tous les portails : reseau, chantiers et points
  * noirs, sans ouvrages.
- * - `couches=ouvrages` (DigitalRoad DOA&A) : les ouvrages d'art seuls ;
- * - `couches=troncons` (DigitalRoad Maintenance) : le reseau seul, colore par etat ;
- * - `ouvrage=<id>` / `troncon=<id>` : centrer sur l'objet lie par son ID SIG ;
- * - `etat=` : etats de troncon a garder (BON, MOYEN, MAUVAIS, CRITIQUE, NON_EVALUE) ;
- *   le troncon cible reste affiche quel que soit son etat ;
- * - `region=` : restreindre a une region.
  */
 export function lireParametres(search: string): EmbedParametres {
   const q = new URLSearchParams(search);
-  const c = q.get("couches");
+  const couches = (q.get("couches") ?? "").split(",").map((c) => c.trim().toLowerCase())
+    .filter((c): c is Couche => c === "troncons" || c === "ouvrages" || c === "chantiers");
   return {
-    couches: c === "ouvrages" || c === "troncons" ? c : null,
+    couches: Array.from(new Set(couches)),
     ouvrage: q.get("ouvrage"),
     troncon: q.get("troncon"),
     etats: (q.get("etat") ?? "").split(",").map((e) => e.trim().toUpperCase()).filter(Boolean),
     region: q.get("region")?.trim() || null,
+    fond: q.get("fond") === "satellite" ? "satellite" : "sombre",
   };
+}
+
+/**
+ * Pages autorisees a piloter la carte par message (filtre et couleurs des ouvrages) et a en recevoir
+ * les clics : l'intranet AGEROUTE seulement. Les donnees echangees sont des identifiants publics et des
+ * etats ; le controle d'origine evite qu'un site tiers qui embarquerait la carte la detourne.
+ */
+export const ORIGINES_PILOTES = ["https://ageroutegn.sharepoint.com"];
+export const originePilote = (o: string): boolean => ORIGINES_PILOTES.includes(o) || /^https:\/\/[a-z0-9-]+\.ageroute\.gov\.gn$/.test(o);
+
+/** Ouvrage tel que la page hote le decrit : l'etat et la marque viennent de DigitalRoad (maitre du metier). */
+export interface OuvragePilote { id: string; etat?: string; marque?: "travaux" | "urgence" }
+/** Messages recus : la liste des ouvrages a montrer (les autres sont masques). */
+export function lireMessage(data: unknown): OuvragePilote[] | null {
+  if (!data || typeof data !== "object") return null;
+  const m = data as { type?: unknown; items?: unknown };
+  if (m.type !== "agr-ouvrages" || !Array.isArray(m.items)) return null;
+  return m.items
+    .filter((x): x is OuvragePilote => !!x && typeof (x as OuvragePilote).id === "string")
+    .map((x) => ({ id: x.id.toLowerCase(), etat: typeof x.etat === "string" ? x.etat.toUpperCase() : undefined, marque: x.marque === "travaux" || x.marque === "urgence" ? x.marque : undefined }));
 }
 
 function CentrerSur({ position, limites }: { position: [number, number] | null; limites: [number, number][] | null }) {
@@ -82,6 +105,16 @@ function geoJsonToLatLngs(geometry: string | null): [number, number][] {
   }
 }
 
+/** Origine de la page hote si elle est autorisee (les clics ne partent que vers elle). */
+function origineHote(): string | null {
+  try {
+    const o = document.referrer ? new URL(document.referrer).origin : "";
+    return window.parent !== window && originePilote(o) ? o : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Page d'aperçu PUBLIQUE, sans authentification ni chrome applicatif — juste
  * la carte, destinée à être embarquée (iframe) dans l'intranet SharePoint. Lit
@@ -91,6 +124,8 @@ function geoJsonToLatLngs(geometry: string | null): [number, number][] {
  */
 export function EmbedCartePage() {
   const params = useMemo(() => lireParametres(window.location.search), []);
+  const hote = useMemo(origineHote, []);
+  const [pilotes, setPilotes] = useState<OuvragePilote[] | null>(null);
   // Un troncon cible se regarde de pres : traces moins simplifies (palier du zoom 13).
   const zoom = params.troncon ? 13 : undefined;
   const { data } = useQuery({
@@ -98,9 +133,28 @@ export function EmbedCartePage() {
     queryFn: async () => (await axios.get<PublicCarteData>("/api/public/carte/geo", { params: zoom ? { zoom } : undefined })).data,
   });
 
-  const voirReseau = params.couches !== "ouvrages";
-  const voirChantiers = params.couches === null;
-  const voirOuvrages = params.couches === "ouvrages" || !!params.ouvrage;
+  // Pilotage par la page hote : elle annonce les ouvrages a montrer et leur etat metier.
+  useEffect(() => {
+    const ecoute = (e: MessageEvent) => { if (!originePilote(e.origin)) return; const items = lireMessage(e.data); if (items) setPilotes(items); };
+    window.addEventListener("message", ecoute);
+    if (hote) window.parent.postMessage({ type: "agr-embed-pret" }, hote);
+    return () => window.removeEventListener("message", ecoute);
+  }, [hote]);
+
+  const c = params.couches;
+  const voirReseau = c.length === 0 || c.includes("troncons");
+  const voirChantiers = c.length === 0 || c.includes("chantiers");
+  const voirOuvrages = c.includes("ouvrages") || !!params.ouvrage || pilotes !== null;
+
+  const parId = useMemo(() => {
+    const m = new Map<string, OuvragePilote>();
+    (pilotes ?? []).forEach((p) => m.set(p.id, p));
+    return m;
+  }, [pilotes]);
+  const ouvrages = useMemo(
+    () => (data?.ouvrages ?? []).filter((o) => pilotes === null || parId.has(o.id.toLowerCase())),
+    [data, pilotes, parId]
+  );
 
   const focus = useMemo<[number, number] | null>(() => {
     const o = (data?.ouvrages ?? []).find((x) => x.id === params.ouvrage);
@@ -126,13 +180,21 @@ export function EmbedCartePage() {
     [data, params]
   );
   const dansRegion = (r: string | null): boolean => !params.region || r === params.region;
+  const cliquer = (id: string) => { if (hote) window.parent.postMessage({ type: "agr-ouvrage-clic", id }, hote); };
 
   return (
     <div style={{ position: "fixed", inset: 0 }}>
-      <MapContainer center={GUINEE_CENTER} zoom={7} zoomControl={false} attributionControl={false} style={{ height: "100%", width: "100%" }}>
-        {/* Esri Dark Gray et non le fond sombre CARTO : basemaps.cartocdn.com renvoie
-            desormais une tuile filigranee "API KEY REQUIRED" (en HTTP 200). */}
-        <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}" />
+      <MapContainer center={GUINEE_CENTER} zoom={7} zoomControl={params.fond === "satellite"} attributionControl={false} style={{ height: "100%", width: "100%" }}>
+        {params.fond === "satellite" ? (
+          <>
+            <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={18} />
+            <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}" maxNativeZoom={18} />
+          </>
+        ) : (
+          /* Esri Dark Gray et non le fond sombre CARTO : basemaps.cartocdn.com renvoie
+             desormais une tuile filigranee "API KEY REQUIRED" (en HTTP 200). */
+          <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}" />
+        )}
         <CentrerSur position={focus} limites={focus ? null : cible ? cible.positions : null} />
         {voirReseau && tronconLines.map(({ t, positions }) => (
           <Polyline key={t.id} positions={positions} pathOptions={{ color: ETAT_COLORS[t.etat] ?? "#8FA9C8", weight: t.id === params.troncon ? 7 : 3 }}>
@@ -160,14 +222,19 @@ export function EmbedCartePage() {
             <Tooltip>Point noir — {p.gravite}</Tooltip>
           </CircleMarker>
         ))}
-        {voirOuvrages && (data?.ouvrages ?? []).map((o) => (
-          <Marker key={o.id} position={[o.lat, o.lon]} icon={ouvrageIcon(o.type, o.etat, o.aValider === true)}>
-            <Tooltip permanent={o.id === params.ouvrage}>
-              {TYPE_OUVRAGE_LABEL[o.type] ?? o.type} — {o.code ?? o.nom}
-              {o.aValider ? " (à valider)" : ""}
-            </Tooltip>
-          </Marker>
-        ))}
+        {voirOuvrages && ouvrages.map((o) => {
+          const p = parId.get(o.id.toLowerCase());
+          const etat = p?.etat && p.etat in ETAT_COLORS ? p.etat : o.etat;
+          return (
+            <Marker key={o.id} position={[o.lat, o.lon]} icon={ouvrageIcon(o.type, etat, o.aValider === true)} eventHandlers={{ click: () => cliquer(o.id) }}>
+              <Tooltip permanent={o.id === params.ouvrage}>
+                {TYPE_OUVRAGE_LABEL[o.type] ?? o.type} — {o.code ?? o.nom}
+                {p?.marque === "urgence" ? " · urgence" : p?.marque === "travaux" ? " · en travaux" : ""}
+                {o.aValider ? " (à valider)" : ""}
+              </Tooltip>
+            </Marker>
+          );
+        })}
       </MapContainer>
     </div>
   );
