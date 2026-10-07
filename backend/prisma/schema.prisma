@@ -160,6 +160,13 @@ enum AuditAction {
   LOGIN
   LOGIN_FAILED
   SECURITY_EVENT
+  /// Une observation de terrain devient une donnee officielle. C'est l'acte qu'un
+  /// auditeur vient relire ; le noyer dans UPDATE obligerait a comparer les champs
+  /// pour le retrouver.
+  VALIDATE
+  REJECT
+  /// Deux versions divergentes conservees, en attente d'arbitrage humain.
+  SYNC_CONFLICT
 }
 
 enum DeviseMarche {

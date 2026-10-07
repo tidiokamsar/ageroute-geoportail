@@ -3,6 +3,7 @@ import { geoV2Router } from "./geo.routes";
 import { syncV2Router } from "./sync.routes";
 import { devicesV2Router } from "./devices.routes";
 import { missionsV2Router } from "./missions.routes";
+import { observationsV2Router } from "./observations.routes";
 
 /**
  * `/api/v2` — la nouvelle surface d'API.
@@ -21,7 +22,7 @@ import { missionsV2Router } from "./missions.routes";
  * CE QUI MANQUE ENCORE
  *
  * La section 16 liste douze domaines : auth, devices, missions, tracks, geo,
- * observations, assets, offline, sync, intelligence, ai, integrations. Quatre sont la.
+ * observations, assets, offline, sync, intelligence, ai, integrations. Cinq sont la.
  * Les ajouter tous d'un coup produirait des routes sans implementation derriere, ce
  * qui est pire que leur absence : un client les appellerait.
  *
@@ -44,6 +45,7 @@ apiV2Router.use("/geo", geoV2Router);
 apiV2Router.use("/sync", syncV2Router);
 apiV2Router.use("/devices", devicesV2Router);
 apiV2Router.use("/missions", missionsV2Router);
+apiV2Router.use("/observations", observationsV2Router);
 
 /**
  * Inventaire de la surface v2, pour qu'un client sache ce qui existe reellement.
@@ -54,9 +56,9 @@ apiV2Router.use("/missions", missionsV2Router);
 apiV2Router.get("/", (_req, res) => {
   res.json({
     version: "v2",
-    domaines: ["geo", "sync", "devices", "missions"],
+    domaines: ["geo", "sync", "devices", "missions", "observations"],
     aVenir: [
-      "auth", "tracks", "observations",
+      "auth", "tracks",
       "assets", "offline", "intelligence", "ai", "integrations",
     ],
     v1: "/api — inchangee, toujours servie",
