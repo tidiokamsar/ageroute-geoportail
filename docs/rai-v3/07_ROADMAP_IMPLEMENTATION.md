@@ -45,9 +45,14 @@ qu'une observation est une proposition jusqu'à validation. Le système sait pro
 remonter et arbitrer les conflits ; il ne sait pas valider. Tout ce qui remonte du
 terrain reste donc au statut `PROPOSEE` et n'alimente rien. Une semaine.
 
-**2. Calibration des PK.** Dériver les PK des 1 029 régionales depuis leur géométrie,
-comme **propositions à valider** et jamais comme vérité, conformément au point 14. Sans
-elle, les phases 5 à 10 travaillent dans le vide.
+**2. Calibration des PK — RECOMMANDATION CORRIGÉE LE 07/10.** Je proposais de dériver
+les PK des 1 029 régionales depuis leur géométrie. La mesure a montré que le remède ne
+tient pas : ces 1 029 tronçons portent 1 029 noms distincts, dont 1 028 identiques à
+leur propre code. Il n'existe aucune route régionale dans la base, seulement des
+segments isolés, et un PK dérivé y désignerait mille endroits à la fois. Il manque le
+répertoire des routes régionales, qui est une donnée d'AGEROUTE et non un calcul. Voir
+`08_CALIBRATION_PK.md`. En attendant, la chaîne se construit sur les 621 nationales,
+dont 552 sont calibrées.
 
 **3. Défauts.** `Defect`, avec PK début et fin, gravité, dimensions, photo, confiance.
 Les défauts continus doivent être portés dès le modèle : les ajouter après coup
