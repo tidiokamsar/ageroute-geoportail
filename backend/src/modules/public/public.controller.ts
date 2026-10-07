@@ -21,6 +21,8 @@ interface ChantierGeoRow {
 interface OuvrageGeoRow {
   id: string; nom: string; type: string; etat: string; lat: number; lon: number;
   code: string | null; sourceReference: string | null;
+  /** Position sur le reseau : route (nom du troncon de rattachement), PK, region. */
+  route: string | null; pk: number | null; region: string | null;
 }
 
 /** Prefixe des ouvrages releves dans les documents de la DOA&A (import du 06/10/2026). */
@@ -88,8 +90,11 @@ export async function carteGeoHandler(req: Request, res: Response, next: NextFun
       prisma.$queryRaw<OuvrageGeoRow[]>`
         SELECT o.id, o.nom, o.type, o.etat::text AS etat,
                ST_Y(o.geom) AS lat, ST_X(o.geom) AS lon,
-               o.code, o."sourceReference"
+               o.code, o."sourceReference",
+               t.nom AS route, o.pk, r.nom AS region
         FROM ouvrages o
+        LEFT JOIN troncons t ON t.id = o."tronconId"
+        LEFT JOIN regions r ON r.id = o."regionId"
         WHERE o."deletedAt" IS NULL AND o.geom IS NOT NULL
           AND (o."sourceReference" IS NULL
                OR o."sourceReference" NOT LIKE 'ouvrage_osm:%')
@@ -145,6 +150,9 @@ export async function carteGeoHandler(req: Request, res: Response, next: NextFun
       ouvrages: ouvrages.map((o) => ({
         id: o.id, nom: o.nom, type: o.type, etat: o.etat, lat: o.lat, lon: o.lon,
         code: o.code, aValider: (o.sourceReference ?? "").startsWith(PREFIXE_DOC_DOAA),
+        // Position sur le reseau (D9 : identite, type et POSITION) : route, PK et region suffisent a
+        // DigitalRoad pour nommer l'ouvrage (code Route-Type-PK) sans recopier de coordonnees.
+        route: o.route, pk: o.pk, region: o.region,
       })),
     });
   } catch (err) {
