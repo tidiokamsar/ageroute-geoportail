@@ -44,6 +44,8 @@ export interface EmbedParametres {
   region: string | null;
   /** `fond=satellite` : imagerie aerienne ; sinon le fond sombre. */
   fond: "sombre" | "satellite";
+  /** `chantiers=precis` : chantiers localises precisement seulement (positions approchees masquees). */
+  chantiersPrecis: boolean;
 }
 
 /**
@@ -62,6 +64,7 @@ export function lireParametres(search: string): EmbedParametres {
     etats: (q.get("etat") ?? "").split(",").map((e) => e.trim().toUpperCase()).filter(Boolean),
     region: q.get("region")?.trim() || null,
     fond: q.get("fond") === "satellite" ? "satellite" : "sombre",
+    chantiersPrecis: q.get("chantiers") === "precis",
   };
 }
 
@@ -74,7 +77,8 @@ export const ORIGINES_PILOTES = ["https://ageroutegn.sharepoint.com"];
 export const originePilote = (o: string): boolean => ORIGINES_PILOTES.includes(o) || /^https:\/\/[a-z0-9-]+\.ageroute\.gov\.gn$/.test(o);
 
 /** Ouvrage tel que la page hote le decrit : l'etat et la marque viennent de DigitalRoad (maitre du metier). */
-export interface OuvragePilote { id: string; etat?: string; marque?: "travaux" | "urgence" }
+/** `valide` : fiche validee par la DOA&A dans DigitalRoad (la carte cesse de la marquer « a valider »). */
+export interface OuvragePilote { id: string; etat?: string; marque?: "travaux" | "urgence"; valide?: boolean }
 /** Messages recus : la liste des ouvrages a montrer (les autres sont masques). */
 export function lireMessage(data: unknown): OuvragePilote[] | null {
   if (!data || typeof data !== "object") return null;
@@ -82,7 +86,7 @@ export function lireMessage(data: unknown): OuvragePilote[] | null {
   if (m.type !== "agr-ouvrages" || !Array.isArray(m.items)) return null;
   return m.items
     .filter((x): x is OuvragePilote => !!x && typeof (x as OuvragePilote).id === "string")
-    .map((x) => ({ id: x.id.toLowerCase(), etat: typeof x.etat === "string" ? x.etat.toUpperCase() : undefined, marque: x.marque === "travaux" || x.marque === "urgence" ? x.marque : undefined }));
+    .map((x) => ({ id: x.id.toLowerCase(), etat: typeof x.etat === "string" ? x.etat.toUpperCase() : undefined, marque: x.marque === "travaux" || x.marque === "urgence" ? x.marque : undefined, ...(x.valide === true ? { valide: true } : {}) }));
 }
 
 /** Route demandee par la page hote (`route: "RN2"`), normalisee ; null si absente. */
@@ -241,7 +245,7 @@ export function EmbedCartePage() {
             <Tooltip sticky>Chantier — {c.statut} ({c.avancementPct}%)</Tooltip>
           </Polyline>
         ))}
-        {voirChantiers && (data?.chantiers ?? [])
+        {voirChantiers && !params.chantiersPrecis && (data?.chantiers ?? [])
           .filter((c) => c.approximate && c.lat != null && c.lon != null && dansRegion(c.region))
           .map((c) => (
             <CircleMarker key={c.id} center={[c.lat as number, c.lon as number]} radius={6} pathOptions={{ color: "#fff", weight: 1, fillColor: CHANTIER_COLORS[c.statut], fillOpacity: 0.9 }}>
@@ -267,11 +271,11 @@ export function EmbedCartePage() {
           const p = parId.get(o.id.toLowerCase());
           const etat = p?.etat && p.etat in ETAT_COLORS ? p.etat : o.etat;
           return (
-            <Marker key={o.id} position={[o.lat, o.lon]} icon={ouvrageIcon(o.type, etat, o.aValider === true)} eventHandlers={{ click: () => cliquer(o.id) }}>
+            <Marker key={o.id} position={[o.lat, o.lon]} icon={ouvrageIcon(o.type, etat, o.aValider === true && !p?.valide)} eventHandlers={{ click: () => cliquer(o.id) }}>
               <Tooltip permanent={o.id === params.ouvrage}>
                 {TYPE_OUVRAGE_LABEL[o.type] ?? o.type} — {o.code ?? o.nom}
                 {p?.marque === "urgence" ? " · urgence" : p?.marque === "travaux" ? " · en travaux" : ""}
-                {o.aValider ? " (à valider)" : ""}
+                {o.aValider && !p?.valide ? " (à valider)" : p?.valide && o.aValider ? " (validé DOA&A)" : ""}
               </Tooltip>
             </Marker>
           );

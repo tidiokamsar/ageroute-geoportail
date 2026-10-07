@@ -7,7 +7,8 @@ import { lireParametres, lireMessage, lireRoute, memeRoute, originePilote } from
  */
 describe("Parametres de la carte embarquee", () => {
   it("sans parametre : aucune couche forcee, aucun filtre, fond sombre", () => {
-    expect(lireParametres("")).toEqual({ couches: [], ouvrage: null, troncon: null, etats: [], region: null, fond: "sombre" });
+    expect(lireParametres("")).toEqual({ couches: [], ouvrage: null, troncon: null, etats: [], region: null, fond: "sombre", chantiersPrecis: false });
+    expect(lireParametres("?chantiers=precis").chantiersPrecis).toBe(true);
   });
 
   it("lit les couches connues, cumulables, et ignore les autres", () => {
@@ -44,6 +45,8 @@ describe("Pilotage par la page hote", () => {
     expect(lireMessage("texte")).toBeNull();
     expect(lireMessage({ type: "agr-ouvrages", items: [{ id: "AB-1", etat: "critique", marque: "urgence" }, { etat: "BON" }, { id: "c", marque: "x" }] }))
       .toEqual([{ id: "ab-1", etat: "CRITIQUE", marque: "urgence" }, { id: "c", etat: undefined, marque: undefined }]);
+    expect(lireMessage({ type: "agr-ouvrages", items: [{ id: "a", valide: true }, { id: "b", valide: "oui" }] }))
+      .toEqual([{ id: "a", etat: undefined, marque: undefined, valide: true }, { id: "b", etat: undefined, marque: undefined }]);
   });
 });
 
