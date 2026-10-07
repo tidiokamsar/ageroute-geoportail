@@ -204,7 +204,17 @@ export function EmbedCartePage() {
   const cible = useMemo(() => tronconLines.find((x) => x.t.id === params.troncon) ?? null, [tronconLines, params]);
   /** Troncons de la route demandee par la page hote : mis en evidence et cadres. */
   const surRoute = useMemo(() => (route ? tronconLines.filter((x) => x.t.nom.toUpperCase().replace(/\s+/g, "") === route) : []), [tronconLines, route]);
-  const limitesRoute = useMemo(() => (surRoute.length ? surRoute.flatMap((x) => x.positions) : null), [surRoute]);
+  /**
+   * Cadrage d'une route : sur les ouvrages montres s'il y en a (une route peut porter des troncons homonymes
+   * hors de Guinee, repris d'une source externe : 6 troncons « RN4 » de la N4 bissau-guineenne, 07/10/2026),
+   * sinon sur ses troncons.
+   */
+  const limitesRoute = useMemo(() => {
+    if (!route) return null;
+    const pts = ouvrages.map((o) => [o.lat, o.lon] as [number, number]);
+    if (pts.length) return pts;
+    return surRoute.length ? surRoute.flatMap((x) => x.positions) : null;
+  }, [route, ouvrages, surRoute]);
   const franchissementsVus = useMemo(() => (franchissements ?? []).filter((f) => !route || memeRoute(f.numero, route)), [franchissements, route]);
   const chantierLines = useMemo(
     () =>
