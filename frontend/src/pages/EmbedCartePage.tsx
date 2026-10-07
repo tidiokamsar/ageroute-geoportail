@@ -26,7 +26,7 @@ interface PublicCarteData {
   ouvrages?: PublicOuvrage[];
 }
 
-export type Couche = "troncons" | "ouvrages" | "chantiers";
+export type Couche = "troncons" | "ouvrages" | "chantiers" | "franchissements";
 
 export interface EmbedParametres {
   /**
@@ -54,7 +54,7 @@ export interface EmbedParametres {
 export function lireParametres(search: string): EmbedParametres {
   const q = new URLSearchParams(search);
   const couches = (q.get("couches") ?? "").split(",").map((c) => c.trim().toLowerCase())
-    .filter((c): c is Couche => c === "troncons" || c === "ouvrages" || c === "chantiers");
+    .filter((c): c is Couche => c === "troncons" || c === "ouvrages" || c === "chantiers" || c === "franchissements");
   return {
     couches: Array.from(new Set(couches)),
     ouvrage: q.get("ouvrage"),
@@ -83,6 +83,28 @@ export function lireMessage(data: unknown): OuvragePilote[] | null {
   return m.items
     .filter((x): x is OuvragePilote => !!x && typeof (x as OuvragePilote).id === "string")
     .map((x) => ({ id: x.id.toLowerCase(), etat: typeof x.etat === "string" ? x.etat.toUpperCase() : undefined, marque: x.marque === "travaux" || x.marque === "urgence" ? x.marque : undefined }));
+}
+
+/** Route demandee par la page hote (`route: "RN2"`), normalisee ; null si absente. */
+export function lireRoute(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const r = (data as { route?: unknown }).route;
+  return typeof r === "string" && r.trim() ? r.trim().toUpperCase().replace(/\s+/g, "") : null;
+}
+/** Les franchissements notent la route « N2 » ; le reseau AGEROUTE « RN2 ». */
+export const memeRoute = (numero: string, route: string): boolean => {
+  const n = numero.trim().toUpperCase().replace(/\s+/g, "");
+  return !!n && (n === route || `R${n}` === route);
+};
+
+interface Franchissement { id: number; lat: number; lon: number; nature: string; numero: string; nom: string; classement: string; region: string }
+async function chargerFranchissements(): Promise<Franchissement[]> {
+  const g = (await axios.get<{ features: Array<{ geometry: { type: string; coordinates: number[][] }; properties: Record<string, unknown> }> }>("/data/ponts-osm.geojson")).data;
+  return (g.features ?? []).map((f, i) => {
+    const c = f.geometry?.coordinates ?? []; const m = c[Math.floor(c.length / 2)] ?? [0, 0];
+    const p = f.properties ?? {};
+    return { id: i, lat: m[1], lon: m[0], nature: String(p.franchissement ?? ""), numero: String(p.numero ?? ""), nom: String(p.nom ?? ""), classement: String(p.classement ?? ""), region: String(p.region ?? "") };
+  }).filter((f) => f.lat && f.lon);
 }
 
 function CentrerSur({ position, limites }: { position: [number, number] | null; limites: [number, number][] | null }) {
@@ -126,6 +148,7 @@ export function EmbedCartePage() {
   const params = useMemo(() => lireParametres(window.location.search), []);
   const hote = useMemo(origineHote, []);
   const [pilotes, setPilotes] = useState<OuvragePilote[] | null>(null);
+  const [route, setRoute] = useState<string | null>(null);
   // Un troncon cible se regarde de pres : traces moins simplifies (palier du zoom 13).
   const zoom = params.troncon ? 13 : undefined;
   const { data } = useQuery({
@@ -135,7 +158,7 @@ export function EmbedCartePage() {
 
   // Pilotage par la page hote : elle annonce les ouvrages a montrer et leur etat metier.
   useEffect(() => {
-    const ecoute = (e: MessageEvent) => { if (!originePilote(e.origin)) return; const items = lireMessage(e.data); if (items) setPilotes(items); };
+    const ecoute = (e: MessageEvent) => { if (!originePilote(e.origin)) return; const items = lireMessage(e.data); if (items) { setPilotes(items); setRoute(lireRoute(e.data)); } };
     window.addEventListener("message", ecoute);
     if (hote) window.parent.postMessage({ type: "agr-embed-pret" }, hote);
     return () => window.removeEventListener("message", ecoute);
@@ -145,6 +168,8 @@ export function EmbedCartePage() {
   const voirReseau = c.length === 0 || c.includes("troncons");
   const voirChantiers = c.length === 0 || c.includes("chantiers");
   const voirOuvrages = c.includes("ouvrages") || !!params.ouvrage || pilotes !== null;
+  const voirFranchissements = c.includes("franchissements");
+  const { data: franchissements } = useQuery({ queryKey: ["public", "franchissements"], queryFn: chargerFranchissements, enabled: voirFranchissements, staleTime: Infinity });
 
   const parId = useMemo(() => {
     const m = new Map<string, OuvragePilote>();
@@ -171,6 +196,10 @@ export function EmbedCartePage() {
     [data, params]
   );
   const cible = useMemo(() => tronconLines.find((x) => x.t.id === params.troncon) ?? null, [tronconLines, params]);
+  /** Troncons de la route demandee par la page hote : mis en evidence et cadres. */
+  const surRoute = useMemo(() => (route ? tronconLines.filter((x) => x.t.nom.toUpperCase().replace(/\s+/g, "") === route) : []), [tronconLines, route]);
+  const limitesRoute = useMemo(() => (surRoute.length ? surRoute.flatMap((x) => x.positions) : null), [surRoute]);
+  const franchissementsVus = useMemo(() => (franchissements ?? []).filter((f) => !route || memeRoute(f.numero, route)), [franchissements, route]);
   const chantierLines = useMemo(
     () =>
       (data?.chantiers ?? [])
@@ -195,9 +224,9 @@ export function EmbedCartePage() {
              desormais une tuile filigranee "API KEY REQUIRED" (en HTTP 200). */
           <TileLayer url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}" />
         )}
-        <CentrerSur position={focus} limites={focus ? null : cible ? cible.positions : null} />
+        <CentrerSur position={focus} limites={focus ? null : cible ? cible.positions : limitesRoute} />
         {voirReseau && tronconLines.map(({ t, positions }) => (
-          <Polyline key={t.id} positions={positions} pathOptions={{ color: ETAT_COLORS[t.etat] ?? "#8FA9C8", weight: t.id === params.troncon ? 7 : 3 }}>
+          <Polyline key={t.id} positions={positions} pathOptions={{ color: ETAT_COLORS[t.etat] ?? "#8FA9C8", weight: t.id === params.troncon || (route !== null && t.nom.toUpperCase().replace(/\s+/g, "") === route) ? 7 : 3, opacity: route !== null && t.nom.toUpperCase().replace(/\s+/g, "") !== route ? 0.35 : 1 }}>
             <Tooltip sticky>{t.code} — {t.nom}</Tooltip>
           </Polyline>
         ))}
@@ -220,6 +249,16 @@ export function EmbedCartePage() {
         {voirChantiers && (data?.pointsNoirs ?? []).filter((p) => dansRegion(p.region)).map((p) => (
           <CircleMarker key={p.id} center={[p.lat, p.lon]} radius={5} pathOptions={{ color: "#fff", weight: 1, fillColor: "#dc2626", fillOpacity: 0.9 }}>
             <Tooltip>Point noir — {p.gravite}</Tooltip>
+          </CircleMarker>
+        ))}
+        {voirFranchissements && franchissementsVus.map((f) => (
+          <CircleMarker key={f.id} center={[f.lat, f.lon]} radius={route ? 6 : 3}
+            pathOptions={{ color: "#ffffff", weight: 1, fillColor: f.classement === "PONT_SANS_OUVRAGE" ? "#dc2626" : "#16a34a", fillOpacity: 0.9 }}>
+            <Tooltip>
+              {f.nature} (franchissement repéré){f.numero ? ` · ${f.numero}` : ""}{f.nom ? ` · ${f.nom}` : ""}
+              <br />
+              {f.classement === "PONT_SANS_OUVRAGE" ? "aucun ouvrage AGEROUTE à proximité : à instruire" : "ouvrage AGEROUTE à proximité"}
+            </Tooltip>
           </CircleMarker>
         ))}
         {voirOuvrages && ouvrages.map((o) => {
