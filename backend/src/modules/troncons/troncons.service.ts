@@ -1,6 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { createCrudService, type ListParams } from "../../lib/crud-factory";
+import { WHERE_RESEAU_CLASSE, clauseSqlReseauClasse } from "../../lib/reseau";
 import { buildExportBuffer, parseImportBuffer, formatImportError, type ImportReport } from "../../lib/excel";
 import { resolveRegionId } from "../../lib/regions";
 import { ApiError } from "../../middleware/error.middleware";
@@ -39,12 +40,7 @@ export type PerimetreTroncons = "reference" | "tout";
  * `sourceReference`, et un simple `not: { startsWith }` les exclurait tous — en SQL,
  * NULL NOT LIKE '...' vaut NULL, donc faux.
  */
-const RESEAU_CLASSE: Prisma.TronconWhereInput = {
-  OR: [
-    { sourceReference: null },
-    { sourceReference: { not: { startsWith: "voirie_locale:" } } },
-  ],
-};
+const RESEAU_CLASSE: Prisma.TronconWhereInput = WHERE_RESEAU_CLASSE;
 
 async function list(params: TronconListParams) {
   const where: Record<string, unknown> = { ...params.where };
@@ -159,11 +155,7 @@ async function listGeo({ tout = false, simplification = 0 }: { tout?: boolean; s
     FROM troncons t
     LEFT JOIN regions r ON r.id = t."regionId"
     WHERE t."deletedAt" IS NULL AND t.geom IS NOT NULL
-      AND (
-        ${tout}::boolean
-        OR t."sourceReference" IS NULL
-        OR t."sourceReference" NOT LIKE 'voirie_locale:%'
-      )
+      AND (${tout}::boolean OR ${Prisma.raw(clauseSqlReseauClasse('t."sourceReference"'))})
   `;
 }
 

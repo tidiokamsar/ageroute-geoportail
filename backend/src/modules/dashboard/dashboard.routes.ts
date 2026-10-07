@@ -3,7 +3,7 @@ import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middleware/auth.middleware";
 import { requireModuleAccess } from "../../middleware/module-access.middleware";
 import { Prisma } from "@prisma/client";
-import { longueurReseau } from "../../lib/reseau";
+import { longueurReseau, WHERE_RESEAU_CLASSE } from "../../lib/reseau";
 
 /**
  * Le reseau classe : tout sauf les troncons issus de la promotion de voirie.
@@ -24,12 +24,8 @@ const INVENTAIRE_REFERENCE: Prisma.OuvrageWhereInput = {
   ],
 };
 
-const RESEAU_REFERENCE: Prisma.TronconWhereInput = {
-  OR: [
-    { sourceReference: null },
-    { sourceReference: { not: { startsWith: "voirie_locale:" } } },
-  ],
-};
+/** Importe plutot que recopie : le predicat vit dans lib/reseau.ts, une seule fois. */
+const RESEAU_REFERENCE: Prisma.TronconWhereInput = WHERE_RESEAU_CLASSE;
 
 export const dashboardRouter = Router();
 

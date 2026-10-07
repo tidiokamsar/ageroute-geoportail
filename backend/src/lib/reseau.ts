@@ -120,14 +120,51 @@ const arrondi = (v: number): number => Math.round(v * 100) / 100;
  */
 export type PerimetreReseau = "reference" | "voirie" | "tout";
 
-function clausePerimetre(p: PerimetreReseau): string {
-  if (p === "tout") return "";
-  const promue = `"sourceReference" LIKE 'voirie_locale:%'`;
+/**
+ * Ce qui n'appartient PAS au reseau classe, defini une seule fois.
+ *
+ * POURQUOI UNE LISTE PARTAGEE
+ *
+ * Le predicat vivait en cinq exemplaires, dans quatre chemins de code : ici, le
+ * tableau de bord, la liste des troncons et la carte. Tant qu'il n'excluait qu'un
+ * prefixe, la duplication tenait. Au deuxieme, elle devient un piege : etendre quatre
+ * copies a la main, c'est en oublier une, et l'oubli ne se verrait que sur l'ecran
+ * qu'on ne regarde pas. Le meme motif a deja echappe a une revue dans cette base, la
+ * garde `in` corrigee dans le journal d'audit et laissee en place dans la qualite.
+ *
+ * `voirie_locale:` — voies reprises d'une source cartographique externe et promues en
+ * troncons. Elles SONT au registre, elles ne sont pas du reseau classe.
+ *
+ * `hors_territoire:` — troncons dont la geometrie ne rencontre aucune limite
+ * administrative guineenne de niveau 1. Mesure du 07/10/2026 : 7 troncons, 72,0 km,
+ * dont 6 nommes RN4 vers Gabou et un RN1 au nord de la frontiere. Leur
+ * `sourceReference` etait nul, donc rien ne les distinguait de la donnee validee, et
+ * leurs 72 km entraient dans les 21 157 publies sur la carte publique.
+ */
+export const PREFIXES_HORS_RESEAU_CLASSE = ["voirie_locale:", "hors_territoire:"] as const;
+
+/** Forme SQL brute du predicat. Le IS NULL n'est pas decoratif, voir ci-dessous. */
+export function clauseSqlReseauClasse(colonne = '"sourceReference"'): string {
+  const exclus = PREFIXES_HORS_RESEAU_CLASSE.map((p) => `${colonne} LIKE '${p}%'`).join(" OR ");
   // NULL NOT LIKE '...' vaut NULL, donc faux : sans le IS NULL, les 1 690 troncons
   // anterieurs — qui n'ont pas de sourceReference — disparaitraient tous.
-  return p === "reference"
-    ? `AND ("sourceReference" IS NULL OR NOT ${promue})`
-    : `AND ${promue}`;
+  return `(${colonne} IS NULL OR NOT (${exclus}))`;
+}
+
+/** Forme Prisma du meme predicat, pour les appelants qui n'ecrivent pas de SQL. */
+export const WHERE_RESEAU_CLASSE = {
+  OR: [
+    { sourceReference: null },
+    { AND: PREFIXES_HORS_RESEAU_CLASSE.map((p) => ({ sourceReference: { not: { startsWith: p } } })) },
+  ],
+};
+
+function clausePerimetre(p: PerimetreReseau): string {
+  if (p === "tout") return "";
+  // « voirie » designe les voies promues, et elles seules : un troncon hors territoire
+  // n'est pas de la voirie locale, il n'a simplement rien a faire au registre national.
+  if (p === "voirie") return `AND "sourceReference" LIKE 'voirie_locale:%'`;
+  return `AND ${clauseSqlReseauClasse()}`;
 }
 
 export async function longueurReseau(perimetre: PerimetreReseau = "reference"): Promise<LongueurReseau> {
