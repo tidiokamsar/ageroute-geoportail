@@ -169,6 +169,8 @@ export function EmbedCartePage() {
   const voirChantiers = c.length === 0 || c.includes("chantiers");
   const voirOuvrages = c.includes("ouvrages") || !!params.ouvrage || pilotes !== null;
   const voirFranchissements = c.includes("franchissements");
+  // 3 178 points : en SVG la page se fige ; le rendu canvas les dessine d'un bloc.
+  const rendu = useMemo(() => L.canvas({ padding: 0.5, tolerance: 4 }), []);
   const { data: franchissements } = useQuery({ queryKey: ["public", "franchissements"], queryFn: chargerFranchissements, enabled: voirFranchissements, staleTime: Infinity });
 
   const parId = useMemo(() => {
@@ -252,7 +254,7 @@ export function EmbedCartePage() {
           </CircleMarker>
         ))}
         {voirFranchissements && franchissementsVus.map((f) => (
-          <CircleMarker key={f.id} center={[f.lat, f.lon]} radius={route ? 6 : 3}
+          <CircleMarker key={f.id} center={[f.lat, f.lon]} radius={route ? 6 : 3} renderer={rendu}
             pathOptions={{ color: "#ffffff", weight: 1, fillColor: f.classement === "PONT_SANS_OUVRAGE" ? "#dc2626" : "#16a34a", fillOpacity: 0.9 }}>
             <Tooltip>
               {f.nature} (franchissement repéré){f.numero ? ` · ${f.numero}` : ""}{f.nom ? ` · ${f.nom}` : ""}
