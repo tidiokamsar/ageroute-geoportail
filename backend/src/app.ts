@@ -28,6 +28,7 @@ import { searchRouter } from "./modules/search/search.routes";
 import { documentsRouter } from "./modules/documents/documents.routes";
 import { photosRouter } from "./modules/photos/photos.routes";
 import { publicRouter } from "./modules/public/public.routes";
+import { apiV2Router } from "./api-v2";
 import { healthRouter } from "./modules/health/health.routes";
 import { errorHandler, notFoundHandler } from "./middleware/error.middleware";
 import { requireAuth } from "./middleware/auth.middleware";
@@ -141,6 +142,13 @@ export function createApp() {
   app.use("/api/documents", documentsRouter);
   app.use("/api/photos", photosRouter);
   app.use("/api/public", publicRouter);
+
+  /**
+   * API v2. La V1 ci-dessus reste intacte : elle sert la carte publique, la console
+   * interne et la carte embarquee de DigitalRoad, hebergee sur un domaine SharePoint
+   * qu'on ne redeploie pas au meme rythme. Les pages migrent une par une.
+   */
+  app.use("/api/v2", apiV2Router);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
