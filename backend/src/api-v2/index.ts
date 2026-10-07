@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { geoV2Router } from "./geo.routes";
+import { syncV2Router } from "./sync.routes";
 
 /**
  * `/api/v2` — la nouvelle surface d'API.
@@ -18,16 +19,22 @@ import { geoV2Router } from "./geo.routes";
  * CE QUI MANQUE ENCORE
  *
  * La section 16 liste douze domaines : auth, devices, missions, tracks, geo,
- * observations, assets, offline, sync, intelligence, ai, integrations. Un seul est
- * la. Les ajouter tous d'un coup produirait des routes sans implementation derriere,
- * ce qui est pire que leur absence : un client les appellerait.
+ * observations, assets, offline, sync, intelligence, ai, integrations. Deux sont la.
+ * Les ajouter tous d'un coup produirait des routes sans implementation derriere, ce
+ * qui est pire que leur absence : un client les appellerait.
  *
- * `geo` vient en premier parce que son moteur existe et qu'il est mesure — voir
- * geo/appariement.ts. Les suivants viendront avec leur service, pas avant.
+ * `geo` est venu en premier parce que son moteur existait et qu'il etait mesure.
+ * `sync` suit parce qu'il est le plus couteux a rattraper apres coup : une
+ * application mobile batie sans idempotence ni detection de conflit produit des
+ * doublons et des ecrasements qu'aucune correction ulterieure ne rattrape, les
+ * donnees perdues l'etant pour de bon.
+ *
+ * Les suivants viendront avec leur service, pas avant.
  */
 export const apiV2Router = Router();
 
 apiV2Router.use("/geo", geoV2Router);
+apiV2Router.use("/sync", syncV2Router);
 
 /**
  * Inventaire de la surface v2, pour qu'un client sache ce qui existe reellement.
@@ -38,10 +45,10 @@ apiV2Router.use("/geo", geoV2Router);
 apiV2Router.get("/", (_req, res) => {
   res.json({
     version: "v2",
-    domaines: ["geo"],
+    domaines: ["geo", "sync"],
     aVenir: [
       "auth", "devices", "missions", "tracks", "observations",
-      "assets", "offline", "sync", "intelligence", "ai", "integrations",
+      "assets", "offline", "intelligence", "ai", "integrations",
     ],
     v1: "/api — inchangee, toujours servie",
   });
