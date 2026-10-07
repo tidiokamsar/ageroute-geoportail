@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { lireParametres, lireMessage, lireRoute, memeRoute, originePilote } from "./EmbedCartePage";
+import { lireParametres, lireMessage, lireRoute, memeRoute, originePilote, cleFranchissement, lireStatutsFranchissements, couleurFranchissement } from "./EmbedCartePage";
 
 /**
  * L'URL d'embed est un contrat avec l'intranet SharePoint (DigitalRoad DOA&A et Maintenance) :
@@ -58,5 +58,29 @@ describe("Route demandee par la page hote", () => {
     expect(memeRoute("RN2", "RN2")).toBe(true);
     expect(memeRoute("N22", "RN2")).toBe(false);
     expect(memeRoute("", "RN2")).toBe(false);
+  });
+});
+
+describe("Fiches des franchissements (DOA_FRANCHISSEMENTS)", () => {
+  it("cle = point milieu a 5 decimales, identique a celle de l'import SharePoint", () => {
+    expect(cleFranchissement(10.123456, -13.9)).toBe("10.12346,-13.90000");
+    expect(cleFranchissement(9.5, -10)).toBe("9.50000,-10.00000");
+  });
+
+  it("lit les statuts d'instruction, ignore les statuts inconnus et les messages etrangers", () => {
+    expect(lireStatutsFranchissements({ type: "agr-ouvrages", items: [] })).toBeNull();
+    expect(lireStatutsFranchissements(null)).toBeNull();
+    const m = lireStatutsFranchissements({ type: "agr-franchissements", items: [
+      { cle: "1.00000,2.00000", statut: "Ouvrage confirmé" }, { cle: "3.00000,4.00000", statut: "Fini" }, { statut: "Doublon" },
+    ] });
+    expect(m && Array.from(m.entries())).toEqual([["1.00000,2.00000", "Ouvrage confirmé"]]);
+  });
+
+  it("colore selon l'instruction DOA&A, sinon selon le classement OSM", () => {
+    expect(couleurFranchissement("PONT_SANS_OUVRAGE")).toBe("#dc2626");
+    expect(couleurFranchissement("PONT_BDRI_PROCHE_25M")).toBe("#16a34a");
+    expect(couleurFranchissement("PONT_SANS_OUVRAGE", "À instruire")).toBe("#dc2626");
+    expect(couleurFranchissement("PONT_SANS_OUVRAGE", "Ouvrage confirmé")).toBe("#2563eb");
+    expect(couleurFranchissement("PONT_SANS_OUVRAGE", "Doublon")).toBe("#9ca3af");
   });
 });

@@ -101,13 +101,40 @@ export const memeRoute = (numero: string, route: string): boolean => {
   return !!n && (n === route || `R${n}` === route);
 };
 
-interface Franchissement { id: number; lat: number; lon: number; nature: string; numero: string; nom: string; classement: string; region: string }
+/**
+ * Cle d'un franchissement partagee avec DigitalRoad (liste DOA_FRANCHISSEMENTS) : le point milieu du trace,
+ * « lat,lon » a 5 decimales. Le fichier OSM n'a pas d'identifiant stable ; la position, elle, ne bouge pas.
+ */
+export const cleFranchissement = (lat: number, lon: number): string => `${lat.toFixed(5)},${lon.toFixed(5)}`;
+
+/** Instruction d'un franchissement par la DOA&A, tenue dans DigitalRoad. */
+export type StatutFranchissement = "À instruire" | "Ouvrage confirmé" | "Pas d'ouvrage" | "Doublon";
+const STATUTS_FRANCHISSEMENT: StatutFranchissement[] = ["À instruire", "Ouvrage confirmé", "Pas d'ouvrage", "Doublon"];
+/** Message `agr-franchissements` de la page hote : statut d'instruction par cle ; null pour tout autre message. */
+export function lireStatutsFranchissements(data: unknown): Map<string, StatutFranchissement> | null {
+  if (!data || typeof data !== "object") return null;
+  const m = data as { type?: unknown; items?: unknown };
+  if (m.type !== "agr-franchissements" || !Array.isArray(m.items)) return null;
+  const r = new Map<string, StatutFranchissement>();
+  for (const x of m.items as Array<{ cle?: unknown; statut?: unknown }>) {
+    if (x && typeof x.cle === "string" && STATUTS_FRANCHISSEMENT.includes(x.statut as StatutFranchissement)) r.set(x.cle, x.statut as StatutFranchissement);
+  }
+  return r;
+}
+/** Rouge : a instruire (aucun ouvrage connu) ; vert : ouvrage AGEROUTE proche ; bleu : confirme ; gris : ecarte. */
+export function couleurFranchissement(classement: string, statut?: StatutFranchissement): string {
+  if (statut === "Ouvrage confirmé") return "#2563eb";
+  if (statut === "Pas d'ouvrage" || statut === "Doublon") return "#9ca3af";
+  return classement === "PONT_SANS_OUVRAGE" ? "#dc2626" : "#16a34a";
+}
+
+interface Franchissement { id: number; cle: string; lat: number; lon: number; nature: string; numero: string; nom: string; classement: string; region: string }
 async function chargerFranchissements(): Promise<Franchissement[]> {
   const g = (await axios.get<{ features: Array<{ geometry: { type: string; coordinates: number[][] }; properties: Record<string, unknown> }> }>("/data/ponts-osm.geojson")).data;
   return (g.features ?? []).map((f, i) => {
     const c = f.geometry?.coordinates ?? []; const m = c[Math.floor(c.length / 2)] ?? [0, 0];
     const p = f.properties ?? {};
-    return { id: i, lat: m[1], lon: m[0], nature: String(p.franchissement ?? ""), numero: String(p.numero ?? ""), nom: String(p.nom ?? ""), classement: String(p.classement ?? ""), region: String(p.region ?? "") };
+    return { id: i, cle: cleFranchissement(m[1], m[0]), lat: m[1], lon: m[0], nature: String(p.franchissement ?? ""), numero: String(p.numero ?? ""), nom: String(p.nom ?? ""), classement: String(p.classement ?? ""), region: String(p.region ?? "") };
   }).filter((f) => f.lat && f.lon);
 }
 
@@ -153,6 +180,7 @@ export function EmbedCartePage() {
   const hote = useMemo(origineHote, []);
   const [pilotes, setPilotes] = useState<OuvragePilote[] | null>(null);
   const [route, setRoute] = useState<string | null>(null);
+  const [statutsFr, setStatutsFr] = useState<Map<string, StatutFranchissement>>(() => new Map());
   // Un troncon cible se regarde de pres : traces moins simplifies (palier du zoom 13).
   const zoom = params.troncon ? 13 : undefined;
   const { data } = useQuery({
@@ -162,7 +190,7 @@ export function EmbedCartePage() {
 
   // Pilotage par la page hote : elle annonce les ouvrages a montrer et leur etat metier.
   useEffect(() => {
-    const ecoute = (e: MessageEvent) => { if (!originePilote(e.origin)) return; const items = lireMessage(e.data); if (items) { setPilotes(items); setRoute(lireRoute(e.data)); } };
+    const ecoute = (e: MessageEvent) => { if (!originePilote(e.origin)) return; const items = lireMessage(e.data); if (items) { setPilotes(items); setRoute(lireRoute(e.data)); } const fr = lireStatutsFranchissements(e.data); if (fr) setStatutsFr(fr); };
     window.addEventListener("message", ecoute);
     if (hote) window.parent.postMessage({ type: "agr-embed-pret" }, hote);
     return () => window.removeEventListener("message", ecoute);
@@ -226,6 +254,10 @@ export function EmbedCartePage() {
   );
   const dansRegion = (r: string | null): boolean => !params.region || r === params.region;
   const cliquer = (id: string) => { if (hote) window.parent.postMessage({ type: "agr-ouvrage-clic", id }, hote); };
+  /** Clic sur un franchissement : DigitalRoad ouvre sa fiche (cle) ; les attributs servent si la fiche manque encore. */
+  const cliquerFranchissement = (f: Franchissement) => {
+    if (hote) window.parent.postMessage({ type: "agr-franchissement-clic", cle: f.cle, lat: f.lat, lon: f.lon, nature: f.nature, numero: f.numero, nom: f.nom, region: f.region, classement: f.classement }, hote);
+  };
 
   return (
     <div style={{ position: "fixed", inset: 0 }}>
@@ -267,16 +299,22 @@ export function EmbedCartePage() {
             <Tooltip>Point noir — {p.gravite}</Tooltip>
           </CircleMarker>
         ))}
-        {voirFranchissements && franchissementsVus.map((f) => (
-          <CircleMarker key={f.id} center={[f.lat, f.lon]} radius={route ? 6 : 3} renderer={rendu}
-            pathOptions={{ color: "#ffffff", weight: 1, fillColor: f.classement === "PONT_SANS_OUVRAGE" ? "#dc2626" : "#16a34a", fillOpacity: 0.9 }}>
-            <Tooltip>
-              {f.nature} (franchissement repéré){f.numero ? ` · ${f.numero}` : ""}{f.nom ? ` · ${f.nom}` : ""}
-              <br />
-              {f.classement === "PONT_SANS_OUVRAGE" ? "aucun ouvrage AGEROUTE à proximité : à instruire" : "ouvrage AGEROUTE à proximité"}
-            </Tooltip>
-          </CircleMarker>
-        ))}
+        {voirFranchissements && franchissementsVus.map((f) => {
+          const statut = statutsFr.get(f.cle);
+          return (
+            <CircleMarker key={f.id} center={[f.lat, f.lon]} radius={route ? 6 : 3} renderer={rendu}
+              pathOptions={{ color: "#ffffff", weight: 1, fillColor: couleurFranchissement(f.classement, statut), fillOpacity: 0.9 }}
+              eventHandlers={hote ? { click: () => cliquerFranchissement(f) } : undefined}>
+              <Tooltip>
+                {f.nature} (franchissement repéré){f.numero ? ` · ${f.numero}` : ""}{f.nom ? ` · ${f.nom}` : ""}
+                <br />
+                {statut && statut !== "À instruire" ? `Instruit DOA&A : ${statut}`
+                  : f.classement === "PONT_SANS_OUVRAGE" ? "aucun ouvrage AGEROUTE à proximité : à instruire" : "ouvrage AGEROUTE à proximité"}
+                {hote ? <><br />Cliquer pour ouvrir la fiche</> : null}
+              </Tooltip>
+            </CircleMarker>
+          );
+        })}
         {voirOuvrages && ouvrages.map((o) => {
           const p = parId.get(o.id.toLowerCase());
           const etat = p?.etat && p.etat in ETAT_COLORS ? p.etat : o.etat;
