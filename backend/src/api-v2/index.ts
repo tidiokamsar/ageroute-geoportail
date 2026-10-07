@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { geoV2Router } from "./geo.routes";
 import { syncV2Router } from "./sync.routes";
+import { devicesV2Router } from "./devices.routes";
+import { missionsV2Router } from "./missions.routes";
 
 /**
  * `/api/v2` — la nouvelle surface d'API.
@@ -19,7 +21,7 @@ import { syncV2Router } from "./sync.routes";
  * CE QUI MANQUE ENCORE
  *
  * La section 16 liste douze domaines : auth, devices, missions, tracks, geo,
- * observations, assets, offline, sync, intelligence, ai, integrations. Deux sont la.
+ * observations, assets, offline, sync, intelligence, ai, integrations. Quatre sont la.
  * Les ajouter tous d'un coup produirait des routes sans implementation derriere, ce
  * qui est pire que leur absence : un client les appellerait.
  *
@@ -29,12 +31,19 @@ import { syncV2Router } from "./sync.routes";
  * doublons et des ecrasements qu'aucune correction ulterieure ne rattrape, les
  * donnees perdues l'etant pour de bon.
  *
+ * `devices` et `missions` ont suivi par necessite : `sync/push` exige un appareilId
+ * et refuse tout appareil inconnu, si bien que le protocole etait inutilisable sans
+ * route pour en enregistrer un. La chaine se tient maintenant de bout en bout —
+ * enregistrer un appareil, recevoir une mission, collecter, remonter.
+ *
  * Les suivants viendront avec leur service, pas avant.
  */
 export const apiV2Router = Router();
 
 apiV2Router.use("/geo", geoV2Router);
 apiV2Router.use("/sync", syncV2Router);
+apiV2Router.use("/devices", devicesV2Router);
+apiV2Router.use("/missions", missionsV2Router);
 
 /**
  * Inventaire de la surface v2, pour qu'un client sache ce qui existe reellement.
@@ -45,9 +54,9 @@ apiV2Router.use("/sync", syncV2Router);
 apiV2Router.get("/", (_req, res) => {
   res.json({
     version: "v2",
-    domaines: ["geo", "sync"],
+    domaines: ["geo", "sync", "devices", "missions"],
     aVenir: [
-      "auth", "devices", "missions", "tracks", "observations",
+      "auth", "tracks", "observations",
       "assets", "offline", "intelligence", "ai", "integrations",
     ],
     v1: "/api — inchangee, toujours servie",
