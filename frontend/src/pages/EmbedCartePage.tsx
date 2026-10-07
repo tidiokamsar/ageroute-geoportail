@@ -121,10 +121,27 @@ export function lireStatutsFranchissements(data: unknown): Map<string, StatutFra
   }
   return r;
 }
-/** Rouge : a instruire (aucun ouvrage connu) ; vert : ouvrage AGEROUTE proche ; bleu : confirme ; gris : ecarte. */
+/**
+ * Rouge : a instruire (aucun ouvrage connu) ; vert : ouvrage AGEROUTE proche ;
+ * bleu : confirme ; gris : ecarte.
+ *
+ * Le gris etait #9ca3af, mesure a 2,54:1 sur blanc — sous le seuil graphique de 3:1
+ * de WCAG 2.1. Un point qu'on ne distingue pas du fond n'est pas « discret », il est
+ * absent, et c'est precisement la couleur des franchissements qu'un agent a ECARTES :
+ * il doit pouvoir verifier qu'il ne s'est pas trompe. #848992 mesure 3,51:1 et c'est
+ * la valeur que le reste du projet emploie pour l'etat inconnu
+ * (--etat-inconnu-trait dans styles/tokens.css).
+ *
+ * Les valeurs sont en dur et non en variables CSS : le rendu passe par le moteur
+ * canvas de Leaflet, qui fait ctx.fillStyle = couleur. Un var(--...) n'y est pas
+ * resolu et le point tomberait en noir, sans erreur.
+ *
+ * Les trois autres teintes ont ete mesurees et passent : #2563eb 5,17:1,
+ * #dc2626 4,83:1, #16a34a 3,30:1.
+ */
 export function couleurFranchissement(classement: string, statut?: StatutFranchissement): string {
   if (statut === "Ouvrage confirmé") return "#2563eb";
-  if (statut === "Pas d'ouvrage" || statut === "Doublon") return "#9ca3af";
+  if (statut === "Pas d'ouvrage" || statut === "Doublon") return "#848992";
   return classement === "PONT_SANS_OUVRAGE" ? "#dc2626" : "#16a34a";
 }
 

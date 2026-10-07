@@ -81,6 +81,45 @@ describe("Fiches des franchissements (DOA_FRANCHISSEMENTS)", () => {
     expect(couleurFranchissement("PONT_BDRI_PROCHE_25M")).toBe("#16a34a");
     expect(couleurFranchissement("PONT_SANS_OUVRAGE", "À instruire")).toBe("#dc2626");
     expect(couleurFranchissement("PONT_SANS_OUVRAGE", "Ouvrage confirmé")).toBe("#2563eb");
-    expect(couleurFranchissement("PONT_SANS_OUVRAGE", "Doublon")).toBe("#9ca3af");
+    expect(couleurFranchissement("PONT_SANS_OUVRAGE", "Doublon")).toBe("#848992");
+    expect(couleurFranchissement("PONT_SANS_OUVRAGE", "Pas d'ouvrage")).toBe("#848992");
+  });
+
+  /**
+   * Un point qu'on ne distingue pas du fond n'est pas discret, il est absent.
+   *
+   * Le gris des franchissements ecartes valait #9ca3af, soit 2,54:1 sur blanc, sous
+   * le seuil graphique de 3:1 de WCAG 2.1. C'est la couleur de ce qu'un agent a
+   * ECARTE : il doit pouvoir verifier qu'il ne s'est pas trompe.
+   *
+   * Le test recalcule le ratio plutot que de figer une valeur : changer une teinte
+   * « juste un peu » ne doit pas pouvoir repasser sous le seuil en silence.
+   */
+  const canal = (v: number) => (v / 255 <= 0.04045 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4);
+  const luminance = (hex: string) => {
+    const h = hex.replace("#", "");
+    const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
+    return 0.2126 * canal(r) + 0.7152 * canal(g) + 0.0722 * canal(b);
+  };
+  const contraste = (a: string, b: string) => {
+    const [x, y] = [luminance(a), luminance(b)];
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+  };
+
+  it("la formule de contraste est celle de WCAG", () => {
+    expect(contraste("#000000", "#ffffff")).toBeCloseTo(21, 1);
+  });
+
+  it.each([
+    ["à instruire", "PONT_SANS_OUVRAGE", undefined],
+    ["ouvrage à proximité", "PONT_BDRI_PROCHE_25M", undefined],
+    ["ouvrage confirmé", "PONT_SANS_OUVRAGE", "Ouvrage confirmé" as const],
+    ["écarté", "PONT_SANS_OUVRAGE", "Doublon" as const],
+  ])("la couleur %s franchit 3:1 sur le halo blanc du marqueur", (_nom, classement, statut) => {
+    // Le marqueur porte un contour blanc : c'est contre le blanc, et non contre le
+    // fond de plan, que le disque doit se detacher.
+    const c = couleurFranchissement(classement, statut);
+    const r = contraste(c, "#ffffff");
+    expect(r, `${c} mesure ${r.toFixed(2)}:1`).toBeGreaterThanOrEqual(3);
   });
 });
