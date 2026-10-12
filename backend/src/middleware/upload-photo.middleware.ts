@@ -14,7 +14,11 @@ export const uploadPhoto = multer({
       cb(null, `${crypto.randomUUID()}${ext}`);
     },
   }),
-  limits: { fileSize: 8 * 1024 * 1024 },
+  // `files: 1` est redondant avec `.single()` mais le dit au niveau ou la limite se lit.
+  // Les plafonds qui manquaient reellement — nombre par objet et total du repertoire —
+  // ne peuvent pas vivre ici : multer ignore quel objet est vise. Voir
+  // `quota-photos.middleware.ts`, pose DEVANT celui-ci pour refuser avant l'ecriture.
+  limits: { fileSize: 8 * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, cb) => {
     if (!ALLOWED_EXT.test(file.originalname)) {
       cb(new Error("Format de fichier non supporté (jpg, png, webp attendu)"));

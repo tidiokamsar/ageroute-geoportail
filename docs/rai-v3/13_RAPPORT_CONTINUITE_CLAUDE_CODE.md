@@ -323,3 +323,62 @@ docs/rai-v3/13_RAPPORT_CONTINUITE_CLAUDE_CODE.md  (ce chapitre)
 ```
 
 Les changements antérieurs présents dans l'arbre de travail n'ont pas été modifiés.
+
+## Quota de photos : fermé
+
+Constat du 12/10 : `upload-photo.middleware.ts` ne déclarait qu'une limite,
+`fileSize` à 8 Mio **par fichier**. Ni nombre par objet, ni total du répertoire, sur les
+quatre routes qui acceptent des photos (défauts v2, inspections, ouvrages, ordres de
+travaux).
+
+Le risque n'était pas celui d'un inconnu — tout est derrière authentification. Il était
+plus banal : l'application de terrain synchronise seule, et une file locale qui se rejoue
+en boucle téléverse sans qu'aucun humain regarde. Le disque héberge aussi PostgreSQL et le
+fond de carte public : le remplir arrête la carte.
+
+Le dédoublonnage SHA-256 de la route des défauts, qui est bien fait, ne protégeait pas de
+cela : il arrête la **même** photo renvoyée, pas mille photos différentes.
+
+**Deux plafonds, parce qu'il y a deux pannes.** Par objet, exact et peu coûteux (un
+comptage indexé), il arrête la panne réaliste et s'explique à un agent. Global et approché,
+il borne la croissance agrégée que le premier ne voit pas puisqu'elle se répartit sur des
+milliers d'objets légitimes.
+
+**Le garde-fou passe devant multer**, qui écrit le fichier pendant son propre traitement :
+refuser après aurait signifié écrire puis effacer à chaque tentative, et laisser le disque
+plein au moment précis où il manque.
+
+**Le disque est annoncé avant l'objet**, et c'est une décision : quand le stockage est
+saturé, aucun ménage sur son objet n'y changera rien, et répondre « cet élément porte déjà
+trente photos » enverrait l'agent supprimer des preuves pour rien. Code 507 et non 503 —
+un 503 ferait réessayer la file de synchronisation en boucle, ce qui aggraverait la
+situation signalée.
+
+**Un plafond à zéro vaut « pas de plafond »**, pas un blocage total : une variable
+d'environnement mal saisie ne doit pas arrêter la collecte d'un pays. Une valeur
+ininterprétable retombe en revanche sur le défaut, pour qu'une faute de frappe ne retire
+pas le garde-fou en silence.
+
+### Les nombres restent à arbitrer
+
+Le cahier ne fixe aucun seuil de média. `PHOTOS_MAX_PAR_OBJET` vaut 30 et
+`PHOTOS_PLAFOND_DISQUE_MIO` vaut 20 480 par défaut, réglables sans migration. Ces valeurs
+sont prudentes et **ne valent pas un arbitrage**. Le plafond global doit par ailleurs rester
+nettement sous la capacité réelle du disque : la mesure du répertoire est en cache une
+minute, donc le dépassement toléré vaut au pire une minute de débit de téléversement.
+
+### Deux erreurs de ma part, corrigées
+
+J'ai importé `config/env` dans le middleware. Deux fichiers de tests ont alors cessé non
+pas d'échouer mais de **démarrer**, `config/env` appelant `process.exit(1)` sans `.env` —
+le piège que j'avais nommé quatre lignes plus haut dans mon propre fichier. Les plafonds se
+lisent désormais par une fonction pure et testable, et `env.ts` reprend les mêmes
+constantes pour qu'il n'y ait qu'une source.
+
+Le mock Prisma du test des défauts ignorait `where.constateParId` et ne connaissait pas
+`select._count`. C'est le mock qui avait tort : sans le filtre d'appartenance, un test de
+fuite d'information serait passé à tort.
+
+**33 tests ajoutés** : 17 sur le module de décision, 4 sur la route des défauts, dont celui
+qui vérifie qu'un non-auteur au plafond reçoit **404 et non 409** — sinon le refus de quota
+lui apprendrait que le défaut existe.

@@ -36,6 +36,8 @@ const h = vi.hoisted(() => {
     audits: [] as Record<string, unknown>[],
     qualites: [] as Record<string, unknown>[],
     media: null as Record<string, unknown> | null,
+    /** Photos deja rattachees, pour eprouver le plafond par objet. */
+    photosDuDefaut: 0,
     setPointGeom: vi.fn(async () => {}),
     match: { tronconId: "t1", code: "RN1-001", nom: "RN1", classe: "RN", distanceM: 3, abscisseM: 120, pk: 4.2, pkMotif: "CALCULE", confiance: 0.9, ambigu: false },
     apparier: vi.fn(async () => h.match),
@@ -62,10 +64,18 @@ vi.mock("../middleware/upload-photo.middleware", () => ({
     });
     next();
   },
+  // Importe par `lib/photos.ts` et par le garde-fou de quota : le mock doit l'exporter,
+  // sinon l'acces leve au premier televersement et la route rend 500.
+  PHOTOS_UPLOAD_DIR: "uploads/photos",
 }));
 vi.mock("node:fs/promises", () => ({
   readFile: vi.fn(async () => Buffer.from("photo-test-bytes")),
   unlink: vi.fn(async () => undefined),
+  // Le garde-fou de quota mesure le repertoire (`readdir`) et compte la photo retenue
+  // (`stat`). Un repertoire vide laisse le plafond global hors de cause : ce sont les
+  // tests du plafond PAR OBJET qui nous interessent ici.
+  readdir: vi.fn(async () => []),
+  stat: vi.fn(async () => ({ size: 12 })),
 }));
 vi.mock("../geo/appariement", () => ({ apparier: h.apparier }));
 vi.mock("../lib/prisma", () => ({
@@ -102,18 +112,33 @@ vi.mock("../lib/prisma", () => ({
         if (where.clientOperationId && h.defautExistant) return h.defautExistant;
         return null;
       }),
-      findFirst: vi.fn(async ({ where }: { where?: Record<string, unknown> } = {}) => {
+      findFirst: vi.fn(async (
+        { where, select }: { where?: Record<string, unknown>; select?: Record<string, unknown> } = {},
+      ) => {
         const defaut = h.defautExistant;
+        if (!defaut) return null;
+
+        // Le filtre d'appartenance DOIT etre honore : le comptage de photos s'en sert
+        // pour rendre `null` a qui n'a pas le droit de toucher le defaut, et laisser la
+        // route repondre son 404. Un mock qui l'ignore ferait passer un test de fuite.
+        if (where?.constateParId && where.constateParId !== defaut.constateParId) return null;
+
         const clauses = where?.OR;
-        if (!defaut || !Array.isArray(clauses)) return defaut;
-        const visible = clauses.some((clause) => {
-          if (typeof clause !== "object" || clause === null) return false;
-          const c = clause as Record<string, unknown>;
-          if (c.constateParId === defaut.constateParId) return true;
-          const missionClause = c.missionId as { in?: string[] } | undefined;
-          return Boolean(missionClause?.in?.includes(String(defaut.missionId)));
-        });
-        return visible ? defaut : null;
+        if (Array.isArray(clauses)) {
+          const visible = clauses.some((clause) => {
+            if (typeof clause !== "object" || clause === null) return false;
+            const c = clause as Record<string, unknown>;
+            if (c.constateParId === defaut.constateParId) return true;
+            const missionClause = c.missionId as { in?: string[] } | undefined;
+            return Boolean(missionClause?.in?.includes(String(defaut.missionId)));
+          });
+          if (!visible) return null;
+        }
+
+        // Prisma rend la forme demandee, pas la ligne entiere. Le comptage de photos
+        // demande `select: { _count: { select: { medias: true } } }`.
+        if (select && "_count" in select) return { _count: { medias: h.photosDuDefaut } };
+        return defaut;
       }),
       findMany: vi.fn(async () => []),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
@@ -232,6 +257,7 @@ beforeEach(() => {
   h.audits = [];
   h.qualites = [];
   h.media = null;
+  h.photosDuDefaut = 0;
   h.apparier.mockClear();
   vi.clearAllMocks();
 });
@@ -722,6 +748,76 @@ describe("GET /api/v2/defauts — consultation", () => {
     const r = await request(app).get("/api/v2/defauts?catalogueCode=INCONNU");
     expect(r.status).toBe(200);
     expect(r.body).toEqual({ defauts: [], curseurSuivant: null });
+  });
+});
+
+describe("POST /:id/photos — plafond de stockage", () => {
+  /**
+   * CE QUE CE BLOC DEFEND
+   *
+   * Le middleware de televersement ne declarait qu'une limite : 8 Mio PAR FICHIER. Rien
+   * ne bornait le nombre de photos par objet ni le total du repertoire.
+   *
+   * Le risque n'etait pas celui d'un inconnu — tout est derriere authentification. Il
+   * etait plus banal : l'application de terrain synchronise SEULE, et une file locale qui
+   * se rejoue en boucle televerse sans qu'aucun humain regarde. Le disque heberge aussi
+   * PostgreSQL et le fond de carte public.
+   *
+   * Le dedoublonnage SHA-256 de cette route ne protegeait pas de cela : il arrete la MEME
+   * photo renvoyee, pas mille photos differentes.
+   */
+  it("refuse au-dela du plafond par objet, en disant combien il y en a", async () => {
+    h.compte.id = "agent-1";
+    h.defautExistant = defautEnBase({ constateParId: "agent-1" });
+    h.photosDuDefaut = 30;
+
+    const r = await request(app)
+      .post("/api/v2/defauts/d1/photos")
+      .attach("photo", Buffer.from("x"), "photo.jpg");
+    expect(r.status).toBe(409);
+    expect(r.body.motif).toBe("PLAFOND_PAR_OBJET");
+    // L'agent doit savoir ou il en est, sinon il reessaie sans comprendre.
+    expect(r.body.dejaPresentes).toBe(30);
+  });
+
+  it("accepte juste en dessous du plafond", async () => {
+    h.compte.id = "agent-1";
+    h.defautExistant = defautEnBase({ constateParId: "agent-1" });
+    h.photosDuDefaut = 29;
+
+    const r = await request(app)
+      .post("/api/v2/defauts/d1/photos")
+      .attach("photo", Buffer.from("x"), "photo.jpg");
+    expect(r.status).toBe(201);
+  });
+
+  it("REND 404 ET NON 409 au plafond, pour le defaut d'un autre agent", async () => {
+    // Le cas qui justifie que le comptage reprenne la visibilite de la route. Repondre
+    // « cet element porte deja trente photos » apprendrait a un inspecteur que le defaut
+    // existe, ce que le 404 du gestionnaire existe precisement pour taire.
+    h.compte.id = "agent-2";
+    h.compte.role = "INSPECTEUR";
+    h.missions = [];
+    h.defautExistant = defautEnBase({ constateParId: "agent-1" });
+    h.photosDuDefaut = 30;
+
+    const r = await request(app)
+      .post("/api/v2/defauts/d1/photos")
+      .attach("photo", Buffer.from("x"), "photo.jpg");
+    expect(r.status).toBe(404);
+    expect(r.body.motif).toBeUndefined();
+  });
+
+  it("laisse passer un gestionnaire sous le plafond sur le defaut d'un autre", async () => {
+    h.compte.id = "gestionnaire-1";
+    h.compte.role = "GESTIONNAIRE";
+    h.defautExistant = defautEnBase({ constateParId: "agent-1" });
+    h.photosDuDefaut = 2;
+
+    const r = await request(app)
+      .post("/api/v2/defauts/d1/photos")
+      .attach("photo", Buffer.from("x"), "photo.jpg");
+    expect(r.status).toBe(201);
   });
 });
 

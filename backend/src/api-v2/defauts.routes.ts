@@ -1,10 +1,11 @@
-import { Router, type RequestHandler } from "express";
+import { Router, type Request, type RequestHandler } from "express";
 import { createHash } from "node:crypto";
 import { readFile, unlink } from "node:fs/promises";
 import { z } from "zod";
 import { StatutValidation } from "@prisma/client";
 import { requireRole } from "../middleware/rbac.middleware";
 import { uploadPhoto } from "../middleware/upload-photo.middleware";
+import { plafondPhotos } from "../middleware/quota-photos.middleware";
 import { photoAbsolutePath } from "../lib/photos";
 import { apparier, type Appariement } from "../geo/appariement";
 import { requireAuth } from "../middleware/auth.middleware";
@@ -510,7 +511,32 @@ defautsV2Router.get("/:id", requireAuth, requireModuleAccess("inspections"), asy
 });
 
 /** Téléverse une preuve photo avec empreinte et métadonnées GPS si disponibles. */
-defautsV2Router.post("/:id/photos", requireAuth, requireModuleAccess("inspections"), uploadPhoto, async (req, res, next) => {
+/**
+ * Le comptage reprend la VISIBILITE de la route, et pas seulement l'identifiant.
+ *
+ * Compter sans ce filtre repondrait « cet element porte deja trente photos » a un
+ * inspecteur qui n'est ni l'auteur ni gestionnaire, et lui apprendrait ainsi que le
+ * defaut existe — ce que le 404 du gestionnaire de route existe justement pour taire.
+ *
+ * Rendre `null` laisse la route repondre son propre 404. Les deux regles doivent rester
+ * alignees, et un test le verifie.
+ */
+const compterPhotosDefaut = async (req: Request): Promise<number | null> => {
+  const user = req.user;
+  if (!user) return null;
+  const gestionnaire = user.role === "ADMIN" || user.role === "GESTIONNAIRE";
+  const defaut = await prisma.defaut.findFirst({
+    where: {
+      id: req.params.id,
+      deletedAt: null,
+      ...(gestionnaire ? {} : { constateParId: user.id }),
+    },
+    select: { _count: { select: { medias: true } } },
+  });
+  return defaut ? defaut._count.medias : null;
+};
+
+defautsV2Router.post("/:id/photos", requireAuth, requireModuleAccess("inspections"), plafondPhotos(compterPhotosDefaut), uploadPhoto, async (req, res, next) => {
   try {
     if (!req.user) return res.status(401).json({ message: "Authentification requise." });
     if (!req.file) return res.status(400).json({ message: "Photo manquante." });
