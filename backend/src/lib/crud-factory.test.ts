@@ -1,6 +1,12 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-vi.mock("../utils/audit", () => ({ logAudit: vi.fn() }));
+vi.mock("../utils/audit", () => ({
+  logAudit: vi.fn(),
+  // La fabrique importe aussi le constructeur d'audit depuis que l'option
+  // transactionnelle existe. Ce fichier n'active pas l'option, mais un mock
+  // incomplet ferait echouer de facon obscure le jour ou quelqu'un l'activera ici.
+  construireAudit: vi.fn(() => ({})),
+}));
 
 /**
  * `update` ecrit desormais la valeur ET sa provenance dans une meme transaction :

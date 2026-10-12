@@ -1,11 +1,28 @@
 import { prisma } from "../../lib/prisma";
 import { createCrudService, type ListParams } from "../../lib/crud-factory";
 import { createPhotoService } from "../../lib/photos";
-import { logAudit } from "../../utils/audit";
+import { construireAudit } from "../../utils/audit";
 import { enregistrerQualite } from "../../lib/qualite";
 
-const base = createCrudService(prisma.inspection, "Inspection", { troncon: true, ouvrage: true, inspecteur: { select: { nomComplet: true } } });
-const photos = createPhotoService(prisma.inspection, "Inspection");
+/**
+ * Inspection est la premiere migration explicite de l'ADR 11 hors du lot terrain.
+ *
+ * Ce module a ete choisi parce que c'est le seul evenement de la base qui produise une
+ * valeur REELLEMENT constatee — datee, attribuee, de methode connue — et parce qu'il
+ * propage cet etat au troncon ou a l'ouvrage inspecte. Une trace perdue y laisse un etat
+ * patrimonial modifie sans auteur ni date, sur le champ meme qui commande la
+ * programmation des travaux.
+ *
+ * Les sept autres services qui partagent ces fabriques restent sur le helper historique
+ * jusqu'a leur propre migration, comme l'ADR le prevoit.
+ */
+const base = createCrudService(
+  prisma.inspection,
+  "Inspection",
+  { troncon: true, ouvrage: true, inspecteur: { select: { nomComplet: true } } },
+  { auditTransactionnel: true },
+);
+const photos = createPhotoService(prisma.inspection, "Inspection", { auditTransactionnel: true });
 
 interface InspectionListParams extends ListParams {
   tronconId?: string;
@@ -36,14 +53,21 @@ async function propagateEtat(
   if (data.ouvrageId) {
     const before = await prisma.ouvrage.findUnique({ where: { id: data.ouvrageId }, select: { etat: true } });
     if (before) {
-      await prisma.ouvrage.update({
-        where: { id: data.ouvrageId },
-        data: { etat, derniereInspectionDate: dateConstat },
-      });
-      await logAudit({
-        userId, action: "UPDATE", entityType: "Ouvrage", entityId: data.ouvrageId,
-        before: { etat: before.etat }, after: { etat: data.etatObserve, source: "inspection" },
-      });
+      // L'ETAT ET SA TRACE, OU NI L'UN NI L'AUTRE.
+      //
+      // Ces deux ecritures etaient successives : un echec d'audit laissait l'etat de
+      // l'ouvrage modifie sans dire qui l'avait change ni quand. C'est le pire silence
+      // possible sur ce champ, puisque c'est lui qui classe un ouvrage pour des travaux.
+      await prisma.$transaction([
+        prisma.ouvrage.update({
+          where: { id: data.ouvrageId },
+          data: { etat, derniereInspectionDate: dateConstat },
+        }),
+        construireAudit({
+          userId, action: "UPDATE", entityType: "Ouvrage", entityId: data.ouvrageId,
+          before: { etat: before.etat }, after: { etat: data.etatObserve, source: "inspection" },
+        }),
+      ]);
     }
   } else if (data.tronconId) {
     const before = await prisma.troncon.findUnique({ where: { id: data.tronconId }, select: { etat: true } });
@@ -53,14 +77,16 @@ async function propagateEtat(
       // date d'inspection, pas les troncons. Consequence : les 647 troncons dont
       // l'etat est connu ne sont pas comparables entre eux — un « BON » de cette
       // annee et un « BON » d'il y a dix ans occupent la meme case.
-      await prisma.troncon.update({
-        where: { id: data.tronconId },
-        data: { etat, dateDerniereEvaluation: dateConstat },
-      });
-      await logAudit({
-        userId, action: "UPDATE", entityType: "Troncon", entityId: data.tronconId,
-        before: { etat: before.etat }, after: { etat: data.etatObserve, source: "inspection" },
-      });
+      await prisma.$transaction([
+        prisma.troncon.update({
+          where: { id: data.tronconId },
+          data: { etat, dateDerniereEvaluation: dateConstat },
+        }),
+        construireAudit({
+          userId, action: "UPDATE", entityType: "Troncon", entityId: data.tronconId,
+          before: { etat: before.etat }, after: { etat: data.etatObserve, source: "inspection" },
+        }),
+      ]);
     }
   }
 

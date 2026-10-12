@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
-import { logAudit } from "../utils/audit";
+import { logAudit, construireAudit } from "../utils/audit";
 import { prisma } from "./prisma";
 import { construireSaisies } from "./provenance";
 import { ApiError } from "../middleware/error.middleware";
@@ -38,7 +38,38 @@ type PrismaDelegate = any;
  * Fabrique un service CRUD standard (pagination/tri/filtre serveur + soft delete + audit)
  * pour toute entite patrimoniale possedant les champs id/deletedAt/createdAt.
  */
-export function createCrudService(model: PrismaDelegate, entityName: string, defaultInclude?: Record<string, unknown>) {
+/**
+ * Options par module.
+ *
+ * `auditTransactionnel` fait rejoindre la ligne d'audit la transaction metier : la
+ * mutation et sa trace reussissent ou sont annulees ensemble.
+ *
+ * POURQUOI UNE OPTION ET PAS UN BASCULEMENT GLOBAL
+ *
+ * Huit services partagent cette fabrique — chantiers, documents, inspections, marches,
+ * ouvrages, points noirs, postes, troncons. Les basculer d'un coup changerait le
+ * comportement de tout le chemin d'ecriture patrimonial : une panne sur `audit_logs`
+ * ferait desormais ECHOUER les ecritures metier au lieu de les laisser passer sans
+ * trace.
+ *
+ * C'est la garantie que veut la regle 3 d'AGENTS.md, et l'ADR 11 la propose — mais
+ * l'ADR est « propose, approbation ARB non documentee », et il prevoit explicitement que
+ * « le helper historique reste en place pour les modules existants jusqu'a leur migration
+ * explicite ». Cette option EST cette migration explicite, module par module, et elle se
+ * retire en supprimant un mot.
+ */
+export interface OptionsCrud {
+  auditTransactionnel?: boolean;
+}
+
+export function createCrudService(
+  model: PrismaDelegate,
+  entityName: string,
+  defaultInclude?: Record<string, unknown>,
+  options: OptionsCrud = {},
+) {
+  const auditDansLaTransaction = options.auditTransactionnel === true;
+
   async function list(params: ListParams = {}): Promise<ListResult<unknown>> {
     const page = Math.max(1, params.page ?? 1);
     const pageSize = Math.min(200, Math.max(1, params.pageSize ?? 20));
@@ -84,11 +115,20 @@ export function createCrudService(model: PrismaDelegate, entityName: string, def
      * la meme garantie sur le meme invariant.
      */
     const id = (data.id as string | undefined) ?? randomUUID();
+    // `after` vaut l'etat PROJETE et non la ligne retournee : dans un tableau, les
+    // ecritures partent ensemble et la base n'a pas encore repondu. Voir l'en-tete de
+    // `construireAudit`.
+    const apresProjete = { ...data, id };
     const [created] = await prisma.$transaction([
       model.create({ data: { ...data, id } }),
       ...construireSaisies(entityName, id, data, userId),
+      ...(auditDansLaTransaction
+        ? [construireAudit({ userId, action: "CREATE", entityType: entityName, entityId: id, after: apresProjete })]
+        : []),
     ]);
-    await logAudit({ userId, action: "CREATE", entityType: entityName, entityId: created.id, after: created });
+    if (!auditDansLaTransaction) {
+      await logAudit({ userId, action: "CREATE", entityType: entityName, entityId: created.id, after: created });
+    }
     return created;
   }
 
@@ -112,12 +152,21 @@ export function createCrudService(model: PrismaDelegate, entityName: string, def
      * echec entre les deux laisserait une valeur sans provenance, ou une provenance
      * sans valeur, et rien ne permettrait de savoir laquelle croire.
      */
+    // L'etat projete se reconstruit depuis l'etat lu et la modification appliquee, ce
+    // qui est plus fidele qu'enregistrer la seule modification : on voit la ligne telle
+    // qu'elle SERA, aux colonnes calculees par la base pres.
+    const apresProjete = { ...(before as Record<string, unknown>), ...data };
     const [updated] = await prisma.$transaction([
       model.update({ where: { id }, data }),
       ...construireSaisies(entityName, id, data, userId),
+      ...(auditDansLaTransaction
+        ? [construireAudit({ userId, action: "UPDATE", entityType: entityName, entityId: id, before, after: apresProjete })]
+        : []),
     ]);
 
-    await logAudit({ userId, action: "UPDATE", entityType: entityName, entityId: id, before, after: updated });
+    if (!auditDansLaTransaction) {
+      await logAudit({ userId, action: "UPDATE", entityType: entityName, entityId: id, before, after: updated });
+    }
     return updated;
   }
 
@@ -125,12 +174,29 @@ export function createCrudService(model: PrismaDelegate, entityName: string, def
   async function remove(id: string, userId: string) {
     const before = await model.findUnique({ where: { id } });
     if (!before) throw new ApiError(404, `${entityName} introuvable`);
-    const deleted = await model.update({ where: { id }, data: { deletedAt: new Date() } });
+    const maintenant = new Date();
+    if (auditDansLaTransaction) {
+      // Une archive sans trace est une disparition silencieuse : c'est le geste ou
+      // l'atomicite compte le plus, puisque la donnee quitte les listes operationnelles.
+      const [deleted] = await prisma.$transaction([
+        model.update({ where: { id }, data: { deletedAt: maintenant } }),
+        construireAudit({ userId, action: "DELETE", entityType: entityName, entityId: id, before }),
+      ]);
+      return deleted;
+    }
+    const deleted = await model.update({ where: { id }, data: { deletedAt: maintenant } });
     await logAudit({ userId, action: "DELETE", entityType: entityName, entityId: id, before });
     return deleted;
   }
 
   async function restore(id: string, userId: string) {
+    if (auditDansLaTransaction) {
+      const [restored] = await prisma.$transaction([
+        model.update({ where: { id }, data: { deletedAt: null } }),
+        construireAudit({ userId, action: "RESTORE", entityType: entityName, entityId: id, after: { id, deletedAt: null } }),
+      ]);
+      return restored;
+    }
     const restored = await model.update({ where: { id }, data: { deletedAt: null } });
     await logAudit({ userId, action: "RESTORE", entityType: entityName, entityId: id, after: restored });
     return restored;
