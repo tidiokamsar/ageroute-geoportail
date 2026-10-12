@@ -1,5 +1,8 @@
 import { prisma } from "../lib/prisma";
-import { logAudit } from "../utils/audit";
+import { deriveGeomFromTroncon, deriveGeomFromTronconAbscisse, setPointGeom } from "../lib/geo";
+import { logAuditTransactionnelle } from "../utils/audit";
+import { preparerDefautSync, type PreparationDefautSync } from "./defauts.sync";
+import { preparerPayloadObservationSync } from "./observation-sync-payload";
 import { decider, delaiAvantReessai, type Decision, type OperationEntrante } from "./sync";
 
 /**
@@ -9,16 +12,22 @@ import { decider, delaiAvantReessai, type Decision, type OperationEntrante } fro
  * l'executer : lire l'etat, appeler `decider`, ecrire ce qu'elle dit. La separation
  * n'est pas cosmetique — c'est elle qui rend les six cas de la section 15 verifiables.
  *
- * UN SEUL TYPE D'ENTITE POUR L'INSTANT
+ * TYPES ET OPERATIONS PRIS EN CHARGE
  *
- * `Observation`. Elle existe au schema, elle porte `version` et `clientOperationId`,
- * et c'est ce que produit une mission. Accepter d'autres types reviendrait a ecrire
- * des branches que rien n'exerce : elles seraient fausses le jour ou on s'en servirait,
- * et personne ne le saurait d'ici la. Le refus est explicite et nomme le type.
+ * Observation garde son cycle actuel. Defaut accepte CREATE hors ligne : sa validation
+ * et ses transitions d'etat passent par les routes metier dediees. Le payload de
+ * creation est valide et projete par `defauts.sync.ts`; aucun statut ni auteur fourni
+ * par le telephone n'est applique.
  */
 
 /** Types que `push` sait appliquer. La liste grandira avec les services. */
-export const TYPES_ACCEPTES = new Set(["Observation"]);
+export const TYPES_ACCEPTES = new Set(["Observation", "Defaut"]);
+
+/** Operations actuellement prises en charge par type, exposees aux clients terrain. */
+export const OPERATIONS_ACCEPTEES: Record<string, readonly string[]> = {
+  Observation: ["CREATE", "UPDATE", "DELETE"],
+  Defaut: ["CREATE"],
+};
 
 export interface ResultatOperation {
   operationId: string;
@@ -32,13 +41,14 @@ export interface ResultatOperation {
   reessayerDansMs?: number;
 }
 
-/** Etat courant d'une observation, ou null si elle n'existe pas. */
-async function etatObservation(entityId: string): Promise<number | null> {
-  const o = await prisma.observation.findFirst({
-    where: { id: entityId, deletedAt: null },
-    select: { version: true },
-  });
-  return o?.version ?? null;
+/** Version courante, tombstone compris : un CREATE ne doit pas reutiliser un id archive. */
+async function versionEntite(entityType: string, entityId: string): Promise<number | null> {
+  if (entityType === "Observation") {
+    const observation = await prisma.observation.findUnique({ where: { id: entityId }, select: { version: true } });
+    return observation?.version ?? null;
+  }
+  const defaut = await prisma.defaut.findUnique({ where: { id: entityId }, select: { version: true } });
+  return defaut?.version ?? null;
 }
 
 /**
@@ -62,22 +72,111 @@ export async function appliquer(
 
   const dejaTraitee = await prisma.operationSync.findUnique({
     where: { operationId: op.operationId },
-    select: { entityId: true, statut: true },
-  });
-  const versionActuelle = await etatObservation(op.entityId);
-
-  const decision = decider(op, {
-    dejaTraitee: dejaTraitee ? { entityId: dejaTraitee.entityId, statut: dejaTraitee.statut } : null,
-    versionActuelle,
+    select: { entityId: true, statut: true, userId: true },
   });
 
   // Rejeu : on ne touche a rien et on rend ce qui avait ete decide la premiere fois.
+  if (dejaTraitee) {
+    // operationId est unique globalement, mais le resultat appartient au compte qui
+    // l'a initialement soumis. Une cle connue ne doit pas devenir un oracle d'IDs.
+    if (dejaTraitee.userId !== contexte.userId) {
+      return { operationId: op.operationId, statut: "REJETE", motif: "OPERATION_NON_AUTORISEE" };
+    }
+    return { operationId: op.operationId, statut: "REJOUEE", entityId: dejaTraitee.entityId };
+  }
+
+  if (!(OPERATIONS_ACCEPTEES[op.entityType] ?? []).includes(op.operation)) {
+    const motif = `OPERATION_NON_SUPPORTEE:${op.entityType}:${op.operation}`;
+    await prisma.operationSync.create({
+      data: {
+        operationId: op.operationId,
+        appareilId: contexte.appareilId,
+        userId: contexte.userId,
+        entityType: op.entityType,
+        entityId: op.entityId,
+        operation: op.operation,
+        payload: { redacted: true } as never,
+        baseVersion: op.baseVersion ?? null,
+        statut: "REJETE",
+        derniereErreur: motif,
+        traiteeA: new Date(),
+      },
+    });
+    return { operationId: op.operationId, statut: "REJETE", motif };
+  }
+
+  if (op.entityType === "Observation") {
+    const preparation = preparerPayloadObservationSync(op.operation, op.payload);
+    if (!preparation.ok) {
+      const motif = "PAYLOAD_INVALIDE:Observation";
+      await prisma.operationSync.create({
+        data: {
+          operationId: op.operationId,
+          appareilId: contexte.appareilId,
+          userId: contexte.userId,
+          entityType: op.entityType,
+          entityId: op.entityId,
+          operation: op.operation,
+          payload: { redacted: true },
+          baseVersion: op.baseVersion ?? null,
+          statut: "REJETE",
+          derniereErreur: motif,
+          traiteeA: new Date(),
+        },
+      });
+      return { operationId: op.operationId, statut: "REJETE", motif };
+    }
+    op = { ...op, payload: preparation.payload };
+  }
+
+  if (op.entityType === "Defaut" && op.operation === "CREATE") {
+    // Le même identifiant peut avoir été traité par POST /defauts avant que le client
+    // n'apprenne le résultat. Le retrouve via la clé métier et alimente aussi le journal
+    // de sync, au lieu de produire un conflit avec l'objet qui vient d'être créé.
+    const creeParLaMemeOperation = await prisma.defaut.findUnique({
+      where: { clientOperationId: op.operationId },
+      select: { id: true, version: true, constateParId: true },
+    });
+    if (creeParLaMemeOperation) {
+      if (creeParLaMemeOperation.constateParId !== contexte.userId) {
+        return { operationId: op.operationId, statut: "REJETE", motif: "OPERATION_NON_AUTORISEE" };
+      }
+      await prisma.operationSync.create({
+        data: {
+          operationId: op.operationId,
+          appareilId: contexte.appareilId,
+          userId: contexte.userId,
+          entityType: op.entityType,
+          entityId: creeParLaMemeOperation.id,
+          operation: op.operation,
+          payload: op.payload as never,
+          baseVersion: op.baseVersion ?? null,
+          statut: "SYNCHRONISE",
+          traiteeA: new Date(),
+        },
+      });
+      return {
+        operationId: op.operationId,
+        statut: "REJOUEE",
+        entityId: creeParLaMemeOperation.id,
+        version: creeParLaMemeOperation.version,
+      };
+    }
+  }
+
+  const versionActuelle = await versionEntite(op.entityType, op.entityId);
+  const decision = decider(op, { versionActuelle });
   if (decision.action === "REJOUEE") {
     return { operationId: op.operationId, statut: "REJOUEE", entityId: decision.entityId };
   }
 
-  return prisma.$transaction(async (tx) => {
-    const trace = async (statut: string, extra: Record<string, unknown> = {}) =>
+  const apresTransaction: { geometrieDefaut?: PreparationDefautSync } = {};
+  const resultat = await prisma.$transaction(async (tx) => {
+    const trace = async (
+      statut: string,
+      extra: Record<string, unknown> = {},
+      payload: Record<string, unknown> = op.payload,
+    ) =>
       tx.operationSync.create({
         data: {
           operationId: op.operationId,
@@ -86,7 +185,7 @@ export async function appliquer(
           entityType: op.entityType,
           entityId: op.entityId,
           operation: op.operation,
-          payload: op.payload as never,
+          payload: payload as never,
           baseVersion: op.baseVersion ?? null,
           statut: statut as never,
           traiteeA: new Date(),
@@ -108,7 +207,9 @@ export async function appliquer(
       // Les DEUX versions sont conservees. C'est la regle de la section 15 pour la
       // donnee patrimoniale, et on l'applique a tout : departager par l'horloge d'un
       // telephone n'est jamais acceptable.
-      const serveur = await tx.observation.findUnique({ where: { id: op.entityId } });
+      const serveur = op.entityType === "Observation"
+        ? await tx.observation.findUnique({ where: { id: op.entityId } })
+        : await tx.defaut.findUnique({ where: { id: op.entityId } });
       const conflit = await tx.conflitSync.create({
         data: {
           operationId: op.operationId,
@@ -123,13 +224,91 @@ export async function appliquer(
     }
 
     if (decision.action === "CREER") {
-      const cree = await tx.observation.create({
-        data: { ...(op.payload as object), id: op.entityId, clientOperationId: op.operationId } as never,
-      });
+      if (op.entityType === "Observation") {
+        const missionId = op.payload.missionId;
+        if (typeof missionId === "string") {
+          const mission = await tx.mission.findFirst({
+            where: {
+              id: missionId,
+              deletedAt: null,
+              OR: [{ assigneId: contexte.userId }, { createurId: contexte.userId }],
+            },
+            select: { id: true },
+          });
+          if (!mission) {
+            const motif = "MISSION_NON_AUTORISEE";
+            await trace("REJETE", { derniereErreur: motif }, { redacted: true });
+            return { operationId: op.operationId, statut: "REJETE" as const, motif };
+          }
+        }
+        const observationPayload = { ...op.payload };
+        if (typeof observationPayload.observeA === "string") {
+          observationPayload.observeA = new Date(observationPayload.observeA);
+        }
+        const cree = await tx.observation.create({
+          data: {
+            ...observationPayload,
+            id: op.entityId,
+            clientOperationId: op.operationId,
+            agentId: contexte.userId,
+            statut: "PROPOSEE",
+          } as never,
+        });
+        await trace("SYNCHRONISE");
+        await logAuditTransactionnelle(tx, {
+          userId: contexte.userId, action: "CREATE", entityType: "Observation",
+          entityId: cree.id, after: cree,
+        });
+        return { operationId: op.operationId, statut: "SYNCHRONISE" as const, entityId: cree.id, version: cree.version };
+      }
+
+      const preparation = await preparerDefautSync(tx, {
+        entityId: op.entityId,
+        operationId: op.operationId,
+        userId: contexte.userId,
+        appareilId: contexte.appareilId,
+      }, op.payload);
+      if (!preparation.ok) {
+        // Un corps rejeté peut contenir un champ imprévu avec des données sensibles.
+        // Le motif suffit au diagnostic; conserver le payload brut transformerait
+        // operation_sync en stockage durable de contenu non validé.
+        await trace("REJETE", { derniereErreur: preparation.motif }, { redacted: true });
+        return { operationId: op.operationId, statut: "REJETE" as const, motif: preparation.motif };
+      }
+
+      const cree = await tx.defaut.create({ data: preparation.preparation.data });
+      const p = preparation.preparation;
+      apresTransaction.geometrieDefaut = p;
+
+      if (p.quantite !== null && p.methode !== null) {
+        const statutQualite = p.methode === "SAISIE" || p.methode === "COMPTAGE" ? "OBSERVED" : "DERIVED";
+        await tx.valeurQualite.upsert({
+          where: {
+            entityType_entityId_champ: {
+              entityType: "Defaut", entityId: cree.id, champ: "quantite",
+            },
+          },
+          create: {
+            entityType: "Defaut", entityId: cree.id, champ: "quantite",
+            statut: statutQualite, source: "saisie_defaut", methode: p.methode,
+            observedAt: p.constateA, observedById: contexte.userId,
+            confiance: statutQualite === "OBSERVED" ? "HIGH" : "MEDIUM",
+            note: `Quantité ${p.quantite} ${p.unite}, obtenue par ${p.methode}.`,
+          },
+          update: {
+            statut: statutQualite, source: "saisie_defaut", methode: p.methode,
+            observedAt: p.constateA, observedById: contexte.userId,
+            confiance: statutQualite === "OBSERVED" ? "HIGH" : "MEDIUM",
+            note: `Quantité ${p.quantite} ${p.unite}, obtenue par ${p.methode}.`,
+          },
+        });
+      }
+
       await trace("SYNCHRONISE");
-      await logAudit({
-        userId: contexte.userId, action: "CREATE", entityType: "Observation",
-        entityId: cree.id, after: cree,
+      await logAuditTransactionnelle(tx, {
+        userId: contexte.userId, action: "CREATE", entityType: "Defaut",
+        entityId: cree.id,
+        after: { code: cree.code, catalogue: p.codeCatalogue, quantite: cree.quantite },
       });
       return { operationId: op.operationId, statut: "SYNCHRONISE" as const, entityId: cree.id, version: cree.version };
     }
@@ -138,17 +317,101 @@ export async function appliquer(
     // c'est `decider` qui l'a calculee a partir de l'etat lu, et deux operations
     // concurrentes ne peuvent donc pas aboutir au meme numero.
     const avant = await tx.observation.findUnique({ where: { id: op.entityId } });
-    const apres = await tx.observation.update({
-      where: { id: op.entityId },
-      data: { ...(op.payload as object), version: decision.versionSuivante } as never,
+    if (!avant || avant.deletedAt) {
+      const motif = "ENTITE_INTROUVABLE";
+      await trace("REJETE", { derniereErreur: motif });
+      return { operationId: op.operationId, statut: "REJETE" as const, motif };
+    }
+    if (avant.agentId !== contexte.userId || !["BROUILLON", "PROPOSEE"].includes(avant.statut)) {
+      const motif = "OPERATION_NON_AUTORISEE";
+      await trace("REJETE", { derniereErreur: motif }, { redacted: true });
+      return { operationId: op.operationId, statut: "REJETE" as const, motif };
+    }
+
+    const missionId = op.payload.missionId;
+    if (typeof missionId === "string") {
+      const mission = await tx.mission.findFirst({
+        where: {
+          id: missionId,
+          deletedAt: null,
+          OR: [{ assigneId: contexte.userId }, { createurId: contexte.userId }],
+        },
+        select: { id: true },
+      });
+      if (!mission) {
+        const motif = "MISSION_NON_AUTORISEE";
+        await trace("REJETE", { derniereErreur: motif }, { redacted: true });
+        return { operationId: op.operationId, statut: "REJETE" as const, motif };
+      }
+    }
+
+    const enregistrerConflit = async (serveur: unknown, motif: string) => {
+      const conflit = await tx.conflitSync.create({
+        data: {
+          operationId: op.operationId,
+          entityType: "Observation",
+          entityId: op.entityId,
+          payloadLocal: op.payload as never,
+          payloadServeur: (serveur ?? {}) as never,
+        },
+      });
+      await trace("CONFLIT", { derniereErreur: motif });
+      return { operationId: op.operationId, statut: "CONFLIT" as const, motif, conflitId: conflit.id };
+    };
+    if (op.baseVersion == null || op.baseVersion !== avant.version) {
+      return enregistrerConflit(avant, "VERSION_MODIFIEE");
+    }
+
+    const observee = { ...op.payload };
+    if (typeof observee.observeA === "string") observee.observeA = new Date(observee.observeA);
+    const donnees = op.operation === "DELETE"
+      ? { deletedAt: new Date(), version: decision.versionSuivante }
+      : { ...observee, version: decision.versionSuivante };
+    const maj = await tx.observation.updateMany({
+      where: {
+        id: op.entityId,
+        version: avant.version,
+        agentId: contexte.userId,
+        deletedAt: null,
+        statut: { in: ["BROUILLON", "PROPOSEE"] },
+      },
+      data: donnees as never,
     });
+    if (maj.count !== 1) {
+      const courant = await tx.observation.findUnique({ where: { id: op.entityId } });
+      if (!courant || courant.deletedAt || courant.agentId !== contexte.userId || !["BROUILLON", "PROPOSEE"].includes(courant.statut)) {
+        const motif = "OPERATION_NON_AUTORISEE";
+        await trace("REJETE", { derniereErreur: motif }, { redacted: true });
+        return { operationId: op.operationId, statut: "REJETE" as const, motif };
+      }
+      return enregistrerConflit(courant, "VERSION_MODIFIEE");
+    }
+    const apres = await tx.observation.findUnique({ where: { id: op.entityId } });
+    if (!apres) throw new Error("Observation absente après compare-et-échange.");
     await trace("SYNCHRONISE");
-    await logAudit({
-      userId: contexte.userId, action: "UPDATE", entityType: "Observation",
+    await logAuditTransactionnelle(tx, {
+      userId: contexte.userId, action: op.operation === "DELETE" ? "DELETE" : "UPDATE", entityType: "Observation",
       entityId: op.entityId, before: avant, after: apres,
     });
     return { operationId: op.operationId, statut: "SYNCHRONISE" as const, entityId: apres.id, version: apres.version };
   }, { timeout: 60_000 });
+
+  const geometrieDefaut = apresTransaction.geometrieDefaut;
+  const idDefautCree = resultat.statut === "SYNCHRONISE" ? resultat.entityId : undefined;
+  if (geometrieDefaut && idDefautCree) {
+    try {
+      if (geometrieDefaut.lat !== null && geometrieDefaut.lon !== null) {
+        await setPointGeom("defauts", idDefautCree, geometrieDefaut.lat, geometrieDefaut.lon);
+      } else if (geometrieDefaut.tronconId && geometrieDefaut.abscisseM !== null) {
+        await deriveGeomFromTronconAbscisse("defauts", idDefautCree, geometrieDefaut.tronconId, geometrieDefaut.abscisseM);
+      } else if (geometrieDefaut.tronconId && geometrieDefaut.pk !== null) {
+        await deriveGeomFromTroncon("defauts", idDefautCree, geometrieDefaut.tronconId, geometrieDefaut.pk);
+      }
+    } catch {
+      // Le défaut et l'opération sync sont persistés. La géométrie pourra être rematchée.
+    }
+  }
+  return resultat;
 }
 
 /**
@@ -159,13 +422,19 @@ export async function appliquer(
  * croire a un agent que reessayer suffira.
  */
 export async function statutAppareil(appareilId: string) {
-  const [parStatut, conflits, derniere] = await Promise.all([
+  const [parStatut, operationsEnConflit, derniere] = await Promise.all([
     prisma.operationSync.groupBy({ by: ["statut"], where: { appareilId }, _count: { _all: true } }),
-    prisma.conflitSync.count({ where: { resolution: null } }),
+    prisma.operationSync.findMany({
+      where: { appareilId, statut: "CONFLIT" },
+      select: { operationId: true },
+    }),
     prisma.operationSync.findFirst({
       where: { appareilId }, orderBy: { createdAt: "desc" }, select: { createdAt: true },
     }),
   ]);
+  const conflits = operationsEnConflit.length === 0 ? 0 : await prisma.conflitSync.count({
+    where: { resolution: null, operationId: { in: operationsEnConflit.map((operation) => operation.operationId) } },
+  });
 
   return {
     appareilId,

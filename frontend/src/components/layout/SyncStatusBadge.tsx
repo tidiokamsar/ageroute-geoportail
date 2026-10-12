@@ -20,7 +20,7 @@ export function SyncStatusBadge() {
       onClick={() => syncNow()}
       disabled={syncing}
       className="inline-flex items-center gap-1.5 rounded-full bg-blue-100 text-blue-700 px-2.5 py-1 text-xs font-medium hover:bg-blue-200 transition-colors disabled:opacity-70"
-      title="Synchroniser les inspections en attente"
+      title="Synchroniser les saisies terrain en attente"
     >
       {syncing ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CloudUpload className="h-3.5 w-3.5" />}
       {syncing ? "Synchronisation…" : `${pendingCount} à synchroniser`}

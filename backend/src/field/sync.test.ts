@@ -114,7 +114,7 @@ describe("Modification", () => {
 
 describe("Une donnee patrimoniale ne s'ecrase jamais toute seule", () => {
   it("nomme les entites concernees", () => {
-    for (const e of ["Troncon", "Ouvrage", "Chantier", "PointNoir", "Poste"]) {
+    for (const e of ["Troncon", "Ouvrage", "Chantier", "PointNoir", "Poste", "Defaut"]) {
       expect(ENTITES_PATRIMONIALES.has(e), `${e} devrait etre patrimonial`).toBe(true);
       expect(resolutionAutomatiquePossible(e)).toBe(false);
     }

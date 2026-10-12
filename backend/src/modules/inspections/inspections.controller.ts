@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
+import { unlink } from "node:fs/promises";
 import { inspectionsService } from "./inspections.service";
 import { inspectionCreateSchema, inspectionUpdateSchema } from "./inspections.schema";
 import { parseListQuery } from "../../lib/list-query";
@@ -13,11 +14,22 @@ export async function listHandler(req: Request, res: Response, next: NextFunctio
       tronconId: req.query.tronconId as string | undefined,
       ouvrageId: req.query.ouvrageId as string | undefined,
       archived: q.archived,
+      where: req.user?.role === "INSPECTEUR" ? { inspecteurId: req.user.id } : {},
     }));
   } catch (err) { next(err); }
 }
 export async function getHandler(req: Request, res: Response, next: NextFunction) {
-  try { res.json(await inspectionsService.getById(req.params.id)); } catch (err) { next(err); }
+  try {
+    if (!req.user) throw new ApiError(401, "Authentification requise");
+    if (req.user.role === "INSPECTEUR") {
+      const cible = await prisma.inspection.findFirst({
+        where: { id: req.params.id, deletedAt: null, inspecteurId: req.user.id },
+        select: { id: true },
+      });
+      if (!cible) throw new ApiError(404, "Inspection introuvable");
+    }
+    res.json(await inspectionsService.getById(req.params.id));
+  } catch (err) { next(err); }
 }
 export async function createHandler(req: Request, res: Response, next: NextFunction) {
   try {
@@ -71,12 +83,29 @@ export async function addPhotoHandler(req: Request, res: Response, next: NextFun
   try {
     if (!req.file) throw new ApiError(400, "Photo manquante");
     if (!req.user) throw new ApiError(401, "Authentification requise");
+    if (req.user.role === "INSPECTEUR") {
+      const cible = await prisma.inspection.findFirst({
+        where: { id: req.params.id, deletedAt: null },
+        select: { inspecteurId: true },
+      });
+      if (!cible || cible.inspecteurId !== req.user.id) {
+        await unlink(req.file.path).catch(() => undefined);
+        throw new ApiError(404, "Inspection introuvable");
+      }
+    }
     res.status(201).json(await inspectionsService.addPhoto(req.params.id, req.file.filename, req.user.id));
   } catch (err) { next(err); }
 }
 export async function removePhotoHandler(req: Request, res: Response, next: NextFunction) {
   try {
-      if (!req.user) throw new ApiError(401, "Authentification requise");
-      res.json(await inspectionsService.removePhoto(req.params.id, req.params.filename, req.user.id));
-    } catch (err) { next(err); }
+    if (!req.user) throw new ApiError(401, "Authentification requise");
+    if (req.user.role === "INSPECTEUR") {
+      const cible = await prisma.inspection.findFirst({
+        where: { id: req.params.id, deletedAt: null },
+        select: { inspecteurId: true },
+      });
+      if (!cible || cible.inspecteurId !== req.user.id) throw new ApiError(404, "Inspection introuvable");
+    }
+    res.json(await inspectionsService.removePhoto(req.params.id, req.params.filename, req.user.id));
+  } catch (err) { next(err); }
 }

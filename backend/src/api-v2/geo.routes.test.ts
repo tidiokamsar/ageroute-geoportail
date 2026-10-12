@@ -54,7 +54,7 @@ import { geoV2Router, LOT_MAX } from "./geo.routes";
 
 const apparie = {
   tronconId: "t1", code: "RN1-001", nom: "RN1", classe: "RN",
-  distanceM: 4.2, pk: 12.5, pkMotif: "CALCULE", confiance: 0.82, ambigu: false,
+  distanceM: 4.2, abscisseM: 520.5, pk: 12.5, pkMotif: "CALCULE", confiance: 0.82, ambigu: false,
 };
 
 function app() {
@@ -79,6 +79,7 @@ describe("POST /match — un point", () => {
     expect(r.body.apparie).toBe(true);
     expect(r.body.code).toBe("RN1-001");
     expect(r.body.pk).toBe(12.5);
+    expect(r.body.abscisseM).toBe(520.5);
   });
 
   it("rend 200 et apparie:false quand il ne conclut PAS", async () => {

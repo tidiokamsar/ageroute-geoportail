@@ -99,3 +99,20 @@ Ne pas exécuter `INTEGRATION.md`. Reprendre le pack comme **document de concept
 ce que son propre README annonce, et en tirer les dix-sept modèles manquants dans une
 migration additive, nommés en français, sans préfixe, rattachés à `Troncon` et à
 `Ouvrage` plutôt qu'à `RoadSegment` et `RoadAsset`.
+
+## Mise à jour du schéma local — 12/10/2026
+
+Les tableaux ci-dessus décrivent l'audit historique du 07/10/2026 ; ils ne représentent
+pas à eux seuls l'état actuel du dépôt. Le schéma Prisma suivi par Git compte maintenant
+39 modèles. `CatalogueDefaut`, `Defaut` et `MediaDefaut` sont présents dans ce schéma
+et dans la migration versionnée
+`backend/prisma/migrations/20261007200000_gouvernance_defauts/migration.sql`. Le code
+local non commité ajoute les routes et les écrans de saisie/revue correspondants.
+
+Le moteur Condition/RCI reste absent du schéma : aucun modèle `EvaluationCondition` ou
+`RegleCondition` n'est défini. L'ADR proposé dans
+`12_ADR_CONDITION_ENGINE.md` recommande une extension additive, sous réserve de validation
+des règles métier. Le rejeu de la migration des défauts, l'état de la base distante et le
+déploiement de l'API locale n'ont pas été vérifiés par cette mise à jour. Les volumes et
+constats de production des tableaux précédents restent des mesures historiques du
+07/10/2026.

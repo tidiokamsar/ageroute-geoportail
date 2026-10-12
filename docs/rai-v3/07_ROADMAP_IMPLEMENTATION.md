@@ -1,5 +1,8 @@
 # Feuille de route
 
+État du **code du dépôt au 12/10/2026**. Cela ne prouve ni l'application des
+migrations ni la présence de ces fonctionnalités en production.
+
 Phase 0. L'ordre proposé ici s'écarte de celui du master prompt sur un point, et la
 raison est mesurée.
 
@@ -8,74 +11,96 @@ raison est mesurée.
 | Phase | État |
 |---|---|
 | 0 Audit | **ce document** |
-| 1 Road Registry | `Troncon` existe, 261 387 lignes. PK exploitables sur **33 %** du réseau classé |
+| 1 Road Registry | `Troncon` existe, 261 387 lignes. Dans la mesure du 07/10, **552/1 691 (32,6 %)** ont un intervalle PK exploitable ; aucune appartenance à une route régionale n'est référencée |
 | 2 PostGIS, référencement linéaire | moteur écrit, mesuré, exposé |
 | 3 Mobile | rien. Dépôt séparé |
-| 4 Offline et sync | protocole complet côté serveur, 4 routes, idempotence et conflits testés |
-| 5 Observations et défauts | `Observation` au schéma. **`Defect` absent. Validation absente** |
-| 6 Condition Engine | rien |
+| 4 Offline et sync | **PARTIEL** — protocole serveur et files IndexedDB pour observations/défauts ; cloisonnement et synchronisation du défaut implémentés dans le dépôt. Les données locales ne sont pas chiffrées au repos ; installation PWA, appareil réel et production non vérifiés |
+| 5 Observations et défauts | **PARTIEL** — saisie terrain hors ligne, API `Defaut`, photos avec SHA-256, appariement sur demande et confirmation humaine, décisions tierces et file de revue. L'interface et l'API laissent encore `missionId` et `observationId` facultatifs, contrairement au tableau §7.1 du cahier ; écart à corriger avant acceptation |
+| 6 Condition Engine | **CONCEPTION** — ADR proposé ; règles métier à valider, aucune migration ni moteur implémenté |
 | 7 Risk Engine | rien |
 | 8 Treatment Engine | rien |
 | 9 Quantity Engine | rien |
 | 10 Cost Engine | rien |
 | 11 Program Engine | rien |
-| 12 Control Tower | tableau de bord v1 existant, à étendre |
-| 13 DigitalRoad | carte embarquée et API publique en service |
+| 12 Control Tower | **PARTIEL** — tableau de bord v1 présent. Une Fiche 360 identifiable et ses critères d'acceptation ne sont pas repérés dans le dépôt |
+| 13 DigitalRoad | **PARTIEL** — carte embarquée et API publique présentes dans le dépôt ; l'intégration SharePoint de bout en bout, les identifiants communs et le déploiement ne sont pas vérifiés |
 | 14 IA | rien, et c'est voulu |
 
-## L'écart que je propose
+## Dépendance PK et ordre de réalisation
 
-Le master prompt place le Road Registry en phase 1. **Je mettrais la calibration des PK
-avant tout le reste**, et ce n'est pas un choix d'architecture.
+Le cahier des charges V3.1 (§7.1, §7.4, §16, §33 et §39) distingue le GPS, l'appariement
+au tronçon et l'abscisse locale. Il permet un défaut sans PK et précise que le métré est
+indépendant des PK. La calibration régionale limite donc les références officielles
+dictées par route ; elle ne bloque ni la collecte GPS, ni le repérage local, ni les
+quantités calculées à partir des mesures disponibles.
 
-Mesure : 551 tronçons sur 1 691 portent un intervalle PK exploitable, soit 33 %. Zéro
-sur les 1 029 routes régionales. Or un défaut se localise par un PK de début et un PK
-de fin, une quantité se calcule sur `PKfin - PKdébut`, et un coût découle de la
-quantité. Les phases 5 à 10 reposent donc toutes sur une référence linéaire qui
-n'existe pas sur deux tiers du réseau.
+La mesure du 07/10 donne 552 PK exploitables sur 1 691 tronçons (32,6 %), dont 552 sur
+621 tronçons nationaux ; les 1 029 tronçons régionaux n'ont pas d'appartenance à une
+route dans la base. Voir `08_CALIBRATION_PK.md`.
 
-Construire un Cost Engine au-dessus de cela produirait des devis sur un linéaire
-inconnu. Et c'est un chantier de donnée, pas de code : aucune ligne de TypeScript ne
-le règle.
+Trois options ont été examinées :
+
+1. **Bloquer les phases 5 à 10 jusqu'à la calibration complète.** Cela réduit les
+   références manquantes, mais contredit l'acceptation d'un défaut sans PK et empêche le
+   métré indépendant prévu par le cahier.
+2. **Dériver les PK régionaux de chaque géométrie.** Cela produit une valeur technique,
+   mais les segments isolés commenceraient tous au PK 0 et ne constitueraient pas une
+   référence officielle par route ; cette option est écartée.
+3. **Avancer avec GPS/tronçon/abscisse locale et demander le répertoire régional en
+   parallèle.** Les PK restent nuls quand ils sont inconnus, et le catalogue officiel
+   complète ensuite les références dictées par route. C'est l'option recommandée, en
+   cohérence avec le cahier et `08_CALIBRATION_PK.md`.
 
 ## Ordre proposé
 
-**1. Validation des observations.** `/observations/{id}/validate`. Le point 13 pose
-qu'une observation est une proposition jusqu'à validation. Le système sait produire,
-remonter et arbitrer les conflits ; il ne sait pas valider. Tout ce qui remonte du
-terrain reste donc au statut `PROPOSEE` et n'alimente rien. Une semaine.
+**1. Défauts et décisions — tranche locale partielle, à vérifier sur base.**
+`/observations/{id}/validate` et `/defauts/{id}/decision` appliquent la séparation
+des rôles, enregistrent l'historique commun et utilisent un contrôle de version.
+L'interface dispose d'une file de revue. Les statuts historiques d'observation restent
+compatibles avec la V1 ; leur décision canonique est conservée dans `Validation`.
+Le modèle `Defaut` et le formulaire local couvrent GPS/tronçon, mesures, gravité,
+catalogue versionné, photos avec SHA-256 et appariement proposé avec confirmation
+humaine. La saisie PWA complète et les appareils réels restent non vérifiés.
+Le cahier demande toutefois `missionId` et `observationId` sur un défaut, tandis que
+l'interface et l'API locales les acceptent comme absents. Ce point reste ouvert ; la
+couverture locale ne vaut pas acceptation. Cela ne confirme ni le rejeu de migration ni
+le déploiement.
 
-**2. Calibration des PK — RECOMMANDATION CORRIGÉE LE 07/10.** Je proposais de dériver
-les PK des 1 029 régionales depuis leur géométrie. La mesure a montré que le remède ne
-tient pas : ces 1 029 tronçons portent 1 029 noms distincts, dont 1 028 identiques à
-leur propre code. Il n'existe aucune route régionale dans la base, seulement des
-segments isolés, et un PK dérivé y désignerait mille endroits à la fois. Il manque le
-répertoire des routes régionales, qui est une donnée d'AGEROUTE et non un calcul. Voir
-`08_CALIBRATION_PK.md`. En attendant, la chaîne se construit sur les 621 nationales,
-dont 552 sont calibrées.
+Le quota cumulé et la conservation des photos ne sont pas définis. Les brouillons
+IndexedDB ne sont pas chiffrés au repos.
 
-**3. Défauts.** `Defect`, avec PK début et fin, gravité, dimensions, photo, confiance.
-Les défauts continus doivent être portés dès le modèle : les ajouter après coup
-obligerait à migrer des données terrain déjà collectées.
+**2. Répertoire routier régional — dépendance de données à traiter en parallèle.**
+Il manque le répertoire qui associe les segments `RES-nnnn` aux routes et à leur ordre.
+Il est nécessaire pour publier des PK régionaux officiels ; il n'est pas requis pour
+les défauts localisés par GPS et abscisse locale ni pour leur métré. Voir
+`08_CALIBRATION_PK.md`.
 
-**4. Condition Engine.** RCI versionné, coefficients **en base et non dans React**,
-comme l'exige le point 18. Chaque calcul enregistre son score, sa version, ses
-composantes et sa confiance.
+**3. Condition Engine — prochaine décision métier.** L'ADR proposé recommande un
+modèle additif de règles versionnées et d'évaluations historisées. Le code et la
+migration restent à faire. Avant de créer la migration, AGEROUTE doit confirmer les
+coefficients, la normalisation du score, les règles de fraîcheur/confiance et le
+traitement des composantes manquantes. Voir `12_ADR_CONDITION_ENGINE.md`. Aucun score
+officiel ne doit être calculé à partir d'observations ou de défauts non validés.
 
-**5 à 7. Traitement, quantités, coûts.** Dans cet ordre, chacun s'appuyant sur le
-précédent. Les formules et les prix sont des données, pas du code.
+**4 à 7. Risk, Treatment, Quantity et Cost Engines.** Aucun Risk/Treatment/Cost Engine
+n'est implémenté. Compléter le métré au-delà des défauts, puis versionner les formules
+et prix ; les PK ne sont requis que pour les règles qui utilisent une référence de route.
 
 **8. Programmation.** « J'ai 100 milliards GNF, que traiter ? » n'a de sens qu'une fois
 les coûts calculables.
 
-**9. Control Tower.** Il affiche ce que les moteurs produisent. Le construire avant
-donnerait un tableau de bord qui additionne des cases vides.
+**9. Control Tower.** Étendre le tableau de bord v1 et préciser la Fiche 360, ses
+utilisateurs, données, permissions et critères d'acceptation ; aucune Fiche 360
+identifiable n'est repérée dans le dépôt.
 
-**10. Mobile.** Le serveur l'attend déjà : appareil, mission, trace, observation,
-synchronisation, appariement. Un dépôt séparé.
+**10. DigitalRoad et SharePoint.** Valider l'embarquement de la carte, l'API publique
+et les identifiants communs dans un parcours de bout en bout avec l'intranet.
 
-**11. IA.** En dernier, et le master prompt a raison de le dire : « une IA branchée sur
-des données incohérentes donnera simplement de mauvaises réponses plus vite ».
+**11. Mobile.** Le dépôt courant fournit des routes et files de synchronisation ;
+l'application mobile dédiée et les tests sur appareils réels ne sont pas démontrés.
+
+**12. IA.** À traiter après validation des sources, règles métier, permissions et
+traçabilité des moteurs.
 
 ## Trois dettes à solder en parallèle
 
@@ -93,7 +118,9 @@ fichier par fichier sur un serveur qui n'est pas un dépôt.
 
 ## Ce que je ne recommande pas
 
-**Exécuter `INTEGRATION.md` du pack V3.** Son étape 2 crée 27 tables préfixées `rai_`,
+**Exécuter `INTEGRATION.md` du pack V3.** Ce fichier n'est pas présent dans le checkout
+courant ; le constat ci-dessous est conservé de l'audit historique et reste à vérifier
+si le pack est restauré. Son étape 2 créerait 27 tables préfixées `rai_`,
 dont onze redoublent des entités en service — `rai_roads` à côté de 261 387 tronçons,
 `rai_audit_events` à côté de 1 484 lignes d'audit. Le master prompt l'interdit
 lui-même. Voir `02_MATRICE_SCHEMA.md`.

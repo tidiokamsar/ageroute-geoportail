@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
 import { prisma } from "../lib/prisma";
-import { logAudit } from "../utils/audit";
+import { logAuditTransactionnelle } from "../utils/audit";
 
 /**
  * `/api/v2/devices` — appareils autorises a remonter du terrain.
@@ -62,21 +62,26 @@ devicesV2Router.post("/", requireAuth, requireModuleAccess("inspections"), async
     const c = enregistrement.parse(req.body);
     const user = req.user!;
 
-    const actifs = await prisma.appareil.count({ where: { userId: user.id, revoqueA: null } });
-    if (actifs >= APPAREILS_ACTIFS_MAX) {
+    const appareil = await prisma.$transaction(async (tx) => {
+      const actifs = await tx.appareil.count({ where: { userId: user.id, revoqueA: null } });
+      if (actifs >= APPAREILS_ACTIFS_MAX) return null;
+
+      const cree = await tx.appareil.create({
+        data: { ...c, userId: user.id, dernierVuA: new Date() },
+      });
+      await logAuditTransactionnelle(tx, {
+        userId: user.id, action: "CREATE", entityType: "Appareil", entityId: cree.id,
+        after: { plateforme: cree.plateforme, modele: cree.modele },
+        ipAddress: req.ip,
+      });
+      return cree;
+    }, { isolationLevel: "Serializable" });
+
+    if (!appareil) {
       return res.status(409).json({
         message: `Limite de ${APPAREILS_ACTIFS_MAX} appareils actifs atteinte. Révoquez-en un avant d'en ajouter.`,
       });
     }
-
-    const appareil = await prisma.appareil.create({
-      data: { ...c, userId: user.id, dernierVuA: new Date() },
-    });
-    await logAudit({
-      userId: user.id, action: "CREATE", entityType: "Appareil", entityId: appareil.id,
-      after: { plateforme: appareil.plateforme, modele: appareil.modele },
-      ipAddress: req.ip,
-    });
 
     return res.status(201).json(appareil);
   } catch (err) {
@@ -126,16 +131,27 @@ devicesV2Router.post("/:id/revoke", requireAuth, requireModuleAccess("inspection
       return res.status(409).json({ message: "Appareil déjà révoqué", revoqueA: appareil.revoqueA });
     }
 
-    const revoque = await prisma.appareil.update({
-      where: { id: appareil.id }, data: { revoqueA: new Date() },
+    const revoque = await prisma.$transaction(async (tx) => {
+      const maj = await tx.appareil.updateMany({
+        where: { id: appareil.id, userId: appareil.userId, revoqueA: null },
+        data: { revoqueA: new Date() },
+      });
+      if (maj.count !== 1) return null;
+
+      const apres = await tx.appareil.findUnique({ where: { id: appareil.id } });
+      if (!apres) throw new Error("Appareil absent après révocation.");
+      // Un evenement de securite, pas une modification ordinaire : c'est ce qu'on relit
+      // apres un incident. La révocation et sa trace sont atomiques.
+      await logAuditTransactionnelle(tx, {
+        userId: user.id, action: "SECURITY_EVENT", entityType: "Appareil", entityId: appareil.id,
+        before: { revoqueA: null }, after: { revoqueA: apres.revoqueA, porteur: appareil.userId },
+        ipAddress: req.ip,
+      });
+      return apres;
     });
-    // Un evenement de securite, pas une modification ordinaire : c'est ce qu'on relit
-    // apres un incident.
-    await logAudit({
-      userId: user.id, action: "SECURITY_EVENT", entityType: "Appareil", entityId: appareil.id,
-      before: { revoqueA: null }, after: { revoqueA: revoque.revoqueA, porteur: appareil.userId },
-      ipAddress: req.ip,
-    });
+    if (!revoque) {
+      return res.status(409).json({ message: "Appareil déjà révoqué ou modifié. Rechargez la liste." });
+    }
 
     return res.json(revoque);
   } catch (err) {

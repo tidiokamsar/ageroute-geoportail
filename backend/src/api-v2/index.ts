@@ -4,6 +4,7 @@ import { syncV2Router } from "./sync.routes";
 import { devicesV2Router } from "./devices.routes";
 import { missionsV2Router } from "./missions.routes";
 import { observationsV2Router } from "./observations.routes";
+import { defautsV2Router } from "./defauts.routes";
 
 /**
  * `/api/v2` — la nouvelle surface d'API.
@@ -22,7 +23,7 @@ import { observationsV2Router } from "./observations.routes";
  * CE QUI MANQUE ENCORE
  *
  * La section 16 liste douze domaines : auth, devices, missions, tracks, geo,
- * observations, assets, offline, sync, intelligence, ai, integrations. Cinq sont la.
+ * observations, assets, offline, sync, intelligence, ai, integrations. Six sont la.
  * Les ajouter tous d'un coup produirait des routes sans implementation derriere, ce
  * qui est pire que leur absence : un client les appellerait.
  *
@@ -37,6 +38,10 @@ import { observationsV2Router } from "./observations.routes";
  * route pour en enregistrer un. La chaine se tient maintenant de bout en bout —
  * enregistrer un appareil, recevoir une mission, collecter, remonter.
  *
+ * `defauts` suit les observations : la validation de celles-ci ne servait a rien tant
+ * que la degradation restait du texte libre. Le defaut porte le metre, la gravite et
+ * l'etendue — ce dont les moteurs de traitement, quantite et cout auront besoin.
+ *
  * Les suivants viendront avec leur service, pas avant.
  */
 export const apiV2Router = Router();
@@ -46,6 +51,7 @@ apiV2Router.use("/sync", syncV2Router);
 apiV2Router.use("/devices", devicesV2Router);
 apiV2Router.use("/missions", missionsV2Router);
 apiV2Router.use("/observations", observationsV2Router);
+apiV2Router.use("/defauts", defautsV2Router);
 
 /**
  * Inventaire de la surface v2, pour qu'un client sache ce qui existe reellement.
@@ -56,7 +62,7 @@ apiV2Router.use("/observations", observationsV2Router);
 apiV2Router.get("/", (_req, res) => {
   res.json({
     version: "v2",
-    domaines: ["geo", "sync", "devices", "missions", "observations"],
+    domaines: ["geo", "sync", "devices", "missions", "observations", "defauts"],
     aVenir: [
       "auth", "tracks",
       "assets", "offline", "intelligence", "ai", "integrations",

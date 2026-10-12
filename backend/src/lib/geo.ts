@@ -2,7 +2,7 @@ import { prisma } from "./prisma";
 
 // Tables dont la colonne "geom" est un Point(4326) ecrite/lue via SQL brut
 // (Prisma ne sait pas manipuler les colonnes Unsupported("geometry...")).
-const ALLOWED_TABLES = new Set(["ouvrages", "points_noirs", "postes"]);
+const ALLOWED_TABLES = new Set(["ouvrages", "points_noirs", "postes", "defauts"]);
 
 export async function setPointGeom(table: string, id: string, lat: number, lon: number): Promise<void> {
   if (!ALLOWED_TABLES.has(table)) throw new Error(`Table non autorisee pour setPointGeom: ${table}`);
@@ -86,6 +86,35 @@ export async function deriveGeomFromTroncon(table: string, id: string, tronconId
     id,
     tronconId,
     pk
+  );
+  return result > 0;
+}
+
+/**
+ * Place un point depuis une abscisse locale en mètres, sans exiger de PK de route.
+ * Contrairement à `deriveGeomFromTroncon`, cette interpolation suit directement la
+ * longueur géographique du segment et ne dépend d'aucune calibration de PK.
+ */
+export async function deriveGeomFromTronconAbscisse(
+  table: string,
+  id: string,
+  tronconId: string,
+  abscisseM: number
+): Promise<boolean> {
+  if (!ALLOWED_TABLES.has(table)) throw new Error(`Table non autorisee pour deriveGeomFromTronconAbscisse: ${table}`);
+  if (!Number.isFinite(abscisseM) || abscisseM < 0) return false;
+
+  const result = await prisma.$executeRawUnsafe(
+    `UPDATE ${table} pt
+     SET geom = ST_LineInterpolatePoint(t.geom, $3 / NULLIF(ST_Length(t.geom::geography), 0))
+     FROM troncons t
+     WHERE pt.id = $1 AND t.id = $2
+       AND t.geom IS NOT NULL
+       AND ST_GeometryType(t.geom) = 'ST_LineString'
+       AND $3 <= ST_Length(t.geom::geography)`,
+    id,
+    tronconId,
+    abscisseM
   );
   return result > 0;
 }

@@ -4,7 +4,7 @@ import { requireAuth } from "../middleware/auth.middleware";
 import { requireRole } from "../middleware/rbac.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
 import { prisma } from "../lib/prisma";
-import { logAudit } from "../utils/audit";
+import { logAuditTransactionnelle } from "../utils/audit";
 import { TRANSITIONS, transitionPermise, perimetre } from "../field/missions.regles";
 
 /**
@@ -112,17 +112,20 @@ missionsV2Router.post(
         return res.status(409).json({ message: `Une mission porte déjà le code ${c.code}` });
       }
 
-      const mission = await prisma.mission.create({
-        data: {
-          ...c,
-          debutPrevu: c.debutPrevu ? new Date(c.debutPrevu) : null,
-          finPrevue: c.finPrevue ? new Date(c.finPrevue) : null,
-          createurId: user.id,
-        },
-      });
-      await logAudit({
-        userId: user.id, action: "CREATE", entityType: "Mission",
-        entityId: mission.id, after: mission, ipAddress: req.ip,
+      const mission = await prisma.$transaction(async (tx) => {
+        const creee = await tx.mission.create({
+          data: {
+            ...c,
+            debutPrevu: c.debutPrevu ? new Date(c.debutPrevu) : null,
+            finPrevue: c.finPrevue ? new Date(c.finPrevue) : null,
+            createurId: user.id,
+          },
+        });
+        await logAuditTransactionnelle(tx, {
+          userId: user.id, action: "CREATE", entityType: "Mission",
+          entityId: creee.id, after: creee, ipAddress: req.ip,
+        });
+        return creee;
       });
       return res.status(201).json(mission);
     } catch (err) {
@@ -165,13 +168,26 @@ missionsV2Router.post("/:id/statut", requireAuth, requireModuleAccess("inspectio
       : statut === "TERMINEE" ? { finReelle: new Date() }
       : {};
 
-    const apres = await prisma.mission.update({
-      where: { id: mission.id }, data: { statut, ...horodatage },
+    const apres = await prisma.$transaction(async (tx) => {
+      const maj = await tx.mission.updateMany({
+        where: { id: mission.id, statut: mission.statut },
+        data: { statut, ...horodatage },
+      });
+      // Compare-et-échange sur le statut lu : deux transitions concurrentes ne
+      // peuvent pas toutes deux gagner depuis le même état.
+      if (maj.count !== 1) return null;
+
+      const miseAJour = await tx.mission.findUnique({ where: { id: mission.id } });
+      if (!miseAJour) throw new Error("Mission absente après transition.");
+      await logAuditTransactionnelle(tx, {
+        userId: user.id, action: "UPDATE", entityType: "Mission", entityId: mission.id,
+        before: { statut: mission.statut }, after: { statut: miseAJour.statut }, ipAddress: req.ip,
+      });
+      return miseAJour;
     });
-    await logAudit({
-      userId: user.id, action: "UPDATE", entityType: "Mission", entityId: mission.id,
-      before: { statut: mission.statut }, after: { statut: apres.statut }, ipAddress: req.ip,
-    });
+    if (!apres) {
+      return res.status(409).json({ message: "La mission a changé pendant la transition. Rechargez avant de réessayer." });
+    }
 
     return res.json(apres);
   } catch (err) {

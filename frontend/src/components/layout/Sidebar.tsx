@@ -33,6 +33,9 @@ const sections = [
       { to: "/marches", label: "Marchés" },
       { to: "/programmation", label: "Programmation" },
       { to: "/inspections", label: "Inspections" },
+      { to: "/inspections/terrain/defauts", label: "Défauts terrain" },
+      { to: "/inspections/defauts/validation", label: "Validation des relevés", roles: ["ADMIN", "GESTIONNAIRE"] },
+      { to: "/inspections/defauts/catalogue", label: "Catalogue des défauts", roles: ["ADMIN", "GESTIONNAIRE"] },
     ],
   },
   {
@@ -48,6 +51,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
     .map((section) => ({
       ...section,
       items: section.items.filter((item) => {
+        if ("roles" in item && item.roles && !item.roles.includes(user?.role ?? "LECTEUR")) return false;
         const key = moduleForPath(item.to);
         return !key || hasModuleAccess(user?.modulesAutorises, user?.role, key);
       }),

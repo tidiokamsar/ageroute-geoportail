@@ -3,7 +3,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 const db = vi.hoisted(() => ({ auditLog: { create: vi.fn() } }));
 vi.mock("../lib/prisma", () => ({ prisma: db }));
 
-import { logAudit, echecsAuditDepuisDemarrage, _reinitialiserCompteurAudit } from "./audit";
+import { logAudit, logAuditTransactionnelle, echecsAuditDepuisDemarrage, _reinitialiserCompteurAudit } from "./audit";
 
 describe("logAudit — l'échec ne casse plus rien mais se voit (P2-03)", () => {
   beforeEach(() => {
@@ -30,5 +30,16 @@ describe("logAudit — l'échec ne casse plus rien mais se voit (P2-03)", () => 
       await logAudit({ userId: null, action: "LOGIN", entityType: "User" });
     }
     expect(echecsAuditDepuisDemarrage()).toBe(3);
+  });
+});
+
+describe("logAuditTransactionnelle — l'écriture fait partie de la transaction métier", () => {
+  it("laisse remonter une panne d'audit pour que la transaction appelante puisse être annulée", async () => {
+    const failure = new Error("audit indisponible");
+    const tx = { auditLog: { create: vi.fn().mockRejectedValue(failure) } };
+
+    await expect(logAuditTransactionnelle(tx as never, {
+      userId: "u1", action: "VALIDATE", entityType: "Observation", entityId: "obs-1",
+    })).rejects.toBe(failure);
   });
 });

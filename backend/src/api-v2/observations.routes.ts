@@ -3,9 +3,9 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
 import { prisma } from "../lib/prisma";
-import { logAudit } from "../utils/audit";
+import { logAuditTransactionnelle } from "../utils/audit";
 import { enregistrerQualite } from "../lib/qualite";
-import { validationPermise, EXPLICATIONS } from "../field/observations.regles";
+import { validationPermise, EXPLICATIONS } from "../governance/validation";
 
 /**
  * `/api/v2/observations` — consultation et VALIDATION.
@@ -24,6 +24,20 @@ import { validationPermise, EXPLICATIONS } from "../field/observations.regles";
 
 export const observationsV2Router = Router();
 
+async function perimetreObservations(user: { id: string; role: string }) {
+  if (user.role === "ADMIN" || user.role === "GESTIONNAIRE") return {};
+  const missions = await prisma.mission.findMany({
+    where: { deletedAt: null, OR: [{ assigneId: user.id }, { createurId: user.id }] },
+    select: { id: true },
+  });
+  return {
+    OR: [
+      { agentId: user.id },
+      ...(missions.length > 0 ? [{ missionId: { in: missions.map((mission) => mission.id) } }] : []),
+    ],
+  };
+}
+
 /**
  * @openapi
  * /api/v2/observations:
@@ -41,9 +55,11 @@ observationsV2Router.get("/", requireAuth, requireModuleAccess("inspections"), a
       curseur: z.string().uuid().optional(),
     }).parse(req.query);
 
+    const scope = await perimetreObservations(req.user!);
     const observations = await prisma.observation.findMany({
       where: {
         deletedAt: null,
+        ...scope,
         ...(q.statut ? { statut: q.statut } : {}),
         ...(q.missionId ? { missionId: q.missionId } : {}),
         ...(q.tronconId ? { tronconId: q.tronconId } : {}),
@@ -75,12 +91,18 @@ observationsV2Router.get("/", requireAuth, requireModuleAccess("inspections"), a
  */
 observationsV2Router.get("/:id", requireAuth, requireModuleAccess("inspections"), async (req, res, next) => {
   try {
+    const scope = await perimetreObservations(req.user!);
     const o = await prisma.observation.findFirst({
-      where: { id: req.params.id, deletedAt: null },
+      where: { id: req.params.id, deletedAt: null, ...scope },
       include: { medias: true, mission: { select: { id: true, code: true, intitule: true } } },
     });
     if (!o) return res.status(404).json({ message: "Observation introuvable" });
-    return res.json(o);
+    const validations = await prisma.validation.findMany({
+      where: { entityType: "Observation", entityId: o.id },
+      orderBy: { decideA: "asc" },
+      include: { decidePar: { select: { id: true, nomComplet: true } } },
+    });
+    return res.json({ ...o, validations });
   } catch (err) {
     return next(err);
   }
@@ -102,19 +124,24 @@ observationsV2Router.post("/:id/validate", requireAuth, requireModuleAccess("ins
     const c = z.object({
       decision: z.enum(["VALIDEE", "REJETEE"]),
       motif: z.string().max(2000).optional(),
-    }).parse(req.body);
+    }).strict().parse(req.body);
 
     const user = req.user!;
     const o = await prisma.observation.findFirst({ where: { id: req.params.id, deletedAt: null } });
     if (!o) return res.status(404).json({ message: "Observation introuvable" });
 
+    const decision = c.decision === "VALIDEE" ? "VALIDE" : "REJETE";
+    const statutActuel = o.statut === "PROPOSEE" ? "A_VALIDER"
+      : o.statut === "VALIDEE" ? "VALIDE"
+        : o.statut === "REJETEE" ? "REJETE" : o.statut;
     const verdict = validationPermise({
-      statutActuel: o.statut,
-      agentId: o.agentId,
+      entityType: "Observation",
+      statutActuel,
+      auteurId: o.agentId,
       validateurId: user.id,
       validateurRole: user.role,
-      decision: c.decision,
-      motif: c.motif,
+      decision,
+      commentaire: c.motif,
     });
 
     if (!verdict.permis) {
@@ -126,8 +153,8 @@ observationsV2Router.post("/:id/validate", requireAuth, requireModuleAccess("ins
     }
 
     const apres = await prisma.$transaction(async (tx) => {
-      const maj = await tx.observation.update({
-        where: { id: o.id },
+      const maj = await tx.observation.updateMany({
+        where: { id: o.id, deletedAt: null, statut: o.statut, version: o.version },
         data: {
           statut: c.decision,
           valideeA: new Date(),
@@ -135,11 +162,41 @@ observationsV2Router.post("/:id/validate", requireAuth, requireModuleAccess("ins
           motifRejet: c.decision === "REJETEE" ? c.motif : null,
           // La version avance : un appareil parti avec l'ancienne verra un conflit
           // plutot que d'ecraser la decision.
-          version: o.version + 1,
+          version: { increment: 1 },
         },
       });
-      return maj;
+      // Le contrôle compare-et-échange empêche deux validateurs qui ont lu la même
+      // version de produire deux décisions contradictoires.
+      if (maj.count !== 1) return null;
+      const observationMiseAJour = await tx.observation.findUnique({ where: { id: o.id } });
+      await tx.validation.create({
+        data: {
+          entityType: "Observation",
+          entityId: o.id,
+          statutAvant: statutActuel === "A_VALIDER" ? "A_VALIDER" : null,
+          statutApres: decision,
+          decideParId: user.id,
+          auteurId: o.agentId,
+          source: "terrain",
+          commentaire: c.motif ?? null,
+        },
+      });
+      if (!observationMiseAJour) throw new Error("Observation absente après validation.");
+      await logAuditTransactionnelle(tx, {
+        userId: user.id,
+        action: c.decision === "VALIDEE" ? "VALIDATE" : "REJECT",
+        entityType: "Observation",
+        entityId: o.id,
+        before: { statut: o.statut, version: o.version },
+        after: { statut: observationMiseAJour.statut, version: observationMiseAJour.version, motif: c.motif ?? null },
+        ipAddress: req.ip,
+      });
+      return observationMiseAJour;
     }, { timeout: 60_000 });
+
+    if (!apres) {
+      return res.status(409).json({ message: "L'observation a changé pendant la décision. Rechargez la file avant de réessayer." });
+    }
 
     /**
      * La provenance dit QUI a rendu cette donnee officielle.
@@ -160,16 +217,6 @@ observationsV2Router.post("/:id/validate", requireAuth, requireModuleAccess("ins
       note: c.decision === "VALIDEE"
         ? `Observation validée : elle devient une donnée officielle.`
         : `Observation rejetée. Motif : ${c.motif}`,
-    });
-
-    await logAudit({
-      userId: user.id,
-      action: c.decision === "VALIDEE" ? "VALIDATE" : "REJECT",
-      entityType: "Observation",
-      entityId: o.id,
-      before: { statut: o.statut, version: o.version },
-      after: { statut: apres.statut, version: apres.version, motif: c.motif ?? null },
-      ipAddress: req.ip,
     });
 
     return res.json(apres);

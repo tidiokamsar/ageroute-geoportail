@@ -67,7 +67,7 @@ export type Decision =
  * deux agents qui modifient le meme ouvrage hors ligne ne peuvent pas etre departages
  * par l'horloge de leur telephone.
  */
-export const ENTITES_PATRIMONIALES = new Set(["Troncon", "Ouvrage", "Chantier", "PointNoir", "Poste"]);
+export const ENTITES_PATRIMONIALES = new Set(["Troncon", "Ouvrage", "Chantier", "PointNoir", "Poste", "Defaut"]);
 
 /**
  * Decide du sort d'une operation.

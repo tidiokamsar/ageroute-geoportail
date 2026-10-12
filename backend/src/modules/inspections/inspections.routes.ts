@@ -9,9 +9,9 @@ import { listHandler, getHandler, createHandler, updateHandler, deleteHandler, a
 
 export const inspectionsRouter = Router();
 inspectionsRouter.use(requireAuth);
-inspectionsRouter.get("/", listHandler);
+inspectionsRouter.get("/", requireModuleAccess("inspections"), listHandler);
 inspectionsRouter.use(requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("inspections"), createBulkRouter(inspectionsService));
-inspectionsRouter.get("/:id", getHandler);
+inspectionsRouter.get("/:id", requireModuleAccess("inspections"), getHandler);
 // Les inspecteurs de terrain peuvent saisir des inspections, en plus des gestionnaires/admins
 inspectionsRouter.post("/", requireRole("ADMIN", "GESTIONNAIRE", "INSPECTEUR"), requireModuleAccess("inspections"), createHandler);
 inspectionsRouter.put("/:id", requireRole("ADMIN", "GESTIONNAIRE", "INSPECTEUR"), requireModuleAccess("inspections"), updateHandler);
