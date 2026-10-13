@@ -92,6 +92,14 @@ export interface Portion {
   statutValidation: "A_VALIDER" | "VALIDE" | "REJETE" | "A_CORRIGER";
   /** Date a laquelle cette version a ete remplacee. Nulle si elle est courante. */
   remplaceeLe: Date | null;
+  /**
+   * Suppression logique (regle 2 d'AGENTS.md).
+   *
+   * DISTINCT de `remplaceeLe`, et la distinction porte : `remplaceeLe` dit « ceci etait
+   * vrai et ne l'est plus », `deletedAt` dit « ceci n'aurait jamais du etre saisi ». Les
+   * confondre rendrait l'historique du reseau inexplicable.
+   */
+  deletedAt: Date | null;
 }
 
 export type RefusPortion =
@@ -123,9 +131,15 @@ export function refusPortion(
   return null;
 }
 
-/** Les portions COURANTES, celles qui ne sont pas remplacees. */
+/**
+ * Les portions COURANTES : ni remplacees, ni supprimees logiquement.
+ *
+ * Les deux exclusions ne disent pas la meme chose, mais une portion remplacee comme une
+ * portion effacee ne decrit plus l'etat actuel du reseau. Toute la suite du module part
+ * d'ici, pour qu'aucun calcul n'ait a se souvenir de filtrer.
+ */
 export function courantes(portions: readonly Portion[]): Portion[] {
-  return portions.filter((p) => p.remplaceeLe === null);
+  return portions.filter((p) => p.remplaceeLe === null && p.deletedAt === null);
 }
 
 export interface Chevauchement {
@@ -251,7 +265,7 @@ export function decouper(
   aM: number,
   nouveauxIds: [string, string],
 ): { refus: RefusDecoupe } | { refus: null; morceaux: [Portion, Portion] } {
-  if (p.remplaceeLe !== null) return { refus: "PORTION_REMPLACEE" };
+  if (p.remplaceeLe !== null || p.deletedAt !== null) return { refus: "PORTION_REMPLACEE" };
   if (!Number.isFinite(aM) || aM <= p.debutM || aM >= p.finM) return { refus: "HORS_PORTION" };
   if (aM - p.debutM < LONGUEUR_MINIMALE_M || p.finM - aM < LONGUEUR_MINIMALE_M) {
     return { refus: "MORCEAU_TROP_COURT" };
@@ -285,6 +299,7 @@ export type RefusFusion =
  */
 export function refusFusion(a: Portion, b: Portion): RefusFusion | null {
   if (a.remplaceeLe !== null || b.remplaceeLe !== null) return "PORTION_REMPLACEE";
+  if (a.deletedAt !== null || b.deletedAt !== null) return "PORTION_REMPLACEE";
   if (a.tronconId !== b.tronconId) return "TRONCONS_DIFFERENTS";
 
   const [gauche, droite] = a.debutM <= b.debutM ? [a, b] : [b, a];

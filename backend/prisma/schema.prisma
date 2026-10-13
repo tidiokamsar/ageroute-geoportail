@@ -325,6 +325,7 @@ model User {
 
   reglesConditionCreees     RegleCondition[] @relation("RegleConditionAuteur")
   reglesConditionApprouvees RegleCondition[] @relation("RegleConditionApprobateur")
+  portionsCreees            Portion[]        @relation("PortionAuteur")
 
   @@map("users")
 }
@@ -459,6 +460,7 @@ model Troncon {
   perimetreClasseA DateTime?
 
   evaluationsCondition EvaluationCondition[]
+  portions             Portion[]
 
   @@index([regionId])
   @@index([etat])
@@ -1469,7 +1471,8 @@ model Observation {
 
   medias MediaObservation[]
 
-  defauts Defaut[]
+  defauts  Defaut[]
+  portions Portion[]
 
   @@index([missionId])
   @@index([tronconId])
@@ -2187,4 +2190,150 @@ model ComposanteEvaluation {
   @@unique([evaluationId, composante])
   @@index([composante, exclue])
   @@map("composantes_evaluation")
+}
+
+// ===================== PORTIONS HOMOGENES =====================
+
+/// D'ou vient une portion. Sans cela, un decoupage et un releve de terrain se
+/// ressemblent en base, et l'historique devient illisible.
+enum OriginePortion {
+  /// Qualifiee par un agent sur place.
+  SAISIE_TERRAIN
+  /// Nee du decoupage d'une portion existante.
+  DECOUPE
+  /// Nee de la fusion de portions compatibles.
+  FUSION
+  /// Meme emprise, attributs revus.
+  REQUALIFICATION
+  /// Venue d'un lot externe. Jamais officielle sans validation.
+  IMPORT
+}
+
+/// Une partie homogene d'un troncon.
+///
+/// LE PROBLEME QU'ELLE RESOUT
+///
+/// Un troncon porte UN revetement et UN etat pour toute sa longueur. Le terrain ne s'y
+/// plie pas : 8 km de bitume en bon etat, 5 km de bitume degrade, 4 km de laterite, 3 km
+/// critiques, et c'est le meme troncon.
+///
+/// L'ABSCISSE LOCALE FAIT AUTORITE, PAS LE PK, ET PAS LA GEOMETRIE
+///
+/// `debutM` et `finM` sont mesures depuis le debut de la geometrie de reference, ce que
+/// `ST_LineLocatePoint` rend et que `geo/appariement.ts` produit deja. Le PK officiel
+/// n'est pas porte ici : les 1 029 troncons regionaux n'en ont pas de calculable, et
+/// faire dependre la qualification du PK les aurait rendus inqualifiables.
+///
+/// POURQUOI AUCUNE PORTION N'EST DEDUITE D'UN TRONCON
+///
+/// Mesure du 13/10/2026 en production : `revetement` vaut NON_RENSEIGNE sur 258 961
+/// troncons et BITUME sur 2 426, sans une seule laterite sur un reseau ou elle domine ;
+/// `etat` vaut NON_EVALUE sur 254 547 des 261 387. Deduire une portion de ces colonnes
+/// fabriquerait 261 387 observations que personne n'a faites.
+///
+/// Un troncon sans portion est donc NON QUALIFIE. `reseau/portions.ts` le rend comme un
+/// trou nomme par ses abscisses, pas comme un pourcentage.
+///
+/// CETTE TABLE NE TOUCHE JAMAIS LA GEOMETRIE DE REFERENCE
+///
+/// Qualifier le terrain et corriger un trace sont deux operations distinctes, aux droits
+/// distincts. Une portion ne produit que des bornes le long d'une geometrie existante.
+model Portion {
+  id String @id @default(uuid())
+
+  tronconId String
+  troncon   Troncon @relation(fields: [tronconId], references: [id])
+
+  /// Abscisse de debut, en metres depuis le debut de la geometrie de reference.
+  debutM Float
+  /// Abscisse de fin. Toujours strictement superieure a `debutM`.
+  finM   Float
+
+  /// NULS tant que personne ne les a releves. Une portion peut qualifier l'etat sans
+  /// connaitre le revetement, et l'inverse.
+  revetement Revetement?
+  etat       EtatPatrimoine?
+
+  /// Praticabilite, distincte du revetement ET de l'etat : une piste en laterite peut
+  /// etre en bon etat et devenir impraticable apres les pluies.
+  ///
+  /// TEXTE ET NON ENUM, VOLONTAIREMENT. Le cahier demande un referentiel configurable et
+  /// n'en enonce aucune valeur, contrairement au revetement dont il liste les huit. Figer
+  /// ici un vocabulaire que personne n'a arrete en ferait une norme. La colonne recevra
+  /// sa contrainte en meme temps que son referentiel.
+  praticabilite String?
+
+  largeurM Float?
+
+  /// D'ou vient l'observation, et quand elle a ete CONSTATEE (pas saisie). Nulles quand
+  /// personne ne l'a dit : une date absente n'est pas une date ancienne.
+  source     String?
+  observeeLe DateTime?
+  confiance  NiveauConfiance?
+
+  origine OriginePortion
+
+  /// Conteneur de collecte, quand la portion vient d'une mission de terrain.
+  observationId String?
+  observation   Observation? @relation(fields: [observationId], references: [id])
+
+  /// Une portion de terrain est une PROPOSITION jusqu'a validation par un tiers.
+  statutValidation StatutValidation @default(A_VALIDER)
+
+  /// Date a laquelle cette version a ete remplacee par un decoupage, une fusion ou une
+  /// requalification. NULLE si elle est courante.
+  ///
+  /// DISTINCT DE `deletedAt`, et la distinction porte : `remplaceeLe` dit « ceci etait
+  /// vrai et ne l'est plus », `deletedAt` dit « ceci n'aurait jamais du etre saisi ». Les
+  /// confondre rendrait l'historique du reseau inexplicable.
+  remplaceeLe DateTime?
+
+  /// Suppression logique seulement (regle 2 d'AGENTS.md). Le patrimoine routier est une
+  /// donnee d'archive.
+  deletedAt DateTime?
+
+  creeParId String
+  creePar   User   @relation("PortionAuteur", fields: [creeParId], references: [id])
+
+  /// Geometrie DERIVEE de `debutM`/`finM` par `ST_LineSubstring`, conservee pour que la
+  /// carte n'ait pas a la recalculer sur 261 387 troncons.
+  ///
+  /// ELLE NE FAIT PAS AUTORITE. Si le trace de reference est corrige, elle devient
+  /// perimee et doit etre recalculee depuis les abscisses, jamais l'inverse.
+  geom Unsupported("geometry(LineString,4326)")?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Lignage : d'ou vient cette portion, et ce qu'elle a produit.
+  parents PortionLignage[] @relation("LignageEnfant")
+  enfants PortionLignage[] @relation("LignageParent")
+
+  @@index([tronconId, debutM])
+  @@index([tronconId, remplaceeLe])
+  @@index([statutValidation])
+  @@index([deletedAt])
+  @@index([observationId])
+  @@map("portions")
+}
+
+/// Lignage entre portions : quelle portion est nee de quelle autre.
+///
+/// POURQUOI UNE TABLE ET NON UNE COLONNE
+///
+/// Un decoupage donne UN parent et DEUX enfants ; une fusion donne DEUX parents et UN
+/// enfant. Une colonne `remplaceeParId` ne sait exprimer ni l'un ni l'autre sans mentir
+/// sur le second. Le lien est donc plusieurs-a-plusieurs, et c'est la seule forme qui
+/// permette de relire un decoupage suivi d'une fusion.
+model PortionLignage {
+  parentId String
+  parent   Portion @relation("LignageParent", fields: [parentId], references: [id])
+  enfantId String
+  enfant   Portion @relation("LignageEnfant", fields: [enfantId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@id([parentId, enfantId])
+  @@index([enfantId])
+  @@map("portions_lignage")
 }

@@ -44,6 +44,7 @@ function p(partiel: Partial<Portion> & Pick<Portion, "id" | "debutM" | "finM">):
     confiance: "HIGH",
     statutValidation: "VALIDE",
     remplaceeLe: null,
+    deletedAt: null,
     ...partiel,
   };
 }
@@ -122,6 +123,19 @@ describe("La couverture nomme les trous au lieu de les resumer", () => {
     expect(c.trous).toEqual([{ debutM: 1500, finM: 2000, longueurM: 500 }]);
   });
 
+  it("ignore une portion supprimee logiquement, qui n'aurait pas du etre saisie", () => {
+    // `deletedAt` et `remplaceeLe` ne disent pas la meme chose, mais ni l'une ni l'autre
+    // ne decrit l'etat actuel du reseau.
+    const c = couverture(
+      [
+        p({ id: "erreur", debutM: 0, finM: 20000, deletedAt: new Date("2026-10-02") }),
+        p({ id: "bonne", debutM: 0, finM: 5000 }),
+      ],
+      20000,
+    );
+    expect(c.qualifieM).toBe(5000);
+  });
+
   it("ignore les portions remplacees, qui sont de l'historique", () => {
     const c = couverture(
       [
@@ -195,9 +209,11 @@ describe("Decouper", () => {
     expect(decouper(q, 1995, ["g", "d"]).refus).toBe("MORCEAU_TROP_COURT");
   });
 
-  it("REFUSE de decouper de l'historique", () => {
-    const q = p({ id: "a", debutM: 0, finM: 2000, remplaceeLe: new Date("2026-09-01") });
-    expect(decouper(q, 1000, ["g", "d"]).refus).toBe("PORTION_REMPLACEE");
+  it("REFUSE de decouper de l'historique ou une portion supprimee", () => {
+    const remplacee = p({ id: "a", debutM: 0, finM: 2000, remplaceeLe: new Date("2026-09-01") });
+    expect(decouper(remplacee, 1000, ["g", "d"]).refus).toBe("PORTION_REMPLACEE");
+    const supprimee = p({ id: "b", debutM: 0, finM: 2000, deletedAt: new Date("2026-09-01") });
+    expect(decouper(supprimee, 1000, ["g", "d"]).refus).toBe("PORTION_REMPLACEE");
   });
 });
 

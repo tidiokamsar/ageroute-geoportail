@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Eprouve les SIX migrations en attente contre la structure REELLE de production, et
+# Eprouve les migrations en attente contre la structure REELLE de production, et
 # tranche la question qui bloque le deploiement.
 #
 # Il y en a six et non cinq, et je l'ai appris en mesurant : `socle_terrain` est dans
@@ -14,6 +14,7 @@
 #   20261013120000_delegation_validation
 #   20261013140000_droit_de_deleguer
 #   20261013160000_condition_engine
+#   20261013180000_portions_homogenes
 #
 # Ecrit sur le modele de `tester-migrations-phase4.sh`, dont il reprend le dispositif :
 # partir de la derniere sauvegarde chiffree, la restaurer dans un conteneur JETABLE,
@@ -84,6 +85,7 @@ MIGRATIONS=(
     20261013120000_delegation_validation
     20261013140000_droit_de_deleguer
     20261013160000_condition_engine
+    20261013180000_portions_homogenes
 )
 
 ECHECS=0
@@ -318,6 +320,22 @@ verifier_type PerimetreReseau
 verifier_type DomaineValidation
 verifier_type ComposanteRci
 verifier_type MotifExclusionRci
+verifier_type OriginePortion
+
+verifier_table portions
+verifier_table portions_lignage
+verifier_colonne portions debutM
+verifier_colonne portions finM
+verifier_colonne portions praticabilite
+verifier_colonne portions remplaceeLe
+verifier_colonne portions deletedAt
+
+# L'index spatial que Prisma ne sait pas declarer : son absence ne casserait rien tout de
+# suite, elle ferait seulement balayer la table a chaque affichage de carte.
+q "SELECT count(*) FROM pg_indexes WHERE indexname='portions_geom_gist'" | grep -q '^1$'     && ok "index spatial portions_geom_gist" || echec "portions_geom_gist ABSENT"
+
+# La contrainte d'exclusion, et ce qu'elle doit laisser passer.
+q "SELECT count(*) FROM pg_constraint WHERE conname='portion_validee_sans_chevauchement'"     | grep -q '^1$' && ok "contrainte d'exclusion posee"     || echec "portion_validee_sans_chevauchement ABSENTE"
 
 # ─────────────────────────────────────────────────────────────
 titre "5. Les donnees sont-elles intactes ?"
@@ -350,6 +368,8 @@ titre "6. Rollback : sait-on defaire ?"
 
 docker exec -i "$CONTENEUR" psql -U postgres -d "$BASE" -v ON_ERROR_STOP=1 >/dev/null 2>&1 <<'ROLLBACK'
 -- Dependants d'abord : une table referencee ne se supprime pas avant ses references.
+DROP TABLE IF EXISTS "portions_lignage";
+DROP TABLE IF EXISTS "portions";
 DROP TABLE IF EXISTS "composantes_evaluation";
 DROP TABLE IF EXISTS "evaluations_condition";
 DROP TABLE IF EXISTS "regles_condition";
@@ -381,6 +401,7 @@ ALTER TABLE "points_noirs" DROP COLUMN IF EXISTS "statutValidation";
 ALTER TABLE "postes"       DROP COLUMN IF EXISTS "statutValidation";
 ALTER TABLE "chantiers"    DROP COLUMN IF EXISTS "statutValidation";
 
+DROP TYPE IF EXISTS "OriginePortion";
 DROP TYPE IF EXISTS "MotifExclusionRci";
 DROP TYPE IF EXISTS "ComposanteRci";
 DROP TYPE IF EXISTS "DomaineValidation";
@@ -400,6 +421,10 @@ DROP TYPE IF EXISTS "StatutMission";
 
 -- PAS de retrait des trois valeurs de `AuditAction` : PostgreSQL n'a pas de
 -- `ALTER TYPE ... DROP VALUE`. Voir l'en-tete de ce fichier.
+--
+-- PAS de DROP EXTENSION btree_gist non plus. Une extension est une ressource de la BASE,
+-- pas de cette migration : une autre table peut en dependre, et la retirer casserait ce
+-- qui n'a rien demande. Elle reste, et ne coute rien.
 ROLLBACK
 RC=$?
 [ $RC -eq 0 ] && ok "rollback execute sans erreur" || echec "le rollback a echoue"
