@@ -27,6 +27,7 @@ const QualitePage = lazy(() => import("./pages/QualitePage").then((m) => ({ defa
 const MarchesPage = lazy(() => import("./pages/MarchesPage").then((m) => ({ default: m.MarchesPage })));
 const InspectionTerrainPage = lazy(() => import("./pages/InspectionTerrainPage").then((m) => ({ default: m.InspectionTerrainPage })));
 const DefautTerrainPage = lazy(() => import("./pages/DefautTerrainPage").then((m) => ({ default: m.DefautTerrainPage })));
+const TerrainPortionsPage = lazy(() => import("./pages/TerrainPortionsPage").then((m) => ({ default: m.TerrainPortionsPage })));
 const DefautsValidationPage = lazy(() => import("./pages/DefautsValidationPage").then((m) => ({ default: m.DefautsValidationPage })));
 const CatalogueDefautsPage = lazy(() => import("./pages/CatalogueDefautsPage").then((m) => ({ default: m.CatalogueDefautsPage })));
 const RapportBailleurPage = lazy(() => import("./pages/RapportBailleurPage").then((m) => ({ default: m.RapportBailleurPage })));
@@ -76,6 +77,7 @@ const router = createBrowserRouter(
           <Route path="inspections" element={<LazyPage><InspectionsPage /></LazyPage>} handle={{ title: "Inspections" }} />
           <Route path="inspections/terrain" element={<LazyPage><InspectionTerrainPage /></LazyPage>} handle={{ title: "Inspection terrain" }} />
           <Route path="inspections/terrain/defauts" element={<LazyPage><DefautTerrainPage /></LazyPage>} handle={{ title: "Défauts terrain" }} />
+          <Route path="inspections/terrain/portions" element={<LazyPage><TerrainPortionsPage /></LazyPage>} handle={{ title: "Portions terrain" }} />
           <Route path="documents" element={<LazyPage><DocumentsPage /></LazyPage>} handle={{ title: "Base documentaire" }} />
           <Route path="decision" element={<LazyPage><DecisionPage /></LazyPage>} handle={{ title: "Aide à la décision" }} />
           <Route path="qualite" element={<LazyPage><QualitePage /></LazyPage>} handle={{ title: "Qualité des données" }} />
