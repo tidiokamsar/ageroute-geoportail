@@ -306,8 +306,70 @@ connexion perdue n'a pas les mêmes conséquences qu'une trace de patrimoine per
 faire échouer une connexion parce que le journal est en panne enfermerait les utilisateurs
 dehors.
 
+## Les dix-huit derniers — 13/10/2026
+
+**Quinze migrés, trois délibérément pas.** La distinction n'est pas de commodité : pour
+qu'un audit soit *transactionnel*, il faut une écriture métier à rejoindre.
+
+| Service | Migrés | Nature |
+|---|---|---|
+| `ordres-travaux/ot.service.ts` | 7 | création, modification, statut, conversion, photos, retrait |
+| `auth.service.ts` | 4 | révocation de famille compromise, révocation globale, activation et désactivation du 2FA |
+| `users.service.ts` | 3 | création, modification, réinitialisation de mot de passe |
+| `admin/settings.service.ts` | 1 | configuration SMTP |
+
+### Les trois qui ne sont pas migrés, et pourquoi
+
+`LOGIN` et les deux `LOGIN_FAILED` restent sur le helper fail-soft.
+
+Une transaction existe pourtant juste au-dessus du `LOGIN` : l'audit pourrait la rejoindre.
+Mais la conséquence serait qu'une panne d'`audit_logs` **refuse toute connexion** — y
+compris celle des administrateurs qui devraient venir la réparer. Une trace de connexion
+perdue se constate et se rattrape ; un système fermé à cause de son journal ne se répare
+pas de l'intérieur.
+
+Pour les deux `LOGIN_FAILED`, il n'y a de surcroît **aucune écriture métier à rejoindre** :
+faire échouer la requête changerait un 401 en 500 et apprendrait quelque chose à qui sonde
+les comptes.
+
+Le compromis est assumé et visible : chaque échec incrémente le compteur qu'expose
+`/api/health`. Un test fixe cette décision — si ces trois appels disparaissent, il le
+signale, et l'arbitrage se rediscute au lieu de se perdre.
+
+### Le BigInt touchait plus que les décomptes
+
+`ot.service.ts` auditait `after: updated`, et un ordre de travaux porte `coutEstimeGnf` et
+`coutReelGnf` en BigInt. **Cet audit échouait donc vraisemblablement en silence lui aussi**,
+pour la même raison que celui des décomptes. `normaliserPourJson`, posé au commit
+précédent, couvrait déjà ce cas — et c'est ce qui a rendu la migration possible sans casser
+la modification d'un ordre de travaux.
+
+### Trois précautions prises en chemin
+
+**Prisma n'imbrique pas les transactions.** `users.update` appelle `revokeAllForUser`, qui
+ouvre désormais la sienne. L'appeler depuis l'intérieur d'une transaction écrirait **en
+dehors**, sans que rien ne le signale. Il passe donc après le commit — ce qui est aussi le
+bon ordre : le compte est désactivé, puis ses sessions sont coupées.
+
+**Aucun secret dans le journal.** `users.create` audite la ligne rendue par `SAFE_SELECT`,
+qui exclut le hachage du mot de passe. `resetPassword` n'enregistre qu'un marqueur
+`{ passwordReset: true }`. Et l'audit SMTP ne reprend que les champs publiables, car
+`toStore` contient `passwordEncrypted` — un journal n'a pas à conserver un secret, même
+chiffré.
+
+**L'historique métier reste dehors.** `pushHistorique` écrit la frise que l'utilisateur lit
+sur la fiche d'un ordre de travaux. Ce n'est pas l'audit. L'y faire entrer rendrait une
+création impossible si cette table tombait, et cet arbitrage n'a pas été rendu. L'asymétrie
+est assumée et notée ici pour ne pas être découverte par surprise.
+
 ### Reste à faire
 
-Les dix-huit appels ci-dessus, en commençant par décider si l'authentification doit suivre
-la même règle — ce n'est pas évident. Supprimer les branches mortes des fabriques, si l'ARB
-tranche. Et mesurer l'import avant de déployer.
+**Les branches fail-soft des deux fabriques sont du code mort** : tous leurs appelants
+passent l'option. Les supprimer — et rendre `delegueTransactionnel` obligatoire — ferait de
+la garantie une propriété vérifiée par le compilateur plutôt qu'une configuration. C'est la
+conclusion logique, et elle supprime l'échappatoire que cet ADR documente comme son option
+1 : **décision d'ARB**.
+
+Mesurer le coût de l'import en masse avant de déployer (voir plus haut).
+
+Cet ADR reste **proposé**.

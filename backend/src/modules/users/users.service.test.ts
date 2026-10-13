@@ -1,6 +1,20 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-vi.mock("../../utils/audit", () => ({ logAudit: vi.fn() }));
+vi.mock("../../utils/audit", () => {
+  const logAudit = vi.fn();
+  // Les chemins transactionnels delegent au MEME espion : les assertions existantes
+  // observent donc le chemin reel sans changer de forme.
+  return {
+    logAudit,
+    construireAudit: vi.fn((p: Record<string, unknown>) => {
+      logAudit(p);
+      return { __audit: p };
+    }),
+    logAuditTransactionnelle: vi.fn(async (_tx: unknown, p: Record<string, unknown>) => {
+      logAudit(p);
+    }),
+  };
+});
 vi.mock("../../utils/password", () => ({ hashPassword: vi.fn(async (p: string) => `hashed:${p}`) }));
 // users.service importe desormais revokeAllForUser depuis auth.service ; mocker
 // ce module evite de charger la chaine jwt/config-env (process.exit sans .env en CI).
@@ -8,8 +22,8 @@ vi.mock("../auth/auth.service", () => ({ revokeAllForUser: vi.fn() }));
 
 const userStore = new Map<string, Record<string, unknown>>();
 
-vi.mock("../../lib/prisma", () => ({
-  prisma: {
+vi.mock("../../lib/prisma", () => {
+  const client: Record<string, unknown> = {
     user: {
       findUnique: vi.fn(async ({ where }: { where: { id?: string; email?: string } }) => {
         if (where.id) return userStore.get(where.id) ?? null;
@@ -28,8 +42,13 @@ vi.mock("../../lib/prisma", () => ({
       ),
     },
     refreshToken: { updateMany: vi.fn(async () => ({ count: 0 })) },
-  },
-}));
+    // `users.service` ouvre desormais ses propres transactions : la creation et la
+    // modification d'un compte partent avec leur trace, ou pas du tout.
+    $transaction: vi.fn(async (arg: unknown) =>
+      Array.isArray(arg) ? Promise.all(arg) : (arg as (tx: unknown) => Promise<unknown>)(client)),
+  };
+  return { prisma: client };
+});
 
 import { usersService } from "./users.service";
 
