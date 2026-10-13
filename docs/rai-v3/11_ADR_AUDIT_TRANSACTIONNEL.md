@@ -175,8 +175,62 @@ supprimerait un fichier **déjà référencé** si l'écriture a réussi et que 
 échoué. La photo existerait alors dans la liste et plus sur le disque, ce qui est pire que
 l'orphelin corrigé. Un test défend cette distinction.
 
+## Tronçon et Ouvrage migrés — 13/10/2026
+
+Les deux services qui ont une provenance suivie, donc les premiers à éprouver réellement le
+mécanisme : `CHAMPS_SUIVIS` couvre huit champs de Tronçon et quatre d'Ouvrage, si bien que
+chaque écriture entraîne des lignes de provenance qui doivent rejoindre la transaction.
+Inspection, migrée avant eux, n'a aucun champ suivi et ne testait pas ce point.
+
+Les photos d'Ouvrage passent aussi à l'audit transactionnel.
+
+**Restent sur le helper historique** : chantiers, documents, marchés, points noirs et
+postes. Cinq, et non plus sept.
+
+### Un trou plus grave trouvé en migrant : la géométrie
+
+`updateGeomOnly` écrivait le tracé d'un tronçon et **n'auditait rien**. Le contrôleur ne
+lui transmettait même pas l'identifiant de l'utilisateur, pourtant vérifié juste au-dessus.
+
+Le tracé n'est pas un champ décoratif : il commande la carte, la longueur géométrique,
+l'appariement GPS et donc le linéaire publié. Il pouvait être remplacé sans qu'on puisse
+dire par qui ni quand. C'est la règle 3 d'`AGENTS.md` manquée sur le champ le plus
+conséquent de la base — et cela n'avait rien à voir avec l'audit fail-soft : il n'y avait
+simplement aucun audit.
+
+L'écriture est désormais une transaction unique : lecture du résumé de l'ancien tracé,
+écriture du nouveau, audit. Le résumé est lu **dans** la transaction — le lire avant de
+l'ouvrir laisserait une fenêtre où une autre édition s'intercale, et l'audit comparerait à
+un état qui n'a jamais précédé celui-ci.
+
+**La géométrie elle-même n'est pas journalisée.** Un tronçon porte couramment des milliers
+de points ; les recopier à chaque édition gonflerait une table qui doit rester consultable.
+Le nombre de points et la longueur suffisent à repérer ce qui compte : un tracé remplacé
+par un tracé plus grossier, ou amputé de dizaines de kilomètres. Sept tests le défendent,
+dont celui qui vérifie que la trace reste bornée.
+
+### Une conséquence de performance, non mesurée
+
+`importXlsx`, pour Tronçon comme pour Ouvrage, boucle **ligne par ligne** sur `base.create`
+ou `base.update`. Chaque ligne ouvrait jusqu'ici une transaction en forme tableau ; elle
+ouvre maintenant une transaction interactive, soit deux allers-retours supplémentaires
+(`BEGIN`, `COMMIT`) par ligne.
+
+Ce qu'on peut affirmer sans mesure : la boucle est **séquentielle**, donc une seule
+transaction est ouverte à la fois et la pression sur le pool de connexions ne change pas.
+Le coût est de la latence, pas de la contention.
+
+Ce qu'on ne peut pas affirmer : son ampleur. Le réseau de référence compte 1 691 tronçons,
+donc un import complet représente de l'ordre de 1 700 transactions interactives. **À
+mesurer sur la base réelle avant déploiement.** Je n'ai pas d'accès pour le faire.
+
+Si la mesure est mauvaise, la bonne réponse n'est pas de revenir en arrière : c'est de
+grouper l'import, qui n'avait de toute façon aucune raison d'écrire ligne par ligne. Et
+l'atomicité est précisément la plus utile ici — un import qui écrit 1 700 lignes en perdant
+quelques audits est le pire des cas.
+
 ### Reste à faire
 
-Les sept services non migrés. L'arbitrage sur la fidélité qui devait le précéder est rendu,
-et le mécanisme est en place : migrer l'un d'eux demande maintenant deux lignes de
-configuration et la vérification que sa provenance suit.
+Cinq services : chantiers, documents, marchés, points noirs, postes. Le mécanisme est en
+place et éprouvé sur une entité à provenance suivie ; migrer l'un d'eux demande deux lignes
+de configuration. Mesurer l'import avant de déployer.

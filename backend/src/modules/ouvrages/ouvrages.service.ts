@@ -7,8 +7,19 @@ import { ApiError } from "../../middleware/error.middleware";
 import { createPhotoService } from "../../lib/photos";
 import { ouvrageCreateSchema } from "./ouvrages.schema";
 
-const base = createCrudService(prisma.ouvrage, "Ouvrage", { region: true, troncon: true });
-const photos = createPhotoService(prisma.ouvrage, "Ouvrage");
+/**
+ * Ouvrage est migre a l'audit transactionnel (ADR 11), avec Troncon.
+ *
+ * Quatre de ses champs sont suivis par `CHAMPS_SUIVIS` : ses ecritures entrainent donc
+ * aussi des lignes de provenance qui doivent rejoindre la transaction.
+ */
+const base = createCrudService(prisma.ouvrage, "Ouvrage", { region: true, troncon: true }, {
+  auditTransactionnel: true,
+  delegueTransactionnel: (tx) => (tx as typeof prisma).ouvrage,
+});
+// Une photo ajoutee sans trace est une preuve qui apparait sans auteur ; retiree sans
+// trace, une preuve qui disparait.
+const photos = createPhotoService(prisma.ouvrage, "Ouvrage", { auditTransactionnel: true });
 
 function extractLatLon<T extends { lat?: number; lon?: number }>(data: T) {
   const { lat, lon, ...rest } = data;
