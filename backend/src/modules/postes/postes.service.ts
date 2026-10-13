@@ -6,7 +6,14 @@ import { setPointGeom, getPointLatLon, deriveGeomFromTroncon } from "../../lib/g
 import { ApiError } from "../../middleware/error.middleware";
 import { posteCreateSchema } from "./postes.schema";
 
-const base = createCrudService(prisma.poste, "Poste", { region: true, troncon: true });
+/**
+ * Migre a l'audit transactionnel (ADR 11). La mutation et sa trace reussissent ou sont
+ * annulees ensemble.
+ */
+const base = createCrudService(prisma.poste, "Poste", { region: true, troncon: true }, {
+  auditTransactionnel: true,
+  delegueTransactionnel: (tx) => (tx as typeof prisma).poste,
+});
 
 function extractLatLon(data: { lat?: number; lon?: number } & Record<string, unknown>) {
   const { lat, lon, ...rest } = data;

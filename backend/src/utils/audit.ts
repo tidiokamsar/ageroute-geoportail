@@ -29,6 +29,49 @@ export function _reinitialiserCompteurAudit(): void {
 }
 
 /**
+ * Rend une valeur serialisable en JSON, en convertissant les BigInt.
+ *
+ * LE DEFAUT QU'ELLE FERME
+ *
+ * `JSON.stringify({ montantGnf: 12345n })` leve `TypeError: Do not know how to serialize
+ * a BigInt`. Verifie, c'est un fait de langage et non une particularite de Prisma.
+ *
+ * `decomptes.service.ts` auditait `after: created`, et un decompte porte `montantGnf` en
+ * BigInt. L'ecriture d'audit echouait donc vraisemblablement — et comme `logAudit` est
+ * fail-soft, l'echec etait AVALE : la requete metier reussissait, le compteur
+ * `echecsDepuisDemarrage` montait, et personne ne regardait `/api/health`.
+ *
+ * Je n'ai pas pu confirmer que l'echec se produit reellement : cela demande la base, et
+ * le compteur de production que je ne peux pas lire. Mais la correction est juste dans
+ * les deux cas, et elle devient NECESSAIRE : une fois l'audit dans la transaction, un
+ * echec de serialisation ne serait plus avale, il casserait l'ecriture financiere.
+ *
+ * POURQUOI UNE CHAINE ET NON UN NOMBRE
+ *
+ * Un montant en francs guineens peut depasser `Number.MAX_SAFE_INTEGER` ; le modele le
+ * declare en BigInt precisement pour cela. Convertir en nombre perdrait de la precision
+ * en silence sur les gros montants — exactement ce qu'un journal financier ne doit pas
+ * faire. La chaine est sans perte, et un lecteur voit tout de suite qu'il lit un entier
+ * exact et non un flottant.
+ *
+ * PERIMETRE VOLONTAIREMENT ETROIT
+ *
+ * Seuls les BigInt sont convertis. Les dates, que `JSON.stringify` rend en ISO, et les
+ * types que Prisma traite correctement sont laisses tels quels : un nettoyage profond
+ * generique couterait a chaque ecriture et risquerait d'abimer ce qui marche.
+ */
+export function normaliserPourJson(valeur: unknown): unknown {
+  if (typeof valeur === "bigint") return valeur.toString();
+  if (Array.isArray(valeur)) return valeur.map(normaliserPourJson);
+  if (valeur && typeof valeur === "object" && !(valeur instanceof Date)) {
+    const sortie: Record<string, unknown> = {};
+    for (const [cle, v] of Object.entries(valeur)) sortie[cle] = normaliserPourJson(v);
+    return sortie;
+  }
+  return valeur;
+}
+
+/**
  * Ecrit la trace dans la transaction métier qui porte la mutation.
  * Une panne d'audit fait ainsi échouer et annuler cette transaction, contrairement
  * au helper historique destiné aux écritures déjà commitées.
@@ -43,8 +86,8 @@ export async function logAuditTransactionnelle(
       action: params.action,
       entityType: params.entityType,
       entityId: params.entityId,
-      before: params.before as never,
-      after: params.after as never,
+      before: normaliserPourJson(params.before) as never,
+      after: normaliserPourJson(params.after) as never,
       ipAddress: params.ipAddress,
     },
   });
@@ -86,8 +129,8 @@ export function construireAudit(params: LogParams) {
       action: params.action,
       entityType: params.entityType,
       entityId: params.entityId,
-      before: params.before as never,
-      after: params.after as never,
+      before: normaliserPourJson(params.before) as never,
+      after: normaliserPourJson(params.after) as never,
       ipAddress: params.ipAddress,
     },
   });
@@ -101,8 +144,8 @@ export async function logAudit(params: LogParams): Promise<void> {
         action: params.action,
         entityType: params.entityType,
         entityId: params.entityId,
-        before: params.before as never,
-        after: params.after as never,
+        before: normaliserPourJson(params.before) as never,
+        after: normaliserPourJson(params.after) as never,
         ipAddress: params.ipAddress,
       },
     });

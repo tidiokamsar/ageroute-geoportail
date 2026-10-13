@@ -229,8 +229,85 @@ grouper l'import, qui n'avait de toute façon aucune raison d'écrire ligne par 
 l'atomicité est précisément la plus utile ici — un import qui écrit 1 700 lignes en perdant
 quelques audits est le pire des cas.
 
+## Les cinq derniers migrés — 13/10/2026
+
+Chantiers, documents, marchés, points noirs et postes. **Les huit services qui partagent
+`createCrudService` sont désormais migrés**, ainsi que les deux qui utilisent
+`createPhotoService`.
+
+Quatre étaient mécaniques : aucun appel d'audit hors fabrique. Marchés en avait neuf —
+six dans son service, trois dans les décomptes — et a demandé un traitement cas par cas :
+
+| Site | Forme | Pourquoi |
+|---|---|---|
+| `attachChantier`, `setAvancement`, `deleteBailleur`, `remove` d'un décompte | tableau | l'audit n'enregistre qu'un résumé choisi, pas une ligne de base |
+| `createBailleur`, `updateBailleur`, `create` et `update` d'un décompte | interactive | `after` doit être la ligne rendue, identifiant auto-incrémenté compris |
+| `detachChantier` | interactive | voir ci-dessous |
+
+`detachChantier` convertissait l'erreur du `delete` en 404 par un `.catch()`. Englober la
+transaction dans ce `catch` aurait transformé **un échec d'audit en « liaison
+introuvable »**, ce qui enverrait chercher au mauvais endroit. L'existence est donc
+vérifiée *dans* la transaction, et le 404 reste précis.
+
+Les six imports dynamiques `await import("../../utils/audit")` ont disparu : ils n'avaient
+aucune raison d'être — `utils/audit` n'importe que `lib/prisma`, il n'y avait pas de cycle
+à contourner.
+
+### Un audit financier qui échouait probablement en silence
+
+`decomptes.service.ts` auditait `after: created`, et un décompte porte `montantGnf` en
+**BigInt**. `JSON.stringify({ montantGnf: 12345n })` lève
+`TypeError: Do not know how to serialize a BigInt` — vérifié, c'est un fait de langage.
+
+`logAudit` étant fail-soft, l'échec était **avalé** : le décompte s'écrivait, sa trace non,
+et seul le compteur `audit.echecsDepuisDemarrage` de `/api/health` montait. Personne ne le
+regardait.
+
+**Je n'ai pas pu confirmer que cela se produit en production** : il faudrait lire ce
+compteur, et je n'ai pas d'accès. Mais la correction est juste dans les deux cas, et elle
+était **nécessaire avant de migrer** : l'audit passant dans la transaction, un échec de
+sérialisation ne serait plus avalé — il casserait l'écriture financière.
+
+`normaliserPourJson` convertit les BigInt en **chaîne**, dans les trois aides d'audit. En
+chaîne et non en nombre : un montant en francs guinéens peut dépasser
+`Number.MAX_SAFE_INTEGER`, et le modèle le déclare en BigInt précisément pour cela.
+Convertir en nombre perdrait de la précision en silence sur les gros montants, ce qu'un
+journal financier ne doit pas faire. Le périmètre est volontairement étroit : seuls les
+BigInt, car un nettoyage profond générique coûterait à chaque écriture et risquerait
+d'abîmer ce qui marche.
+
+**À vérifier de votre côté** : `audit.echecsDepuisDemarrage` sur `/api/health`. S'il est
+non nul, c'est probablement là.
+
+### Deux choses que cette migration laisse derrière elle
+
+**Les branches fail-soft des deux fabriques sont devenues du code mort.** Tous leurs
+appelants passent désormais l'option. Les laisser invite quelqu'un à instancier sans elle
+et à retrouver le comportement avalé sans s'en apercevoir.
+
+La conclusion logique serait de **supprimer l'option** et de rendre
+`delegueTransactionnel` obligatoire : la garantie deviendrait structurelle, vérifiée par le
+compilateur, au lieu de dépendre d'une configuration. Je ne l'ai pas fait, parce que cela
+supprime l'échappatoire que cet ADR documente comme l'option 1, et que **cet ADR reste
+proposé**. C'est une décision d'ARB, pas une conséquence mécanique.
+
+**Dix-huit appels fail-soft subsistent, hors fabrique CRUD** :
+
+| Service | Appels | Nature |
+|---|---|---|
+| `auth.service.ts` | 7 | connexion, déconnexion, jetons — événements de sécurité |
+| `ordres-travaux/ot.service.ts` | 7 | ordres de travaux et leurs photos |
+| `users.service.ts` | 3 | comptes |
+| `admin/settings.service.ts` | 1 | paramètres |
+
+Ils n'étaient pas dans la liste résiduelle de cet ADR, qui ne couvrait que les chemins du
+lot terrain. Les événements d'authentification méritent un examen à part : une trace de
+connexion perdue n'a pas les mêmes conséquences qu'une trace de patrimoine perdue, et
+faire échouer une connexion parce que le journal est en panne enfermerait les utilisateurs
+dehors.
+
 ### Reste à faire
 
-Cinq services : chantiers, documents, marchés, points noirs, postes. Le mécanisme est en
-place et éprouvé sur une entité à provenance suivie ; migrer l'un d'eux demande deux lignes
-de configuration. Mesurer l'import avant de déployer.
+Les dix-huit appels ci-dessus, en commençant par décider si l'authentification doit suivre
+la même règle — ce n'est pas évident. Supprimer les branches mortes des fabriques, si l'ARB
+tranche. Et mesurer l'import avant de déployer.
