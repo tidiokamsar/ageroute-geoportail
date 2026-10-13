@@ -3,8 +3,8 @@
 Mesuré le 13/10/2026 contre `Cahier_des_Charges_AGEROUTE_RAI_V3_1.docx`, et non de mémoire.
 Chaque ligne est vérifiable dans le dépôt.
 
-**Rien n'est déployé.** Les cinq migrations écrites depuis le 7 octobre sont en attente, et
-la branche `ageroute-road-socle` porte 22 commits non fusionnés.
+**Rien n'est déployé.** Les six migrations écrites depuis le 7 octobre sont en attente, et
+la branche `ageroute-road-socle` n'est pas fusionnée.
 
 ## Ce qui est fait
 
@@ -45,6 +45,19 @@ réel.
 familles énumérées par le cahier (dalots, buses, radiers, murs, glissières, caniveaux…) ne
 sont pas toutes distinguées.
 
+**§13 — Condition Engine / RCI.** Le **mécanisme** existe depuis le 13/10/2026 : moteur
+déterministe (`backend/src/engines/condition.ts`, 26 tests), trois modèles, migration
+additive écrite et **non appliquée**, et la règle `rci-2026.1` qui reprend les pondérations
+du cahier **sans les approuver**. Tant qu'aucune règle n'est approuvée, chaque score sort
+avec `publiable = false`.
+
+Il manque deux choses, dont une seule est du code. La décision :
+**personne n'a approuvé de coefficients**, et aucune route d'approbation n'existe. Le code :
+**la couche de collecte**. Le moteur reçoit des composantes déjà normalisées entre 0 et 100
+et refuse de deviner comment un état `BON` devient un nombre ; rien ne produit encore ces
+valeurs, et `calculerRci` n'est appelé que par ses tests. Cette conversion est elle aussi
+une décision. Voir `12_ADR_CONDITION_ENGINE.md`.
+
 **§22 — SharePoint.** L'API publique et la carte embarquée existent, et
 `PUBLIC_CORS_ORIGINS` pointe par défaut sur le SharePoint d'AGEROUTE. **L'intégration de
 bout en bout n'est pas démontrée.**
@@ -54,7 +67,7 @@ gouvernance existent, documentées par 25 annotations OpenAPI servies via Swagge
 le document est en **3.0.0**, là où le §31 demande **3.1** — et les routes `/condition`,
 `/risk`, `/treatments`, `/quantities`, `/costs` annoncées au §25 n'existent pas.
 
-**§29 — Tests.** 64 fichiers et 811 tests au backend, 18 et 206 au frontend, `tsc` et
+**§29 — Tests.** 65 fichiers et 837 tests au backend, 18 et 206 au frontend, `tsc` et
 `typecheck:scripts` propres. Mais **aucun test E2E** du scénario du §29
 (mission → défaut → validation → traitement → coût), pour une raison simple : la moitié de
 la chaîne n'existe pas. Et aucun test de performance.
@@ -63,7 +76,6 @@ la chaîne n'existe pas. Et aucun test de performance.
 
 | § | Exigence | Mesure |
 |---|---|---|
-| 13 | **Condition Engine / RCI** | aucune occurrence dans le code |
 | 14 | **Risk Engine** | aucune |
 | 15 | **Treatment Engine** | aucune |
 | 17 | **Cost Engine** | aucune |
@@ -73,7 +85,7 @@ la chaîne n'existe pas. Et aucun test de performance.
 | 21 | **DigitalRoad** | aucune intégration |
 | 23 | **IA** — détection sur photo, OCR, suggestions | aucune |
 
-Ces neuf sections forment **la moitié aval de la chaîne de décision**. Le défaut, son
+Ces huit sections forment **la moitié aval de la chaîne de décision**. Le défaut, son
 métré et sa validation sont en place ; ce qui en découle — état, risque, traitement, coût,
 programme, pilotage — ne l'est pas.
 
@@ -85,12 +97,25 @@ chaussée 30 %, drainage 15 %, ouvrages 15 %, signalisation 10 %, sécurité 10 
 
 Ces pondérations sont données comme **« base indicative à calibrer »**. Les coder telles
 quelles produirait un score qui a l'air officiel et que personne n'a validé — exactement ce
-que le §39 interdit. `12_ADR_CONDITION_ENGINE.md` reste donc une **proposition**, et
-l'ADR n'est pas approuvé.
+que le §39 interdit.
 
-Et le Condition Engine a besoin de données que la base n'a pas : `trafic` est renseigné sur
-**0 des 1 690 tronçons** antérieurs à la promotion de la voirie, `criticiteStrategique` sur
-0 également. Deux composantes sur huit seraient donc calculées sur du vide.
+C'est pourquoi elles vivent en base, dans une règle versionnée dont l'approbation est le
+seul interrupteur de publication. Le mécanisme est donc écrit et le verrou intact :
+`rci-2026.1` existe, n'est pas approuvée, et tout score qu'elle produit est marqué non
+publiable. Le chemin reste fermé par une décision, non par du code manquant.
+
+Et le Condition Engine a besoin de données que la base n'a pas : `traficMoyenJma` est
+renseigné sur **0 des 1 690 tronçons** antérieurs à la promotion de la voirie. Le TRAFIC,
+10 % du modèle, sera donc exclu de chaque score. D'où un seuil de couverture à 0,5 dans
+`rci-2026.1` : exiger la totalité refuserait tout score aujourd'hui, et ce seuil attend le
+même arbitrage que les pondérations.
+
+> **Une composante du §13 et un facteur du §14 étaient confondus ici.** La version
+> précédente de ce document comptait `criticiteStrategique` parmi les composantes du RCI et
+> parlait de « deux composantes sur huit ». Le §13 n'en fait pas partie : il énumère
+> chaussée, drainage, ouvrages, signalisation, sécurité, trafic, historique, incidents. La
+> criticité stratégique est un facteur du **Risk Engine** (§14), où elle est également
+> vide. Les deux champs sont bien à zéro, mais ils bloquent deux moteurs différents.
 
 > **Une précision sur ces deux chiffres, parce que je les ai confondus.** `1 690` est le
 > nombre de tronçons **antérieurs à la promotion de la voirie**, ceux qui n'ont pas de
@@ -101,12 +126,18 @@ Et le Condition Engine a besoin de données que la base n'a pas : `trafic` est r
 > mais sur un projet dont la règle première est de ne pas confondre deux populations, cela
 > méritait d'être dit.
 
-C'est le même mur que les PK régionaux : **ce qui bloque n'est pas le code.**
+C'est en grande partie le même mur que les PK régionaux : **ce qui bloque d'abord n'est pas
+le code.** Le §13 a toutefois ceci de particulier qu'il lui manque aussi du code — la
+couche qui lit les huit sources et les normalise. Mais cette couche elle-même ne peut pas
+être écrite sans dire comment un état `BON` devient un nombre, ce qui est encore une
+décision.
 
 ## Les décisions qui vous attendent
 
-1. **Les coefficients du RCI** — sans eux, pas de Condition Engine, donc pas de Risk ni de
-   programmation. C'est le verrou principal.
+1. **Les coefficients du RCI** — le moteur les attend, la règle `rci-2026.1` les propose
+   telle que le cahier les énonce, et rien ne sera publiable avant une approbation. Reste
+   aussi à dire **qui approuve** : aucune route d'approbation n'existe. C'est le verrou
+   principal, et il commande le Risk et la programmation.
 2. **Les cinq correspondances de profils** non arbitrées.
 3. **La validation des entités patrimoniales** — il n'existe aucun chemin pour rendre un
    tronçon officiel, et ce n'est peut-être pas un oubli : valider un relevé de terrain et
@@ -124,7 +155,7 @@ C'est le même mur que les PK régionaux : **ce qui bloque n'est pas le code.**
   interactive, soit de l'ordre de 1 700 pour un import complet.
 - **Lire `audit.echecsDepuisDemarrage` sur `/api/health`.** S'il est non nul, les audits de
   décomptes et d'ordres de travaux échouaient probablement en silence sur un `BigInt`.
-- Les cinq migrations en attente, dans l'ordre, avec sauvegarde vérifiée et réversibilité.
+- Les six migrations en attente, dans l'ordre, avec sauvegarde vérifiée et réversibilité.
 
 ## Trois points de sécurité toujours ouverts
 

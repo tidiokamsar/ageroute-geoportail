@@ -323,6 +323,9 @@ model User {
   delegationsAccordees DelegationValidation[] @relation("DelegationDelegant")
   delegationsRevoquees DelegationValidation[] @relation("DelegationRevocateur")
 
+  reglesConditionCreees     RegleCondition[] @relation("RegleConditionAuteur")
+  reglesConditionApprouvees RegleCondition[] @relation("RegleConditionApprobateur")
+
   @@map("users")
 }
 
@@ -454,6 +457,8 @@ model Troncon {
   paysTerritoire   String?
   motifPerimetre   String?
   perimetreClasseA DateTime?
+
+  evaluationsCondition EvaluationCondition[]
 
   @@index([regionId])
   @@index([etat])
@@ -2009,4 +2014,177 @@ model DelegationValidation {
   @@index([validateurId])
   @@index([regionId])
   @@map("delegations_validation")
+}
+
+// ===================== CONDITION ENGINE / RCI =====================
+
+/// Composantes du RCI, dans l'ordre du paragraphe 13 du cahier.
+enum ComposanteRci {
+  CHAUSSEE
+  DRAINAGE
+  OUVRAGES
+  SIGNALISATION
+  SECURITE
+  TRAFIC
+  HISTORIQUE
+  INCIDENTS
+}
+
+/// Pourquoi une composante ne participe pas a un score.
+///
+/// PERIMEE et ABSENTE ne se confondent pas : un etat releve il y a dix ans demande une
+/// REINSPECTION, un etat jamais releve demande un INVENTAIRE. Les deux sortent du calcul,
+/// mais on ne va pas chercher la meme chose.
+enum MotifExclusionRci {
+  ABSENTE
+  PERIMEE
+  CONFIANCE_INSUFFISANTE
+  POIDS_NUL
+}
+
+/// Une version de regle de calcul du RCI.
+///
+/// POURQUOI LES COEFFICIENTS SONT EN BASE ET NON DANS LE CODE
+///
+/// Le paragraphe 13 donne ses pourcentages comme « base indicative A CALIBRER ». Les
+/// ecrire dans le code produirait un score qui a l'air officiel et que personne n'a
+/// valide — ce que la regle imperative du paragraphe 39 interdit.
+///
+/// `approuveeLe` est donc le seul interrupteur qui rend un score publiable. Tant qu'il est
+/// nul, le moteur calcule, l'interne consulte, et rien ne sort.
+///
+/// UNE REGLE EST IMMUABLE
+///
+/// Modifier des coefficients cree une NOUVELLE version. Sans quoi un score rendu l'annee
+/// derniere deviendrait inexplicable : sa regle aurait change sous lui.
+model RegleCondition {
+  id      String @id @default(uuid())
+  /// Identifiant lisible, inscrit dans chaque score. Ex. « rci-2026.1 ».
+  version String @unique
+
+  /// Poids par composante. Leur somme n'a pas besoin de valoir 100 : le moteur
+  /// renormalise sur les composantes effectivement disponibles.
+  poids Json
+
+  /// Age maximal d'un constat, en jours. Au-dela, la composante est PERIMEE.
+  fraicheurMaxJours Int
+
+  /// Confiances acceptees, vocabulaire de `valeurs_qualite`. Une confiance absente est
+  /// traitee comme insuffisante : on ne la suppose pas bonne.
+  confiancesAcceptees String[]
+
+  /// Part minimale du poids total a couvrir pour qu'un score soit rendu (0 a 1).
+  ///
+  /// Renormaliser sur 20 % du modele produirait un nombre entre 0 et 100 qui ne dit
+  /// presque rien. C'est AGEROUTE qui dit a partir de quelle part un score merite d'etre
+  /// regarde.
+  couvertureMinimale Float
+
+  /// `true` si 100 est le meilleur etat. Explicite, pour que le sens ne se perde pas.
+  sensCroissant Boolean @default(true)
+
+  /// Pourquoi cette version existe, et sur quoi elle a ete calibree.
+  motif String?
+
+  creeParId String
+  creePar   User   @relation("RegleConditionAuteur", fields: [creeParId], references: [id])
+
+  /// NUL = non approuvee. Les scores rendus sous cette regle ne sont pas publiables.
+  approuveeLe    DateTime?
+  approuveeParId String?
+  approuveePar   User?     @relation("RegleConditionApprobateur", fields: [approuveeParId], references: [id])
+
+  /// Retrait d'usage. La regle reste en base : des scores y font reference.
+  retireeLe DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  evaluations EvaluationCondition[]
+
+  @@index([approuveeLe])
+  @@map("regles_condition")
+}
+
+/// Un score RCI rendu a un instant, sous une version de regle.
+///
+/// IMMUABLE : recalculer cree une nouvelle evaluation. Un score qu'on modifierait ne
+/// pourrait plus etre explique, et la comparaison dans le temps perdrait son sens.
+model EvaluationCondition {
+  id String @id @default(uuid())
+
+  tronconId String
+  troncon   Troncon @relation(fields: [tronconId], references: [id])
+
+  regleId      String
+  regle        RegleCondition @relation(fields: [regleId], references: [id])
+  /// Version recopiee, pour que l'evaluation reste lisible meme si la regle est retiree.
+  regleVersion String
+
+  /// NUL quand le moteur a REFUSE de scorer. Le refus est conserve : il dit qu'on a
+  /// regarde et qu'on n'a pas pu conclure, ce qui n'est pas la meme chose que l'absence
+  /// d'evaluation.
+  score      Float?
+  /// Motif du refus, quand il y en a un.
+  motifRefus String?
+
+  /// Part du poids total couverte, entre 0 et 1.
+  couverture Float
+
+  /// NULLE sur un refus. La confiance d'un score qui n'existe pas n'est pas « faible » :
+  /// elle est absente. Ecrire LOW serait porter un jugement de qualite sur rien.
+  confiance NiveauConfiance?
+
+  /// `false` quand la regle n'etait pas approuvee au moment du calcul.
+  publiable Boolean @default(false)
+
+  /// La phrase qui explique le score, telle que le moteur l'a rendue.
+  explication String
+
+  /// Instantane des entrees, pour pouvoir rejouer le calcul apres evolution des sources.
+  /// Sans lui, un score de 2026 serait inexplicable en 2029.
+  entrees Json
+
+  calculeLe DateTime @default(now())
+
+  composantes ComposanteEvaluation[]
+
+  @@index([tronconId, calculeLe])
+  @@index([regleId])
+  @@index([publiable])
+  @@map("evaluations_condition")
+}
+
+/// Une composante d'un score, retenue ou exclue.
+///
+/// Les lignes sont requetables — « combien de troncons manquent de donnee de trafic » est
+/// une question qu'on posera — la ou l'instantane de `EvaluationCondition` sert a rejouer
+/// le calcul. Les deux repondent a des besoins differents.
+model ComposanteEvaluation {
+  id String @id @default(uuid())
+
+  evaluationId String
+  evaluation   EvaluationCondition @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+
+  composante ComposanteRci
+
+  /// Valeur normalisee 0-100 retenue. NULLE pour une composante exclue.
+  valeur Float?
+
+  poidsDeclare  Float
+  /// Poids APRES renormalisation. Sans lui, le calcul ne se refait pas.
+  poidsEffectif Float
+  contribution  Float
+
+  /// NUL quand la composante a ete retenue.
+  exclue MotifExclusionRci?
+
+  source     String?
+  observeeLe DateTime?
+
+  /// Une composante figure UNE fois par evaluation : deux lignes compteraient son poids
+  /// deux fois. L'index couvre aussi les recherches par evaluation seule.
+  @@unique([evaluationId, composante])
+  @@index([composante, exclue])
+  @@map("composantes_evaluation")
 }

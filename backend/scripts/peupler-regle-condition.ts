@@ -1,0 +1,127 @@
+/**
+ * Inscrit en base la regle de calcul du RCI version 1 : les ponderations du paragraphe 13
+ * du cahier, NON APPROUVEES.
+ *
+ * CE QUE CE SCRIPT FAIT, ET CE QU'IL NE FAIT SURTOUT PAS
+ *
+ * Le paragraphe 13 enonce ses ponderations — chaussee 30 %, drainage 15 %, ouvrages 15 %,
+ * signalisation 10 %, securite 10 %, trafic 10 %, historique 5 %, incidents 5 % — en les
+ * qualifiant explicitement de « base indicative A CALIBRER ».
+ *
+ * Ce script les rend donc LISIBLES et CALCULABLES, sans les rendre officielles :
+ * `approuveeLe` reste nul, et tout score produit sous cette regle sort avec
+ * `publiable: false`. C'est l'unique interrupteur, et il appartient a AGEROUTE.
+ *
+ * Il n'approuve rien. Il ne calcule aucun score. Il n'ecrit qu'une ligne.
+ *
+ * POURQUOI UN SCRIPT ET NON LA MIGRATION
+ *
+ * Une regle a un AUTEUR, et toute ecriture est auditee (regle 3 d'AGENTS.md). Une
+ * migration SQL ne sait ni qui l'execute ni ecrire dans `audit_logs` au nom de quelqu'un ;
+ * elle aurait fait apparaitre une regle de gouvernance sans auteur et sans trace.
+ *
+ * UNE COMPOSANTE SUR HUIT N'A AUCUNE DONNEE
+ *
+ * Mesure du 13/10/2026 : `traficMoyenJma` est renseigne sur 0 des 1 690 troncons
+ * anterieurs a la promotion de la voirie. Le TRAFIC (10 %) sera donc exclu de chaque
+ * score, et avec lui un dixieme du modele.
+ *
+ * C'est pour cela que `couvertureMinimale` vaut 0,5 et non 1 : exiger la totalite
+ * refuserait tout score aujourd'hui, et exiger trop peu rendrait un nombre entre 0 et 100
+ * qui ne dirait presque rien. La moitie du modele est une PROPOSITION DE DEPART, au meme
+ * titre que les ponderations, et elle attend le meme arbitrage.
+ *
+ * `fraicheurMaxJours` a 365 suit le meme raisonnement : une annee est la periodicite
+ * d'inspection courante, pas une norme ecrite dans le cahier.
+ *
+ * IDEMPOTENT
+ *
+ * La version est unique en base. Rejouer ce script ne touche pas la ligne existante : si
+ * AGEROUTE a amende ou approuve la version 1, son geste reste en place.
+ *
+ * RETOUR ARRIERE
+ *
+ *     delete from regles_condition where version = 'rci-2026.1'
+ *       and id not in (select "regleId" from evaluations_condition);
+ *
+ * La garde est necessaire : une evaluation sans sa regle ne serait plus explicable.
+ */
+import { AuditAction, Role } from "@prisma/client";
+import { prisma } from "../src/lib/prisma";
+import { logAuditTransactionnelle } from "../src/utils/audit";
+
+const VERSION = "rci-2026.1";
+
+/** Les huit composantes du paragraphe 13, dans son ordre et avec ses pourcentages. */
+const POIDS_INDICATIFS = {
+  CHAUSSEE: 30,
+  DRAINAGE: 15,
+  OUVRAGES: 15,
+  SIGNALISATION: 10,
+  SECURITE: 10,
+  TRAFIC: 10,
+  HISTORIQUE: 5,
+  INCIDENTS: 5,
+} as const;
+
+async function main() {
+  const existante = await prisma.regleCondition.findUnique({ where: { version: VERSION } });
+  if (existante) {
+    const etat = existante.approuveeLe
+      ? `APPROUVEE le ${existante.approuveeLe.toISOString().slice(0, 10)}`
+      : "non approuvée";
+    console.log(`Règle ${VERSION} déjà présente (${etat}) — inchangée.`);
+    return;
+  }
+
+  // L'auteur doit etre une personne : une regle de gouvernance sans auteur ne serait
+  // imputable a personne. Le plus ancien ADMIN actif est le choix le moins arbitraire
+  // qu'un script puisse faire — et le geste qui compte, l'approbation, restera explicite.
+  const auteur = await prisma.user.findFirst({
+    where: { role: Role.ADMIN, actif: true },
+    orderBy: { createdAt: "asc" },
+    select: { id: true, email: true },
+  });
+  if (!auteur) {
+    throw new Error(
+      "Aucun compte ADMIN actif : impossible d'attribuer un auteur à la règle. "
+      + "Créez d'abord un administrateur.",
+    );
+  }
+
+  const regle = await prisma.$transaction(async (tx) => {
+    const creee = await tx.regleCondition.create({
+      data: {
+        version: VERSION,
+        poids: POIDS_INDICATIFS,
+        fraicheurMaxJours: 365,
+        confiancesAcceptees: ["HIGH", "MEDIUM"],
+        couvertureMinimale: 0.5,
+        sensCroissant: true,
+        motif:
+          "Pondérations indicatives du paragraphe 13 du cahier RAI V3.1, reprises telles "
+          + "quelles et NON CALIBRÉES. Seuil de couverture et fraîcheur proposés, non "
+          + "arbitrés. À approuver, amender ou remplacer par AGEROUTE.",
+        creeParId: auteur.id,
+      },
+    });
+    await logAuditTransactionnelle(tx, {
+      userId: auteur.id,
+      action: AuditAction.CREATE,
+      entityType: "RegleCondition",
+      entityId: creee.id,
+      after: creee,
+    });
+    return creee;
+  });
+
+  console.log(`Règle ${regle.version} créée, NON APPROUVÉE — auteur ${auteur.email}.`);
+  console.log("  Tout score calculé sous cette règle sort avec publiable = false.");
+  console.log(
+    "  TRAFIC (10 %) sera exclu de chaque score : aucun tronçon ne porte de donnée de trafic.",
+  );
+}
+
+main()
+  .catch((e) => { console.error("ECHEC :", e instanceof Error ? e.message : e); process.exitCode = 1; })
+  .finally(() => prisma.$disconnect());
