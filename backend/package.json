@@ -13,6 +13,7 @@
     "prisma:seed": "tsx prisma/seed.ts",
     "catalogue:defauts:seed": "tsx scripts/peupler-catalogue-defauts.ts",
     "condition:regle:seed": "tsx scripts/peupler-regle-condition.ts",
+    "referentiels:seed": "tsx scripts/peupler-referentiels.ts",
     "migrate:legacy": "tsx scripts/migrate-legacy-data.ts",
     "import:ouvrages-rn4": "tsx scripts/import-ouvrages-rn4.ts",
     "import:ouvrages-doaa": "tsx scripts/import-ouvrages-doaa.ts",

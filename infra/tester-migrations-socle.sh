@@ -15,6 +15,7 @@
 #   20261013140000_droit_de_deleguer
 #   20261013160000_condition_engine
 #   20261013180000_portions_homogenes
+#   20261013200000_referentiels_configurables
 #
 # Ecrit sur le modele de `tester-migrations-phase4.sh`, dont il reprend le dispositif :
 # partir de la derniere sauvegarde chiffree, la restaurer dans un conteneur JETABLE,
@@ -86,6 +87,7 @@ MIGRATIONS=(
     20261013140000_droit_de_deleguer
     20261013160000_condition_engine
     20261013180000_portions_homogenes
+    20261013200000_referentiels_configurables
 )
 
 ECHECS=0
@@ -324,6 +326,12 @@ verifier_type OriginePortion
 
 verifier_table portions
 verifier_table portions_lignage
+verifier_table referentiel_revetements
+verifier_table referentiel_etats_chaussee
+verifier_table referentiel_praticabilites
+verifier_colonne referentiel_revetements bitumineux
+verifier_colonne referentiel_etats_chaussee critique
+verifier_colonne referentiel_praticabilites franchissable
 verifier_colonne portions debutM
 verifier_colonne portions finM
 verifier_colonne portions praticabilite
@@ -333,6 +341,18 @@ verifier_colonne portions deletedAt
 # L'index spatial que Prisma ne sait pas declarer : son absence ne casserait rien tout de
 # suite, elle ferait seulement balayer la table a chaque affichage de carte.
 q "SELECT count(*) FROM pg_indexes WHERE indexname='portions_geom_gist'" | grep -q '^1$'     && ok "index spatial portions_geom_gist" || echec "portions_geom_gist ABSENT"
+
+# Les trois referentiels doivent sortir VIDES : les remplir est un geste separe et
+# audite, et la praticabilite attend une decision d'AGEROUTE.
+for t in referentiel_revetements referentiel_etats_chaussee referentiel_praticabilites; do
+    n=$(q "SELECT count(*) FROM $t")
+    [ "${n:-x}" = "0" ] && ok "$t sort vide" || echec "$t contient $n ligne(s)"
+done
+
+# Les portions doivent etre liees aux referentiels, sinon un code invente passerait.
+for c in portions_revetement_fkey portions_etat_fkey portions_praticabilite_fkey; do
+    q "SELECT count(*) FROM pg_constraint WHERE conname='$c'" | grep -q '^1$'         && ok "cle etrangere $c" || echec "$c ABSENTE"
+done
 
 # La contrainte d'exclusion, et ce qu'elle doit laisser passer.
 q "SELECT count(*) FROM pg_constraint WHERE conname='portion_validee_sans_chevauchement'"     | grep -q '^1$' && ok "contrainte d'exclusion posee"     || echec "portion_validee_sans_chevauchement ABSENTE"
@@ -370,6 +390,9 @@ docker exec -i "$CONTENEUR" psql -U postgres -d "$BASE" -v ON_ERROR_STOP=1 >/dev
 -- Dependants d'abord : une table referencee ne se supprime pas avant ses references.
 DROP TABLE IF EXISTS "portions_lignage";
 DROP TABLE IF EXISTS "portions";
+DROP TABLE IF EXISTS "referentiel_revetements";
+DROP TABLE IF EXISTS "referentiel_etats_chaussee";
+DROP TABLE IF EXISTS "referentiel_praticabilites";
 DROP TABLE IF EXISTS "composantes_evaluation";
 DROP TABLE IF EXISTS "evaluations_condition";
 DROP TABLE IF EXISTS "regles_condition";

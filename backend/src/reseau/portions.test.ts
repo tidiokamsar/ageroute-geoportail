@@ -8,6 +8,7 @@ import {
   portionA,
   refusFusion,
   refusPortion,
+  indicateurs,
   repartition,
   type Portion,
 } from "./portions";
@@ -361,5 +362,98 @@ describe("La repartition ne laisse pas croire le reseau inventorie", () => {
       { cle: "NON_QUALIFIE", longueurM: 15000, part: 0.75 },
       { cle: "BITUME", longueurM: 5000, part: 0.25 },
     ]);
+  });
+});
+
+describe("Les indicateurs lisent les drapeaux du referentiel", () => {
+  const REF = {
+    revetements: new Map([
+      ["BETON_BITUMINEUX", { bitumineux: true }],
+      ["ENDUIT_SUPERFICIEL", { bitumineux: true }],
+      ["BETON", { bitumineux: false }],
+      ["LATERITE", { bitumineux: false }],
+    ]),
+    etats: new Map([
+      ["BON", { critique: false }],
+      ["CRITIQUE", { critique: true }],
+    ]),
+  };
+
+  it("sépare bitumé, non bitumé et revêtement INCONNU", () => {
+    // Le test qui compte. Ranger « on ne sait pas » dans « non bitumé » sous-estimerait
+    // le réseau revêtu, donc le patrimoine à entretenir.
+    const r = indicateurs(
+      [
+        p({ id: "a", debutM: 0, finM: 1000, revetement: "BETON_BITUMINEUX" }),
+        p({ id: "b", debutM: 1000, finM: 2000, revetement: "LATERITE" }),
+        p({ id: "c", debutM: 2000, finM: 3000, revetement: null }),
+      ],
+      4000,
+      REF,
+    );
+    expect(r.bitumineM).toBe(1000);
+    expect(r.nonBitumineM).toBe(1000);
+    expect(r.revetementInconnuM).toBe(1000);
+    expect(r.nonQualifieM).toBe(1000);
+  });
+
+  it("un code que le référentiel ne connaît pas est INCONNU, pas non bitumé", () => {
+    // Une valeur qu'on ne sait pas interpréter n'est pas une valeur négative. C'est le cas
+    // d'un code retiré du vocabulaire, ou d'un code arrivé par un import.
+    const r = indicateurs(
+      [p({ id: "a", debutM: 0, finM: 1000, revetement: "PAVE_AUTOBLOQUANT" })],
+      1000,
+      REF,
+    );
+    expect(r.revetementInconnuM).toBe(1000);
+    expect(r.nonBitumineM).toBe(0);
+  });
+
+  it("le béton de ciment est revêtu mais NON bitumineux", () => {
+    // Le cahier liste « béton bitumineux » et « béton » séparément : le second n'est pas
+    // le premier, et les confondre gonflerait la longueur bitumée.
+    const r = indicateurs(
+      [p({ id: "a", debutM: 0, finM: 1000, revetement: "BETON" })],
+      1000,
+      REF,
+    );
+    expect(r.bitumineM).toBe(0);
+    expect(r.nonBitumineM).toBe(1000);
+  });
+
+  it("ne compte en critique que ce que le référentiel déclare critique", () => {
+    const r = indicateurs(
+      [
+        p({ id: "a", debutM: 0, finM: 1000, etat: "CRITIQUE" }),
+        p({ id: "b", debutM: 1000, finM: 2000, etat: "BON" }),
+        p({ id: "c", debutM: 2000, finM: 3000, etat: "MAUVAIS" }),
+      ],
+      3000,
+      REF,
+    );
+    expect(r.critiqueM).toBe(1000);
+    // MAUVAIS n'est pas au référentiel de ce test : il est donc INCONNU, et surtout pas
+    // critique par défaut. Savoir s'il doit l'être est une décision d'AGEROUTE.
+    expect(r.etatInconnuM).toBe(1000);
+  });
+
+  it("EXCLUT les propositions des indicateurs publiables", () => {
+    const portions = [
+      p({ id: "v", debutM: 0, finM: 1000, revetement: "BETON_BITUMINEUX", statutValidation: "VALIDE" }),
+      p({ id: "p", debutM: 1000, finM: 3000, revetement: "BETON_BITUMINEUX", statutValidation: "A_VALIDER" }),
+    ];
+    const publiables = indicateurs(portions, 3000, REF, { publiablesSeules: true });
+    expect(publiables.bitumineM).toBe(1000);
+    expect(publiables.nonQualifieM).toBe(2000);
+    // Sans le filtre, la proposition compte : c'est la vue interne, et elle est legitime.
+    expect(indicateurs(portions, 3000, REF).bitumineM).toBe(3000);
+  });
+
+  it("un troncon sans portion ne compte NI en bitume NI en non bitume", () => {
+    const r = indicateurs([], 20000, REF);
+    expect(r.bitumineM).toBe(0);
+    expect(r.nonBitumineM).toBe(0);
+    expect(r.revetementInconnuM).toBe(0);
+    expect(r.nonQualifieM).toBe(20000);
   });
 });

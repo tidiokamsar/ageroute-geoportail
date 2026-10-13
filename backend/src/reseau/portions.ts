@@ -439,3 +439,97 @@ function arrondir(v: number, decimales: number): number {
   const f = 10 ** decimales;
   return Math.round(v * f) / f;
 }
+
+/** Ce que le referentiel dit d'un revetement, reduit a ce dont les indicateurs ont besoin. */
+export interface FlagRevetement {
+  bitumineux: boolean;
+}
+
+/** Idem pour un etat de chaussee. */
+export interface FlagEtat {
+  critique: boolean;
+}
+
+export interface IndicateursPortions {
+  longueurTronconM: number;
+  qualifieM: number;
+  nonQualifieM: number;
+  /** Portions dont le revetement est declare bitumineux au referentiel. */
+  bitumineM: number;
+  /** Portions dont le revetement est declare NON bitumineux. */
+  nonBitumineM: number;
+  /**
+   * Portions qualifiees dont le revetement est inconnu : absent, ou portant un code que
+   * le referentiel ne connait pas.
+   *
+   * CE SEAU EXISTE POUR NE PAS MENTIR. Le ranger dans `nonBitumineM` ferait passer
+   * « on ne sait pas » pour « ce n'est pas du bitume », ce qui est l'erreur la plus facile
+   * et la plus couteuse : elle sous-estime le reseau revetu, donc le patrimoine a
+   * entretenir.
+   */
+  revetementInconnuM: number;
+  /** Portions dont l'etat est declare critique au referentiel. */
+  critiqueM: number;
+  /** Portions qualifiees dont l'etat est inconnu. Meme raisonnement. */
+  etatInconnuM: number;
+}
+
+/**
+ * Longueurs par revetement et par etat, en s'appuyant sur les DRAPEAUX du referentiel.
+ *
+ * POURQUOI LE REFERENTIEL EST UN PARAMETRE
+ *
+ * « Longueur bitumee » ne se deduit pas d'un code : avec un vocabulaire administrable, un
+ * libelle ajoute demain ne dira pas au programme s'il est bitumineux. La propriete est
+ * declaree sur la valeur, et cette fonction la LIT au lieu de la devenir.
+ *
+ * Un code que le referentiel ne connait pas tombe dans `revetementInconnuM`, jamais dans
+ * `nonBitumineM` : une valeur qu'on ne sait pas interpreter n'est pas une valeur negative.
+ *
+ * `publiablesSeules` ne retient que les portions VALIDEES. Compter les propositions
+ * gonflerait les indicateurs officiels avec ce que personne n'a accepte.
+ */
+export function indicateurs(
+  portions: readonly Portion[],
+  longueurTronconM: number,
+  referentiel: {
+    revetements: ReadonlyMap<string, FlagRevetement>;
+    etats: ReadonlyMap<string, FlagEtat>;
+  },
+  options: { publiablesSeules?: boolean } = {},
+): IndicateursPortions {
+  const retenues = courantes(portions).filter(
+    (p) => !options.publiablesSeules || p.statutValidation === "VALIDE",
+  );
+
+  let bitumineM = 0;
+  let nonBitumineM = 0;
+  let revetementInconnuM = 0;
+  let critiqueM = 0;
+  let etatInconnuM = 0;
+
+  for (const p of retenues) {
+    const longueur = p.finM - p.debutM;
+
+    const flagR = p.revetement === null ? undefined : referentiel.revetements.get(p.revetement);
+    if (flagR === undefined) revetementInconnuM += longueur;
+    else if (flagR.bitumineux) bitumineM += longueur;
+    else nonBitumineM += longueur;
+
+    const flagE = p.etat === null ? undefined : referentiel.etats.get(p.etat);
+    if (flagE === undefined) etatInconnuM += longueur;
+    else if (flagE.critique) critiqueM += longueur;
+  }
+
+  const c = couverture(retenues, longueurTronconM);
+  return {
+    longueurTronconM: c.longueurTronconM,
+    qualifieM: c.qualifieM,
+    nonQualifieM: arrondir(c.longueurTronconM - c.qualifieM, 2),
+    bitumineM: arrondir(bitumineM, 2),
+    nonBitumineM: arrondir(nonBitumineM, 2),
+    revetementInconnuM: arrondir(revetementInconnuM, 2),
+    critiqueM: arrondir(critiqueM, 2),
+    etatInconnuM: arrondir(etatInconnuM, 2),
+  };
+}

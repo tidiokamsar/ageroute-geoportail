@@ -2251,8 +2251,16 @@ model Portion {
 
   /// NULS tant que personne ne les a releves. Une portion peut qualifier l'etat sans
   /// connaitre le revetement, et l'inverse.
-  revetement Revetement?
-  etat       EtatPatrimoine?
+  /// CODES DE REFERENTIEL et non enums : le vocabulaire est administrable, et la cle
+  /// etrangere empeche d'ecrire un code que personne n'a declare.
+  ///
+  /// `troncons.revetement` reste un enum, lui : 261 387 lignes en dependent, et les deux
+  /// migrations ne se ressemblent pas. `portions` est vide, donc son changement de type
+  /// ne coute rien.
+  revetement    String?
+  revetementRef ReferentielRevetement?   @relation(fields: [revetement], references: [code])
+  etat          String?
+  etatRef       ReferentielEtatChaussee? @relation(fields: [etat], references: [code])
 
   /// Praticabilite, distincte du revetement ET de l'etat : une piste en laterite peut
   /// etre en bon etat et devenir impraticable apres les pluies.
@@ -2261,7 +2269,8 @@ model Portion {
   /// n'en enonce aucune valeur, contrairement au revetement dont il liste les huit. Figer
   /// ici un vocabulaire que personne n'a arrete en ferait une norme. La colonne recevra
   /// sa contrainte en meme temps que son referentiel.
-  praticabilite String?
+  praticabilite    String?
+  praticabiliteRef ReferentielPraticabilite? @relation(fields: [praticabilite], references: [code])
 
   largeurM Float?
 
@@ -2336,4 +2345,143 @@ model PortionLignage {
   @@id([parentId, enfantId])
   @@index([enfantId])
   @@map("portions_lignage")
+}
+
+// ===================== REFERENTIELS CONFIGURABLES =====================
+//
+// POURQUOI DES TABLES ET NON DES ENUMS
+//
+// `Revetement` est un enum de cinq valeurs. L'etendre demande une migration, donc un
+// deploiement, pour ajouter un mot. Le cahier en demande huit, et surtout il demande que
+// la liste soit ADMINISTRABLE : les trois revetements que `BITUME` recouvre aujourd'hui
+// (beton bitumineux, enduit superficiel, beton) n'ont pas les memes couts de
+// rehabilitation, et c'est AGEROUTE qui decide du vocabulaire.
+//
+// POURQUOI TROIS TABLES ET NON UNE TABLE GENERIQUE
+//
+// Une table unique avec une colonne `domaine` aurait une cle primaire composite
+// `(domaine, code)`, et une cle etrangere depuis `portions` ne pourrait pas garantir que
+// le code pointe sur le BON domaine sans colonne generee ni declencheur. Trois tables
+// donnent trois cles etrangeres triviales et verifiees par la base.
+//
+// Et surtout, les trois ne portent pas les memes attributs : un revetement est bitumineux
+// ou non, un etat est critique ou non, une praticabilite est franchissable ou non. Une
+// table generique les aurait tous ranges dans un JSON que personne ne peut contraindre.
+//
+// POURQUOI TROIS ET PAS LES SEPT DU CAHIER
+//
+// Le cahier demande aussi des referentiels pour les accotements, l'assainissement, la
+// signalisation et les risques de securite. Rien ne les consomme aujourd'hui : les creer
+// produirait quatre tables vides que rien ne lit, ce qui est le meme defaut qu'une colonne
+// nulle que rien ne remplit. Elles viendront avec ce qui les utilise.
+
+/// Vocabulaire des revetements, administrable.
+model ReferentielRevetement {
+  /// Code stable, cite par les portions. Ne change jamais : des portions validees le
+  /// portent.
+  code        String  @id
+  libelle     String
+  description String?
+
+  /// ORDRE D'AFFICHAGE, du plus structurant au moins structurant. Sert aux listes, pas
+  /// aux calculs.
+  ordre Int
+
+  /// `false` retire la valeur des nouveaux choix SANS invalider les portions qui la
+  /// portent deja. Supprimer la ligne casserait leur cle etrangere, et une portion dont
+  /// on ne sait plus le revetement n'est plus explicable.
+  actif Boolean @default(true)
+
+  /// Ce revetement compte-t-il dans la LONGUEUR BITUMEE ?
+  ///
+  /// Le paragraphe 13 demande « longueur bitumee et non bitumee ». Avec un vocabulaire
+  /// administrable, cela ne se deduit pas du code : un libelle que quelqu'un ajoutera
+  /// demain ne dira pas au programme s'il est bitumineux. C'est donc une propriete
+  /// DECLAREE de la valeur, et celui qui ajoute un revetement doit la trancher.
+  ///
+  /// Le pave et le beton sont revetus sans etre bitumineux. Une distinction plus fine
+  /// (revetu / non revetu) viendra si une statistique la demande ; en inventer une que
+  /// rien ne consomme serait du vide.
+  bitumineux Boolean
+
+  /// D'ou vient la ligne. Les valeurs d'origine citent le cahier ; celles qu'un
+  /// gestionnaire ajoute citent sa decision.
+  source String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  portions Portion[]
+
+  @@index([actif, ordre])
+  @@map("referentiel_revetements")
+}
+
+/// Vocabulaire des etats de chaussee, administrable.
+model ReferentielEtatChaussee {
+  code        String  @id
+  libelle     String
+  description String?
+
+  /// Du MEILLEUR au PIRE. Contrairement a l'ordre d'un revetement, celui-ci a un sens
+  /// metier : il permet de comparer deux etats et de dire lequel est le plus degrade.
+  ordre Int
+
+  actif Boolean @default(true)
+
+  /// Cet etat compte-t-il dans la LONGUEUR CRITIQUE du paragraphe 13 ?
+  ///
+  /// Meme raisonnement que `bitumineux` : avec un vocabulaire administrable, « critique »
+  /// n'est pas devinable depuis le code. Declare, donc tranche par celui qui ajoute.
+  critique Boolean @default(false)
+
+  source String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  portions Portion[]
+
+  @@index([actif, ordre])
+  @@map("referentiel_etats_chaussee")
+}
+
+/// Vocabulaire des praticabilites, administrable.
+///
+/// CETTE TABLE SORT VIDE, ET C'EST DELIBERE.
+///
+/// Le cahier demande un referentiel de praticabilite sans en enoncer AUCUNE valeur, la ou
+/// il liste les huit revetements et ou les etats sont deja en usage en production. Ecrire
+/// ici « PRATICABLE / DIFFICILE / IMPRATICABLE » en ferait la norme d'AGEROUTE par defaut,
+/// alors que personne ne l'a decidee. Meme regle que pour les coefficients du RCI.
+///
+/// Consequence assumee : aucune portion ne peut porter de praticabilite avant qu'AGEROUTE
+/// n'ait rempli cette table. Le mecanisme attend la decision, il ne la devance pas.
+model ReferentielPraticabilite {
+  code        String  @id
+  libelle     String
+  description String?
+
+  /// Du plus praticable au moins praticable.
+  ordre Int
+
+  actif Boolean @default(true)
+
+  /// La route est-elle franchissable dans cet etat ? Declare, pour les memes raisons que
+  /// `bitumineux` et `critique`.
+  franchissable Boolean
+
+  /// Une praticabilite peut etre SAISONNIERE : une piste franchissable en saison seche ne
+  /// l'est plus en saison des pluies. Vrai quand la valeur ne vaut que pour une periode.
+  saisonniere Boolean @default(false)
+
+  source String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  portions Portion[]
+
+  @@index([actif, ordre])
+  @@map("referentiel_praticabilites")
 }
