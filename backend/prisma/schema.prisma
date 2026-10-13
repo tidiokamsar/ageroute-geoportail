@@ -336,9 +336,10 @@ model User {
   delegationsAccordees DelegationValidation[] @relation("DelegationDelegant")
   delegationsRevoquees DelegationValidation[] @relation("DelegationRevocateur")
 
-  reglesConditionCreees     RegleCondition[] @relation("RegleConditionAuteur")
-  reglesConditionApprouvees RegleCondition[] @relation("RegleConditionApprobateur")
-  portionsCreees            Portion[]        @relation("PortionAuteur")
+  reglesConditionCreees     RegleCondition[]           @relation("RegleConditionAuteur")
+  reglesConditionApprouvees RegleCondition[]           @relation("RegleConditionApprobateur")
+  portionsCreees            Portion[]                  @relation("PortionAuteur")
+  praticabilitesApprouvees  ReferentielPraticabilite[] @relation("PraticabiliteApprobateur")
 
   @@map("users")
 }
@@ -2065,6 +2066,17 @@ enum ComposanteRci {
   TRAFIC
   HISTORIQUE
   INCIDENTS
+  /// Ajoutees le 13/10/2026 pour pouvoir EXPRIMER la liste de coefficients proposee par
+  /// AGEROUTE, qui remplace les 10 points de SIGNALISATION par environnement 5 et autres 5.
+  ///
+  /// Les ajouter ne les approuve pas : elles rendent la proposition enregistrable et donc
+  /// comparable, ce qui etait la demande. `ALTER TYPE ADD VALUE` est definitif.
+  ///
+  /// AUTRES est structurellement particuliere : une composante sans definition ne peut
+  /// JAMAIS etre alimentee, donc son poids est renormalise hors du calcul a chaque score.
+  /// Tant qu'elle n'est pas definie, ses 5 points sont du poids mort.
+  ENVIRONNEMENT
+  AUTRES
 }
 
 /// Pourquoi une composante ne participe pas a un score.
@@ -2499,9 +2511,18 @@ model ReferentielEtatChaussee {
 /// Consequence assumee : aucune portion ne peut porter de praticabilite avant qu'AGEROUTE
 /// n'ait rempli cette table. Le mecanisme attend la decision, il ne la devance pas.
 model ReferentielPraticabilite {
-  code        String  @id
+  code        String @id
   libelle     String
-  description String?
+  /// DEFINITION METIER, OBLIGATOIRE — seule des trois tables de referentiel a l'exiger.
+  ///
+  /// AGEROUTE l'a demandee explicitement pour la praticabilite, et la raison se comprend :
+  /// « difficile » ne veut rien dire sans dire pour qui et dans quelles conditions. Un
+  /// revetement se reconnait a l'oeil ; une praticabilite se JUGE, et deux agents sans
+  /// definition commune jugeront differemment.
+  ///
+  /// La base l'impose aussi, par contrainte : le type et la contrainte doivent dire la
+  /// meme chose, sinon le code croit pouvoir ecrire ce que la base refusera.
+  description String
 
   /// Du plus praticable au moins praticable.
   ordre Int
@@ -2515,6 +2536,20 @@ model ReferentielPraticabilite {
   /// Une praticabilite peut etre SAISONNIERE : une piste franchissable en saison seche ne
   /// l'est plus en saison des pluies. Vrai quand la valeur ne vaut que pour une periode.
   saisonniere Boolean @default(false)
+
+  /// NULLE = valeur PROPOSEE, pas encore approuvee.
+  ///
+  /// AGEROUTE a demande le 13/10/2026 de « faire approuver les valeurs avant leur
+  /// utilisation officielle ». Officiel, pour une portion, veut dire VALIDE : une valeur
+  /// non approuvee peut donc etre portee par une PROPOSITION de terrain, mais empeche sa
+  /// validation.
+  ///
+  /// C'est le seul sens tenable de la consigne. Interdire la saisie aurait rendu le
+  /// referentiel inutilisable jusqu'a l'approbation, donc impossible a eprouver sur le
+  /// terrain avant de l'approuver — on aurait demande d'approuver a l'aveugle.
+  approuveeLe    DateTime?
+  approuveeParId String?
+  approuveePar   User?     @relation("PraticabiliteApprobateur", fields: [approuveeParId], references: [id])
 
   source String?
 

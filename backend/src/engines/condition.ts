@@ -63,7 +63,19 @@
  * la regle (`sensCroissant`) pour qu'il ne puisse pas se perdre dans une relecture.
  */
 
-/** Les huit composantes du paragraphe 13, dans son ordre. */
+/**
+ * Les composantes possibles d'un RCI.
+ *
+ * Les huit premieres sont celles du paragraphe 13 du cahier, dans son ordre. Les deux
+ * dernieres ont ete ajoutees le 13/10/2026 pour pouvoir EXPRIMER la liste de coefficients
+ * proposee par AGEROUTE, qui remplace les 10 points de SIGNALISATION par environnement 5 et
+ * autres 5.
+ *
+ * Les ajouter ne les approuve pas. Aucune regle approuvee ne les porte, et une regle qui
+ * les porterait verrait leurs poids renormalises hors du calcul faute de source — AUTRES
+ * n'en aura jamais tant qu'elle n'est pas definie : une composante sans definition n'est
+ * mesurable par rien.
+ */
 export type ComposanteRci =
   | "CHAUSSEE"
   | "DRAINAGE"
@@ -72,11 +84,43 @@ export type ComposanteRci =
   | "SECURITE"
   | "TRAFIC"
   | "HISTORIQUE"
-  | "INCIDENTS";
+  | "INCIDENTS"
+  | "ENVIRONNEMENT"
+  | "AUTRES";
 
 export const COMPOSANTES_RCI: readonly ComposanteRci[] = [
   "CHAUSSEE", "DRAINAGE", "OUVRAGES", "SIGNALISATION",
   "SECURITE", "TRAFIC", "HISTORIQUE", "INCIDENTS",
+  "ENVIRONNEMENT", "AUTRES",
+];
+
+/**
+ * Composantes qu'AUCUNE source n'alimente aujourd'hui.
+ *
+ * Mesure du 13/10/2026 en production, et c'est le fait qui compte plus que les
+ * ponderations :
+ *
+ *   CHAUSSEE       6 840 troncons sur 261 387 portent un etat, soit 2,6 %
+ *   TRAFIC         0 sur 261 387
+ *   OUVRAGES       0 des 1 172 ouvrages n'a de date d'inspection
+ *   DRAINAGE       0 defaut enregistre
+ *   SIGNALISATION  0 defaut enregistre
+ *   SECURITE       0 defaut enregistre
+ *   HISTORIQUE     aucune source
+ *   INCIDENTS      aucune source
+ *   ENVIRONNEMENT  aucune source
+ *   AUTRES         aucune source POSSIBLE, faute de definition
+ *
+ * Consequence directe : avec une couverture minimale a 0,5, un troncon n'atteint que les
+ * 30 points de la chaussee et le moteur REFUSE son score. Approuver des coefficients
+ * aujourd'hui ne produirait donc pas de mauvais scores : il n'en produirait AUCUN.
+ *
+ * Cette liste n'est pas une regle, c'est un constat date. Elle se vide a mesure que la
+ * collecte avance, et elle sert a repondre honnetement a « pourquoi aucun score ».
+ */
+export const COMPOSANTES_SANS_SOURCE_AU_13_10_2026: readonly ComposanteRci[] = [
+  "DRAINAGE", "OUVRAGES", "SIGNALISATION", "SECURITE",
+  "TRAFIC", "HISTORIQUE", "INCIDENTS", "ENVIRONNEMENT", "AUTRES",
 ];
 
 /** Pourquoi une composante ne participe pas au score. */
