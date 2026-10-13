@@ -2,6 +2,7 @@ import { Router, type Response } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
+import { prisma } from "../lib/prisma";
 import { verdictDelegation } from "../governance/delegation.service";
 import { EXPLICATIONS as EXPLICATIONS_VALIDATION, validationPermise } from "../governance/validation";
 import {
@@ -91,6 +92,78 @@ function repondreRefus(res: Response, motif: string) {
   const code = motif === "PORTION_INTROUVABLE" ? 404 : CONFLIT.has(motif) ? 409 : 400;
   return res.status(code).json({ motif, message: EXPLICATIONS_PORTION[motif] ?? motif });
 }
+
+/**
+ * @openapi
+ * /api/v2/portions:
+ *   get:
+ *     summary: Liste les portions, filtrables par statut et par troncon
+ *     description: >
+ *       Rend les portions COURANTES par defaut : ni remplacees ni supprimees. `historique=true`
+ *       inclut les versions remplacees, necessaires pour relire un decoupage ; sans ce
+ *       drapeau, une liste melangerait l'etat courant et ses versions anterieures, et un
+ *       validateur ne saurait plus laquelle trancher.
+ *     tags: [Portions v2]
+ *     parameters:
+ *       - in: query
+ *         name: statut
+ *         schema: { type: string, enum: [A_VALIDER, VALIDE, REJETE, A_CORRIGER] }
+ *       - in: query
+ *         name: tronconId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: historique
+ *         description: Inclut les versions remplacees. Faux par defaut.
+ *         schema: { type: boolean }
+ */
+portionsV2Router.get("/", requireAuth, requireModuleAccess("geoportail"), async (req, res, next) => {
+  try {
+    const q = z.object({
+      statut: z.enum(["A_VALIDER", "VALIDE", "REJETE", "A_CORRIGER"]).optional(),
+      tronconId: z.string().uuid().optional(),
+      regionId: z.coerce.number().int().positive().optional(),
+      /**
+       * Inclut les versions remplacees.
+       *
+       * FAUX PAR DEFAUT, et ce n'est pas un detail : melanger l'etat courant et ses
+       * versions anterieures ferait apparaitre plusieurs portions sur les memes metres, et
+       * un validateur ne saurait plus laquelle trancher.
+       */
+      historique: z.coerce.boolean().optional(),
+      limite: z.coerce.number().int().min(1).max(200).optional(),
+      curseur: z.string().uuid().optional(),
+    }).parse(req.query);
+
+    const limite = q.limite ?? 50;
+    const portions = await prisma.portion.findMany({
+      where: {
+        deletedAt: null,
+        ...(q.historique === true ? {} : { remplaceeLe: null }),
+        ...(q.statut ? { statutValidation: q.statut } : {}),
+        ...(q.tronconId ? { tronconId: q.tronconId } : {}),
+        ...(q.regionId ? { troncon: { regionId: q.regionId } } : {}),
+      },
+      // Les plus recentes d'abord : un validateur traite ce qui vient d'arriver.
+      orderBy: { createdAt: "desc" },
+      take: limite,
+      ...(q.curseur ? { cursor: { id: q.curseur }, skip: 1 } : {}),
+      include: {
+        troncon: { select: { id: true, code: true, nom: true, classe: true, regionId: true } },
+        creePar: { select: { id: true, nomComplet: true } },
+        revetementRef: { select: { code: true, libelle: true, bitumineux: true } },
+        etatRef: { select: { code: true, libelle: true, critique: true } },
+        praticabiliteRef: { select: { code: true, libelle: true, franchissable: true } },
+      },
+    });
+
+    return res.json({
+      portions,
+      curseurSuivant: portions.length === limite ? portions.at(-1)?.id : null,
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
 
 /**
  * @openapi

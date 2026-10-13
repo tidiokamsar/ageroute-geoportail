@@ -42,6 +42,8 @@ const h = vi.hoisted(() => ({
   decisions: [] as unknown[],
   creations: [] as unknown[],
   refusCreation: null as string | null,
+  requetes: [] as Record<string, unknown>[],
+  liste: [] as Record<string, unknown>[],
 }));
 
 vi.mock("../governance/delegation.service", () => ({
@@ -60,6 +62,17 @@ vi.mock("../reseau/portions.depot", () => ({
   regionDuTronconDeLaPortion: async () => h.regionId,
   PortionIntrouvable: class extends Error {},
   DecisionConcurrente: class extends Error {},
+}));
+
+vi.mock("../lib/prisma", () => ({
+  prisma: {
+    portion: {
+      findMany: async (args: Record<string, unknown>) => {
+        h.requetes.push(args);
+        return h.liste;
+      },
+    },
+  },
 }));
 
 vi.mock("../reseau/portions.service", () => ({
@@ -99,6 +112,8 @@ beforeEach(() => {
   h.decisions.length = 0;
   h.creations.length = 0;
   h.refusCreation = null;
+  h.requetes.length = 0;
+  h.liste = [];
 });
 
 describe("Creer une portion", () => {
@@ -204,5 +219,59 @@ describe("Valider : la separation des roles", () => {
     const r = await request(app()).post(`/api/v2/portions/${UUID}/validation`)
       .send({ decision: "VALIDE" });
     expect(r.status).toBe(404);
+  });
+});
+
+describe("Lister les portions", () => {
+  it("rend les COURANTES par defaut, sans l'historique", async () => {
+    // Le point qui compte. Melanger l'etat courant et ses versions anterieures ferait
+    // apparaitre plusieurs portions sur les memes metres, et un validateur ne saurait plus
+    // laquelle trancher.
+    await request(app()).get("/api/v2/portions?statut=A_VALIDER");
+    expect(h.requetes[0].where).toMatchObject({
+      deletedAt: null,
+      remplaceeLe: null,
+      statutValidation: "A_VALIDER",
+    });
+  });
+
+  it("inclut l'historique quand on le DEMANDE explicitement", async () => {
+    await request(app()).get("/api/v2/portions?historique=true");
+    expect(h.requetes[0].where).not.toHaveProperty("remplaceeLe");
+  });
+
+  it("filtre par troncon et par region", async () => {
+    await request(app()).get(`/api/v2/portions?tronconId=${UUID}&regionId=7`);
+    expect(h.requetes[0].where).toMatchObject({
+      tronconId: UUID,
+      troncon: { regionId: 7 },
+    });
+  });
+
+  it("rend les plus RECENTES d'abord : un validateur traite ce qui vient d'arriver", async () => {
+    await request(app()).get("/api/v2/portions");
+    expect(h.requetes[0].orderBy).toEqual({ createdAt: "desc" });
+  });
+
+  it("ne rend un curseur que si la page est PLEINE", async () => {
+    // Un curseur rendu sur une page incomplete ferait boucler le client sur une page vide.
+    h.liste = Array.from({ length: 3 }, (_, i) => ({ id: `p-${i}` }));
+    const court = await request(app()).get("/api/v2/portions?limite=50");
+    expect(court.body.curseurSuivant).toBeNull();
+
+    h.liste = Array.from({ length: 2 }, (_, i) => ({ id: `p-${i}` }));
+    const plein = await request(app()).get("/api/v2/portions?limite=2");
+    expect(plein.body.curseurSuivant).toBe("p-1");
+  });
+
+  it("REFUSE une limite absurde plutot que de servir toute la table", async () => {
+    const r = await request(app()).get("/api/v2/portions?limite=100000");
+    expect(r.status).toBe(400);
+    expect(h.requetes).toHaveLength(0);
+  });
+
+  it("REFUSE un statut inconnu plutot que de l'ignorer en silence", async () => {
+    const r = await request(app()).get("/api/v2/portions?statut=PEUT_ETRE");
+    expect(r.status).toBe(400);
   });
 });
