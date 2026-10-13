@@ -17,6 +17,7 @@
 #   20261013180000_portions_homogenes
 #   20261013200000_referentiels_configurables
 #   20261013220000_portions_ecriture
+#   20261013240000_actifs_lineaires
 #
 # Ecrit sur le modele de `tester-migrations-phase4.sh`, dont il reprend le dispositif :
 # partir de la derniere sauvegarde chiffree, la restaurer dans un conteneur JETABLE,
@@ -90,6 +91,7 @@ MIGRATIONS=(
     20261013180000_portions_homogenes
     20261013200000_referentiels_configurables
     20261013220000_portions_ecriture
+    20261013240000_actifs_lineaires
 )
 
 ECHECS=0
@@ -362,6 +364,13 @@ verifier_colonne portions remplaceeLe
 verifier_colonne portions deletedAt
 verifier_colonne portions clientOperationId
 verifier_valeur DomaineValidation PORTION
+verifier_valeur TypeOuvrage FOSSE
+verifier_valeur TypeOuvrage CANIVEAU
+verifier_valeur TypeOuvrage SIGNALISATION
+verifier_valeur TypeOuvrage GLISSIERE
+verifier_colonne ouvrages abscisseDebutM
+verifier_colonne ouvrages abscisseFinM
+verifier_colonne ouvrages geomLigne
 
 # L'index spatial que Prisma ne sait pas declarer : son absence ne casserait rien tout de
 # suite, elle ferait seulement balayer la table a chaque affichage de carte.
@@ -440,6 +449,9 @@ DROP TABLE IF EXISTS "appareils";
 
 -- La colonne d'idempotence part avec la table `portions`, qui est supprimee plus haut.
 -- Rien a faire ici pour elle.
+ALTER TABLE "ouvrages"     DROP COLUMN IF EXISTS "abscisseDebutM",
+                           DROP COLUMN IF EXISTS "abscisseFinM",
+                           DROP COLUMN IF EXISTS "geomLigne";
 ALTER TABLE "users"        DROP COLUMN IF EXISTS "peutDeleguerValidation";
 ALTER TABLE "troncons"     DROP COLUMN IF EXISTS "statutValidation",
                            DROP COLUMN IF EXISTS "perimetre",
@@ -471,6 +483,8 @@ DROP TYPE IF EXISTS "StatutMission";
 
 -- PAS de retrait des trois valeurs de `AuditAction` : PostgreSQL n'a pas de
 -- `ALTER TYPE ... DROP VALUE`. Voir l'en-tete de ce fichier.
+--
+-- PAS de retrait des quatre valeurs de `TypeOuvrage` non plus, pour la meme raison.
 --
 -- PAS de retrait de `PORTION` dans `DomaineValidation` : meme raison, et la valeur
 -- survivra donc au rollback. Sans effet, personne ne l'ecrivant plus.

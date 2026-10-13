@@ -119,6 +119,19 @@ enum TypeOuvrage {
   TUNNEL
   PASSERELLE
   VIADUC
+  /// Ajoutes le 13/10/2026 : le cahier les demande au titre des actifs routiers.
+  ///
+  /// LES QUATRE SONT LINEAIRES, contrairement aux neuf precedents. Un fosse, un caniveau
+  /// ou une glissiere s'etendent sur des centaines de metres ; les reduire a l'epingle de
+  /// `geom`, qui est un Point, perdrait precisement ce qui les caracterise. D'ou
+  /// `abscisseDebutM` / `abscisseFinM` et `geomLigne`.
+  ///
+  /// La SIGNALISATION est mixte : un panneau est ponctuel, un marquage axial est lineaire.
+  /// `reseau/actifs.ts` tranche par type et laisse celui-la accepter les deux.
+  FOSSE
+  CANIVEAU
+  SIGNALISATION
+  GLISSIERE
 }
 
 enum Gravite {
@@ -471,14 +484,14 @@ model Troncon {
 }
 
 model Ouvrage {
-  id                     String                               @id @default(uuid())
+  id                     String         @id @default(uuid())
   nom                    String
   type                   TypeOuvrage
-  etat                   EtatPatrimoine                       @default(NON_EVALUE)
+  etat                   EtatPatrimoine @default(NON_EVALUE)
   regionId               Int
-  region                 Region                               @relation(fields: [regionId], references: [id])
+  region                 Region         @relation(fields: [regionId], references: [id])
   tronconId              String?
-  troncon                Troncon?                             @relation(fields: [tronconId], references: [id])
+  troncon                Troncon?       @relation(fields: [tronconId], references: [id])
   pk                     Float?
   longueurM              Float?
   gabaritT               Float?
@@ -497,23 +510,41 @@ model Ouvrage {
   materiauAutre          String?
   remarques              String?
   travauxAPrevoir        String?
-  photos                 String[]                             @default([])
+  photos                 String[]       @default([])
   /// Provenance de l'enregistrement, alignee sur `Troncon`. NULL pour les 126
   /// ouvrages inventories par AGEROUTE — leur origine n'est documentee nulle part et
   /// leur en attribuer une retrospectivement serait inventer.
   /// « ouvrage_osm:<id> » pour un franchissement repris d'une source cartographique :
   /// c'est ce qui permet aux indicateurs de ne pas noyer l'inventaire de reference.
-  sourceType             SourceType?
-  sourceReference        String?
-  sourceConfidence       NiveauConfiance?
-  sourceDetectedAt       DateTime?
-  geom                   Unsupported("geometry(Point,4326)")?
-  inspections            Inspection[]
-  ordresTravaux          OrdreTravaux[]
-  deletedAt              DateTime?
-  createdAt              DateTime                             @default(now())
-  updatedAt              DateTime                             @updatedAt
-  Observation            Observation[]
+  /// Etendue d'un actif LINEAIRE le long de son troncon, en metres depuis le debut de la
+  /// geometrie de reference.
+  ///
+  /// MEME REFERENCE QUE LES PORTIONS, et pour la meme raison : le PK n'est pas calculable
+  /// sur 1 029 troncons regionaux, et faire dependre l'inventaire du PK les rendrait
+  /// inventoriables nulle part. `pk` reste la, complementaire.
+  ///
+  /// NULLES pour un actif ponctuel, qui n'a qu'une position.
+  abscisseDebutM         Float?
+  abscisseFinM           Float?
+
+  /// Geometrie d'un actif lineaire, DERIVEE des abscisses par `ST_LineSubstring`.
+  ///
+  /// `geom` reste le POINT de reperage, celui qu'on epingle sur la carte. Pour un actif
+  /// lineaire, c'est `geomLigne` qui dit l'etendue, et les abscisses qui font autorite sur
+  /// les deux : si le trace de reference est corrige, la ligne se recalcule depuis elles.
+  geomLigne Unsupported("geometry(LineString,4326)")?
+
+  sourceType       SourceType?
+  sourceReference  String?
+  sourceConfidence NiveauConfiance?
+  sourceDetectedAt DateTime?
+  geom             Unsupported("geometry(Point,4326)")?
+  inspections      Inspection[]
+  ordresTravaux    OrdreTravaux[]
+  deletedAt        DateTime?
+  createdAt        DateTime                             @default(now())
+  updatedAt        DateTime                             @updatedAt
+  Observation      Observation[]
 
   defauts Defaut[]
 
