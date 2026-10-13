@@ -1,6 +1,17 @@
 /**
- * Inscrit en base la regle de calcul du RCI version 1 : les ponderations du paragraphe 13
- * du cahier, NON APPROUVEES.
+ * Inscrit en base la regle de calcul du RCI version 1.
+ *
+ * ETAT DES ARBITRAGES AU 13/10/2026
+ *
+ *   ponderations          du cahier, NON CALIBREES, non approuvees
+ *   correspondance        DONNEE par AGEROUTE : BON 90, MOYEN 65, MAUVAIS 35, CRITIQUE 10
+ *   classes               DONNEES par AGEROUTE : six, de 0 a 100
+ *   couverture minimale   ARBITREE par AGEROUTE a 0,5, apres mesure
+ *   fraicheur             365 jours, proposee, NON arbitree
+ *   approbation           NON : la regle sort avec approuveeLe nul
+ *
+ * La regle reste donc NON APPROUVEE, et tout score qu'elle produit sort avec
+ * `publiable: false`. L'approbation est un geste separe, qui appartient a AGEROUTE.
  *
  * CE QUE CE SCRIPT FAIT, ET CE QU'IL NE FAIT SURTOUT PAS
  *
@@ -134,12 +145,25 @@ async function main() {
         classes: CLASSES,
         fraicheurMaxJours: 365,
         confiancesAcceptees: ["HIGH", "MEDIUM"],
+        // ARBITRE PAR AGEROUTE le 13/10/2026, apres mesure de ce que le seuil produit.
+        //
+        // Je l'avais propose a 0,5 sans arbitrage. La mesure montrait que la couverture
+        // maximale atteignable est 0,45, donc que ce seuil rend AUCUN score aujourd'hui.
+        // Les trois options ont ete posees : 0,5 et zero score, 0,45 et six scores, 0,30 et
+        // 6 840 scores calcules sur la chaussee seule.
+        //
+        // AGEROUTE a retenu 0,5 en connaissance de cause. Un indicateur qui refuse de se
+        // prononcer est plus utile qu'un indicateur qui se prononce sur un tiers du modele,
+        // surtout pour un premier chiffre, qui fera reference.
         couvertureMinimale: 0.5,
         sensCroissant: true,
         motif:
           "Pondérations indicatives du paragraphe 13 du cahier RAI V3.1, reprises telles "
-          + "quelles et NON CALIBRÉES. Seuil de couverture et fraîcheur proposés, non "
-          + "arbitrés. À approuver, amender ou remplacer par AGEROUTE.",
+          + "quelles et NON CALIBRÉES. Correspondance état-vers-score et classes données "
+          + "par AGEROUTE le 13/10/2026. Seuil de couverture 0,5 arbitré le 13/10/2026 "
+          + "après mesure : il rend zéro score tant que la collecte n'a pas tourné, et "
+          + "c'est le comportement voulu. Fraîcheur 365 jours encore non arbitrée. "
+          + "À approuver, amender ou remplacer par AGEROUTE.",
         creeParId: auteur.id,
       },
     });
