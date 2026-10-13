@@ -89,8 +89,17 @@ que le §39 interdit. `12_ADR_CONDITION_ENGINE.md` reste donc une **proposition*
 l'ADR n'est pas approuvé.
 
 Et le Condition Engine a besoin de données que la base n'a pas : `trafic` est renseigné sur
-**0 des 1 691 tronçons**, `criticiteStrategique` sur 0 également. Deux composantes sur huit
-seraient donc calculées sur du vide.
+**0 des 1 690 tronçons** antérieurs à la promotion de la voirie, `criticiteStrategique` sur
+0 également. Deux composantes sur huit seraient donc calculées sur du vide.
+
+> **Une précision sur ces deux chiffres, parce que je les ai confondus.** `1 690` est le
+> nombre de tronçons **antérieurs à la promotion de la voirie**, ceux qui n'ont pas de
+> `sourceReference` ; c'est la population de toutes les mesures de qualité du dépôt. `1 691`
+> est ce que rend la **clause du périmètre « réseau classé »**. Les deux sont justes et
+> désignent des ensembles différents — j'ai écrit `1 691` là où la mesure portait sur
+> `1 690`, dans plusieurs fichiers de cette session. Rien n'en dépend fonctionnellement,
+> mais sur un projet dont la règle première est de ne pas confondre deux populations, cela
+> méritait d'être dit.
 
 C'est le même mur que les PK régionaux : **ce qui bloque n'est pas le code.**
 
