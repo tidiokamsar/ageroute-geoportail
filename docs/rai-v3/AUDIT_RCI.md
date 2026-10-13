@@ -119,7 +119,7 @@ fonctionne en pratique comme une liste à huit sur 95 points.
 
 | Composante | Source | Données disponibles |
 |---|---|---|
-| CHAUSSEE | `troncons.etat`, portions validées | **6 840 / 261 387**, soit 2,6 % |
+| CHAUSSEE | `troncons.etat`, portions validées | 6 840 portent un état, dont **4 réellement observés** |
 | OUVRAGES | `ouvrages.etat` | 126 / 1 172 lisibles, soit 10,7 % |
 | TRAFIC | `troncons.traficMoyenJma` | **0 / 261 387** |
 | DRAINAGE | défauts d'assainissement | **0 défaut** |
@@ -134,9 +134,40 @@ fonctionne en pratique comme une liste à huit sur 95 points.
 La collecte la retient avec une confiance `LOW`, et une portion validée — datée, attribuée,
 validée par un tiers — prime sur elle quand les deux existent.
 
-**Fraîcheur** : aucun `dateDerniereEvaluation` n'a été vérifié contre le seuil de 365 jours
-sur l'ensemble du réseau. À faire avant toute approbation, parce qu'un état de 2019 reconduit
-aujourd'hui serait une donnée inventée.
+### Fraîcheur des 6 840 états : mesurée le 13/10/2026
+
+**`dateDerniereEvaluation` est nulle sur les 261 387 tronçons.** Zéro valeur renseignée. Par
+la règle du moteur — « date d'observation absente, donc PÉRIMÉE, jamais fraîche » — **les
+6 840 états sont tous périmés**, et la couverture atteignable tombe de 0,30 à **0,00**.
+
+La provenance, elle, est enregistrée. En croisant `troncons.etat` avec `valeurs_qualite` :
+
+| Provenance de l'état | Nombre | Dates portées |
+|---|---|---|
+| `OBSERVED`, saisie manuelle | **4** | 04/09 au 30/09/2026 |
+| `IMPORTED_UNVERIFIED`, déclaration gestionnaire | 6 188 | 03-04/09/2026 |
+| `IMPORTED_UNVERIFIED`, clôture de chantier | 4 | 04/09/2026 |
+| **aucune ligne de provenance** | **644** | — |
+
+Les quatre seuls états observés du réseau : `GNL-OSM-w253617037` critique, `RES-857` moyen,
+`KALOUM-OSM-w39196737` mauvais, `GNL-OSM-w270214785` bon.
+
+**`valeurs_qualite.observedAt` ne doit pas servir de date d'observation.** Les 6 192 valeurs
+déclarées sont toutes datées du 03 ou 04/09/2026, soit la fenêtre de la migration de
+provenance `20260903030000`. Ce sont des **dates de reprise, pas des dates de relevé** : les
+employer ferait passer une valeur déclarée non vérifiée pour une donnée de terrain, et le
+seuil de 365 jours la déclarerait fraîche. C'est précisément le piège contre lequel la règle
+« pas de date, donc périmée » protège.
+
+**Les plus mauvais états sont les moins traçables.** Le réseau porte 134 tronçons mauvais et
+96 critiques ; **133 et 95 d'entre eux n'ont aucune ligne de provenance**. À l'inverse, les
+6 192 valeurs déclarées ne portent que moyen (5 454) et bon (738) : **aucun mauvais, aucun
+critique**. Une campagne de déclaration qui ne produit que du moyen et du bon ressemble à un
+remplissage par défaut, pas à une évaluation.
+
+**Conséquence pour l'approbation** : la collecte exploitable n'est pas de 6 840 tronçons mais
+de **quatre**. Arbitrer la fraîcheur à 365 jours ou à toute autre valeur ne change rien tant
+que la colonne de date reste vide.
 
 ## 6. Des scores calculés sur des données incomplètes ?
 
@@ -208,4 +239,6 @@ l'addendum V4.1.
 3. **Approuver la règle**, ce qui est le seul geste rendant un score publiable.
 4. **Faire tourner la collecte terrain.** C'est le vrai verrou : sans portions validées, la
    couverture n'atteindra jamais 0,5, quels que soient les coefficients.
-5. **Vérifier la fraîcheur des 6 840 états existants** avant approbation.
+5. ~~Vérifier la fraîcheur des 6 840 états existants~~ — **fait le 13/10/2026** : aucune date
+   n'est renseignée, les 6 840 états sont périmés, et quatre seulement ont été observés.
+   Reste à décider si `troncons.dateDerniereEvaluation` doit être alimentée, et par quoi.
