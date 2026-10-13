@@ -15,16 +15,50 @@ import { printFiche } from "../lib/print";
 import { tronconFields, ouvrageFields, pointNoirFields, posteFields, chantierFields, inspectionFields } from "../lib/fieldConfigs";
 import type { Chantier, Inspection, Ouvrage, PointNoir, Poste, Troncon } from "../types";
 
+interface PortionFiche {
+  id: string;
+  debutM: number;
+  finM: number;
+  statutValidation: string;
+  origine: string;
+  observeeLe: string | null;
+  revetementRef: { libelle: string; bitumineux: boolean } | null;
+  etatRef: { libelle: string; critique: boolean } | null;
+  praticabiliteRef: { libelle: string } | null;
+  creePar: { nomComplet: string } | null;
+}
+
+interface LigneRepartition { cle: string; longueurM: number; part: number }
+
 interface Fiche {
   troncon: Troncon;
+  /** Longueur MESUREE sur la géométrie. Nulle quand le tracé n'est pas exploitable. */
+  longueurGeometriqueM: number | null;
   ouvrages: Ouvrage[];
   pointsNoirs: PointNoir[];
   postes: Poste[];
   chantiers: Chantier[];
   inspections: (Inspection & { inspecteur?: { nomComplet: string } })[];
+  portions: PortionFiche[];
+  defauts: { id: string; code: string; gravite: number | null; catalogue?: { libelle: string } }[];
+  missions: { id: string; code: string; intitule: string; statut: string }[];
+  couverture: {
+    longueurTronconM: number; qualifieM: number; part: number;
+    trous: { debutM: number; finM: number; longueurM: number }[];
+  } | null;
+  repartitions: {
+    revetement: LigneRepartition[];
+    etat: LigneRepartition[];
+    praticabilite: LigneRepartition[];
+  } | null;
+  chevauchements: { a: string; b: string; longueurM: number }[];
 }
 
-type TabKey = "infos" | "ouvrages" | "pointsNoirs" | "postes" | "chantiers" | "inspections" | "documents";
+type TabKey = "infos" | "portions" | "ouvrages" | "pointsNoirs" | "postes" | "chantiers" | "inspections" | "documents";
+
+function metres(v: number): string {
+  return v >= 1_000 ? `${(v / 1_000).toFixed(2)} km` : `${Math.round(v)} m`;
+}
 
 export function TronconFicheModal({ open, onClose, tronconId }: { open: boolean; onClose: () => void; tronconId: string }) {
   const { user } = useAuth();
@@ -56,6 +90,7 @@ export function TronconFicheModal({ open, onClose, tronconId }: { open: boolean;
 
   const tabs: { key: TabKey; label: string; count?: number }[] = [
     { key: "infos", label: "Infos" },
+    { key: "portions", label: "Portions", count: data?.portions.length },
     { key: "ouvrages", label: "Ouvrages", count: data?.ouvrages.length },
     { key: "pointsNoirs", label: "Points noirs", count: data?.pointsNoirs.length },
     { key: "postes", label: "Péages", count: data?.postes.length },
@@ -232,6 +267,109 @@ export function TronconFicheModal({ open, onClose, tronconId }: { open: boolean;
                 withPhotos
               />
             )}
+            {tab === "portions" && (
+              <div className="space-y-4">
+                {/* LA LONGUEUR MESUREE A COTE DE LA DECLAREE, jamais a sa place : l'une
+                    vient d'AGEROUTE, l'autre de la numerisation. 1 028 des 1 029 troncons
+                    regionaux n'ont aucune longueur declaree, et rendre la seule
+                    geometrique les ferait passer pour documentes. */}
+                <dl className="grid grid-cols-2 gap-2 text-sm">
+                  <dt className="text-slate-500">Longueur déclarée</dt>
+                  <dd>{data.troncon.longueurKm ? `${data.troncon.longueurKm} km` : <span className="text-amber-700">non renseignée</span>}</dd>
+                  <dt className="text-slate-500">Longueur mesurée sur le tracé</dt>
+                  <dd>{data.longueurGeometriqueM !== null ? metres(data.longueurGeometriqueM) : <span className="text-amber-700">tracé non exploitable</span>}</dd>
+                </dl>
+
+                {data.couverture === null ? (
+                  <p className="rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">
+                    Aucune couverture calculable : le tracé n'a pas de longueur mesurable, donc
+                    aucune portion ne peut y être bornée. Un pourcentage serait inventé.
+                  </p>
+                ) : (
+                  <div className="space-y-2 text-sm">
+                    <p>
+                      Qualifié : <strong>{metres(data.couverture.qualifieM)}</strong> sur{" "}
+                      {metres(data.couverture.longueurTronconM)} ({Math.round(data.couverture.part * 100)} %).
+                    </p>
+                    {data.couverture.trous.length > 0 && (
+                      /* LES TROUS SONT NOMMES PAR LEURS ABSCISSES. « 60 % qualifie »
+                         n'envoie personne nulle part. */
+                      <p className="text-slate-700">
+                        Non qualifié :{" "}
+                        {data.couverture.trous.map((t) => `${metres(t.debutM)} à ${metres(t.finM)}`).join(", ")}.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {data.chevauchements.length > 0 && (
+                  /* SIGNALE, JAMAIS CORRIGE : deux portions qui se recouvrent disent deux
+                     choses du meme metre, et trancher appartient a un humain. */
+                  <p className="rounded border border-red-300 bg-red-50 p-2 text-sm text-red-900">
+                    <strong>{data.chevauchements.length} chevauchement(s)</strong> entre portions :{" "}
+                    {data.chevauchements.map((c) => `${metres(c.longueurM)}`).join(", ")}. À arbitrer :
+                    deux portions décrivent les mêmes mètres.
+                  </p>
+                )}
+
+                {data.repartitions && (
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    {([["revetement", "Revêtement"], ["etat", "État"], ["praticabilite", "Praticabilité"]] as const).map(([cle, titre]) => (
+                      <div key={cle}>
+                        <h4 className="text-xs font-semibold uppercase text-slate-500">{titre}</h4>
+                        <ul className="mt-1 space-y-0.5 text-sm">
+                          {data.repartitions![cle].length === 0 && <li className="text-slate-500">—</li>}
+                          {data.repartitions![cle].map((r) => (
+                            <li key={r.cle} className={r.cle === "NON_QUALIFIE" ? "text-amber-700" : undefined}>
+                              {r.cle === "NON_QUALIFIE" ? "Non qualifié" : r.cle === "NON_RENSEIGNE" ? "Non renseigné" : r.cle}
+                              {" : "}{metres(r.longueurM)} ({Math.round(r.part * 100)} %)
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {data.portions.length === 0 ? (
+                  <p className="text-sm text-slate-600">
+                    Aucune portion. Ce tronçon n'a jamais été inventorié : il n'hérite ni du
+                    revêtement ni de l'état portés par sa fiche, qui sont des valeurs déclarées.
+                  </p>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead className="text-left text-xs uppercase text-slate-500">
+                      <tr>
+                        <th className="py-1">Emprise</th><th>Revêtement</th><th>État</th>
+                        <th>Statut</th><th>Constatée</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.portions.map((p) => (
+                        <tr key={p.id} className="border-t">
+                          <td className="py-1">{metres(p.debutM)} – {metres(p.finM)}</td>
+                          <td>{p.revetementRef?.libelle ?? <span className="text-slate-500">—</span>}</td>
+                          <td className={p.etatRef?.critique ? "text-red-700" : undefined}>
+                            {p.etatRef?.libelle ?? <span className="text-slate-500">—</span>}
+                          </td>
+                          <td>
+                            {p.statutValidation === "VALIDE"
+                              ? <span className="text-green-700">Validée</span>
+                              : <span className="text-amber-700">Proposition</span>}
+                          </td>
+                          <td>
+                            {p.observeeLe
+                              ? new Date(p.observeeLe).toLocaleDateString("fr-FR")
+                              : <span className="text-amber-700">non renseignée</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            )}
+
             {tab === "documents" && <TronconDocumentsTab tronconId={tronconId} canWrite={writable} />}
           </div>
         </div>

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { createCrudService, type ListParams } from "../../lib/crud-factory";
 import { logAuditTransactionnelle } from "../../utils/audit";
+import { chevauchements, couverture, repartition } from "../../reseau/portions";
 import { WHERE_RESEAU_CLASSE, clauseSqlReseauClasse } from "../../lib/reseau";
 import { buildExportBuffer, parseImportBuffer, formatImportError, type ImportReport } from "../../lib/excel";
 import { resolveRegionId } from "../../lib/regions";
@@ -306,21 +307,122 @@ async function importXlsx(buffer: Buffer, userId: string): Promise<ImportReport>
 }
 
 // Fiche consolidee : le troncon + tout ce qui lui est rattache (vue patrimoniale).
+/**
+ * Fiche 360 d'un troncon.
+ *
+ * ETENDUE et non remplacee : la fiche existait avec cinq collections, et le paragraphe 20
+ * du cahier en demande davantage. En construire une seconde aurait laisse deux verites sur
+ * le meme objet, dont une seule serait maintenue.
+ *
+ * CE QUE L'EXTENSION AJOUTE
+ *
+ * Les PORTIONS, leur couverture et les repartitions par revetement et par etat : c'est ce
+ * qui transforme une liste d'objets rattaches en description de l'etat du troncon.
+ *
+ * Les DEFAUTS et les MISSIONS, que la fiche ignorait alors qu'ils sont la matiere du
+ * terrain.
+ *
+ * TROIS HONNETETES QUE CETTE FICHE DOIT PORTER
+ *
+ * `longueurGeometriqueM` est rendue A COTE de `longueurKm`, jamais a sa place. L'une est
+ * declaree par AGEROUTE, l'autre mesuree sur la numerisation. Mesure du 13/10/2026 : elles
+ * s'accordent a moins de 20 % sur tous les troncons comparables, mais 1 028 des 1 029
+ * troncons regionaux n'ont AUCUNE longueur declaree — rendre la seule geometrique les
+ * ferait passer pour documentes.
+ *
+ * `couverture` nomme les TROUS par leurs abscisses. « 60 % qualifie » n'envoie personne
+ * nulle part ; « non qualifie de 8 000 a 13 000 » envoie une equipe au bon endroit.
+ *
+ * `repartitions` distingue `NON_QUALIFIE` de `NON_RENSEIGNE`, et les deux d'une valeur
+ * connue. Les confondre laisserait croire le troncon inventorie.
+ */
 async function fiche(id: string) {
   const troncon = await base.getById(id);
   const notDeleted = { tronconId: id, deletedAt: null };
-  const [ouvrages, pointsNoirs, postes, chantiers, inspections] = await Promise.all([
-    prisma.ouvrage.findMany({ where: notDeleted, orderBy: { nom: "asc" } }),
-    prisma.pointNoir.findMany({ where: notDeleted, orderBy: { createdAt: "desc" } }),
-    prisma.poste.findMany({ where: notDeleted, orderBy: { nom: "asc" } }),
-    prisma.chantier.findMany({ where: notDeleted, orderBy: { createdAt: "desc" } }),
-    prisma.inspection.findMany({
-      where: { tronconId: id, deletedAt: null },
-      include: { inspecteur: { select: { nomComplet: true } } },
-      orderBy: { dateInspection: "desc" },
-    }),
-  ]);
-  return { troncon, ouvrages, pointsNoirs, postes, chantiers, inspections };
+  const [ouvrages, pointsNoirs, postes, chantiers, inspections, portions, defauts, missions, mesure] =
+    await Promise.all([
+      prisma.ouvrage.findMany({ where: notDeleted, orderBy: { nom: "asc" } }),
+      prisma.pointNoir.findMany({ where: notDeleted, orderBy: { createdAt: "desc" } }),
+      prisma.poste.findMany({ where: notDeleted, orderBy: { nom: "asc" } }),
+      prisma.chantier.findMany({ where: notDeleted, orderBy: { createdAt: "desc" } }),
+      prisma.inspection.findMany({
+        where: { tronconId: id, deletedAt: null },
+        include: { inspecteur: { select: { nomComplet: true } } },
+        orderBy: { dateInspection: "desc" },
+      }),
+      // Les COURANTES seulement : melanger l'etat courant et ses versions anterieures
+      // ferait apparaitre plusieurs portions sur les memes metres.
+      prisma.portion.findMany({
+        where: { tronconId: id, remplaceeLe: null, deletedAt: null },
+        orderBy: { debutM: "asc" },
+        include: {
+          revetementRef: { select: { code: true, libelle: true, bitumineux: true } },
+          etatRef: { select: { code: true, libelle: true, critique: true } },
+          praticabiliteRef: { select: { code: true, libelle: true, franchissable: true } },
+          creePar: { select: { id: true, nomComplet: true } },
+        },
+      }),
+      prisma.defaut.findMany({
+        where: notDeleted,
+        orderBy: { createdAt: "desc" },
+        take: 200,
+        include: {
+          catalogue: { select: { code: true, libelle: true, unite: true, famille: true } },
+          constatePar: { select: { nomComplet: true } },
+        },
+      }),
+      prisma.mission.findMany({
+        where: { observations: { some: { tronconId: id } } },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        select: { id: true, code: true, intitule: true, statut: true, type: true, createdAt: true },
+      }),
+      longueurGeometriqueM(id),
+    ]);
+
+  const longueurM = mesure;
+  const portionsDomaine = portions.map((p) => ({
+    id: p.id, tronconId: p.tronconId, debutM: p.debutM, finM: p.finM,
+    revetement: p.revetement, etat: p.etat, praticabilite: p.praticabilite,
+    largeurM: p.largeurM, source: p.source, observeeLe: p.observeeLe,
+    confiance: p.confiance, statutValidation: p.statutValidation,
+    origine: p.origine, clientOperationId: p.clientOperationId,
+    remplaceeLe: p.remplaceeLe, deletedAt: p.deletedAt,
+  }));
+
+  return {
+    troncon,
+    /**
+     * Longueur MESUREE sur la geometrie, a cote de `troncon.longueurKm` qui est declaree.
+     * NULLE quand le trace n'est pas exploitable, jamais remplacee par la declaree.
+     */
+    longueurGeometriqueM: longueurM,
+    ouvrages, pointsNoirs, postes, chantiers, inspections,
+    portions,
+    defauts,
+    missions,
+    // Nulles quand la longueur geometrique manque : sans denominateur mesure, un
+    // pourcentage serait invente.
+    couverture: longueurM === null ? null : couverture(portionsDomaine, longueurM),
+    repartitions: longueurM === null ? null : {
+      revetement: repartition(portionsDomaine, longueurM, "revetement"),
+      etat: repartition(portionsDomaine, longueurM, "etat"),
+      praticabilite: repartition(portionsDomaine, longueurM, "praticabilite"),
+    },
+    // Les chevauchements sont SIGNALES, jamais corriges : deux portions qui se recouvrent
+    // disent deux choses du meme metre, et trancher appartient a un humain.
+    chevauchements: chevauchements(portionsDomaine),
+  };
+}
+
+/** Longueur geodesique du trace, ou `null` quand il n'y en a pas d'exploitable. */
+async function longueurGeometriqueM(id: string): Promise<number | null> {
+  const r = await prisma.$queryRaw<{ m: number | null }[]>`
+    SELECT ST_Length(geom::geography) AS m
+      FROM troncons WHERE id = ${id}::text AND geom IS NOT NULL
+  `;
+  const v = r[0]?.m ?? null;
+  return v !== null && Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : null;
 }
 
 async function createWithGeom(data: TronconCreateInput & { geom?: { type: string; coordinates: number[][] } }, userId: string) {
