@@ -1954,6 +1954,9 @@ enum DomaineValidation {
   POINT_NOIR
   POSTE
   CHANTIER
+  /// Ajoute le 13/10/2026 avec l'ecriture des portions. `ALTER TYPE ADD VALUE`
+  /// est DEFINITIF : PostgreSQL ne sait pas retirer une valeur d'enum.
+  PORTION
 }
 
 /// Designation d'un validateur sur un domaine, eventuellement borne a une region et a une
@@ -2281,6 +2284,13 @@ model Portion {
   confiance  NiveauConfiance?
 
   origine OriginePortion
+
+  /// Cle d'idempotence generee par l'APPAREIL avant tout envoi, comme pour les
+  /// observations et les defauts. Sans elle, une reponse perdue en zone blanche fait
+  /// renvoyer l'operation et cree une portion en double sur la meme emprise.
+  ///
+  /// Optionnelle : une portion creee depuis la console n'en a pas besoin.
+  clientOperationId String? @unique
 
   /// Conteneur de collecte, quand la portion vient d'une mission de terrain.
   observationId String?

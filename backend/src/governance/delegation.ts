@@ -79,10 +79,13 @@ export type DomaineValidation =
   | "OBSERVATION"
   | "POINT_NOIR"
   | "POSTE"
-  | "CHANTIER";
+  | "CHANTIER"
+  /// Ajoute le 13/10/2026 avec l'ecriture des portions.
+  | "PORTION";
 
 export const DOMAINES_VALIDATION: readonly DomaineValidation[] = [
   "TRONCON", "OUVRAGE", "DEFAUT", "OBSERVATION", "POINT_NOIR", "POSTE", "CHANTIER",
+  "PORTION",
 ];
 
 /** Correspondance entre le type d'entite et son domaine de validation. */
@@ -94,6 +97,7 @@ const DOMAINE_PAR_ENTITE: Record<string, DomaineValidation> = {
   PointNoir: "POINT_NOIR",
   Poste: "POSTE",
   Chantier: "CHANTIER",
+  Portion: "PORTION",
 };
 
 export function domaineDeLEntite(entityType: string): DomaineValidation | null {
@@ -122,6 +126,10 @@ export function domaineDeLEntite(entityType: string): DomaineValidation | null {
 export const DOMAINES_AVEC_CHEMIN_DE_VALIDATION: readonly DomaineValidation[] = [
   "DEFAUT",
   "OBSERVATION",
+  // Ajoute le 13/10/2026 : `/api/v2/portions/:id/validation` existe desormais, donc y
+  // designer un validateur a un effet. Les cinq autres domaines n'ont toujours aucune
+  // route, et l'ecran de gouvernance continue de le dire.
+  "PORTION",
 ];
 
 /** Domaines ou designer un validateur n'aurait aujourd'hui aucun effet. */

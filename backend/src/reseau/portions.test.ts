@@ -44,6 +44,8 @@ function p(partiel: Partial<Portion> & Pick<Portion, "id" | "debutM" | "finM">):
     observeeLe: new Date("2026-10-01T00:00:00Z"),
     confiance: "HIGH",
     statutValidation: "VALIDE",
+    origine: "SAISIE_TERRAIN",
+    clientOperationId: null,
     remplaceeLe: null,
     deletedAt: null,
     ...partiel,

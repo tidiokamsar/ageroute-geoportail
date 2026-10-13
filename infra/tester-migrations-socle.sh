@@ -16,6 +16,7 @@
 #   20261013160000_condition_engine
 #   20261013180000_portions_homogenes
 #   20261013200000_referentiels_configurables
+#   20261013220000_portions_ecriture
 #
 # Ecrit sur le modele de `tester-migrations-phase4.sh`, dont il reprend le dispositif :
 # partir de la derniere sauvegarde chiffree, la restaurer dans un conteneur JETABLE,
@@ -88,6 +89,7 @@ MIGRATIONS=(
     20261013160000_condition_engine
     20261013180000_portions_homogenes
     20261013200000_referentiels_configurables
+    20261013220000_portions_ecriture
 )
 
 ECHECS=0
@@ -97,7 +99,17 @@ alerte()  { printf '  \033[33m!\033[0m %s\n' "$*"; }
 info()    { printf '    %s\n' "$*"; }
 titre()   { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
-nettoyer() { docker rm -f "$CONTENEUR" >/dev/null 2>&1 || true; }
+# `-v` EST INDISPENSABLE, et son absence a rempli le disque de production.
+#
+# `docker run` sur l'image postgis cree un volume ANONYME pour /var/lib/postgresql/data.
+# `docker rm -f` retire le conteneur et LAISSE le volume. Chaque execution de ce banc
+# d'essai restaure 261 387 troncons, soit environ un gigaoctet, et le 13/10/2026 seize
+# executions ont laisse seize volumes orphelins : le disque est passe de 17 Go libres a
+# 18 Mo, et un service voisin a commence a redemarrer en boucle.
+#
+# `-v` retire le volume avec le conteneur. C'est la seule ligne de ce fichier dont
+# l'omission a un cout mesure.
+nettoyer() { docker rm -v -f "$CONTENEUR" >/dev/null 2>&1 || true; }
 trap nettoyer EXIT
 
 q() { docker exec "$CONTENEUR" psql -U postgres -d "$BASE" -tAc "$1" 2>/dev/null | tr -d ' \r'; }
@@ -145,8 +157,19 @@ for _ in $(seq 60); do
     docker logs "$CONTENEUR" 2>&1 | grep -q "PostgreSQL init process complete" && break
     sleep 1
 done
-docker exec "$CONTENEUR" pg_isready -U postgres >/dev/null 2>&1 \
-    || { echec "PostgreSQL ne repond pas dans le conteneur"; exit 1; }
+# DEUX attentes, et il faut les deux. L'image demarre un serveur de bootstrap, cree
+# POSTGRES_DB, puis l'arrete et le relance : la ligne de journal ci-dessus marque la fin
+# de l'initialisation, mais le socket definitif n'est pas encore la. Un `pg_isready`
+# unique juste apres gagne la course la plupart du temps et la perd quand la machine est
+# chargee — ce qui est arrive le 13/10/2026, faisant echouer le banc pour un motif
+# d'ENVIRONNEMENT. Un garde-fou intermittent apprend a etre ignore.
+PRET=0
+for _ in $(seq 30); do
+    docker exec "$CONTENEUR" psql -U postgres -d "$BASE" -c "SELECT 1" >/dev/null 2>&1 \
+        && { PRET=1; break; }
+    sleep 1
+done
+[ "$PRET" = "1" ] || { echec "PostgreSQL ne repond pas dans le conteneur"; exit 1; }
 ok "conteneur pret ($IMAGE_POSTGRES)"
 
 # `pg_dump -Fc` : format personnalise, donc `pg_restore` et non `psql`. Les parametres de
@@ -337,6 +360,8 @@ verifier_colonne portions finM
 verifier_colonne portions praticabilite
 verifier_colonne portions remplaceeLe
 verifier_colonne portions deletedAt
+verifier_colonne portions clientOperationId
+verifier_valeur DomaineValidation PORTION
 
 # L'index spatial que Prisma ne sait pas declarer : son absence ne casserait rien tout de
 # suite, elle ferait seulement balayer la table a chaque affichage de carte.
@@ -413,6 +438,8 @@ DROP TABLE IF EXISTS "observations";
 DROP TABLE IF EXISTS "missions";
 DROP TABLE IF EXISTS "appareils";
 
+-- La colonne d'idempotence part avec la table `portions`, qui est supprimee plus haut.
+-- Rien a faire ici pour elle.
 ALTER TABLE "users"        DROP COLUMN IF EXISTS "peutDeleguerValidation";
 ALTER TABLE "troncons"     DROP COLUMN IF EXISTS "statutValidation",
                            DROP COLUMN IF EXISTS "perimetre",
@@ -444,6 +471,9 @@ DROP TYPE IF EXISTS "StatutMission";
 
 -- PAS de retrait des trois valeurs de `AuditAction` : PostgreSQL n'a pas de
 -- `ALTER TYPE ... DROP VALUE`. Voir l'en-tete de ce fichier.
+--
+-- PAS de retrait de `PORTION` dans `DomaineValidation` : meme raison, et la valeur
+-- survivra donc au rollback. Sans effet, personne ne l'ecrivant plus.
 --
 -- PAS de DROP EXTENSION btree_gist non plus. Une extension est une ressource de la BASE,
 -- pas de cette migration : une autre table peut en dependre, et la retirer casserait ce

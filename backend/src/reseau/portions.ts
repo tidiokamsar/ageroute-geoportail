@@ -67,6 +67,17 @@ export const TOLERANCE_M = 0.05;
  */
 export const LONGUEUR_MINIMALE_M = 10;
 
+/**
+ * D'ou vient une portion. Sans cela, un decoupage et un releve de terrain se ressemblent,
+ * et l'historique devient illisible.
+ */
+export type OriginePortion =
+  | "SAISIE_TERRAIN"
+  | "DECOUPE"
+  | "FUSION"
+  | "REQUALIFICATION"
+  | "IMPORT";
+
 export interface Portion {
   id: string;
   tronconId: string;
@@ -90,6 +101,16 @@ export interface Portion {
   observeeLe: Date | null;
   confiance: "HIGH" | "MEDIUM" | "LOW" | null;
   statutValidation: "A_VALIDER" | "VALIDE" | "REJETE" | "A_CORRIGER";
+  origine: OriginePortion;
+  /**
+   * Cle d'idempotence generee par l'appareil. Nulle pour une saisie console.
+   *
+   * Sans elle, une reponse perdue en zone blanche fait renvoyer l'operation et cree une
+   * seconde portion sur la meme emprise. Deux PROPOSITIONS sur les memes metres ne violent
+   * pas la contrainte d'exclusion, qui ne porte que sur le valide : le doublon passerait
+   * donc sans bruit jusqu'a l'arbitrage.
+   */
+  clientOperationId: string | null;
   /** Date a laquelle cette version a ete remplacee. Nulle si elle est courante. */
   remplaceeLe: Date | null;
   /**

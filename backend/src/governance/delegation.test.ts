@@ -346,15 +346,21 @@ describe("Tous les domaines ne valident pas, et le rapport doit le dire", () => 
    * entites patrimoniales. Mais AUCUNE route ne valide un troncon, un ouvrage, un point
    * noir, un poste ou un chantier : la colonne existe et rien ne l'ecrit.
    *
-   * Y designer un validateur serait sans effet. Presenter les sept comme equivalents
+   * Y designer un validateur serait sans effet. Presenter les huit comme equivalents
    * inviterait a combler une case qui ne change rien — pire qu'un manque affiche,
    * puisque cela donnerait le sentiment du travail fait.
    */
-  it("ne compte que les defauts et les observations comme valides aujourd'hui", () => {
-    expect([...DOMAINES_AVEC_CHEMIN_DE_VALIDATION]).toEqual(["DEFAUT", "OBSERVATION"]);
+  it("compte les defauts, les observations et desormais les PORTIONS", () => {
+    // PORTION est entre le 13/10/2026 avec `/api/v2/portions/:id/validation`. Ce test
+    // n'enregistre pas une preference : il enregistre un FAIT verifiable, et il doit etre
+    // mis a jour le jour ou une route de validation apparait pour un autre domaine. Sans
+    // cela, l'ecran de gouvernance continuerait d'annoncer « sans effet » une designation
+    // qui en aurait un.
+    expect([...DOMAINES_AVEC_CHEMIN_DE_VALIDATION]).toEqual(["DEFAUT", "OBSERVATION", "PORTION"]);
   });
 
   it("nomme les cinq domaines ou une designation serait sans effet", () => {
+    // Toujours cinq, mais ce ne sont plus les memes : les portions en sont sorties.
     expect(domainesSansChemindeValidation()).toEqual([
       "TRONCON", "OUVRAGE", "POINT_NOIR", "POSTE", "CHANTIER",
     ]);

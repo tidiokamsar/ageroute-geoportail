@@ -273,7 +273,10 @@ describe("Deux points d'entrée, deux niveaux d'ouverture — et c'est délibér
     h.demandeur = { id: "lecteur-1", role: "LECTEUR", peutDeleguerValidation: false, actif: true };
     const r = await request(app()).get("/api/gouvernance/domaines");
     expect(r.status).toBe(200);
-    expect(r.body.actifs).toEqual(["DEFAUT", "OBSERVATION"]);
+    // PORTION est entre le 13/10/2026 avec `/api/v2/portions/:id/validation`. Cette liste
+    // est un FAIT, pas une preference : l'ecran de gouvernance s'en sert pour ne pas
+    // inviter a designer un validateur dans un domaine ou ce serait sans effet.
+    expect(r.body.actifs).toEqual(["DEFAUT", "OBSERVATION", "PORTION"]);
     expect(r.body.sansChemindeValidation).toHaveLength(5);
   });
 

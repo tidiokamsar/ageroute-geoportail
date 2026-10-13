@@ -75,6 +75,9 @@ export const ENTITES_VALIDABLES = new Set([
   "PointNoir",
   "Poste",
   "Chantier",
+  // Ajoute le 13/10/2026 : une portion de terrain est une proposition, et son auteur ne
+  // peut pas la rendre officielle.
+  "Portion",
 ]);
 
 /** Roles habilites a trancher. Un agent de terrain propose, il ne valide pas. */

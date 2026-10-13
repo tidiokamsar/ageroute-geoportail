@@ -48,7 +48,8 @@ async function portionsDuTroncon(tronconId: string): Promise<Portion[]> {
       id: true, tronconId: true, debutM: true, finM: true,
       revetement: true, etat: true, praticabilite: true, largeurM: true,
       source: true, observeeLe: true, confiance: true,
-      statutValidation: true, remplaceeLe: true, deletedAt: true,
+      statutValidation: true, origine: true, clientOperationId: true,
+      remplaceeLe: true, deletedAt: true,
     },
   });
   return lignes.map((l) => ({ ...l, confiance: l.confiance ?? null }));
