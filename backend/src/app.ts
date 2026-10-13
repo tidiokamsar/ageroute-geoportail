@@ -19,6 +19,7 @@ import { dashboardRouter } from "./modules/dashboard/dashboard.routes";
 import { voirieLocaleRouter } from "./modules/voirie-locale/voirie-locale.routes";
 import { marchesRouter } from "./modules/marches/marches.routes";
 import { adminSettingsRouter } from "./modules/admin/settings.routes";
+import { gouvernanceRouter } from "./modules/admin/gouvernance.routes";
 import { otRouter } from "./modules/ordres-travaux/ot.routes";
 import { usersRouter } from "./modules/users/users.routes";
 import { auditRouter } from "./modules/audit/audit.routes";
@@ -133,6 +134,9 @@ export function createApp() {
   app.use("/api/dashboard", dashboardRouter);
   app.use("/api", marchesRouter);
   app.use("/api/admin", adminSettingsRouter);
+  // Designation des validateurs : hors du routeur d'administration, car la Direction
+  // Technique en porte le droit sans etre administrateur. Voir gouvernance.routes.
+  app.use("/api/gouvernance", gouvernanceRouter);
   app.use("/api/ordres-travaux", otRouter);
   app.use("/api/users", usersRouter);
   app.use("/api/audit", auditRouter);

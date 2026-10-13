@@ -16,6 +16,9 @@ const SAFE_SELECT = {
   derniereConnexion: true,
   totpEnabled: true,
   modulesAutorises: true,
+  // Un privilege doit se voir : il figure donc dans la projection publiable, et par
+  // consequent dans l'audit de toute modification de compte.
+  peutDeleguerValidation: true,
   createdAt: true,
   updatedAt: true,
 } as const;

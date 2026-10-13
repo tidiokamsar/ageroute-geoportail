@@ -69,6 +69,15 @@ export interface ProfilMetier {
    */
   modules: readonly ModuleKey[];
   /** Ce qui reste a trancher sur ce profil, quand quelque chose reste a trancher. */
+  /**
+   * Droit de DESIGNER un validateur (paragraphe 35). AGEROUTE l'a confie a la Direction
+   * Technique, dont l'usage est « validation et arbitrage technique ».
+   *
+   * C'est un effet du profil comme le role et les modules, et non un controle de role :
+   * six profils sur onze sont GESTIONNAIRE, si bien qu'un controle de role donnerait ce
+   * droit a presque tout le monde.
+   */
+  peutDeleguerValidation?: boolean;
   aArbitrer?: string;
 }
 
@@ -150,6 +159,11 @@ export const PROFILS_METIER: readonly ProfilMetier[] = [
     code: "DIRECTION_TECHNIQUE",
     libelle: "Direction Technique",
     usages: "Validation et arbitrage technique.",
+    // Le seul profil qui DESIGNE les validateurs, sur decision d'AGEROUTE du 13/10/2026.
+    // Le paragraphe 35 dit qu'un validateur est designe, pas par qui : cette ligne est la
+    // reponse, et elle est ici plutot que dans un controle de role parce qu'un controle de
+    // role l'accorderait aux cinq autres profils GESTIONNAIRE.
+    peutDeleguerValidation: true,
     role: "GESTIONNAIRE",
     // GESTIONNAIRE et non LECTEUR : `ROLES_VALIDATEURS` dans `governance/validation.ts`
     // n'admet que ADMIN et GESTIONNAIRE. Un profil dont l'usage est « validation » ne
@@ -199,8 +213,17 @@ export function profilParCode(code: string): ProfilMetier | undefined {
 export function effetDuProfil(profil: ProfilMetier): {
   role: RoleTechnique;
   modulesAutorises: ModuleKey[];
+  peutDeleguerValidation: boolean;
 } {
-  return { role: profil.role, modulesAutorises: [...profil.modules] };
+  return {
+    role: profil.role,
+    modulesAutorises: [...profil.modules],
+    // TOUJOURS pose, jamais omis. Omettre le `false` laisserait un compte conserver le
+    // droit de deleguer apres qu'on lui a applique un profil qui ne l'accorde pas — un
+    // privilege survivant a un changement de fonction, ce qui est exactement ce qu'un
+    // prereglage doit empecher.
+    peutDeleguerValidation: profil.peutDeleguerValidation === true,
+  };
 }
 
 /**

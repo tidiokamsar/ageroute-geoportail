@@ -1,3 +1,5 @@
+import { ROLES_VALIDATEURS } from "./validation";
+
 /**
  * La delegation de validation : qui est DESIGNE pour trancher, et sur quoi.
  *
@@ -209,4 +211,117 @@ export function domainesSansValidateur(
 export const EXPLICATIONS: Record<"HORS_DELEGATION", string> = {
   HORS_DELEGATION:
     "La validation de ce domaine est réservée aux personnes désignées, et vous ne l'êtes pas pour cette zone.",
+};
+
+// ===================== QUI PEUT DESIGNER =====================
+
+/**
+ * Qui a le droit de designer un validateur.
+ *
+ * LE PARAGRAPHE 35 NE LE DIT PAS
+ *
+ * Il dit « un validateur est designe pour chaque domaine », sans dire par qui. La
+ * decision revient a AGEROUTE, qui a tranche : la Direction Technique, dont l'usage au
+ * paragraphe 5 est « validation et arbitrage technique ».
+ *
+ * POURQUOI CE N'EST PAS UN CONTROLE DE ROLE
+ *
+ * « Direction Technique » est un PROFIL, et les profils ne persistent pas : appliquer un
+ * profil ecrit `role` et `modulesAutorises`, puis disparait (voir `lib/profils.ts`, et le
+ * refus delibere d'ajouter une colonne `profil`). Un profil applique puis modifie a la
+ * main ne doit pas continuer d'afficher un nom qui ne correspond plus.
+ *
+ * Et le role technique ne suffit pas : SIX profils sur onze sont GESTIONNAIRE. Ouvrir la
+ * delegation a tout GESTIONNAIRE la donnerait a l'Ingenieur reseau, a l'Entretien, a la
+ * Planification, au Coordonnateur et a l'Administrateur SIG — c'est-a-dire a presque tout
+ * le monde, ce qui vide la designation de son sens.
+ *
+ * Le droit de deleguer est donc un EFFET du profil, comme le role et les modules :
+ * `users.peutDeleguerValidation`. Durable, revocable, audite, et coherent avec
+ * l'architecture au lieu de la contredire.
+ */
+
+export type RefusDesignation =
+  | "DROIT_DE_DELEGUER_ABSENT"
+  | "AUTO_DESIGNATION"
+  | "VALIDATEUR_SANS_ROLE_VALIDATEUR"
+  | "PERIODE_INVALIDE";
+
+export interface DemandeDesignation {
+  /** Qui designe. */
+  delegantId: string;
+  delegantRole: string;
+  /** Le delegant porte-t-il le droit de deleguer ? ADMIN en est dispense. */
+  delegantPeutDeleguer: boolean;
+  /** Qui est designe. */
+  validateurId: string;
+  /** Son role technique : une designation inutilisable est une erreur, pas une option. */
+  validateurRole: string;
+  debutLe: Date;
+  finLe: Date | null;
+}
+
+/**
+ * Peut-on designer ce validateur, et sinon pourquoi.
+ *
+ * TROIS REFUS QUI MERITENT CHACUN LEUR RAISON
+ *
+ * L'AUTO-DESIGNATION est refusee. Sans cela, un delegant se designerait validateur sur
+ * les sept domaines et concentrerait l'arbitrage qu'on voulait repartir. L'auto-validation
+ * reste par ailleurs interdite, donc il ne pourrait pas valider ses propres releves — mais
+ * il pourrait valider tous les autres, seul, ce qui est precisement ce que la designation
+ * par domaine existe pour eviter.
+ *
+ * UN VALIDATEUR SANS ROLE DE VALIDATEUR est refuse. `ROLES_VALIDATEURS` n'admet que ADMIN
+ * et GESTIONNAIRE : designer un LECTEUR creerait une delegation qui ne servirait jamais,
+ * puisque le controle de role passe avant celui de la delegation. Elle aurait l'air de
+ * fonctionner dans l'interface et n'autoriserait rien. Une designation inutilisable est
+ * une erreur de configuration, pas une option.
+ *
+ * UNE PERIODE INVERSEE est refusee. Un terme anterieur au debut produit une delegation
+ * qui n'agit jamais : meme defaut, autre cause.
+ */
+export function designationPermise(
+  d: DemandeDesignation,
+): { permis: true } | { permis: false; motif: RefusDesignation } {
+  // ADMIN est dispense du droit explicite : il administre les comptes, donc il peut de
+  // toute facon se l'accorder. L'exiger n'ajouterait qu'une etape, pas une garantie.
+  if (d.delegantRole !== "ADMIN" && !d.delegantPeutDeleguer) {
+    return { permis: false, motif: "DROIT_DE_DELEGUER_ABSENT" };
+  }
+  if (d.delegantId === d.validateurId) {
+    return { permis: false, motif: "AUTO_DESIGNATION" };
+  }
+  if (!ROLES_VALIDATEURS.has(d.validateurRole)) {
+    return { permis: false, motif: "VALIDATEUR_SANS_ROLE_VALIDATEUR" };
+  }
+  if (d.finLe !== null && d.finLe <= d.debutLe) {
+    return { permis: false, motif: "PERIODE_INVALIDE" };
+  }
+  return { permis: true };
+}
+
+/**
+ * Qui peut revoquer une delegation.
+ *
+ * Un ADMIN revoque n'importe laquelle. Un delegant ne revoque que CELLES QU'IL A
+ * ACCORDEES : pouvoir defaire la designation d'un pair permettrait de vider un domaine
+ * de ses validateurs pour s'y substituer, sans jamais rien designer soi-meme.
+ */
+export function revocationPermise(
+  d: { revocateurId: string; revocateurRole: string; delegueParId: string },
+): boolean {
+  return d.revocateurRole === "ADMIN" || d.revocateurId === d.delegueParId;
+}
+
+/** Message destine a un administrateur, et non a un developpeur. */
+export const EXPLICATIONS_DESIGNATION: Record<RefusDesignation, string> = {
+  DROIT_DE_DELEGUER_ABSENT:
+    "Désigner un validateur relève de la Direction Technique ou d'un administrateur.",
+  AUTO_DESIGNATION:
+    "Nul ne peut se désigner validateur : la désignation répartit l'arbitrage, elle ne le concentre pas.",
+  VALIDATEUR_SANS_ROLE_VALIDATEUR:
+    "Ce compte ne peut pas valider : son rôle ne l'autorise pas, et la désignation resterait sans effet.",
+  PERIODE_INVALIDE:
+    "La fin de la période précède son début : cette désignation n'agirait jamais.",
 };

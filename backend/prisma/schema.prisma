@@ -259,32 +259,49 @@ enum DecompteStatut {
 // ===================== UTILISATEURS =====================
 
 model User {
-  id                    String                    @id @default(uuid())
-  email                 String                    @unique
-  nomComplet            String
-  passwordHash          String
-  role                  Role                      @default(LECTEUR)
-  actif                 Boolean                   @default(true)
-  derniereConnexion     DateTime?
-  totpSecret            String?
-  totpEnabled           Boolean                   @default(false)
-  failedLoginAttempts   Int                       @default(0)
-  lockedUntil           DateTime?
+  id                  String    @id @default(uuid())
+  email               String    @unique
+  nomComplet          String
+  passwordHash        String
+  role                Role      @default(LECTEUR)
+  actif               Boolean   @default(true)
+  derniereConnexion   DateTime?
+  totpSecret          String?
+  totpEnabled         Boolean   @default(false)
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
   // Tableau vide = pas de restriction (accès à tous les modules autorisés par le rôle,
   // comportement historique). Une fois renseigné, seuls les modules listés sont visibles
   // pour cet utilisateur, quel que soit son rôle — permet de retirer l'accès à un module
   // précis sans changer le rôle global.
-  modulesAutorises      String[]                  @default([])
-  refreshTokens         RefreshToken[]
-  auditLogs             AuditLog[]
-  inspections           Inspection[]
-  otsAssignes           OrdreTravaux[]            @relation("OtAssigne")
-  otsCrees              OrdreTravaux[]            @relation("OtCreateur")
-  otPhotos              OtPhoto[]
-  otHistoriques         OtHistorique[]
-  signalementsQualifies SignalementCitoyen[]
-  valeursConstatees     ValeurQualite[]
-  propositionsDecidees  PropositionLocalisation[]
+  modulesAutorises    String[]  @default([])
+
+  /// Droit de DESIGNER un validateur (paragraphe 35 du cahier).
+  ///
+  /// POURQUOI UN DROIT ET NON UN ROLE
+  ///
+  /// AGEROUTE a confie la designation a la Direction Technique. Mais « Direction
+  /// Technique » est un PROFIL, et les profils ne persistent pas : appliquer un profil
+  /// ecrit `role` et `modulesAutorises`, puis disparait (voir `lib/profils.ts`).
+  ///
+  /// Et le role technique ne suffit pas : six profils sur onze sont GESTIONNAIRE. Ouvrir
+  /// la delegation a tout GESTIONNAIRE la donnerait a presque tout le monde, ce qui vide
+  /// la designation de son sens.
+  ///
+  /// Le droit est donc un EFFET du profil, au meme titre que le role et les modules :
+  /// durable, revocable, audite. Un ADMIN en est dispense — il administre les comptes,
+  /// donc il peut de toute facon se l'accorder.
+  peutDeleguerValidation Boolean                   @default(false)
+  refreshTokens          RefreshToken[]
+  auditLogs              AuditLog[]
+  inspections            Inspection[]
+  otsAssignes            OrdreTravaux[]            @relation("OtAssigne")
+  otsCrees               OrdreTravaux[]            @relation("OtCreateur")
+  otPhotos               OtPhoto[]
+  otHistoriques          OtHistorique[]
+  signalementsQualifies  SignalementCitoyen[]
+  valeursConstatees      ValeurQualite[]
+  propositionsDecidees   PropositionLocalisation[]
 
   // Terrain (AGEROUTE ROAD). Un agent possede des appareils, recoit et cree des
   // missions, enregistre des traces, produit des observations et en valide.

@@ -108,16 +108,80 @@ que cette table existe pour conserver.
 | Observations, tronçons, ouvrages, points noirs, postes, chantiers | **ne consultent pas encore** |
 | Table + migration | écrites, **non appliquées** |
 | Visibilité de l'état de gouvernance | `GET /api/admin/gouvernance/validation` |
-| API de création et révocation d'une délégation | **absente** |
+| API de création et révocation d'une délégation | fait |
 | Interface | **absente** |
 
 La table est donc vide à la sortie, et le comportement est inchangé : sept domaines non
 désignés, règle d'avant partout.
 
-**Ce qui manque le plus est l'API de désignation.** Sans elle, une délégation ne peut
-naître que par un `INSERT` manuel — ce qui est acceptable pour éprouver la règle, pas pour
-exploiter. Et elle pose sa propre question de gouvernance : **qui a le droit de déléguer ?**
-Le §35 dit qu'un validateur est désigné, pas par qui. Dans le code, seul `ADMIN` paraît
-défendable par défaut, mais la Direction Technique — dont l'usage est « validation et
-arbitrage technique » — est le candidat naturel. C'est le sixième arbitrage, et il naît de
-celui-ci.
+## L'API de désignation — 13/10/2026
+
+**Qui a le droit de déléguer : la Direction Technique**, sur décision d'AGEROUTE. Le §35
+disait qu'un validateur est désigné, pas par qui.
+
+### Pourquoi ce n'est pas un contrôle de rôle
+
+« Direction Technique » est un **profil**, et les profils ne persistent pas : appliquer un
+profil écrit `role` et `modulesAutorises`, puis disparaît. C'était un choix délibéré — un
+profil appliqué puis modifié à la main ne doit pas continuer d'afficher un nom qui ne
+correspond plus.
+
+Et le rôle technique ne suffit pas : **six profils sur onze sont `GESTIONNAIRE`**. Ouvrir
+la désignation à tout `GESTIONNAIRE` la donnerait à l'Ingénieur réseau, à l'Entretien, à la
+Planification, au Coordonnateur et à l'Administrateur SIG — presque tout le monde, ce qui
+vide la désignation de son sens.
+
+Le droit est donc un **effet du profil**, au même titre que le rôle et les modules :
+`users.peutDeleguerValidation`. Durable, révocable, audité, et cohérent avec
+l'architecture au lieu de la contredire. Un `ADMIN` en est dispensé — il administre les
+comptes, donc il peut de toute façon se l'accorder.
+
+**`effetDuProfil` pose toujours ce droit, même à `false`.** L'omettre laisserait un compte
+le conserver après qu'on lui a appliqué un profil qui ne l'accorde pas : un privilège
+survivant à un changement de fonction, ce qu'un préréglage doit empêcher.
+
+### Les routes ne sont pas sur le routeur d'administration
+
+`adminSettingsRouter` pose `requireRole("ADMIN")` sur tout ce qu'il porte. Les y placer
+reviendrait à refuser la décision qu'on vient de prendre : la Direction Technique n'est pas
+administrateur. Elles vivent donc sous `/api/gouvernance`, derrière `requireAuth`, et
+vérifient le droit elles-mêmes.
+
+| Route | |
+|---|---|
+| `GET /api/gouvernance/delegations` | la liste, historique compris |
+| `POST /api/gouvernance/delegations` | désigner |
+| `POST /api/gouvernance/delegations/:id/revocation` | révoquer |
+
+### Trois refus qui méritaient chacun leur raison
+
+**L'auto-désignation** est refusée. Un délégant qui se désigne sur les sept domaines
+concentrerait l'arbitrage qu'on voulait répartir. L'auto-validation reste par ailleurs
+interdite, donc il ne pourrait pas valider ses propres relevés — mais il pourrait valider
+**tous les autres, seul**, ce que la désignation par domaine existe précisément pour éviter.
+
+**Désigner un compte qui ne peut pas valider** est refusé. `ROLES_VALIDATEURS` n'admet que
+`ADMIN` et `GESTIONNAIRE` : désigner un `LECTEUR` créerait une délégation qui ne servirait
+jamais, puisque le contrôle de rôle passe avant celui de la délégation. Elle aurait l'air
+de fonctionner dans l'interface et n'autoriserait rien. Une désignation inutilisable est
+une erreur de configuration, pas une option.
+
+**Révoquer la désignation d'un pair** est refusé à un délégant — un `ADMIN` le peut.
+Pouvoir défaire celle d'un autre permettrait de vider un domaine de ses validateurs pour
+s'y substituer, sans jamais rien désigner soi-même.
+
+### La liste est restreinte, pour la raison qui a déjà servi
+
+Elle dit qui est désigné. Rapprochée des sept domaines connus, elle dit aussi **où personne
+ne l'est** — la même carte des points faibles que j'ai refusé de publier sur `/api/health`.
+La restreindre là et pas ici l'aurait rendue accessible à tout compte authentifié. Elle
+exige donc le même droit que la désignation.
+
+### Ce qui reste
+
+L'interface. Et l'extension aux six autres domaines : seule la route de décision des
+défauts consulte les délégations.
+
+La migration du droit est additive et **ne change aucun comportement** : personne ne le
+porte à la sortie, donc seul un `ADMIN` peut désigner — ce qui était déjà le cas, la table
+des délégations étant vide.

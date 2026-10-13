@@ -157,15 +157,35 @@ describe("Ce qui reste a arbitrer est DIT, pas enterre", () => {
   });
 });
 
-describe("Un profil n'est qu'un prereglage de deux champs", () => {
-  it("rend le role et les modules, et rien d'autre", () => {
+describe("Un profil n'est qu'un prereglage de champs qui existent deja", () => {
+  it("rend le role, les modules et le droit de deleguer, et rien d'autre", () => {
     // Aucune colonne `profil` n'est ajoutee au modele : un profil applique puis modifie a
     // la main ne doit pas continuer d'afficher un nom qui ne correspond plus a ce que le
-    // compte peut faire.
+    // compte peut faire. Le droit de deleguer a rejoint cette liste le 13/10/2026, pour la
+    // meme raison : c'est un effet durable, pas une etiquette.
     const effet = effetDuProfil(profilParCode("AGENT_TERRAIN")!);
-    expect(Object.keys(effet).sort()).toEqual(["modulesAutorises", "role"]);
+    expect(Object.keys(effet).sort()).toEqual([
+      "modulesAutorises", "peutDeleguerValidation", "role",
+    ]);
     expect(effet.role).toBe("INSPECTEUR");
     expect(effet.modulesAutorises).toContain("inspections");
+  });
+
+  it("n'accorde le droit de DESIGNER qu'a la Direction Technique", () => {
+    // Le paragraphe 35 dit qu'un validateur est designe, pas par qui. AGEROUTE a tranche
+    // le 13/10/2026. Ce test empeche le droit de se repandre : six profils sur onze sont
+    // GESTIONNAIRE, et un controle de role l'aurait donne a tous.
+    const avecDroit = PROFILS_METIER.filter((p) => p.peutDeleguerValidation === true);
+    expect(avecDroit.map((p) => p.code)).toEqual(["DIRECTION_TECHNIQUE"]);
+  });
+
+  it("POSE TOUJOURS le droit, meme a false", () => {
+    // Le cas qui compte. Omettre le `false` laisserait un compte conserver le droit de
+    // deleguer apres qu'on lui a applique un profil qui ne l'accorde pas — un privilege
+    // survivant a un changement de fonction, ce qu'un prereglage doit empecher.
+    expect(effetDuProfil(profilParCode("AGENT_TERRAIN")!).peutDeleguerValidation).toBe(false);
+    expect(effetDuProfil(profilParCode("AUDITEUR")!).peutDeleguerValidation).toBe(false);
+    expect(effetDuProfil(profilParCode("DIRECTION_TECHNIQUE")!).peutDeleguerValidation).toBe(true);
   });
 
   it("rend une COPIE des modules, pas la liste partagee", () => {

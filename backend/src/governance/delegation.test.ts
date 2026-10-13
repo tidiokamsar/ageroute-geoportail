@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   delegationEnVigueur, delegationCouvre, validationDeleguee, domainesSansValidateur,
-  domaineDeLEntite, DOMAINES_VALIDATION, EXPLICATIONS,
-  type Delegation,
+  domaineDeLEntite, designationPermise, revocationPermise,
+  DOMAINES_VALIDATION, EXPLICATIONS, EXPLICATIONS_DESIGNATION,
+  type Delegation, type DemandeDesignation, type RefusDesignation,
 } from "./delegation";
 import { ENTITES_VALIDABLES } from "./validation";
 
@@ -214,5 +215,124 @@ describe("Le refus s'explique a un agent, pas a un developpeur", () => {
     expect(EXPLICATIONS.HORS_DELEGATION.length).toBeGreaterThan(20);
     expect(EXPLICATIONS.HORS_DELEGATION).not.toMatch(/_|\bundefined\b|\bnull\b|[A-Z]{4,}/);
     expect(EXPLICATIONS.HORS_DELEGATION).toMatch(/désign/i);
+  });
+});
+
+describe("Qui peut DESIGNER un validateur", () => {
+  /**
+   * Le paragraphe 35 dit qu'un validateur est designe, PAS PAR QUI. AGEROUTE a tranche le
+   * 13/10/2026 : la Direction Technique, dont l'usage au paragraphe 5 est « validation et
+   * arbitrage technique ».
+   *
+   * Ce n'est pas un controle de role, et c'est le point a defendre : six profils sur onze
+   * sont GESTIONNAIRE. Ouvrir la designation a tout GESTIONNAIRE la donnerait a
+   * l'Ingenieur reseau, a l'Entretien, a la Planification, au Coordonnateur et a
+   * l'Administrateur SIG — c'est-a-dire a presque tout le monde, ce qui vide la
+   * designation de son sens.
+   */
+  const dd = (p: Partial<DemandeDesignation> = {}): DemandeDesignation => ({
+    delegantId: "direction-1",
+    delegantRole: "GESTIONNAIRE",
+    delegantPeutDeleguer: true,
+    validateurId: "gestionnaire-2",
+    validateurRole: "GESTIONNAIRE",
+    debutLe: new Date("2026-10-13T00:00:00.000Z"),
+    finLe: null,
+    ...p,
+  });
+
+  it("laisse designer qui porte le droit", () => {
+    expect(designationPermise(dd())).toEqual({ permis: true });
+  });
+
+  it("REFUSE un gestionnaire qui ne porte pas le droit", () => {
+    // Sans cela, cinq autres profils GESTIONNAIRE designeraient des validateurs.
+    expect(designationPermise(dd({ delegantPeutDeleguer: false })))
+      .toEqual({ permis: false, motif: "DROIT_DE_DELEGUER_ABSENT" });
+  });
+
+  it("dispense l'ADMIN du droit explicite", () => {
+    // Il administre les comptes, donc il peut de toute facon se l'accorder : l'exiger
+    // n'ajouterait qu'une etape, pas une garantie.
+    expect(designationPermise(dd({ delegantRole: "ADMIN", delegantPeutDeleguer: false })).permis).toBe(true);
+  });
+
+  it("REFUSE L'AUTO-DESIGNATION", () => {
+    // Un delegant qui se designe sur les sept domaines concentrerait l'arbitrage qu'on
+    // voulait repartir. L'auto-validation reste par ailleurs interdite, donc il ne
+    // pourrait pas valider ses propres releves — mais il pourrait valider TOUS LES
+    // AUTRES, seul, ce qui est exactement ce que la designation par domaine evite.
+    expect(designationPermise(dd({ validateurId: "direction-1" })))
+      .toEqual({ permis: false, motif: "AUTO_DESIGNATION" });
+  });
+
+  it("REFUSE de designer un compte qui ne peut pas valider", () => {
+    // `ROLES_VALIDATEURS` n'admet que ADMIN et GESTIONNAIRE. Designer un LECTEUR creerait
+    // une delegation qui ne servirait JAMAIS, puisque le controle de role passe avant
+    // celui de la delegation : elle aurait l'air de fonctionner et n'autoriserait rien.
+    for (const role of ["LECTEUR", "INSPECTEUR"]) {
+      expect(designationPermise(dd({ validateurRole: role })), role)
+        .toEqual({ permis: false, motif: "VALIDATEUR_SANS_ROLE_VALIDATEUR" });
+    }
+  });
+
+  it("accepte de designer un ADMIN comme validateur", () => {
+    expect(designationPermise(dd({ validateurRole: "ADMIN" })).permis).toBe(true);
+  });
+
+  it("refuse une periode inversee", () => {
+    // Meme defaut que la designation inutilisable, autre cause : une delegation qui
+    // n'agit jamais.
+    expect(designationPermise(dd({
+      debutLe: new Date("2026-12-01T00:00:00.000Z"),
+      finLe: new Date("2026-11-01T00:00:00.000Z"),
+    }))).toEqual({ permis: false, motif: "PERIODE_INVALIDE" });
+  });
+
+  it("refuse un terme egal au debut", () => {
+    const t = new Date("2026-12-01T00:00:00.000Z");
+    expect(designationPermise(dd({ debutLe: t, finLe: t })).permis).toBe(false);
+  });
+
+  it("nomme le droit manquant AVANT l'auto-designation", () => {
+    // Qui n'a pas le droit de deleguer n'a pas a apprendre qu'il aurait pu, mais pas sur
+    // lui-meme.
+    expect(designationPermise(dd({ delegantPeutDeleguer: false, validateurId: "direction-1" })))
+      .toEqual({ permis: false, motif: "DROIT_DE_DELEGUER_ABSENT" });
+  });
+});
+
+describe("Qui peut REVOQUER une delegation", () => {
+  it("laisse un ADMIN revoquer n'importe laquelle", () => {
+    expect(revocationPermise({
+      revocateurId: "admin-1", revocateurRole: "ADMIN", delegueParId: "direction-1",
+    })).toBe(true);
+  });
+
+  it("laisse un delegant revoquer CELLES QU'IL A ACCORDEES", () => {
+    expect(revocationPermise({
+      revocateurId: "direction-1", revocateurRole: "GESTIONNAIRE", delegueParId: "direction-1",
+    })).toBe(true);
+  });
+
+  it("REFUSE a un delegant de defaire la designation d'un pair", () => {
+    // Pouvoir defaire celle d'un autre permettrait de vider un domaine de ses validateurs
+    // pour s'y substituer, sans jamais rien designer soi-meme.
+    expect(revocationPermise({
+      revocateurId: "direction-2", revocateurRole: "GESTIONNAIRE", delegueParId: "direction-1",
+    })).toBe(false);
+  });
+});
+
+describe("Les refus de designation s'expliquent a un administrateur", () => {
+  it("donne un message pour chaque motif", () => {
+    const motifs: RefusDesignation[] = [
+      "DROIT_DE_DELEGUER_ABSENT", "AUTO_DESIGNATION",
+      "VALIDATEUR_SANS_ROLE_VALIDATEUR", "PERIODE_INVALIDE",
+    ];
+    for (const m of motifs) {
+      expect(EXPLICATIONS_DESIGNATION[m].length, m).toBeGreaterThan(30);
+      expect(EXPLICATIONS_DESIGNATION[m], m).not.toMatch(/_|undefined|null|[A-Z]{4,}/);
+    }
   });
 });
