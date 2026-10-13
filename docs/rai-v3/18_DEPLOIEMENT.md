@@ -1,9 +1,41 @@
-# Déploiement du socle terrain — ce qui est prêt, ce qui bloque
+# Déploiement du socle terrain
 
-Préparé le 13/10/2026. **Rien n'a été déployé, et rien ne peut l'être depuis ce poste.**
+Préparé puis **exécuté le 13/10/2026**, sur validation humaine explicite de la DSI
+(`AGENTS.md` règle 5). Ce qui suit est à la fois le compte rendu et la méthode à reprendre.
 
-`AGENTS.md` règle 5 : ne pas déployer depuis ce dépôt sans validation humaine explicite.
-Ce document est la préparation ; la décision reste la vôtre, et deux points la précèdent.
+## Compte rendu du déploiement du 13/10/2026
+
+Commit déployé : **`d5a069f`**, transféré par `git archive` de l'état commité.
+
+| Étape | Résultat |
+|---|---|
+| Purge du cache de construction | 90 % → 82 %, 17 Go libres |
+| Sauvegarde avant déploiement | dump horodaté, 279 Mo, relu pour vérifier sa lisibilité |
+| Instantané du répertoire déployé | archive horodatée, 1,8 Mo |
+| Transfert | 669 entrées, aucun `.env` dans l'archive |
+| Les deux `.env` après extraction | **empreintes identiques** |
+| Syntaxe nginx | valide (`host not found in upstream` attendu hors réseau Compose) |
+| Construction | backend et frontend construits, base **non touchée** |
+| `migrate deploy` | **les 6 migrations appliquées** |
+| Tronçons / ouvrages / audits | **261 387 / 1 172 / 1 488 — inchangés** |
+| Statuts écrits, droits accordés | **0 / 0** : les migrations étaient bien additives |
+| Nouvelles tables | 8 sur 8 |
+| `audit.echecsDepuisDemarrage` | **0** avant, **0** après |
+| `https://carte.ageroute.gov.gn/` | HTTP 200 en 0,53 s |
+| Erreurs dans les journaux | **0** backend, **0** frontend |
+
+**La construction a consommé environ 6 Go** (17 → 11 Go libres). À 7,9 Go, c'était joué de
+justesse : la purge n'était pas une précaution de confort.
+
+Retour arrière disponible sur le serveur : l'instantané du répertoire déployé et le dump
+d'avant déploiement, conservés hors du répertoire de déploiement.
+
+**La règle RCI n'a pas été peuplée.** `npm run condition:regle:seed` reste à votre main ;
+tant qu'aucune règle n'existe, aucun score n'est calculable, ce qui est un état tenable.
+
+---
+
+## La méthode, pour la prochaine fois
 
 ## L'écart à déployer, mesuré
 
@@ -31,7 +63,7 @@ l'est pas. Le déploiement porte donc six migrations.
 
 ## Mesuré sur la production le 13/10/2026
 
-Relevé en lecture seule sur l'hôte `gec`, conteneurs `console-bdri-*`.
+Relevé en lecture seule sur le serveur de production.
 
 | | |
 |---|---|
@@ -118,7 +150,7 @@ cloné avec `autocrlf=true` donnerait un écart sans qu'un seul caractère ait c
 que personne n'écrit ne coûte rien — mais le retour arrière ne rend pas la base à son état
 d'origine au sens strict, et l'inverse serait faux.
 
-## Le banc d'essai — PASSÉ le 13/10/2026 sur `gec`
+## Le banc d'essai — PASSÉ le 13/10/2026 sur le serveur
 
 Exécuté sur la sauvegarde chiffrée de 03:00, dans un conteneur jetable, sans toucher la
 base de production :
@@ -175,8 +207,9 @@ Infrastructure   IGNORE  nginx : Docker injoignable, syntaxe non verifiee
 Securite         OK    aucun fichier sensible suivi par Git
 ```
 
-**Le contrôle nginx reste à faire** : il exige Docker, qui ne tourne pas sur ce poste. Une
-erreur de syntaxe y met le site hors ligne, donc ce n'est pas un contrôle optionnel.
+**Le contrôle nginx a été fait sur le serveur**, où Docker tourne : syntaxe valide. Il ne
+peut pas l'être depuis un poste Windows sans Docker, et une erreur y met le site hors ligne
+— ce n'est donc pas un contrôle optionnel, c'est un contrôle à faire ailleurs.
 
 > Ce script répondait d'abord `ECHEC nginx — NE PAS LIVRER`. À tort : sa liste de messages
 > d'erreur avait été écrite d'après Docker sous Linux, et Docker Desktop sous Windows dit
@@ -188,7 +221,7 @@ erreur de syntaxe y met le site hors ligne, donc ce n'est pas un contrôle optio
 
 ## L'ordre
 
-0. **Faire de la place.** `docker builder prune` sur `gec`. À 7,9 Go libres, une
+0. **Faire de la place.** `docker builder prune` sur le serveur. À 7,9 Go libres, une
    construction peut remplir le disque d'un hôte qui porte dix services.
 1. **Vérifier la restauration de la sauvegarde du jour.** Une archive existe déjà, chiffrée,
    de 03:00. `infra/backup/verifier-restauration-bdri.sh` suffit donc : une sauvegarde jamais
@@ -208,6 +241,26 @@ erreur de syntaxe y met le site hors ligne, donc ce n'est pas un contrôle optio
 8. Rien n'oblige à peupler la règle RCI. `npm run condition:regle:seed` crée
    `rci-2026.1` **non approuvée** ; tant qu'elle n'existe pas, aucun score n'est calculable,
    ce qui est un état parfaitement tenable.
+
+## Une leçon de procédure : le répertoire déployé n'est pas un dépôt git
+
+Le déploiement se fait par **transfert de fichiers**, pas par `git pull`, et l'extraction a
+lieu **en place** — les droits sur le serveur ne permettent pas la méthode du répertoire
+jumeau que l'on bascule.
+
+Cela paraissait risqué : des fichiers périmés pouvaient survivre et casser la compilation.
+La mesure a écarté la crainte, `git diff --name-status main...HEAD` ne rapportant **aucune
+suppression** — il n'y avait rien à retirer. À revérifier avant chaque déploiement, parce
+que la réponse changera.
+
+Deux points de vigilance qui ne changeront pas :
+
+- **Le nom du répertoire de déploiement ne doit pas changer.** Le nom du projet Compose en
+  dérive, et les noms de volumes avec lui. Un répertoire renommé donnerait un nouveau
+  projet Compose, donc des volumes **vides** : une base neuve à la place de la production.
+- **Les deux `.env` ne sont pas dans Git** et ne doivent jamais être supprimés par le
+  transfert. `git archive` ne les contient pas, ce qui protège par construction ; leurs
+  empreintes se vérifient avant et après.
 
 ## Ce que le déploiement ne change pas
 
