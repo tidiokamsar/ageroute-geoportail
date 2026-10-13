@@ -2149,6 +2149,21 @@ model RegleCondition {
   /// ce qui n'est pas la meme chose que savoir qu'elle est mauvaise.
   normalisation Json @default("{}")
 
+  /// Classes de score, de la meilleure a la pire.
+  ///
+  /// L'ADR notait l'absence de `classe` faute de seuils arbitres. AGEROUTE les a donnes le
+  /// 13/10/2026 : 90-100 excellent, 75-89 bon, 60-74 acceptable, 40-59 degrade, 20-39
+  /// mauvais, 0-19 critique.
+  ///
+  /// ELLES VIVENT DANS LA REGLE, comme les poids et la normalisation, parce qu'un seuil
+  /// deplace fait changer de classe une partie du reseau sans que son score bouge. Un
+  /// troncon a 74 est « acceptable » et a 75 « bon » : la frontiere est une decision, et
+  /// elle doit porter la version sous laquelle elle a ete prise.
+  ///
+  /// FORME : [{ "min": 0, "max": 19, "code": "CRITIQUE", "libelle": "Critique" }, ...]
+  /// Un score hors de toute classe ne recoit AUCUNE classe, jamais la plus proche.
+  classes Json @default("[]")
+
   /// Pourquoi cette version existe, et sur quoi elle a ete calibree.
   motif String?
 

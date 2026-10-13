@@ -52,6 +52,42 @@ import { logAuditTransactionnelle } from "../src/utils/audit";
 
 const VERSION = "rci-2026.1";
 
+/**
+ * Correspondance etat-vers-score, DONNEE PAR AGEROUTE le 13/10/2026.
+ *
+ * Ces quatre nombres etaient mes valeurs d'essai, reprises telles quelles par la DSI : ce
+ * sont donc desormais sa decision, et non une proposition de ma part. La difference compte
+ * pour qui relira ce fichier.
+ *
+ * `NON_EVALUE` EST DELIBEREMENT ABSENT, et c'est le point le plus important de cette table.
+ *
+ * `EtatPatrimoine` porte cinq valeurs ; quatre sont ici. `NON_EVALUE` n'est pas un etat,
+ * c'est son ABSENCE : lui donner un nombre ferait entrer 254 547 troncons dans le calcul
+ * avec une valeur que personne n'a constatee. Son omission rend la composante CHAUSSEE
+ * absente, le moteur renormalise sans elle, et le score dit honnetement qu'il porte sur
+ * moins que le modele.
+ */
+const NORMALISATION = {
+  CHAUSSEE: { BON: 90, MOYEN: 65, MAUVAIS: 35, CRITIQUE: 10 },
+  OUVRAGES: { BON: 90, MOYEN: 65, MAUVAIS: 35, CRITIQUE: 10 },
+} as const;
+
+/**
+ * Classes de score, DONNEES PAR AGEROUTE dans l'addendum V4.1.
+ *
+ * Bornes INCLUSIVES des deux cotes, comme l'addendum les enonce : « 90-100 », « 75-89 ».
+ * Les traduire en intervalles semi-ouverts aurait decale chaque frontiere d'un point sans
+ * que personne le voie.
+ */
+const CLASSES = [
+  { min: 90, max: 100, code: "EXCELLENT", libelle: "Excellent" },
+  { min: 75, max: 89, code: "BON", libelle: "Bon" },
+  { min: 60, max: 74, code: "ACCEPTABLE", libelle: "Acceptable" },
+  { min: 40, max: 59, code: "DEGRADE", libelle: "Dégradé" },
+  { min: 20, max: 39, code: "MAUVAIS", libelle: "Mauvais" },
+  { min: 0, max: 19, code: "CRITIQUE", libelle: "Critique" },
+] as const;
+
 /** Les huit composantes du paragraphe 13, dans son ordre et avec ses pourcentages. */
 const POIDS_INDICATIFS = {
   CHAUSSEE: 30,
@@ -94,6 +130,8 @@ async function main() {
       data: {
         version: VERSION,
         poids: POIDS_INDICATIFS,
+        normalisation: NORMALISATION,
+        classes: CLASSES,
         fraicheurMaxJours: 365,
         confiancesAcceptees: ["HIGH", "MEDIUM"],
         couvertureMinimale: 0.5,
@@ -120,6 +158,15 @@ async function main() {
   console.log(
     "  TRAFIC (10 %) sera exclu de chaque score : aucun tronçon ne porte de donnée de trafic.",
   );
+  console.log("  Correspondance état vers score : BON 90, MOYEN 65, MAUVAIS 35, CRITIQUE 10.");
+  console.log("  NON_EVALUE est volontairement ABSENT : c'est une absence d'état, pas un état.");
+  console.log("  Six classes de 0 à 100, bornes inclusives.");
+  console.log("");
+  console.log("  CE QUE CETTE RÈGLE PRODUIRA AUJOURD'HUI : AUCUN SCORE.");
+  console.log("  Mesure du 13/10/2026 : la couverture maximale atteignable est 0,45, sur SIX");
+  console.log("  tronçons (chaussée 30 + ouvrage 15). 6 834 autres n'atteignent que 0,30.");
+  console.log("  Avec couvertureMinimale à 0,5, le moteur refuse donc tout score — ce qui est");
+  console.log("  le comportement correct, et dit que le verrou est la COLLECTE, pas la règle.");
 }
 
 main()

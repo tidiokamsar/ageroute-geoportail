@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   calculerRci, motifExclusion, confianceDuScore, COMPOSANTES_RCI,
   type RegleRci, type EntreeComposante, type ComposanteRci,
-} from "./condition";
+  classerScore,
+  refusClasses,
+  type ClasseRci,} from "./condition";
 
 /**
  * Le Condition Engine : ce que ces tests défendent.
@@ -254,5 +256,113 @@ describe("Le score s'explique composante par composante", () => {
     );
     const somme = r.composantes.reduce((s, c) => s + c.contribution, 0);
     expect(Math.abs(somme - (r.score as number))).toBeLessThan(0.05);
+  });
+});
+
+describe("Classer un score, avec les seuils d'AGEROUTE", () => {
+  /** Les six classes de l'addendum V4.1, bornes inclusives des deux côtés. */
+  const CLASSES: ClasseRci[] = [
+    { min: 90, max: 100, code: "EXCELLENT", libelle: "Excellent" },
+    { min: 75, max: 89, code: "BON", libelle: "Bon" },
+    { min: 60, max: 74, code: "ACCEPTABLE", libelle: "Acceptable" },
+    { min: 40, max: 59, code: "DEGRADE", libelle: "Dégradé" },
+    { min: 20, max: 39, code: "MAUVAIS", libelle: "Mauvais" },
+    { min: 0, max: 19, code: "CRITIQUE", libelle: "Critique" },
+  ];
+
+  it("classe chaque BORNE exactement, des deux côtés", () => {
+    // Les seuils sont donnés « 90-100 », « 75-89 » : inclusifs. Les traduire en intervalles
+    // semi-ouverts aurait décalé chaque frontière d'un point sans que personne le voie.
+    expect(classerScore(100, CLASSES)?.code).toBe("EXCELLENT");
+    expect(classerScore(90, CLASSES)?.code).toBe("EXCELLENT");
+    expect(classerScore(89, CLASSES)?.code).toBe("BON");
+    expect(classerScore(75, CLASSES)?.code).toBe("BON");
+    expect(classerScore(74, CLASSES)?.code).toBe("ACCEPTABLE");
+    expect(classerScore(60, CLASSES)?.code).toBe("ACCEPTABLE");
+    expect(classerScore(59, CLASSES)?.code).toBe("DEGRADE");
+    expect(classerScore(40, CLASSES)?.code).toBe("DEGRADE");
+    expect(classerScore(39, CLASSES)?.code).toBe("MAUVAIS");
+    expect(classerScore(20, CLASSES)?.code).toBe("MAUVAIS");
+    expect(classerScore(19, CLASSES)?.code).toBe("CRITIQUE");
+    expect(classerScore(0, CLASSES)?.code).toBe("CRITIQUE");
+  });
+
+  it("ne classe PAS un refus de scorer", () => {
+    // Le test le plus important de ce bloc. Donner « critique » à un score nul
+    // transformerait un manque de données en mauvaise nouvelle sur la route, et c'est la
+    // confusion la plus coûteuse que ce module puisse produire.
+    expect(classerScore(null, CLASSES)).toBeNull();
+  });
+
+  it("ne classe PAS un score hors de toute classe, au lieu de prendre la plus proche", () => {
+    // Un score classé par approximation aurait l'air juste. Le refus rend le défaut visible.
+    expect(classerScore(101, CLASSES)).toBeNull();
+    expect(classerScore(-1, CLASSES)).toBeNull();
+    expect(classerScore(Number.NaN, CLASSES)).toBeNull();
+  });
+
+  it("ne classe rien quand la règle ne porte aucune classe", () => {
+    expect(classerScore(65, [])).toBeNull();
+  });
+});
+
+describe("La table de classes est-elle bien formée ?", () => {
+  const BONNES: ClasseRci[] = [
+    { min: 0, max: 19, code: "A", libelle: "A" },
+    { min: 20, max: 59, code: "B", libelle: "B" },
+    { min: 60, max: 100, code: "C", libelle: "C" },
+  ];
+
+  it("accepte une table qui couvre 0 à 100 sans trou", () => {
+    expect(refusClasses(BONNES)).toBeNull();
+  });
+
+  it("REFUSE un trou entre deux classes", () => {
+    // Un trou laisserait des scores sans classe, sans que rien ne le signale.
+    expect(refusClasses([
+      { min: 0, max: 19, code: "A", libelle: "A" },
+      { min: 25, max: 100, code: "B", libelle: "B" },
+    ])).toBe("TROU_ENTRE_CLASSES");
+  });
+
+  it("REFUSE un recouvrement", () => {
+    // Un recouvrement rendrait la première classe trouvée, donc dépendante de l'ordre de
+    // déclaration — invisible et arbitraire.
+    expect(refusClasses([
+      { min: 0, max: 50, code: "A", libelle: "A" },
+      { min: 40, max: 100, code: "B", libelle: "B" },
+    ])).toBe("CLASSES_QUI_SE_RECOUVRENT");
+  });
+
+  it("REFUSE une table qui ne couvre pas tout l'intervalle du score", () => {
+    expect(refusClasses([{ min: 10, max: 100, code: "A", libelle: "A" }])).toBe("NE_COMMENCE_PAS_A_ZERO");
+    expect(refusClasses([{ min: 0, max: 90, code: "A", libelle: "A" }])).toBe("NE_FINIT_PAS_A_CENT");
+  });
+
+  it("REFUSE des bornes inversées, hors intervalle, ou non numériques", () => {
+    expect(refusClasses([{ min: 50, max: 10, code: "A", libelle: "A" }])).toBe("BORNES_INVERSEES");
+    expect(refusClasses([{ min: 0, max: 150, code: "A", libelle: "A" }])).toBe("HORS_INTERVALLE_DU_SCORE");
+    expect(refusClasses([{ min: Number.NaN, max: 100, code: "A", libelle: "A" }])).toBe("BORNES_NON_NUMERIQUES");
+  });
+
+  it("REFUSE une classe sans code ni libellé", () => {
+    expect(refusClasses([{ min: 0, max: 100, code: "", libelle: "A" }])).toBe("CLASSE_SANS_CODE_NI_LIBELLE");
+  });
+
+  it("REFUSE une table vide", () => {
+    expect(refusClasses([])).toBe("AUCUNE_CLASSE");
+  });
+
+  it("valide les SIX classes réelles d'AGEROUTE", () => {
+    // Le contrôle qui compte : les seuils donnés le 13/10/2026 couvrent-ils bien 0 à 100
+    // sans trou ni recouvrement ? Oui.
+    expect(refusClasses([
+      { min: 90, max: 100, code: "EXCELLENT", libelle: "Excellent" },
+      { min: 75, max: 89, code: "BON", libelle: "Bon" },
+      { min: 60, max: 74, code: "ACCEPTABLE", libelle: "Acceptable" },
+      { min: 40, max: 59, code: "DEGRADE", libelle: "Dégradé" },
+      { min: 20, max: 39, code: "MAUVAIS", libelle: "Mauvais" },
+      { min: 0, max: 19, code: "CRITIQUE", libelle: "Critique" },
+    ])).toBeNull();
   });
 });

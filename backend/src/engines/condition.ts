@@ -368,3 +368,69 @@ export function calculerRci(
       + `Confiance ${confiance}. ${manquantes.length === 0 ? resume : `Manquant : ${resume}.`}`,
   };
 }
+
+/**
+ * Une classe de score, telle que la regle la declare.
+ *
+ * `min` et `max` sont INCLUSIFS tous les deux. Les seuils d'AGEROUTE sont donnes ainsi
+ * — « 90-100 », « 75-89 » — et traduire en intervalles semi-ouverts aurait decale chaque
+ * frontiere d'un point sans que personne le voie.
+ */
+export interface ClasseRci {
+  min: number;
+  max: number;
+  code: string;
+  libelle: string;
+}
+
+/**
+ * Classe un score, ou rend `null`.
+ *
+ * NULL ET NON LA CLASSE LA PLUS PROCHE
+ *
+ * Un score hors de toute classe signale une table mal formee, et un score classe par
+ * approximation serait pire qu'un score sans classe : il aurait l'air juste. Le refus rend
+ * le defaut visible.
+ *
+ * Rend `null` aussi pour un score nul — un REFUS de scorer n'a pas de classe, et lui en
+ * donner une ferait apparaitre « critique » la ou on n'a simplement pas pu conclure. C'est
+ * la confusion la plus couteuse que ce module puisse produire : elle transformerait un
+ * manque de donnees en mauvaise nouvelle sur la route.
+ */
+export function classerScore(
+  score: number | null,
+  classes: readonly ClasseRci[],
+): ClasseRci | null {
+  if (score === null || !Number.isFinite(score)) return null;
+  return classes.find((c) => score >= c.min && score <= c.max) ?? null;
+}
+
+/**
+ * Les classes couvrent-elles l'intervalle 0-100 sans trou ni recouvrement ?
+ *
+ * Rendue a part plutot que verifiee a chaque classement : c'est un controle de la REGLE,
+ * pas du score. Il se passe une fois a l'approbation, pas des milliers de fois en calcul.
+ *
+ * Un trou laisserait des scores sans classe ; un recouvrement rendrait la premiere classe
+ * trouvee, donc dependante de l'ordre de declaration, ce qui est invisible et arbitraire.
+ */
+export function refusClasses(classes: readonly ClasseRci[]): string | null {
+  if (classes.length === 0) return "AUCUNE_CLASSE";
+  for (const c of classes) {
+    if (!Number.isFinite(c.min) || !Number.isFinite(c.max)) return "BORNES_NON_NUMERIQUES";
+    if (c.max < c.min) return "BORNES_INVERSEES";
+    if (c.min < 0 || c.max > 100) return "HORS_INTERVALLE_DU_SCORE";
+    if (!c.code || !c.libelle) return "CLASSE_SANS_CODE_NI_LIBELLE";
+  }
+  const triees = [...classes].sort((a, b) => a.min - b.min);
+  if (triees[0].min !== 0) return "NE_COMMENCE_PAS_A_ZERO";
+  if (triees[triees.length - 1].max !== 100) return "NE_FINIT_PAS_A_CENT";
+  for (let i = 1; i < triees.length; i++) {
+    // Inclusifs des deux cotes : la classe suivante doit commencer exactement un point
+    // apres la fin de la precedente.
+    if (triees[i].min !== triees[i - 1].max + 1) {
+      return triees[i].min <= triees[i - 1].max ? "CLASSES_QUI_SE_RECOUVRENT" : "TROU_ENTRE_CLASSES";
+    }
+  }
+  return null;
+}
