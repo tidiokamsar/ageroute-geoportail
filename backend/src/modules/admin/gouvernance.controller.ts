@@ -1,7 +1,8 @@
 import type { Request, Response, NextFunction } from "express";
 import { prisma } from "../../lib/prisma";
 import {
-  domainesSansValidateur, DOMAINES_VALIDATION, type Delegation,
+  domainesSansValidateur, domainesSansChemindeValidation,
+  DOMAINES_VALIDATION, DOMAINES_AVEC_CHEMIN_DE_VALIDATION, type Delegation,
 } from "../../governance/delegation";
 
 /**
@@ -41,9 +42,27 @@ export async function gouvernanceValidationHandler(
     const maintenant = new Date();
     const nonDesignes = domainesSansValidateur(delegations, maintenant);
 
+    const sansChemin = domainesSansChemindeValidation();
+
     res.json({
       domaines: DOMAINES_VALIDATION.length,
       nonDesignes,
+      /**
+       * DISTINGUER « PERSONNE N'EST DESIGNE » DE « RIEN NE VALIDE CE DOMAINE ».
+       *
+       * Les sept domaines existent au schema, mais aucune route ne valide un troncon, un
+       * ouvrage, un point noir, un poste ou un chantier : leur colonne
+       * `statutValidation` existe et rien ne l'ecrit.
+       *
+       * Y designer un validateur serait sans effet. Les presenter comme des cases a
+       * cocher donnerait le sentiment du travail fait, ce qui est pire qu'un manque
+       * affiche.
+       */
+      sansChemindeValidation: sansChemin,
+      /** Ceux ou une designation change reellement quelque chose. */
+      domainesActifs: [...DOMAINES_AVEC_CHEMIN_DE_VALIDATION],
+      /** Non designes PARMI ceux qui valident : la seule mesure a combler. */
+      aDesigner: nonDesignes.filter((d) => DOMAINES_AVEC_CHEMIN_DE_VALIDATION.includes(d)),
       // Un domaine non designe au lendemain du deploiement est normal. Sept pendant deux
       // ans ne l'est pas, et c'est ce rapport qui le dira.
       designes: DOMAINES_VALIDATION.length - nonDesignes.length,

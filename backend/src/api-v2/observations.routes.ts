@@ -6,6 +6,7 @@ import { prisma } from "../lib/prisma";
 import { logAuditTransactionnelle } from "../utils/audit";
 import { enregistrerQualite } from "../lib/qualite";
 import { validationPermise, EXPLICATIONS } from "../governance/validation";
+import { verdictDelegation } from "../governance/delegation.service";
 
 /**
  * `/api/v2/observations` — consultation et VALIDATION.
@@ -127,8 +128,30 @@ observationsV2Router.post("/:id/validate", requireAuth, requireModuleAccess("ins
     }).strict().parse(req.body);
 
     const user = req.user!;
-    const o = await prisma.observation.findFirst({ where: { id: req.params.id, deletedAt: null } });
+    const o = await prisma.observation.findFirst({
+      where: { id: req.params.id, deletedAt: null },
+      // La region vient du troncon apparie, ou a defaut de la mission. Elle sert au
+      // perimetre des delegations, et elle peut legitimement manquer : l'appariement rend
+      // `null` plutot que de deviner.
+      include: {
+        troncon: { select: { regionId: true } },
+        mission: { select: { regionId: true } },
+      },
+    });
     if (!o) return res.status(404).json({ message: "Observation introuvable" });
+
+    /**
+     * QUI EST DESIGNE POUR TRANCHER CE DOMAINE (paragraphe 35 du cahier).
+     *
+     * Deuxieme des sept domaines a consulter les delegations, apres les defauts. Les cinq
+     * autres — troncon, ouvrage, point noir, poste, chantier — n'ont a ce jour AUCUNE
+     * route de validation : y designer un validateur serait sans effet, et le rapport de
+     * gouvernance le dit desormais.
+     */
+    const regionId = o.troncon?.regionId ?? o.mission?.regionId ?? null;
+    const delegation = await verdictDelegation({
+      domaine: "OBSERVATION", regionId, validateurId: user.id,
+    });
 
     const decision = c.decision === "VALIDEE" ? "VALIDE" : "REJETE";
     const statutActuel = o.statut === "PROPOSEE" ? "A_VALIDER"
@@ -142,13 +165,18 @@ observationsV2Router.post("/:id/validate", requireAuth, requireModuleAccess("ins
       validateurRole: user.role,
       decision,
       commentaire: c.motif,
+      delegation,
     });
 
     if (!verdict.permis) {
       // 403 pour un droit, 409 pour un etat : un client doit pouvoir distinguer
       // « vous n'avez pas le droit » de « pas dans cet etat », la premiere ne se
       // corrigeant pas en reessayant.
-      const code = verdict.motif === "ROLE_INSUFFISANT" || verdict.motif === "AUTO_VALIDATION" ? 403 : 409;
+      // 403 pour un defaut d'autorite — role, auto-validation, delegation — et 409 pour
+      // un defaut d'etat : la premiere categorie ne se corrige pas en reessayant.
+      const code = verdict.motif === "ROLE_INSUFFISANT"
+        || verdict.motif === "AUTO_VALIDATION"
+        || verdict.motif === "HORS_DELEGATION" ? 403 : 409;
       return res.status(code).json({ message: EXPLICATIONS[verdict.motif], motif: verdict.motif, statut: o.statut });
     }
 
@@ -177,7 +205,11 @@ observationsV2Router.post("/:id/validate", requireAuth, requireModuleAccess("ins
           statutApres: decision,
           decideParId: user.id,
           auteurId: o.agentId,
-          source: "terrain",
+          // L'autorite sur laquelle repose cette decision. « Personne n'est designe sur
+          // ce domaine » et « vous etes designe » autorisent la meme action pour des
+          // raisons opposees : sans cette mention, on ne saura pas dans un an sur
+          // laquelle une validation reposait.
+          source: `terrain:${delegation.motif}`,
           commentaire: c.motif ?? null,
         },
       });

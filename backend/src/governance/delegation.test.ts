@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   delegationEnVigueur, delegationCouvre, validationDeleguee, domainesSansValidateur,
   domaineDeLEntite, designationPermise, revocationPermise,
+  domainesSansChemindeValidation, DOMAINES_AVEC_CHEMIN_DE_VALIDATION,
   DOMAINES_VALIDATION, EXPLICATIONS, EXPLICATIONS_DESIGNATION,
   type Delegation, type DemandeDesignation, type RefusDesignation,
 } from "./delegation";
@@ -333,6 +334,42 @@ describe("Les refus de designation s'expliquent a un administrateur", () => {
     for (const m of motifs) {
       expect(EXPLICATIONS_DESIGNATION[m].length, m).toBeGreaterThan(30);
       expect(EXPLICATIONS_DESIGNATION[m], m).not.toMatch(/_|undefined|null|[A-Z]{4,}/);
+    }
+  });
+});
+
+describe("Tous les domaines ne valident pas, et le rapport doit le dire", () => {
+  /**
+   * CE QUE CE BLOC DEFEND
+   *
+   * Les sept domaines existent au schema, et `statutValidation` a ete ajoute aux cinq
+   * entites patrimoniales. Mais AUCUNE route ne valide un troncon, un ouvrage, un point
+   * noir, un poste ou un chantier : la colonne existe et rien ne l'ecrit.
+   *
+   * Y designer un validateur serait sans effet. Presenter les sept comme equivalents
+   * inviterait a combler une case qui ne change rien — pire qu'un manque affiche,
+   * puisque cela donnerait le sentiment du travail fait.
+   */
+  it("ne compte que les defauts et les observations comme valides aujourd'hui", () => {
+    expect([...DOMAINES_AVEC_CHEMIN_DE_VALIDATION]).toEqual(["DEFAUT", "OBSERVATION"]);
+  });
+
+  it("nomme les cinq domaines ou une designation serait sans effet", () => {
+    expect(domainesSansChemindeValidation()).toEqual([
+      "TRONCON", "OUVRAGE", "POINT_NOIR", "POSTE", "CHANTIER",
+    ]);
+  });
+
+  it("couvre exactement les sept domaines, sans trou ni doublon", () => {
+    // Si un domaine etait ajoute sans etre range d'un cote ou de l'autre, le rapport le
+    // tairait. Ce test force a y penser.
+    const total = DOMAINES_AVEC_CHEMIN_DE_VALIDATION.length + domainesSansChemindeValidation().length;
+    expect(total).toBe(DOMAINES_VALIDATION.length);
+  });
+
+  it("n'annonce aucun chemin pour un domaine qui n'en a pas", () => {
+    for (const d of domainesSansChemindeValidation()) {
+      expect(DOMAINES_AVEC_CHEMIN_DE_VALIDATION, d).not.toContain(d);
     }
   });
 });

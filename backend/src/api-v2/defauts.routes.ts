@@ -15,7 +15,7 @@ import { logAuditTransactionnelle } from "../utils/audit";
 import { enregistrerQualite } from "../lib/qualite";
 import { setPointGeom, deriveGeomFromTroncon, deriveGeomFromTronconAbscisse } from "../lib/geo";
 import { donneesObservationConteneur } from "../field/observation-conteneur";
-import { validationDeleguee, type Delegation } from "../governance/delegation";
+import { verdictDelegation } from "../governance/delegation.service";
 import {
   metrer, graviteValide, transitionEtatPermise,
   statutQualiteQuantite, EXPLICATIONS as EXPLICATIONS_DEFAUT, NOMS_MESURES,
@@ -762,19 +762,8 @@ const deciderDefaut: RequestHandler = async (req, res, next) => {
      * indistinguable d'une absence de designation.
      */
     const regionId = defaut.troncon?.regionId ?? defaut.mission?.regionId ?? null;
-    const delegationsDuDomaine = (await prisma.delegationValidation.findMany({
-      where: { domaine: "DEFAUT" },
-      select: {
-        domaine: true, validateurId: true, regionId: true,
-        debutLe: true, finLe: true, revoqueeLe: true,
-      },
-    })) as Delegation[];
-    const delegation = validationDeleguee({
-      delegationsDuDomaine,
-      validateurId: user.id,
-      domaine: "DEFAUT",
-      regionId,
-      maintenant: new Date(),
+    const delegation = await verdictDelegation({
+      domaine: "DEFAUT", regionId, validateurId: user.id,
     });
 
     // L'AUTEUR VIENT DE LA LIGNE, PAS DE LA REQUETE. C'est le point ou la separation

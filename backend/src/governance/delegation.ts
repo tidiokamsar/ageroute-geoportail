@@ -100,6 +100,35 @@ export function domaineDeLEntite(entityType: string): DomaineValidation | null {
   return DOMAINE_PAR_ENTITE[entityType] ?? null;
 }
 
+/**
+ * Domaines dont une route consulte REELLEMENT les delegations.
+ *
+ * CE QUE CETTE LISTE EVITE DE LAISSER CROIRE
+ *
+ * Les sept domaines existent au schema, et `statutValidation` a ete ajoute aux cinq
+ * entites patrimoniales. Mais AUCUNE route ne valide un troncon, un ouvrage, un point
+ * noir, un poste ou un chantier : la colonne existe et rien ne l'ecrit.
+ *
+ * Y designer un validateur serait donc sans effet. Sans cette distinction, le rapport de
+ * gouvernance presenterait sept domaines equivalents et inviterait a combler une case qui
+ * ne change rien — ce qui est pire qu'un manque, puisque cela donnerait le sentiment du
+ * travail fait.
+ *
+ * CETTE LISTE EST A TENIR A JOUR A LA MAIN, ET C'EST ASSUME
+ *
+ * On pourrait la deduire en cherchant les appels a `verdictDelegation`, mais une
+ * deduction fragile vaut moins qu'une liste explicite qu'un test confronte a la realite.
+ */
+export const DOMAINES_AVEC_CHEMIN_DE_VALIDATION: readonly DomaineValidation[] = [
+  "DEFAUT",
+  "OBSERVATION",
+];
+
+/** Domaines ou designer un validateur n'aurait aujourd'hui aucun effet. */
+export function domainesSansChemindeValidation(): DomaineValidation[] {
+  return DOMAINES_VALIDATION.filter((d) => !DOMAINES_AVEC_CHEMIN_DE_VALIDATION.includes(d));
+}
+
 export interface Delegation {
   domaine: DomaineValidation;
   validateurId: string;

@@ -46,63 +46,40 @@ export function transitionPermise(de: string, vers: string): boolean {
   return (TRANSITIONS[de as StatutObservation] ?? []).includes(vers as StatutObservation);
 }
 
-/** Roles habilites a trancher. Un agent de terrain propose, il ne valide pas. */
-export const ROLES_VALIDATEURS = new Set(["ADMIN", "GESTIONNAIRE"]);
-
-export type RefusValidation =
-  | "ROLE_INSUFFISANT"
-  | "AUTO_VALIDATION"
-  | "TRANSITION_INTERDITE"
-  | "MOTIF_REQUIS";
-
-export interface DemandeValidation {
-  statutActuel: string;
-  /** Qui a produit l'observation. */
-  agentId: string;
-  /** Qui demande la validation. */
-  validateurId: string;
-  validateurRole: string;
-  decision: "VALIDEE" | "REJETEE";
-  motif?: string | null;
-}
+/**
+ * LA PORTE DE VALIDATION N'EST PLUS ICI.
+ *
+ * Ce fichier portait son propre `validationPermise`, avec son propre
+ * `ROLES_VALIDATEURS`. Cette copie etait devenue MORTE le jour ou la regle a ete
+ * centralisee dans `governance/validation` : la route des observations importe la version
+ * partagee, et celle-ci n'etait plus importee que par son propre test.
+ *
+ * C'est exactement le danger que la centralisation visait a supprimer, et il s'etait
+ * reinstalle sans bruit. La copie n'avait notamment PAS la verification de delegation
+ * ajoutee le 13/10/2026 : quiconque l'aurait importee aurait obtenu la regle d'avant, en
+ * croyant appliquer la regle courante, et ses tests l'auraient confirme.
+ *
+ * Ce qui RESTE ici est propre aux observations et n'est pas redondant : la machine a
+ * etats BROUILLON / PROPOSEE / VALIDEE / REJETEE / CONVERTIE, qui est celle de l'enum en
+ * base. La porte de validation, elle, vient de la gouvernance.
+ */
+export {
+  validationPermise,
+  ROLES_VALIDATEURS,
+  EXPLICATIONS as EXPLICATIONS_VALIDATION,
+  type DemandeValidation,
+  type RefusValidation,
+} from "../governance/validation";
 
 /**
- * Peut-on valider, et sinon pourquoi.
+ * LES MESSAGES NON PLUS NE SONT PLUS ICI.
  *
- * LA SEPARATION DES ROLES EST LE POINT DELICAT
+ * Ce fichier portait son propre dictionnaire d'explications, et la divergence y etait
+ * DEJA visible : il nommait un motif `MOTIF_REQUIS` qui n'existe pas dans la gouvernance,
+ * laquelle dit `COMMENTAIRE_REQUIS`. Deux vocabulaires pour la meme regle, dont un que
+ * plus aucune route ne lisait.
  *
- * Point 30 du master prompt : un utilisateur ne doit jamais pouvoir « valider sa
- * propre operation sensible si separation de role requise ». Ici elle l'est. Sans
- * cette regle, un gestionnaire qui releve lui-meme une degradation la rendrait
- * officielle d'un seul geste, et le controle a deux personnes que toute la chaine
- * suppose n'existerait que sur le papier.
- *
- * Elle est verifiee AVANT la transition : un agent qui tente de valider sa propre
- * observation doit lire « auto-validation », pas « transition interdite ». Un message
- * qui designe la mauvaise cause fait chercher au mauvais endroit.
+ * C'est la preuve que la copie n'etait pas seulement redondante : elle avait commence a
+ * s'ecarter. Les messages viennent desormais de `governance/validation`, reexportes
+ * ci-dessus sous `EXPLICATIONS_VALIDATION`.
  */
-export function validationPermise(d: DemandeValidation): { permis: true } | { permis: false; motif: RefusValidation } {
-  if (!ROLES_VALIDATEURS.has(d.validateurRole)) {
-    return { permis: false, motif: "ROLE_INSUFFISANT" };
-  }
-  if (d.agentId === d.validateurId) {
-    return { permis: false, motif: "AUTO_VALIDATION" };
-  }
-  if (!transitionPermise(d.statutActuel, d.decision)) {
-    return { permis: false, motif: "TRANSITION_INTERDITE" };
-  }
-  // Un rejet sans raison est un rejet qu'on ne peut pas corriger : l'agent ignore ce
-  // qu'on lui reproche et represente la meme chose.
-  if (d.decision === "REJETEE" && !d.motif?.trim()) {
-    return { permis: false, motif: "MOTIF_REQUIS" };
-  }
-  return { permis: true };
-}
-
-/** Message destine a l'agent, et non au developpeur. */
-export const EXPLICATIONS: Record<RefusValidation, string> = {
-  ROLE_INSUFFISANT: "La validation d'une observation relève d'un gestionnaire ou d'un administrateur.",
-  AUTO_VALIDATION: "Une observation ne peut pas être validée par la personne qui l'a produite.",
-  TRANSITION_INTERDITE: "L'observation n'est pas dans un état qui permet cette décision.",
-  MOTIF_REQUIS: "Un rejet doit indiquer ce qui doit être corrigé.",
-};

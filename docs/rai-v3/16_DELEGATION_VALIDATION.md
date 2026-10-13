@@ -177,10 +177,62 @@ ne l'est** — la même carte des points faibles que j'ai refusé de publier sur
 La restreindre là et pas ici l'aurait rendue accessible à tout compte authentifié. Elle
 exige donc le même droit que la désignation.
 
+## Les six autres domaines — 13/10/2026
+
+En allant les câbler, j'ai trouvé qu'il n'y en avait **qu'un** à câbler.
+
+### Observation : câblé
+
+`POST /api/v2/observations/:id/validate` consulte désormais les délégations, avec la région
+tirée du tronçon apparié ou de la mission, et l'autorité inscrite dans l'historique
+(`terrain:DOMAINE_NON_DESIGNE` ou `terrain:DELEGATION_COUVRANTE`).
+
+La lecture des délégations est passée dans `governance/delegation.service.ts`, partagée par
+les deux routes. Recopier la requête aurait produit des copies qui divergent — et la suite
+montre que ce n'est pas une crainte théorique.
+
+### Les cinq autres : il n'y a rien à câbler
+
+**Aucune route ne valide un tronçon, un ouvrage, un point noir, un poste ou un chantier.**
+La colonne `statutValidation` leur a été ajoutée le 07/10 et **rien ne l'écrit**.
+
+Y désigner un validateur serait donc sans effet. Le rapport de gouvernance le dit
+maintenant, au lieu de présenter sept domaines équivalents :
+
+| Champ | Sens |
+|---|---|
+| `domainesActifs` | ceux où une désignation change réellement quelque chose : `DEFAUT`, `OBSERVATION` |
+| `sansChemindeValidation` | les cinq où elle n'aurait aucun effet |
+| `aDesigner` | non désignés **parmi** ceux qui valident — la seule mesure à combler |
+
+Sans cette distinction, le rapport aurait invité à cocher cinq cases qui ne changent rien,
+ce qui est pire qu'un manque affiché : cela donne le sentiment du travail fait.
+
+### Une copie morte de la règle, trouvée en chemin
+
+`field/observations.regles.ts` portait **son propre** `validationPermise`, avec son propre
+`ROLES_VALIDATEURS` et son propre dictionnaire de messages. Elle n'était plus importée que
+par son propre test : la route utilise la version partagée depuis la centralisation.
+
+**Elle avait déjà commencé à s'écarter** — son dictionnaire nommait un motif `MOTIF_REQUIS`
+qui n'existe pas dans la gouvernance, laquelle dit `COMMENTAIRE_REQUIS`. Et elle n'avait
+évidemment pas la vérification de délégation : quiconque l'aurait importée aurait obtenu la
+règle d'avant en croyant appliquer la courante, et ses tests le lui auraient confirmé.
+
+C'est exactement le danger que la centralisation visait à supprimer, et il s'était
+réinstallé sans bruit. La porte de validation est retirée de ce fichier, qui ne garde que
+ce qui lui est propre : la machine à états `BROUILLON / PROPOSEE / VALIDEE / REJETEE /
+CONVERTIE`, celle de l'enum en base, qui ne se confond pas avec les quatre statuts de la
+gouvernance.
+
 ### Ce qui reste
 
-L'interface. Et l'extension aux six autres domaines : seule la route de décision des
-défauts consulte les délégations.
+L'interface.
+
+Et, pour les cinq domaines patrimoniaux, la question n'est pas la délégation mais **la
+validation elle-même** : il n'existe aucun chemin pour rendre un tronçon officiel. C'est un
+chantier à part, et il faut décider s'il est voulu — la validation d'un relevé de terrain
+et celle d'un référentiel routier ne se ressemblent pas.
 
 La migration du droit est additive et **ne change aucun comportement** : personne ne le
 porte à la sortie, donc seul un `ADMIN` peut désigner — ce qui était déjà le cas, la table
