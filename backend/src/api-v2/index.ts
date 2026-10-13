@@ -5,6 +5,7 @@ import { devicesV2Router } from "./devices.routes";
 import { missionsV2Router } from "./missions.routes";
 import { observationsV2Router } from "./observations.routes";
 import { defautsV2Router } from "./defauts.routes";
+import { fieldV2Router } from "./field.routes";
 
 /**
  * `/api/v2` — la nouvelle surface d'API.
@@ -42,6 +43,11 @@ import { defautsV2Router } from "./defauts.routes";
  * que la degradation restait du texte libre. Le defaut porte le metre, la gravite et
  * l'etendue — ce dont les moteurs de traitement, quantite et cout auront besoin.
  *
+ * `field` vient en dernier parce qu'il ne fait que COMPOSER : il apparie la position,
+ * cherche la portion a l'abscisse obtenue et ramene les actifs autour. Il n'a pu etre
+ * ecrit qu'une fois les portions modelisees, et il rend en une requete ce qu'un client
+ * mobile aurait dû assembler en trois sur un reseau ou chaque aller-retour coute.
+ *
  * Les suivants viendront avec leur service, pas avant.
  */
 export const apiV2Router = Router();
@@ -52,6 +58,7 @@ apiV2Router.use("/devices", devicesV2Router);
 apiV2Router.use("/missions", missionsV2Router);
 apiV2Router.use("/observations", observationsV2Router);
 apiV2Router.use("/defauts", defautsV2Router);
+apiV2Router.use("/field", fieldV2Router);
 
 /**
  * Inventaire de la surface v2, pour qu'un client sache ce qui existe reellement.
@@ -62,10 +69,12 @@ apiV2Router.use("/defauts", defautsV2Router);
 apiV2Router.get("/", (_req, res) => {
   res.json({
     version: "v2",
-    domaines: ["geo", "sync", "devices", "missions", "observations", "defauts"],
+    domaines: ["geo", "sync", "devices", "missions", "observations", "defauts", "field"],
     aVenir: [
       "auth", "tracks",
       "assets", "offline", "intelligence", "ai", "integrations",
+      // `portions` manque encore : la lecture du contexte existe, l'ECRITURE non.
+      "portions",
     ],
     v1: "/api — inchangee, toujours servie",
   });
