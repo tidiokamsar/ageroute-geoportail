@@ -19,6 +19,7 @@
 #   20261013220000_portions_ecriture
 #   20261013240000_actifs_lineaires
 #   20261013260000_praticabilite_approbation
+#   20261013280000_rci_normalisation
 #
 # Ecrit sur le modele de `tester-migrations-phase4.sh`, dont il reprend le dispositif :
 # partir de la derniere sauvegarde chiffree, la restaurer dans un conteneur JETABLE,
@@ -94,6 +95,7 @@ MIGRATIONS=(
     20261013220000_portions_ecriture
     20261013240000_actifs_lineaires
     20261013260000_praticabilite_approbation
+    20261013280000_rci_normalisation
 )
 
 ECHECS=0
@@ -361,6 +363,7 @@ verifier_colonne referentiel_etats_chaussee critique
 verifier_colonne referentiel_praticabilites franchissable
 verifier_colonne referentiel_praticabilites approuveeLe
 verifier_colonne referentiel_praticabilites approuveeParId
+verifier_colonne regles_condition normalisation
 verifier_colonne portions debutM
 verifier_colonne portions finM
 verifier_colonne portions praticabilite

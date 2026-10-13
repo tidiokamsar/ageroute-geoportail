@@ -2132,6 +2132,23 @@ model RegleCondition {
   /// `true` si 100 est le meilleur etat. Explicite, pour que le sens ne se perde pas.
   sensCroissant Boolean @default(true)
 
+  /// Correspondance entre une valeur de source et un nombre de 0 a 100.
+  ///
+  /// POURQUOI ELLE VIT ICI ET NON DANS LE CODE
+  ///
+  /// Le moteur refuse de deviner comment un etat BON devient un nombre : c'est une
+  /// DECISION, pas un calcul. Dire que BON vaut 85 plutot que 90 deplace le score de tout
+  /// le reseau, et personne ne pourrait dire qui l'a decide si c'etait ecrit en dur.
+  ///
+  /// Elle vit donc dans la REGLE VERSIONNEE, au meme titre que les poids, et une regle
+  /// non approuvee produit des scores marques non publiables. Le mecanisme est du code ;
+  /// les nombres sont une decision d'AGEROUTE.
+  ///
+  /// FORME : { "<COMPOSANTE>": { "<valeur source>": <0-100> } }. Une valeur de source
+  /// absente de la table rend la composante ABSENTE, jamais zero : on ne sait pas la lire,
+  /// ce qui n'est pas la meme chose que savoir qu'elle est mauvaise.
+  normalisation Json @default("{}")
+
   /// Pourquoi cette version existe, et sur quoi elle a ete calibree.
   motif String?
 
