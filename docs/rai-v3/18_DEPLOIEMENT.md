@@ -18,6 +18,7 @@ Les cinq migrations, dans leur ordre d'application :
 
 | Migration | Ce qu'elle fait | Réversible |
 |---|---|---|
+| `20261007140000_socle_terrain` | le socle terrain — **présente sur le serveur, jamais appliquée** | oui |
 | `20261007180000_audit_validation` | 3 valeurs sur l'enum `AuditAction` | **non** |
 | `20261007200000_gouvernance_defauts` | 8 enums, 4 tables, 9 colonnes, 3 index GIST | oui |
 | `20261013120000_delegation_validation` | 1 enum, 1 table | oui |
@@ -25,11 +26,68 @@ Les cinq migrations, dans leur ordre d'application :
 | `20261013160000_condition_engine` | 2 enums, 3 tables, 11 contraintes `CHECK` | oui |
 
 `20261007140000_socle_terrain` est déjà dans `main`. **Être dans `main` et être appliqué en
-production sont deux questions différentes**, et la seconde n'est pas tranchée d'ici.
+production sont deux questions différentes** — et la mesure du 13/10/2026 montre qu'elle ne
+l'est pas. Le déploiement porte donc six migrations.
 
-## Deux choses bloquent, et une seule est technique
+## Mesuré sur la production le 13/10/2026
 
-### 1. L'historique de migration n'a pas été lu
+Relevé en lecture seule sur l'hôte `gec`, conteneurs `console-bdri-*`.
+
+| | |
+|---|---|
+| Migrations présentes sur le serveur | 36 (l'état de `main`) |
+| Appliquées | 35 |
+| **Non appliquée** | **`20261007140000_socle_terrain`** |
+| Dérive de somme de contrôle | **aucune** |
+| Tables du socle terrain en base | **0 sur 5** |
+| Dernière migration réussie | 05/09/2026 |
+| `audit.echecsDepuisDemarrage` | **0** |
+| Erreurs « relation absente » sur 120 h | **0** (173 lignes de journal) |
+| Sauvegardes | quotidiennes à 03:00, 16 archives chiffrées de 279 Mo, clé lisible |
+| Espace disque | **92 % utilisé, 7,9 Go libres** |
+
+Trois conclusions, dont deux inattendues.
+
+**La question bloquante est tranchée, et favorablement.** `20261007200000_gouvernance_defauts`
+n'est pas appliquée — elle n'est même pas présente sur le serveur. L'amendement est donc
+valide, et aucune migration appliquée ne présente d'écart de somme de contrôle.
+
+**Le déploiement porte SIX migrations, pas cinq.** `20261007140000_socle_terrain` est dans
+`main` et sur le serveur depuis le 7 octobre, mais **n'a jamais été appliquée** : les cinq
+tables du socle terrain n'existent pas en base. C'est elle qui passe en premier, et c'est la
+plus lourde. Une liste établie sur l'écart avec `main` l'aurait manquée — être dans `main`
+et être appliqué sont deux questions différentes, et c'est ici que la distinction se paie.
+
+**La production n'est pas dégradée, elle est en retard.** Zéro erreur de relation absente en
+120 heures : le code déployé ne touche jamais ces tables. Et `echecsDepuisDemarrage` à zéro
+répond à un point que je portais en suspens — les audits de décomptes et d'ordres de travaux
+n'échouent pas en silence sur un `BigInt` en production.
+
+### Un blocage que je n'attendais pas : le disque
+
+7,9 Go libres sur 97. Or `docker compose up -d --build` reconstruit les images, et cet hôte
+porte aussi GLPI, l'ERP et les opportunités. Un disque plein pendant une construction ne
+casserait pas seulement le déploiement de BDRI.
+
+`docker system df` montre de quoi respirer sans rien risquer :
+
+| | Taille | Récupérable |
+|---|---|---|
+| Cache de construction | 17,61 Go | **9,80 Go, aucune entrée active** |
+| Images | 38,12 Go | 22,53 Go |
+| Volumes locaux | 25,18 Go | 21,05 Go |
+
+Le **cache de construction** est le seul à purger sans réfléchir : 807 entrées, zéro active.
+`docker builder prune` rendrait environ 9,8 Go et ferait passer l'espace libre de 7,9 à
+17,7 Go, ce qui suffit.
+
+Les **volumes ne doivent pas être purgés**. « Récupérable » y signifie « non monté par un
+conteneur en cours », ce qui inclut les volumes d'un service arrêté : sur un hôte qui porte
+dix services, la commande est une perte de données en attente.
+
+## Deux choses bloquaient, et voici où elles en sont
+
+### 1. L'historique de migration — RÉPONDU le 13/10/2026
 
 `20261007200000_gouvernance_defauts` a été **amendée** après avoir été écrite, en supposant
 qu'elle n'était pas appliquée. Si elle l'est, l'amendement est invalide.
@@ -38,6 +96,9 @@ Ce n'est pas une précaution de principe : `_prisma_migrations` porte une colonn
 `checksum VARCHAR(64) NOT NULL`, et le moteur de schéma refuse une migration
 `modified after it was applied` — vérifié dans le binaire du moteur Prisma 5.22, pas supposé.
 Dans ce cas il faut une **migration séparée** portant l'amendement, jamais une retouche.
+
+**Réponse : elle n'est pas appliquée, ni même présente sur le serveur. L'amendement tient.**
+Ce qui suit reste la méthode, à refaire avant chaque mise en production.
 
 La réponse qui fait foi, en lecture seule :
 
@@ -105,19 +166,23 @@ erreur de syntaxe y met le site hors ligne, donc ce n'est pas un contrôle optio
 
 ## L'ordre
 
-1. **Sauvegarder et vérifier la restauration.** `infra/backup/sauvegarde-bdri.sh`, puis
-   `infra/backup/verifier-restauration-bdri.sh`. Une sauvegarde jamais restaurée est une
-   intention, pas une sauvegarde.
-2. **`npx prisma migrate status`** sur la base visée. Si `20261007200000` y figure comme
-   éditée après application, **arrêter** : il faut une migration séparée.
+0. **Faire de la place.** `docker builder prune` sur `gec`. À 7,9 Go libres, une
+   construction peut remplir le disque d'un hôte qui porte dix services.
+1. **Vérifier la restauration de la sauvegarde du jour.** Une archive existe déjà, chiffrée,
+   de 03:00. `infra/backup/verifier-restauration-bdri.sh` suffit donc : une sauvegarde jamais
+   restaurée est une intention, pas une sauvegarde.
+2. **`npx prisma migrate status`** — fait le 13/10/2026, favorablement. À refaire juste
+   avant, parce que l'état peut changer entre-temps.
 3. **`bash infra/tester-migrations-socle.sh`** sur le serveur. Un échec arrête.
 4. **Relancer `verification-avant-livraison.sh`** là où Docker tourne, pour que le contrôle
    nginx soit réellement exécuté.
 5. **Fusionner la branche**, qui ne l'est pas.
 6. `docker compose up -d --build`, puis `docker compose exec backend npm run prisma:deploy`.
-   Pas `prisma:seed` : la base n'est pas neuve.
-7. **Lire `audit.echecsDepuisDemarrage` sur `/api/health`.** S'il est non nul, les audits de
-   décomptes et d'ordres de travaux échouaient probablement en silence sur un `BigInt`.
+   Pas `prisma:seed` : la base n'est pas neuve. `migrate deploy` appliquera **six**
+   migrations, `socle_terrain` en premier.
+7. **Relire `audit.echecsDepuisDemarrage` sur `/api/health`.** Il valait **0** avant le
+   déploiement : s'il devient non nul après, les audits de décomptes et d'ordres de travaux
+   échouent en silence sur un `BigInt`, et la comparaison avant/après le dira.
 8. Rien n'oblige à peupler la règle RCI. `npm run condition:regle:seed` crée
    `rci-2026.1` **non approuvée** ; tant qu'elle n'existe pas, aucun score n'est calculable,
    ce qui est un état parfaitement tenable.
