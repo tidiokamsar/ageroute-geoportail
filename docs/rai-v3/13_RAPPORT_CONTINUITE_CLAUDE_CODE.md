@@ -277,6 +277,46 @@ relevé de terrain — depuis un document, une imagerie, un rapport de mission e
 oui, aucune des trois options ne convient et il faut rester facultatif en exigeant les
 champs au niveau de l'API pour le seul canal terrain.
 
+### Décision rendue le 13/10/2026 : option A
+
+`observationId` devient **NOT NULL**, `missionId` reste nullable. La migration en attente
+`20261007200000` est **amendée** et non doublée, la table n'existant pas encore : une
+contrainte posée maintenant ne demande aucune reprise de données.
+
+La clé étrangère passe de `ON DELETE SET NULL` à `ON DELETE RESTRICT` — `SET NULL` serait
+refusé par PostgreSQL sur une colonne `NOT NULL`, et `RESTRICT` est de toute façon la bonne
+règle : ce dépôt ne pratique que la suppression logique, et une observation qui a engendré
+des défauts ne doit pas disparaître en les laissant orphelins.
+
+**À vérifier impérativement avant d'appliquer** : que `_prisma_migrations` ne contient pas
+déjà `20261007200000`. Si elle y figure, l'amendement est invalide et il faut une migration
+séparée. Je n'ai pas pu le lire.
+
+#### Un fait qui a changé la mise en œuvre
+
+**Le frontend n'envoyait jamais `observationId`** — zéro occurrence dans tout
+`frontend/src`. La contrainte seule aurait cassé la saisie terrain à la première photo, sur
+une interface déjà livrée.
+
+Trois issues étaient possibles. Exiger l'identifiant et faire créer l'observation par le
+client transforme une opération hors ligne en **deux opérations dépendantes à ordonner dans
+la file** : c'est précisément là que vit la perte silencieuse de données, et ce dépôt a
+déjà payé pour l'apprendre. Laisser le serveur *déduire* une observation vraisemblable
+serait fabriquer un constat que personne n'a fait.
+
+Retenu : le serveur **matérialise** le conteneur depuis la soumission elle-même, dans la
+même transaction. Rien n'est inventé — agent, mission, tronçon, position, précision et
+horodatage viennent tous du relevé que l'agent vient d'envoyer. L'observation est le
+conteneur que le §8 décrit, écrit explicitement au lieu d'être sous-entendu. Sa clé
+d'idempotence **dérive** de celle de l'opération, pour qu'un rejeu rencontre la même
+collision d'unicité au lieu de produire une observation de plus par tentative.
+
+**Ce que ce choix coûte** : le §8 prévoit qu'une observation puisse donner naissance à
+*plusieurs* défauts. Par ce chemin le rapport est de un pour un. Ce n'est pas faux — chaque
+défaut a bien son conteneur réel — mais ce n'est pas le regroupement que le cahier
+envisage. Le jour où le terrain enverra une observation puis ses défauts, ils passeront par
+`observationId` et ce chemin ne servira plus.
+
 ## À DÉCIDER — 2. Quel chemin devient public
 
 Les deux répondent à l'identique. L'interface locale appelle `/decision`.

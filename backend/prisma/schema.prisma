@@ -1773,10 +1773,16 @@ model Defaut {
   catalogueId Int
   catalogue   CatalogueDefaut @relation(fields: [catalogueId], references: [id])
 
-  /// Observation d'origine, quand le defaut est issu d'une conversion. Conservee pour
-  /// que la chaine reste remontable jusqu'a la photo prise sur place.
-  observationId String?
-  observation   Observation? @relation(fields: [observationId], references: [id])
+  /// Observation d'origine. OBLIGATOIRE : le paragraphe 7.1 du cahier RAI V3.1 la marque
+  /// « Oui », et c'est par elle qu'un defaut remonte jusqu'a la photo, au point GPS et a
+  /// l'agent qui l'a releve. Un defaut sans observation serait un constat sans constatant.
+  ///
+  /// `missionId` reste en revanche FACULTATIF, et ce n'est pas une negligence :
+  /// `observations.missionId` est lui-meme nullable. L'exiger ici rendrait le defaut plus
+  /// strict que l'observation dont il derive, et interdirait tout defaut issu d'une
+  /// observation hors mission — cas que le schema autorise explicitement.
+  observationId String
+  observation   Observation @relation(fields: [observationId], references: [id])
 
   missionId String?
   mission   Mission? @relation(fields: [missionId], references: [id])

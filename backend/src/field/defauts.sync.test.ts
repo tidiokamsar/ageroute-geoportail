@@ -17,13 +17,22 @@ const h = vi.hoisted(() => ({
   codeExiste: false,
   missionAssignee: true,
   observationAutorisee: true,
+  observationCreee: null as Record<string, unknown> | null,
 }));
 
 const tx = {
   catalogueDefaut: { findUnique: vi.fn(async () => h.catalogue) },
   troncon: { findFirst: vi.fn(async () => h.troncon) },
   mission: { findFirst: vi.fn(async () => h.missionAssignee ? h.mission : null) },
-  observation: { findFirst: vi.fn(async () => h.observationAutorisee ? h.observation : null) },
+  observation: {
+    findFirst: vi.fn(async () => h.observationAutorisee ? h.observation : null),
+    // Le conteneur est materialise dans CETTE transaction depuis que
+    // `defauts.observationId` est NOT NULL.
+    create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+      h.observationCreee = data;
+      return { id: "obs-1" };
+    }),
+  },
   defaut: {
     findUnique: vi.fn(async () => h.codeExiste ? { id: "d-existing" } : null),
   },
@@ -40,6 +49,7 @@ beforeEach(() => {
   h.codeExiste = false;
   h.missionAssignee = true;
   h.observationAutorisee = true;
+  h.observationCreee = null;
   vi.clearAllMocks();
 });
 

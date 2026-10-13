@@ -1,4 +1,6 @@
+import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
+import { donneesObservationConteneur } from "./observation-conteneur";
 import { z } from "zod";
 import {
   graviteValide,
@@ -178,12 +180,42 @@ export async function preparerDefautSync(
     return refuser(metre.motif);
   }
 
+  /**
+   * TOUT DEFAUT A SON OBSERVATION, MEME VENU DE LA FILE HORS LIGNE.
+   *
+   * `observationId` est NOT NULL depuis le 13/10/2026. Le conteneur est materialise ici,
+   * dans la transaction de synchronisation que cette preparation a deja en main : une
+   * observation ecrite hors de cette transaction survivrait au rejet du defaut et
+   * laisserait un conteneur vide que rien ne reclame.
+   *
+   * Sa cle d'idempotence DERIVE de celle de l'operation. Un rejeu rencontre donc la meme
+   * collision d'unicite sur les deux lignes, et non une observation de plus a chaque
+   * tentative — c'est-a-dire le doublon silencieux que ce protocole existe pour empecher.
+   */
+  const observationId = c.observationId ?? (await tx.observation.create({
+    data: donneesObservationConteneur({
+      famille: catalogue.famille,
+      agentId: contexte.userId,
+      missionId: c.missionId ?? null,
+      tronconId: c.tronconId ?? null,
+      lat: c.lat ?? null,
+      lon: c.lon ?? null,
+      precisionM: c.precisionM ?? null,
+      confianceAppariement: c.confianceAppariement ?? null,
+      pk: c.pk ?? null,
+      observeA: constateA,
+      clientOperationId: contexte.operationId,
+      libelleCatalogue: catalogue.libelle,
+    }, randomUUID),
+    select: { id: true },
+  })).id;
+
   const data: Prisma.DefautUncheckedCreateInput = {
     id: contexte.entityId,
     code: c.code ?? null,
     clientOperationId: contexte.operationId,
     catalogueId: catalogue.id,
-    observationId: c.observationId ?? null,
+    observationId,
     missionId: c.missionId ?? null,
     tronconId: c.tronconId ?? null,
     lat: c.lat ?? null,

@@ -48,6 +48,25 @@
 -- sert ST_DWithin en metres. Se tromper de forme ne produit pas d'erreur, seulement un
 -- Seq Scan — la lecon de l'index de la voirie locale.
 
+-- AMENDEMENT DU 13/10/2026 : `observationId` DEVIENT NOT NULL
+--
+-- Le paragraphe 7.1 du cahier RAI V3.1 marque `observationId` et `missionId` « Oui ».
+-- Seul le premier devient obligatoire, et la raison est verifiable dans le schema :
+-- `observations.missionId` est NULLABLE. Exiger `missionId` sur le defaut le rendrait
+-- plus strict que l'observation dont il derive, et interdirait tout defaut issu d'une
+-- observation hors mission — cas que le schema autorise explicitement.
+--
+-- CETTE MIGRATION EST AMENDEE, PAS DOUBLEE
+--
+-- Elle n'est pas appliquee : la table `defauts` n'existe pas encore. Une contrainte
+-- posee maintenant ne demande aucune reprise de donnees ; ajoutee plus tard, elle en
+-- demanderait une. Amender vaut donc mieux qu'empiler une seconde migration qui
+-- creerait la colonne nullable pour la durcir aussitot.
+--
+-- A VERIFIER AVANT TOUTE APPLICATION : que `_prisma_migrations` ne contient pas deja
+-- 20261007200000. Si elle y figure, cet amendement est invalide et il faut une
+-- migration separee.
+--
 -- ===================== TYPES =====================
 
 CREATE TYPE "StatutValidation" AS ENUM ('A_VALIDER', 'VALIDE', 'REJETE', 'A_CORRIGER');
@@ -155,7 +174,7 @@ CREATE TABLE "defauts" (
     "code" TEXT,
     "clientOperationId" TEXT,
     "catalogueId" INTEGER NOT NULL,
-    "observationId" TEXT,
+    "observationId" TEXT NOT NULL,
     "missionId" TEXT,
     "tronconId" TEXT,
     "ouvrageId" TEXT,
@@ -212,8 +231,12 @@ CREATE INDEX "defauts_emprise_gist" ON "defauts" USING GIST ("emprise");
 
 ALTER TABLE "defauts" ADD CONSTRAINT "defauts_catalogueId_fkey"
     FOREIGN KEY ("catalogueId") REFERENCES "catalogue_defauts"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+-- RESTRICT et non SET NULL : la colonne est NOT NULL, donc SET NULL serait refuse par
+-- PostgreSQL. RESTRICT est de toute facon la bonne regle ici — ce depot ne pratique que
+-- la suppression logique (regle 2 d'AGENTS.md), et une observation qui a engendre des
+-- defauts ne doit pas pouvoir disparaitre physiquement en les laissant orphelins.
 ALTER TABLE "defauts" ADD CONSTRAINT "defauts_observationId_fkey"
-    FOREIGN KEY ("observationId") REFERENCES "observations"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+    FOREIGN KEY ("observationId") REFERENCES "observations"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "defauts" ADD CONSTRAINT "defauts_missionId_fkey"
     FOREIGN KEY ("missionId") REFERENCES "missions"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "defauts" ADD CONSTRAINT "defauts_tronconId_fkey"

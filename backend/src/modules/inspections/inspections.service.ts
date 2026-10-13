@@ -20,7 +20,13 @@ const base = createCrudService(
   prisma.inspection,
   "Inspection",
   { troncon: true, ouvrage: true, inspecteur: { select: { nomComplet: true } } },
-  { auditTransactionnel: true },
+  {
+    auditTransactionnel: true,
+    // Le delegue est DESIGNE, pas devine : c'est ce qui distingue ce montage de celui que
+    // 4eb1525 avait du retirer, lequel derivait le nom du modele depuis l'entite et
+    // court-circuitait le delegue injecte dans la fabrique.
+    delegueTransactionnel: (tx) => (tx as typeof prisma).inspection,
+  },
 );
 const photos = createPhotoService(prisma.inspection, "Inspection", { auditTransactionnel: true });
 

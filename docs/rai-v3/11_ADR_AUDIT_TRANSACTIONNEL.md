@@ -96,21 +96,36 @@ l'appel qu'il vérifie. Le test avait raison.
 `construireAudit`, qui prépare l'écriture sans l'exécuter, sur le même motif que
 `construireSaisies` pour la provenance.
 
-**Le coût est réel et doit être connu avant d'étendre la migration.** Dans un tableau, les
-écritures partent ensemble : la ligne retournée par la base n'est pas connue au moment de
-construire la trace. Le champ `after` ne peut donc pas être la ligne stockée.
+**Le coût était réel.** Dans un tableau, les écritures partent ensemble : la ligne
+retournée par la base n'est pas connue au moment de construire la trace. Le champ `after`
+ne pouvait donc pas être la ligne stockée — seulement un état **projeté**, reconstruit
+depuis l'état lu et la modification appliquée, sans les colonnes calculées par la base.
 
-- En **création**, `after` vaut `{ ...data, id }` — l'identifiant étant tiré avant
-  l'insertion, ce qui est déjà le cas pour la provenance.
-- En **modification**, `after` vaut `{ ...before, ...data }` : l'état **projeté**,
-  reconstruit depuis l'état lu et la modification appliquée. Plus lisible qu'un `after`
-  réduit au delta, mais les colonnes calculées par la base — `updatedAt` notamment — n'y
-  figurent pas.
+### Arbitrage rendu le 13/10/2026 : la fidélité
 
-Pour un journal dont l'objet est de dire **qui** a changé **quoi**, c'est acceptable. Ce
-n'en est pas moins une perte de fidélité par rapport au helper historique, qui enregistrait
-la ligne telle que la base l'avait rendue. **Cet arbitrage appartient à l'ARB**, et il doit
-être tranché avant de migrer les sept services restants, pas après.
+**Décision : `after` doit être la ligne telle que la base l'a rendue.** Un journal dont le
+contenu diffère de l'état réel est un journal dont il faut se méfier, et s'en méfier coûte
+plus cher que l'atomicité ne rapporte.
+
+La forme **interactive** est donc utilisée par les modules migrés, et le piège de `4eb1525`
+est évité autrement : le délégué n'est plus retrouvé par un nom dérivé de l'entité, il est
+**désigné par l'appelant** (`delegueTransactionnel: (tx) => tx.inspection`). Aucun nom
+n'est deviné, le délégué injecté reste celui que l'appelant indique, et un test vérifie
+qu'on passe bien par lui. Une fabrique configurée avec `auditTransactionnel` sans délégué
+**lève au montage du module**, pas à la première écriture.
+
+Deux pièges découverts en l'implémentant :
+
+**La provenance devait suivre.** `construireSaisies` écrivait sur le client de base. En
+forme interactive, ces écritures cessaient donc silencieusement de faire partie de la
+transaction, alors qu'elles y étaient. Elle accepte désormais un client. Le défaut n'aurait
+rien cassé aujourd'hui — `CHAMPS_SUIVIS` ne couvre que Tronçon, Ouvrage et Chantier, et
+Inspection n'en fait pas partie — mais il aurait mordu à la migration suivante, celle où
+personne n'y aurait repensé. Un test l'éprouve donc sur une entité réellement suivie.
+
+**`createPhotoService` et `propagateEtat` restent en forme tableau**, délibérément : leur
+`after` est un résumé choisi (`{ filename }`, `{ etat, source }`) et non une ligne de base.
+Il n'y a aucune fidélité à y restaurer.
 
 ### Ce que les tests prouvent, et ce qu'ils ne prouvent pas
 
@@ -162,5 +177,6 @@ l'orphelin corrigé. Un test défend cette distinction.
 
 ### Reste à faire
 
-Les sept services non migrés, et l'arbitrage sur la fidélité du champ `after` qui doit le
-précéder.
+Les sept services non migrés. L'arbitrage sur la fidélité qui devait le précéder est rendu,
+et le mécanisme est en place : migrer l'un d'eux demande maintenant deux lignes de
+configuration et la vérification que sa provenance suit.

@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
-import { logAudit, construireAudit } from "../utils/audit";
+import { logAudit, logAuditTransactionnelle } from "../utils/audit";
 import { prisma } from "./prisma";
 import { construireSaisies } from "./provenance";
 import { ApiError } from "../middleware/error.middleware";
@@ -60,6 +60,25 @@ type PrismaDelegate = any;
  */
 export interface OptionsCrud {
   auditTransactionnel?: boolean;
+  /**
+   * Resout le delegue du modele DANS une transaction interactive.
+   *
+   * POURQUOI L'APPELANT LE FOURNIT, ET POURQUOI C'EST ESSENTIEL
+   *
+   * La fidelite du champ `after` exige la forme INTERACTIVE : dans la forme tableau, la
+   * ligne retournee par la base n'est pas connue au moment de construire la trace, et
+   * l'audit ne pouvait enregistrer qu'un etat projete.
+   *
+   * Le commit 4eb1525 avait deja essaye l'interactif, en retrouvant le modele par son
+   * nom DERIVE de l'entite. Cela compilait, fonctionnait, et court-circuitait le delegue
+   * injecte dans la fabrique : `crud-factory.test.ts` s'est mis a echouer parce qu'il ne
+   * voyait plus l'appel qu'il verifie. Le test avait raison, et la cause etait la
+   * derivation du nom.
+   *
+   * Ici l'appelant ecrit `(tx) => tx.inspection`. Aucun nom n'est devine, le delegue
+   * reste celui que l'appelant designe, et un test peut injecter le sien.
+   */
+  delegueTransactionnel?: (tx: unknown) => PrismaDelegate;
 }
 
 export function createCrudService(
@@ -69,6 +88,14 @@ export function createCrudService(
   options: OptionsCrud = {},
 ) {
   const auditDansLaTransaction = options.auditTransactionnel === true;
+  if (auditDansLaTransaction && !options.delegueTransactionnel) {
+    // Echouer au DEMARRAGE et non a la premiere ecriture : une fabrique mal configuree
+    // doit se voir au montage du module, pas en pleine synchronisation de terrain.
+    throw new Error(
+      `createCrudService(${entityName}) : auditTransactionnel exige delegueTransactionnel.`,
+    );
+  }
+  const delegueTx = options.delegueTransactionnel;
 
   async function list(params: ListParams = {}): Promise<ListResult<unknown>> {
     const page = Math.max(1, params.page ?? 1);
@@ -115,20 +142,28 @@ export function createCrudService(
      * la meme garantie sur le meme invariant.
      */
     const id = (data.id as string | undefined) ?? randomUUID();
-    // `after` vaut l'etat PROJETE et non la ligne retournee : dans un tableau, les
-    // ecritures partent ensemble et la base n'a pas encore repondu. Voir l'en-tete de
-    // `construireAudit`.
-    const apresProjete = { ...data, id };
+
+    if (auditDansLaTransaction && delegueTx) {
+      // Forme INTERACTIVE : `after` est la ligne telle que la base l'a rendue, defauts de
+      // colonne et champs calcules compris. C'est ce que le helper historique
+      // enregistrait, et c'est la raison de ce passage a l'interactif.
+      return prisma.$transaction(async (tx) => {
+        const cree = await delegueTx(tx).create({ data: { ...data, id } });
+        // La provenance recoit `tx` : sans cela elle partirait sur le client de base et
+        // cesserait silencieusement de faire partie de la transaction.
+        await Promise.all(construireSaisies(entityName, id, data, userId, tx as never) as Promise<unknown>[]);
+        await logAuditTransactionnelle(tx, {
+          userId, action: "CREATE", entityType: entityName, entityId: cree.id, after: cree,
+        });
+        return cree;
+      });
+    }
+
     const [created] = await prisma.$transaction([
       model.create({ data: { ...data, id } }),
       ...construireSaisies(entityName, id, data, userId),
-      ...(auditDansLaTransaction
-        ? [construireAudit({ userId, action: "CREATE", entityType: entityName, entityId: id, after: apresProjete })]
-        : []),
     ]);
-    if (!auditDansLaTransaction) {
-      await logAudit({ userId, action: "CREATE", entityType: entityName, entityId: created.id, after: created });
-    }
+    await logAudit({ userId, action: "CREATE", entityType: entityName, entityId: created.id, after: created });
     return created;
   }
 
@@ -152,21 +187,23 @@ export function createCrudService(
      * echec entre les deux laisserait une valeur sans provenance, ou une provenance
      * sans valeur, et rien ne permettrait de savoir laquelle croire.
      */
-    // L'etat projete se reconstruit depuis l'etat lu et la modification appliquee, ce
-    // qui est plus fidele qu'enregistrer la seule modification : on voit la ligne telle
-    // qu'elle SERA, aux colonnes calculees par la base pres.
-    const apresProjete = { ...(before as Record<string, unknown>), ...data };
+    if (auditDansLaTransaction && delegueTx) {
+      return prisma.$transaction(async (tx) => {
+        const maj = await delegueTx(tx).update({ where: { id }, data });
+        await Promise.all(construireSaisies(entityName, id, data, userId, tx as never) as Promise<unknown>[]);
+        await logAuditTransactionnelle(tx, {
+          userId, action: "UPDATE", entityType: entityName, entityId: id, before, after: maj,
+        });
+        return maj;
+      });
+    }
+
     const [updated] = await prisma.$transaction([
       model.update({ where: { id }, data }),
       ...construireSaisies(entityName, id, data, userId),
-      ...(auditDansLaTransaction
-        ? [construireAudit({ userId, action: "UPDATE", entityType: entityName, entityId: id, before, after: apresProjete })]
-        : []),
     ]);
 
-    if (!auditDansLaTransaction) {
-      await logAudit({ userId, action: "UPDATE", entityType: entityName, entityId: id, before, after: updated });
-    }
+    await logAudit({ userId, action: "UPDATE", entityType: entityName, entityId: id, before, after: updated });
     return updated;
   }
 
@@ -175,14 +212,16 @@ export function createCrudService(
     const before = await model.findUnique({ where: { id } });
     if (!before) throw new ApiError(404, `${entityName} introuvable`);
     const maintenant = new Date();
-    if (auditDansLaTransaction) {
+    if (auditDansLaTransaction && delegueTx) {
       // Une archive sans trace est une disparition silencieuse : c'est le geste ou
       // l'atomicite compte le plus, puisque la donnee quitte les listes operationnelles.
-      const [deleted] = await prisma.$transaction([
-        model.update({ where: { id }, data: { deletedAt: maintenant } }),
-        construireAudit({ userId, action: "DELETE", entityType: entityName, entityId: id, before }),
-      ]);
-      return deleted;
+      return prisma.$transaction(async (tx) => {
+        const archive = await delegueTx(tx).update({ where: { id }, data: { deletedAt: maintenant } });
+        await logAuditTransactionnelle(tx, {
+          userId, action: "DELETE", entityType: entityName, entityId: id, before, after: archive,
+        });
+        return archive;
+      });
     }
     const deleted = await model.update({ where: { id }, data: { deletedAt: maintenant } });
     await logAudit({ userId, action: "DELETE", entityType: entityName, entityId: id, before });
@@ -190,12 +229,14 @@ export function createCrudService(
   }
 
   async function restore(id: string, userId: string) {
-    if (auditDansLaTransaction) {
-      const [restored] = await prisma.$transaction([
-        model.update({ where: { id }, data: { deletedAt: null } }),
-        construireAudit({ userId, action: "RESTORE", entityType: entityName, entityId: id, after: { id, deletedAt: null } }),
-      ]);
-      return restored;
+    if (auditDansLaTransaction && delegueTx) {
+      return prisma.$transaction(async (tx) => {
+        const remis = await delegueTx(tx).update({ where: { id }, data: { deletedAt: null } });
+        await logAuditTransactionnelle(tx, {
+          userId, action: "RESTORE", entityType: entityName, entityId: id, after: remis,
+        });
+        return remis;
+      });
     }
     const restored = await model.update({ where: { id }, data: { deletedAt: null } });
     await logAudit({ userId, action: "RESTORE", entityType: entityName, entityId: id, after: restored });

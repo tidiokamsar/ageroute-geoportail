@@ -1,5 +1,5 @@
 import { Router, type Request, type RequestHandler } from "express";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile, unlink } from "node:fs/promises";
 import { z } from "zod";
 import { StatutValidation } from "@prisma/client";
@@ -14,6 +14,7 @@ import { prisma } from "../lib/prisma";
 import { logAuditTransactionnelle } from "../utils/audit";
 import { enregistrerQualite } from "../lib/qualite";
 import { setPointGeom, deriveGeomFromTroncon, deriveGeomFromTronconAbscisse } from "../lib/geo";
+import { donneesObservationConteneur } from "../field/observation-conteneur";
 import {
   metrer, graviteValide, transitionEtatPermise,
   statutQualiteQuantite, EXPLICATIONS as EXPLICATIONS_DEFAUT, NOMS_MESURES,
@@ -253,12 +254,41 @@ defautsV2Router.post("/", requireAuth, requireModuleAccess("inspections"), async
     }
 
     const defaut = await prisma.$transaction(async (tx) => {
+      /**
+       * TOUT DEFAUT A SON OBSERVATION, ET ELLE NAIT DANS LA MEME TRANSACTION.
+       *
+       * `observationId` est NOT NULL depuis le 13/10/2026 (paragraphe 7.1). Le terrain
+       * n'en envoyait aucun : la contrainte seule aurait casse la saisie a la premiere
+       * photo. Le conteneur est donc materialise ici, depuis le releve lui-meme — agent,
+       * mission, troncon, position, horodatage — sans rien inventer.
+       *
+       * Dans la MEME transaction, parce qu'une observation creee puis un defaut refuse
+       * laisserait un conteneur vide que rien ne reclame.
+       */
+      const observationId = c.observationId ?? (await tx.observation.create({
+        data: donneesObservationConteneur({
+          famille: catalogue.famille,
+          agentId: user.id,
+          missionId: c.missionId ?? null,
+          tronconId: c.tronconId ?? null,
+          lat: c.lat ?? null,
+          lon: c.lon ?? null,
+          precisionM: c.precisionM ?? null,
+          confianceAppariement: c.confianceAppariement ?? null,
+          pk: c.pk ?? null,
+          observeA: constateA,
+          clientOperationId: c.clientOperationId ?? null,
+          libelleCatalogue: catalogue.libelle,
+        }, randomUUID),
+        select: { id: true },
+      })).id;
+
       const cree = await tx.defaut.create({
         data: {
         code: c.code ?? null,
         clientOperationId: c.clientOperationId ?? null,
         catalogueId: catalogue.id,
-        observationId: c.observationId ?? null,
+        observationId,
         missionId: c.missionId ?? null,
         tronconId: c.tronconId ?? null,
         lat: c.lat ?? null,

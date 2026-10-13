@@ -38,6 +38,8 @@ const h = vi.hoisted(() => {
     media: null as Record<string, unknown> | null,
     /** Photos deja rattachees, pour eprouver le plafond par objet. */
     photosDuDefaut: 0,
+    /** Observation conteneur creee par le serveur, pour l'inspecter. */
+    observationCreee: null as Record<string, unknown> | null,
     setPointGeom: vi.fn(async () => {}),
     match: { tronconId: "t1", code: "RN1-001", nom: "RN1", classe: "RN", distanceM: 3, abscisseM: 120, pk: 4.2, pkMotif: "CALCULE", confiance: 0.9, ambigu: false },
     apparier: vi.fn(async () => h.match),
@@ -105,7 +107,13 @@ vi.mock("../lib/prisma", () => ({
       findFirst: vi.fn(async () => ({ id: "m1" })),
       findMany: vi.fn(async () => h.missions),
     },
-    observation: { findFirst: vi.fn(async () => ({ id: "o1", missionId: null })) },
+    observation: {
+      findFirst: vi.fn(async () => ({ id: "o1", missionId: null })),
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        h.observationCreee = data;
+        return { id: "obs-1" };
+      }),
+    },
     defaut: {
       findUnique: vi.fn(async ({ where }: { where: { id?: string; clientOperationId?: string; code?: string } }) => {
         if (where.id) return h.defautCree ?? h.defautExistant;
@@ -169,6 +177,15 @@ vi.mock("../lib/prisma", () => ({
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: "media-1", ...data })),
     },
     $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn({
+      // Le serveur materialise l'observation conteneur DANS cette transaction depuis que
+      // `defauts.observationId` est NOT NULL. Un mock sans ce delegue ferait rendre 500
+      // a la creation, sans dire pourquoi.
+      observation: {
+        create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          h.observationCreee = data;
+          return { id: "obs-1" };
+        }),
+      },
       defaut: {
         create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
           h.defautCree = { id: "d1", version: 1, statutValidation: "A_VALIDER", etat: "ACTIF", ...data };
@@ -258,6 +275,7 @@ beforeEach(() => {
   h.qualites = [];
   h.media = null;
   h.photosDuDefaut = 0;
+  h.observationCreee = null;
   h.apparier.mockClear();
   vi.clearAllMocks();
 });
@@ -287,6 +305,66 @@ describe("POST /api/v2/defauts — création", () => {
     expect(r.body.quantite).toBe(50);
     expect(r.body.methodeQuantite).toBe("LONGUEUR");
     expect(r.body.constateParId).toBe("agent-1");
+  });
+
+  describe("Tout défaut a son observation", () => {
+    /**
+     * `defauts.observationId` est NOT NULL depuis le 13/10/2026 (§7.1). Le frontend n'en
+     * envoyait JAMAIS — zéro occurrence dans tout `frontend/src` — donc la contrainte
+     * seule aurait cassé la saisie terrain à la première photo.
+     *
+     * Le serveur matérialise le conteneur depuis le relevé lui-même, dans la MÊME
+     * transaction. Ces tests défendent le lien, et surtout la frontière : matérialiser
+     * depuis la soumission, jamais déduire.
+     */
+    it("matérialise le conteneur et y rattache le défaut", async () => {
+      const r = await request(app).post("/api/v2/defauts").send({
+        catalogueCode: "ORNIERAGE", ...gps,
+        mesures: { longueurM: 50, profondeurM: 0.04 }, gravite: 2,
+      });
+      expect(r.status).toBe(201);
+      expect(r.body.observationId).toBe("obs-1");
+      // Le conteneur reprend l'agent et la position du relevé, sans rien inventer.
+      expect(h.observationCreee).toMatchObject({
+        agentId: "agent-1", type: "CHAUSSEE", lat: gps.lat, lon: gps.lon,
+      });
+    });
+
+    it("n'en crée AUCUN quand le terrain fournit déjà une observation", async () => {
+      // Le jour où le client enverra observation puis défauts, ce chemin ne doit pas
+      // doubler les conteneurs.
+      const r = await request(app).post("/api/v2/defauts").send({
+        catalogueCode: "ORNIERAGE", ...gps,
+        mesures: { longueurM: 50, profondeurM: 0.04 }, gravite: 2,
+        observationId: "00000000-0000-4000-8000-000000000001",
+      });
+      expect(r.status).toBe(201);
+      expect(h.observationCreee).toBeNull();
+      expect(r.body.observationId).toBe("00000000-0000-4000-8000-000000000001");
+    });
+
+    it("dérive la clé du conteneur de celle de l'opération", async () => {
+      // Un rejeu rencontre alors la même collision d'unicité sur les deux lignes, et non
+      // une observation de plus à chaque tentative.
+      await request(app).post("/api/v2/defauts").send({
+        catalogueCode: "ORNIERAGE", ...gps,
+        mesures: { longueurM: 50, profondeurM: 0.04 }, gravite: 2,
+        clientOperationId: "33333333-3333-4333-8333-333333333333",
+      });
+      expect(h.observationCreee?.clientOperationId)
+        .toBe("33333333-3333-4333-8333-333333333333-observation");
+    });
+
+    it("n'invente pas de position quand le relevé n'en a pas", async () => {
+      // Un conteneur doté d'une position plausible mentirait sur l'endroit du constat, et
+      // cette position remonterait ensuite comme celle de l'observation d'origine.
+      const r = await request(app).post("/api/v2/defauts").send({
+        catalogueCode: "ORNIERAGE", tronconId: "t1", abscisseM: 120, confianceAppariement: 0.9,
+        mesures: { longueurM: 50, profondeurM: 0.04 }, gravite: 2,
+      });
+      expect(r.status).toBe(201);
+      expect(h.observationCreee).toMatchObject({ lat: null, lon: null, tronconId: "t1" });
+    });
   });
 
   it("refuse un défaut rattaché à une mission que l'auteur ne peut pas consulter", async () => {
