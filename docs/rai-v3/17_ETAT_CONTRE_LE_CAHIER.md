@@ -173,6 +173,7 @@ décision.
 ## Trois points de sécurité toujours ouverts
 
 Hérités et non résolus : le mot de passe ADMIN transmis en clair dans une conversation n'a
-pas été changé ; `test.gestionnaire@ageroute.gov.gn` détient `ADMIN` en production ; et la
+pas été changé ; un compte de test détenait `ADMIN` en production, **rétrogradé le
+13/10/2026** ; et la
 clé de chiffrement des sauvegardes n'a **aucune copie hors serveur**, ce qui rend les
 archives chiffrées illisibles en cas de perte de la machine.

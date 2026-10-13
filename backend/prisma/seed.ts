@@ -15,7 +15,14 @@ async function main() {
   }
 
   console.log("Seed : compte administrateur...");
-  const adminEmail = process.env.SEED_ADMIN_EMAIL ?? "tidiane.diallo@ageroute.gov.gn";
+  // PAS DE VALEUR PAR DEFAUT NOMINATIVE : ce depot est public, et une adresse
+  // d'administrateur en dur y designe un compte privilegie reel. `SEED_ADMIN_EMAIL` est
+  // donc requis, et le seed echoue bruyamment plutot que de creer un compte au nom de
+  // quelqu'un qui ne l'a pas demande.
+  const adminEmail = process.env.SEED_ADMIN_EMAIL;
+  if (!adminEmail) {
+    throw new Error("SEED_ADMIN_EMAIL est requis : l'adresse de l'administrateur initial.");
+  }
   await prisma.user.upsert({
     where: { email: adminEmail },
     update: {},

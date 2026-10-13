@@ -84,7 +84,7 @@ entraînerait celle de la base, sauvegardes comprises. C'est le risque le plus g
 système, et il se solde en copiant 65 octets.
 
 **Un mot de passe ADMIN a circulé en clair** et n'a pas été changé. Un compte nommé
-`test.gestionnaire@ageroute.gov.gn` porte le rôle ADMIN en production.
+Un compte de test porte le rôle ADMIN en production. **Rétrogradé le 13/10/2026.**
 
 **Sept tronçons hors du territoire guinéen**, 72 km, comptent dans les 21 157 km
 publiés. Le prédicat qui les exclut est déployé, le marquage des données reste à faire.

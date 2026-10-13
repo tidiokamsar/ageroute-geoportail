@@ -47,7 +47,8 @@ log "Benchmark GiST — $(date '+%Y-%m-%d %H:%M') — copie de production restau
 DUMP=$(ls -1t "$SAUVEGARDES"/bdri_*.dump.enc 2>/dev/null | head -1)
 if [ -z "$DUMP" ]; then
     # Pas de sauvegarde locale : rapatriement depuis le depot distant.
-    HOTE_DEPOT="${HOTE_DEPOT:-agerdb@102.211.199.132}"
+    # Pas de valeur par defaut : ce depot est public, voir infra/backup/sauvegarde-bdri.sh.
+    HOTE_DEPOT="${HOTE_DEPOT:?HOTE_DEPOT est requis : utilisateur@hote du depot}"
     REPERTOIRE_DEPOT="${REPERTOIRE_DEPOT:-~/ageroute-depots/bdri-sauvegardes}"
     DUMP_DISTANT=$(ssh -o ConnectTimeout=15 "$HOTE_DEPOT" "ls -1t $REPERTOIRE_DEPOT/bdri_*.dump.enc 2>/dev/null | head -1")
     [ -n "$DUMP_DISTANT" ] || { log "ERREUR: aucune sauvegarde nulle part"; exit 1; }
