@@ -7,8 +7,8 @@ import type { DocumentCreateInput } from "./documents.schema";
  * Migre a l'audit transactionnel (ADR 11). La mutation et sa trace reussissent ou sont
  * annulees ensemble.
  */
-const base = createCrudService(prisma.document, "Document", { troncon: true }, {
-  auditTransactionnel: true,
+const base = createCrudService(prisma.document, "Document", {
+  include: { troncon: true },
   delegueTransactionnel: (tx) => (tx as typeof prisma).document,
 });
 

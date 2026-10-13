@@ -16,19 +16,14 @@ import { construireQualite } from "../../lib/qualite";
  * Les sept autres services qui partagent ces fabriques restent sur le helper historique
  * jusqu'a leur propre migration, comme l'ADR le prevoit.
  */
-const base = createCrudService(
-  prisma.inspection,
-  "Inspection",
-  { troncon: true, ouvrage: true, inspecteur: { select: { nomComplet: true } } },
-  {
-    auditTransactionnel: true,
-    // Le delegue est DESIGNE, pas devine : c'est ce qui distingue ce montage de celui que
-    // 4eb1525 avait du retirer, lequel derivait le nom du modele depuis l'entite et
-    // court-circuitait le delegue injecte dans la fabrique.
-    delegueTransactionnel: (tx) => (tx as typeof prisma).inspection,
-  },
-);
-const photos = createPhotoService(prisma.inspection, "Inspection", { auditTransactionnel: true });
+const base = createCrudService(prisma.inspection, "Inspection", {
+  include: { troncon: true, ouvrage: true, inspecteur: { select: { nomComplet: true } } },
+  // Le delegue est DESIGNE, pas devine : c'est ce qui distingue ce montage de celui que
+  // 4eb1525 avait du retirer, lequel derivait le nom du modele depuis l'entite et
+  // court-circuitait le delegue injecte dans la fabrique.
+  delegueTransactionnel: (tx) => (tx as typeof prisma).inspection,
+});
+const photos = createPhotoService(prisma.inspection, "Inspection");
 
 interface InspectionListParams extends ListParams {
   tronconId?: string;

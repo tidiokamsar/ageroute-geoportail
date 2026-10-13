@@ -15,8 +15,8 @@ const defaultInclude = {
  * Migre a l'audit transactionnel (ADR 11). La mutation et sa trace reussissent ou sont
  * annulees ensemble.
  */
-const base = createCrudService(prisma.marche, "Marche", defaultInclude, {
-  auditTransactionnel: true,
+const base = createCrudService(prisma.marche, "Marche", {
+  include: defaultInclude,
   delegueTransactionnel: (tx) => (tx as typeof prisma).marche,
 });
 

@@ -130,20 +130,16 @@ beforeEach(() => {
 
 let modeleCourant: ReturnType<typeof fauxModele>;
 
-function migre(lignes: Record<string, unknown>[] = []) {
+function monter(lignes: Record<string, unknown>[] = [], entityName = "Inspection") {
   modeleCourant = fauxModele(lignes);
   h.delegue = modeleCourant;
-  const service = createCrudService(modeleCourant, "Inspection", undefined, {
-    auditTransactionnel: true,
+  const service = createCrudService(modeleCourant, entityName, {
     delegueTransactionnel: (tx) => (tx as { modele: unknown }).modele as never,
   });
   return { model: modeleCourant, service };
 }
 
-function nonMigre(lignes: Record<string, unknown>[] = []) {
-  const model = fauxModele(lignes);
-  return { model, service: createCrudService(model, "Troncon") };
-}
+const migre = monter;
 
 describe("Module migre : la trace est FIDELE a ce que la base a rendu", () => {
   it("enregistre la ligne retournee, colonnes calculees comprises", async () => {
@@ -192,13 +188,7 @@ describe("Module migre : la trace est FIDELE a ce que la base a rendu", () => {
      *
      * On eprouve donc le mecanisme sur une entite REELLEMENT suivie.
      */
-    modeleCourant = fauxModele([{ id: "a", etat: "MAUVAIS", deletedAt: null }]);
-    h.delegue = modeleCourant;
-    const service = createCrudService(modeleCourant, "Troncon", undefined, {
-      auditTransactionnel: true,
-      delegueTransactionnel: (tx) => (tx as { modele: unknown }).modele as never,
-    });
-
+    const { service } = monter([{ id: "a", etat: "MAUVAIS", deletedAt: null }], "Troncon");
     await service.update("a", { etat: "BON" }, "u1");
     expect(h.provenances).toBeGreaterThan(0);
     // Et la trace reste fidele sur ce chemin aussi.
@@ -240,45 +230,51 @@ describe("Module migre : la trace est FIDELE a ce que la base a rendu", () => {
   });
 });
 
-describe("Une fabrique mal configuree se voit au montage", () => {
-  it("refuse auditTransactionnel sans delegue", () => {
-    // Au DEMARRAGE et non a la premiere ecriture : une erreur de montage doit tomber
-    // quand le module se charge, pas en pleine synchronisation de terrain.
-    expect(() => createCrudService(fauxModele(), "Inspection", undefined, {
-      auditTransactionnel: true,
-    })).toThrow(/delegueTransactionnel/);
+describe("On ne peut plus monter un service dont les ecritures ne sont pas tracees", () => {
+  it("REFUSE A LA COMPILATION un montage sans delegue transactionnel", () => {
+    /**
+     * Ce test ne verifie pas un comportement d'execution : il verifie un TYPE.
+     *
+     * L'option `auditTransactionnel` a existe, et avec elle une branche fail-soft. Une
+     * fois les huit services migres, cette branche etait du code mort — et un code mort
+     * de cette nature est un piege : il suffisait d'instancier la fabrique sans l'option
+     * pour retrouver un audit perdable en silence, sans qu'aucun test ne tombe.
+     *
+     * Elle a donc ete supprimee le 13/10/2026, et `delegueTransactionnel` est devenu
+     * obligatoire. La garantie n'est plus une configuration a ne pas oublier ni un jet a
+     * l'execution : c'est le compilateur qui l'applique.
+     *
+     * `@ts-expect-error` est ici l'assertion. Si quelqu'un rendait un jour le delegue
+     * facultatif, l'erreur attendue disparaitrait et `tsc` echouerait sur cette ligne —
+     * la decision se rediscuterait au lieu de se defaire en silence.
+     */
+    // @ts-expect-error le delegue transactionnel est obligatoire
+    expect(() => createCrudService(fauxModele(), "Inspection", {})).toBeTypeOf("function");
   });
 });
 
-describe("Modules non migres : RIEN ne doit avoir change", () => {
+describe("Il n'existe plus de chemin non trace", () => {
   /**
-   * Le test le plus important du fichier.
+   * Ce bloc remplace celui qui eprouvait la branche fail-soft des modules non migres.
    *
-   * Sept services partagent cette fabrique. Basculer leur comportement sans arbitrage
-   * transformerait une panne de journalisation en panne d'ecriture sur tout le chemin
-   * patrimonial. L'ADR 11 reste « propose » et prevoit une migration explicite.
+   * Elle n'existe plus : les huit services qui partagent cette fabrique sont migres, et
+   * le delegue est desormais obligatoire. Garder ces tests reviendrait a defendre un
+   * comportement supprime ; les retirer sans rien mettre a la place laisserait croire que
+   * la question ne se pose plus. Elle se pose : c'est l'option 1 de l'ADR 11, et c'est
+   * l'ARB qui a tranche pour la supprimer.
    */
-  it("n'ouvre aucune transaction interactive", async () => {
-    const { service } = nonMigre([{ id: "a", nom: "RN1", deletedAt: null }]);
-    await service.update("a", { nom: "RN1 bis" }, "u1");
-    // Forme tableau uniquement, et aucune trace dans la transaction.
-    expect(h.lots.length).toBeGreaterThan(0);
-    expect(h.audits).toEqual([]);
-  });
-
-  it("reussit malgre un audit en panne, comme avant", async () => {
-    // La garantie historique : une panne de journalisation ne fait pas echouer la requete
-    // metier. Elle reste vraie ici, et c'est voulu.
-    h.auditEchoue = true;
-    const { service } = nonMigre([{ id: "a", nom: "RN1", deletedAt: null }]);
-    const r = await service.update("a", { nom: "RN1 bis" }, "u1");
-    expect(r).toMatchObject({ id: "a", nom: "RN1 bis" });
-  });
-
-  it("archive sans transaction interactive", async () => {
-    const { service, model } = nonMigre([{ id: "a", deletedAt: null }]);
+  it("ouvre une transaction pour TOUTE ecriture, y compris une simple archive", async () => {
+    const { service } = monter([{ id: "a", nom: "RN1", deletedAt: null }], "Troncon");
     await service.remove("a", "u1");
-    expect(model.update).toHaveBeenCalledWith({ where: { id: "a" }, data: { deletedAt: expect.any(Date) } });
-    expect(h.audits).toEqual([]);
+    expect(h.audits).toHaveLength(1);
+    expect(h.audits[0].action).toBe("DELETE");
+  });
+
+  it("FAIT ECHOUER meme une archive dont l'audit echoue", async () => {
+    // C'etait le cas que la branche fail-soft laissait passer : la donnee quittait les
+    // listes operationnelles et rien ne disait qui l'en avait retiree.
+    h.auditEchoue = true;
+    const { service } = monter([{ id: "a", nom: "RN1", deletedAt: null }], "Troncon");
+    await expect(service.remove("a", "u1")).rejects.toThrow("audit_logs indisponible");
   });
 });

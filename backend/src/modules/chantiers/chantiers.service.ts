@@ -11,8 +11,8 @@ import { chantierCreateSchema } from "./chantiers.schema";
  * Migre a l'audit transactionnel (ADR 11). La mutation et sa trace reussissent ou sont
  * annulees ensemble.
  */
-const base = createCrudService(prisma.chantier, "Chantier", { region: true, troncon: true }, {
-  auditTransactionnel: true,
+const base = createCrudService(prisma.chantier, "Chantier", {
+  include: { region: true, troncon: true },
   delegueTransactionnel: (tx) => (tx as typeof prisma).chantier,
 });
 

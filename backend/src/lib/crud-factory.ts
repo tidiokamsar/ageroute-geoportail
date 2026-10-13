@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { z } from "zod";
-import { logAudit, logAuditTransactionnelle } from "../utils/audit";
+import { logAuditTransactionnelle } from "../utils/audit";
 import { prisma } from "./prisma";
 import { construireSaisies } from "./provenance";
 import { ApiError } from "../middleware/error.middleware";
@@ -39,63 +39,69 @@ type PrismaDelegate = any;
  * pour toute entite patrimoniale possedant les champs id/deletedAt/createdAt.
  */
 /**
- * Options par module.
+ * Options de montage.
  *
- * `auditTransactionnel` fait rejoindre la ligne d'audit la transaction metier : la
- * mutation et sa trace reussissent ou sont annulees ensemble.
+ * TOUTE ECRITURE DE CETTE FABRIQUE EST TRACEE, SANS EXCEPTION POSSIBLE.
  *
- * POURQUOI UNE OPTION ET PAS UN BASCULEMENT GLOBAL
+ * Huit services la partagent — chantiers, documents, inspections, marches, ouvrages,
+ * points noirs, postes, troncons — et la mutation part desormais avec sa ligne d'audit
+ * dans une seule transaction : les deux reussissent, ou les deux sont annulees.
  *
- * Huit services partagent cette fabrique — chantiers, documents, inspections, marches,
- * ouvrages, points noirs, postes, troncons. Les basculer d'un coup changerait le
- * comportement de tout le chemin d'ecriture patrimonial : une panne sur `audit_logs`
- * ferait desormais ECHOUER les ecritures metier au lieu de les laisser passer sans
- * trace.
+ * Une panne sur `audit_logs` fait donc ECHOUER l'ecriture metier, au lieu de la laisser
+ * passer sans trace. C'est la garantie que veut la regle 3 d'AGENTS.md, et c'est un
+ * changement de comportement assume : voir l'ADR 11, qui l'expose comme son option 3.
  *
- * C'est la garantie que veut la regle 3 d'AGENTS.md, et l'ADR 11 la propose — mais
- * l'ADR est « propose, approbation ARB non documentee », et il prevoit explicitement que
- * « le helper historique reste en place pour les modules existants jusqu'a leur migration
- * explicite ». Cette option EST cette migration explicite, module par module, et elle se
- * retire en supprimant un mot.
+ * Il n'y a plus d'echappatoire, et c'est voulu. Elle a existe le temps de migrer les huit
+ * services un par un ; une fois tous migres, elle n'etait plus qu'un code mort dans lequel
+ * on pouvait retomber par omission.
  */
 export interface OptionsCrud {
-  auditTransactionnel?: boolean;
+  /** Relations chargees par defaut sur les lectures. */
+  include?: Record<string, unknown>;
+
   /**
-   * Resout le delegue du modele DANS une transaction interactive.
+   * Resout le delegue du modele DANS une transaction interactive. OBLIGATOIRE.
    *
-   * POURQUOI L'APPELANT LE FOURNIT, ET POURQUOI C'EST ESSENTIEL
+   * POURQUOI LA FORME INTERACTIVE
    *
-   * La fidelite du champ `after` exige la forme INTERACTIVE : dans la forme tableau, la
-   * ligne retournee par la base n'est pas connue au moment de construire la trace, et
-   * l'audit ne pouvait enregistrer qu'un etat projete.
+   * La fidelite du champ `after` l'exige : dans la forme tableau, la ligne retournee par
+   * la base n'est pas connue au moment de construire la trace, et l'audit ne pouvait
+   * enregistrer qu'un etat projete, sans les colonnes calculees.
    *
-   * Le commit 4eb1525 avait deja essaye l'interactif, en retrouvant le modele par son
-   * nom DERIVE de l'entite. Cela compilait, fonctionnait, et court-circuitait le delegue
+   * POURQUOI L'APPELANT LE FOURNIT
+   *
+   * Le commit 4eb1525 avait essaye l'interactif en retrouvant le modele par son nom
+   * DERIVE de l'entite. Cela compilait, fonctionnait, et court-circuitait le delegue
    * injecte dans la fabrique : `crud-factory.test.ts` s'est mis a echouer parce qu'il ne
    * voyait plus l'appel qu'il verifie. Le test avait raison, et la cause etait la
    * derivation du nom.
    *
    * Ici l'appelant ecrit `(tx) => tx.inspection`. Aucun nom n'est devine, le delegue
    * reste celui que l'appelant designe, et un test peut injecter le sien.
+   *
+   * POURQUOI IL EST OBLIGATOIRE DEPUIS LE 13/10/2026
+   *
+   * Il a d'abord ete facultatif, avec une option `auditTransactionnel` : l'ADR 11 prevoit
+   * une migration module par module, et il fallait pouvoir migrer les huit services sans
+   * basculer d'un coup tout le chemin d'ecriture patrimonial.
+   *
+   * Les huit sont migres. La branche fail-soft etait donc devenue du CODE MORT, et un
+   * code mort de cette nature est un piege : il suffisait d'instancier la fabrique sans
+   * l'option pour retrouver un audit perdable en silence, sans qu'aucun test ne tombe.
+   *
+   * Rendre le delegue obligatoire transforme la garantie en propriete verifiee par le
+   * COMPILATEUR. On ne peut plus construire un service dont les ecritures ne sont pas
+   * tracees — ce n'est plus une configuration a ne pas oublier.
    */
-  delegueTransactionnel?: (tx: unknown) => PrismaDelegate;
+  delegueTransactionnel: (tx: unknown) => PrismaDelegate;
 }
 
 export function createCrudService(
   model: PrismaDelegate,
   entityName: string,
-  defaultInclude?: Record<string, unknown>,
-  options: OptionsCrud = {},
+  options: OptionsCrud,
 ) {
-  const auditDansLaTransaction = options.auditTransactionnel === true;
-  if (auditDansLaTransaction && !options.delegueTransactionnel) {
-    // Echouer au DEMARRAGE et non a la premiere ecriture : une fabrique mal configuree
-    // doit se voir au montage du module, pas en pleine synchronisation de terrain.
-    throw new Error(
-      `createCrudService(${entityName}) : auditTransactionnel exige delegueTransactionnel.`,
-    );
-  }
-  const delegueTx = options.delegueTransactionnel;
+  const { include: defaultInclude, delegueTransactionnel: delegueTx } = options;
 
   async function list(params: ListParams = {}): Promise<ListResult<unknown>> {
     const page = Math.max(1, params.page ?? 1);
@@ -143,28 +149,18 @@ export function createCrudService(
      */
     const id = (data.id as string | undefined) ?? randomUUID();
 
-    if (auditDansLaTransaction && delegueTx) {
-      // Forme INTERACTIVE : `after` est la ligne telle que la base l'a rendue, defauts de
-      // colonne et champs calcules compris. C'est ce que le helper historique
-      // enregistrait, et c'est la raison de ce passage a l'interactif.
-      return prisma.$transaction(async (tx) => {
-        const cree = await delegueTx(tx).create({ data: { ...data, id } });
-        // La provenance recoit `tx` : sans cela elle partirait sur le client de base et
-        // cesserait silencieusement de faire partie de la transaction.
-        await Promise.all(construireSaisies(entityName, id, data, userId, tx as never) as Promise<unknown>[]);
-        await logAuditTransactionnelle(tx, {
-          userId, action: "CREATE", entityType: entityName, entityId: cree.id, after: cree,
-        });
-        return cree;
+    // Forme INTERACTIVE : `after` est la ligne telle que la base l'a rendue, defauts de
+    // colonne et champs calcules compris.
+    return prisma.$transaction(async (tx) => {
+      const cree = await delegueTx(tx).create({ data: { ...data, id } });
+      // La provenance recoit `tx` : sans cela elle partirait sur le client de base et
+      // cesserait silencieusement de faire partie de la transaction.
+      await Promise.all(construireSaisies(entityName, id, data, userId, tx as never) as Promise<unknown>[]);
+      await logAuditTransactionnelle(tx, {
+        userId, action: "CREATE", entityType: entityName, entityId: cree.id, after: cree,
       });
-    }
-
-    const [created] = await prisma.$transaction([
-      model.create({ data: { ...data, id } }),
-      ...construireSaisies(entityName, id, data, userId),
-    ]);
-    await logAudit({ userId, action: "CREATE", entityType: entityName, entityId: created.id, after: created });
-    return created;
+      return cree;
+    });
   }
 
   async function update(id: string, data: Record<string, unknown>, userId: string) {
@@ -187,24 +183,14 @@ export function createCrudService(
      * echec entre les deux laisserait une valeur sans provenance, ou une provenance
      * sans valeur, et rien ne permettrait de savoir laquelle croire.
      */
-    if (auditDansLaTransaction && delegueTx) {
-      return prisma.$transaction(async (tx) => {
-        const maj = await delegueTx(tx).update({ where: { id }, data });
-        await Promise.all(construireSaisies(entityName, id, data, userId, tx as never) as Promise<unknown>[]);
-        await logAuditTransactionnelle(tx, {
-          userId, action: "UPDATE", entityType: entityName, entityId: id, before, after: maj,
-        });
-        return maj;
+    return prisma.$transaction(async (tx) => {
+      const maj = await delegueTx(tx).update({ where: { id }, data });
+      await Promise.all(construireSaisies(entityName, id, data, userId, tx as never) as Promise<unknown>[]);
+      await logAuditTransactionnelle(tx, {
+        userId, action: "UPDATE", entityType: entityName, entityId: id, before, after: maj,
       });
-    }
-
-    const [updated] = await prisma.$transaction([
-      model.update({ where: { id }, data }),
-      ...construireSaisies(entityName, id, data, userId),
-    ]);
-
-    await logAudit({ userId, action: "UPDATE", entityType: entityName, entityId: id, before, after: updated });
-    return updated;
+      return maj;
+    });
   }
 
   // Suppression logique uniquement : la donnee reste en base (deletedAt renseigne)
@@ -212,35 +198,25 @@ export function createCrudService(
     const before = await model.findUnique({ where: { id } });
     if (!before) throw new ApiError(404, `${entityName} introuvable`);
     const maintenant = new Date();
-    if (auditDansLaTransaction && delegueTx) {
-      // Une archive sans trace est une disparition silencieuse : c'est le geste ou
-      // l'atomicite compte le plus, puisque la donnee quitte les listes operationnelles.
-      return prisma.$transaction(async (tx) => {
-        const archive = await delegueTx(tx).update({ where: { id }, data: { deletedAt: maintenant } });
-        await logAuditTransactionnelle(tx, {
-          userId, action: "DELETE", entityType: entityName, entityId: id, before, after: archive,
-        });
-        return archive;
+    // Une archive sans trace est une disparition silencieuse : c'est le geste ou
+    // l'atomicite compte le plus, puisque la donnee quitte les listes operationnelles.
+    return prisma.$transaction(async (tx) => {
+      const archive = await delegueTx(tx).update({ where: { id }, data: { deletedAt: maintenant } });
+      await logAuditTransactionnelle(tx, {
+        userId, action: "DELETE", entityType: entityName, entityId: id, before, after: archive,
       });
-    }
-    const deleted = await model.update({ where: { id }, data: { deletedAt: maintenant } });
-    await logAudit({ userId, action: "DELETE", entityType: entityName, entityId: id, before });
-    return deleted;
+      return archive;
+    });
   }
 
   async function restore(id: string, userId: string) {
-    if (auditDansLaTransaction && delegueTx) {
-      return prisma.$transaction(async (tx) => {
-        const remis = await delegueTx(tx).update({ where: { id }, data: { deletedAt: null } });
-        await logAuditTransactionnelle(tx, {
-          userId, action: "RESTORE", entityType: entityName, entityId: id, after: remis,
-        });
-        return remis;
+    return prisma.$transaction(async (tx) => {
+      const remis = await delegueTx(tx).update({ where: { id }, data: { deletedAt: null } });
+      await logAuditTransactionnelle(tx, {
+        userId, action: "RESTORE", entityType: entityName, entityId: id, after: remis,
       });
-    }
-    const restored = await model.update({ where: { id }, data: { deletedAt: null } });
-    await logAudit({ userId, action: "RESTORE", entityType: entityName, entityId: id, after: restored });
-    return restored;
+      return remis;
+    });
   }
 
   // Actions groupees : chaque ligne est traitee independamment, un echec individuel

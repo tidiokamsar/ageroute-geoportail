@@ -362,14 +362,76 @@ sur la fiche d'un ordre de travaux. Ce n'est pas l'audit. L'y faire entrer rendr
 création impossible si cette table tombait, et cet arbitrage n'a pas été rendu. L'asymétrie
 est assumée et notée ici pour ne pas être découverte par surprise.
 
+## L'échappatoire est supprimée — 13/10/2026
+
+**Décision rendue : l'option 1 de cet ADR n'est plus accessible.**
+
+`auditTransactionnel` a disparu des deux fabriques, et `delegueTransactionnel` est devenu
+**obligatoire**. La garantie n'est plus une configuration à ne pas oublier, ni un jet à
+l'exécution : **c'est le compilateur qui l'applique.** On ne peut plus construire un service
+CRUD dont les écritures ne sont pas tracées.
+
+L'option avait sa raison d'être : l'ADR prévoyait une migration module par module, et il
+fallait pouvoir migrer les huit services sans basculer d'un coup tout le chemin d'écriture
+patrimonial. Les huit migrés, la branche fail-soft n'était plus qu'un **code mort dans
+lequel on pouvait retomber par omission** — il suffisait d'instancier la fabrique sans
+l'option pour retrouver un audit perdable en silence, sans qu'aucun test ne tombe.
+
+### Ce que la suppression a coûté en signature
+
+`defaultInclude` était le 3e paramètre, optionnel ; un paramètre requis ne peut pas le
+suivre. Les options sont donc devenues un **objet unique** en 3e position, `include`
+compris :
+
+```ts
+createCrudService(prisma.troncon, "Troncon", {
+  include: { region: true },
+  delegueTransactionnel: (tx) => (tx as typeof prisma).troncon,
+})
+```
+
+Huit appelants mis à jour, et `createPhotoService` a simplement perdu son option — son
+audit n'enregistre qu'un nom de fichier, pas une ligne de base, donc il reste en forme
+tableau.
+
+### Les tests qui défendaient le chemin mort
+
+Treize sites de `crud-factory.test.ts` montaient un service sans option, c'est-à-dire sur
+la branche fail-soft. Ils passent par une aide locale qui fournit le délégué, et leur
+client de transaction expose le **modèle injecté par le test** — le court-circuiter serait
+exactement l'erreur de `4eb1525`.
+
+Le test de mauvaise configuration, qui vérifiait un jet à l'exécution, est remplacé par un
+test de **type** : `@ts-expect-error` sur un montage sans délégué. Si quelqu'un rendait le
+délégué facultatif, l'erreur attendue disparaîtrait et `tsc` échouerait sur cette ligne —
+la décision se rediscuterait au lieu de se défaire en silence.
+
+Le bloc « modules non migrés » n'avait plus d'objet. Il est remplacé, et non simplement
+supprimé : le retirer sans rien mettre à la place laisserait croire que la question ne se
+pose plus. Deux tests affirment désormais qu'**il n'existe plus de chemin non tracé**, y
+compris pour une simple archive.
+
+### État final de la couverture
+
+| Chemin | Audit |
+|---|---|
+| Les 8 services de `createCrudService` | transactionnel, **obligatoire** |
+| Les 2 services de `createPhotoService` | transactionnel, sans option |
+| Géométrie des tronçons, propagation d'état d'inspection | transactionnel |
+| Défauts, observations, missions, appareils, synchronisation | transactionnel |
+| Marchés, décomptes, bailleurs, ordres de travaux, users, settings | transactionnel |
+| Révocations de jetons, activation et désactivation du 2FA | transactionnel |
+| **`LOGIN` et les deux `LOGIN_FAILED`** | **fail-soft, délibérément** |
+
+Les trois derniers appels fail-soft du dépôt sont ceux-là, et un test fixe cette décision.
+Les migrer refuserait toute connexion pendant une panne d'`audit_logs`, y compris celle des
+administrateurs qui devraient venir la réparer.
+
 ### Reste à faire
 
-**Les branches fail-soft des deux fabriques sont du code mort** : tous leurs appelants
-passent l'option. Les supprimer — et rendre `delegueTransactionnel` obligatoire — ferait de
-la garantie une propriété vérifiée par le compilateur plutôt qu'une configuration. C'est la
-conclusion logique, et elle supprime l'échappatoire que cet ADR documente comme son option
-1 : **décision d'ARB**.
+Mesurer le coût de l'import en masse avant de déployer (voir plus haut). C'est le seul point
+ouvert de cet ADR.
 
-Mesurer le coût de l'import en masse avant de déployer (voir plus haut).
-
-Cet ADR reste **proposé**.
+Son statut : les options 1 et 2 sont désormais **écartées**, l'option 3 est appliquée
+partout sauf aux trois événements de connexion. Reste à faire acter cet état par l'ARB, dont
+l'approbation n'est toujours pas documentée.

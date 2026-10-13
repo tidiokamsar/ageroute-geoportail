@@ -10,8 +10,8 @@ import { posteCreateSchema } from "./postes.schema";
  * Migre a l'audit transactionnel (ADR 11). La mutation et sa trace reussissent ou sont
  * annulees ensemble.
  */
-const base = createCrudService(prisma.poste, "Poste", { region: true, troncon: true }, {
-  auditTransactionnel: true,
+const base = createCrudService(prisma.poste, "Poste", {
+  include: { region: true, troncon: true },
   delegueTransactionnel: (tx) => (tx as typeof prisma).poste,
 });
 

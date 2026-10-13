@@ -16,8 +16,8 @@ import { tronconCreateSchema, type TronconCreateInput } from "./troncons.schema"
  * provenance qui doivent rejoindre la meme transaction. Inspection, migree avant lui, n'a
  * aucun champ suivi et ne testait donc pas ce point.
  */
-const base = createCrudService(prisma.troncon, "Troncon", { region: true }, {
-  auditTransactionnel: true,
+const base = createCrudService(prisma.troncon, "Troncon", {
+  include: { region: true },
   delegueTransactionnel: (tx) => (tx as typeof prisma).troncon,
 });
 
