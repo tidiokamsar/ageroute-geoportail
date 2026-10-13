@@ -61,20 +61,26 @@ vi.mock("../../lib/crud-factory", () => ({
 vi.mock("../../lib/photos", () => ({
   createPhotoService: () => ({ addPhoto: vi.fn(), removePhoto: vi.fn() }),
 }));
-vi.mock("../../lib/qualite", () => ({ enregistrerQualite: vi.fn(async () => ({})) }));
+vi.mock("../../lib/qualite", () => ({
+  // Marque comme les autres, pour qu'on puisse prouver que la ligne de qualite voyage
+  // DANS la transaction et non a cote.
+  construireQualite: vi.fn((e: Record<string, unknown>) => ({ __qualite: e } as unknown)),
+}));
 
 import { inspectionsService } from "./inspections.service";
 
-/** Le lot contient-il a la fois la mutation et sa trace ? */
+/** Le lot contient-il la mutation, sa trace ET sa ligne de qualite ? */
 function lotComplet() {
+  const marque = (lot: unknown[], cle: string) =>
+    lot.find((o) => o && typeof o === "object" && cle in (o as object)) as
+      Record<string, Record<string, unknown>> | undefined;
+
   for (const lot of h.lots) {
-    const maj = lot.find((o) => o && typeof o === "object" && "__maj" in (o as object));
-    const audit = lot.find((o) => o && typeof o === "object" && "__audit" in (o as object));
-    if (maj && audit) {
-      return {
-        maj: (maj as { __maj: Record<string, unknown> }).__maj,
-        audit: (audit as { __audit: Record<string, unknown> }).__audit,
-      };
+    const maj = marque(lot, "__maj");
+    const audit = marque(lot, "__audit");
+    const qualite = marque(lot, "__qualite");
+    if (maj && audit && qualite) {
+      return { maj: maj.__maj, audit: audit.__audit, qualite: qualite.__qualite };
     }
   }
   return null;
@@ -103,6 +109,26 @@ describe("L'etat propage et sa trace partent ensemble", () => {
     });
     // L'etat precedent est conserve : sans lui, la trace ne dit pas ce qui a ete ecrase.
     expect(lot?.audit.before).toMatchObject({ etat: "MAUVAIS" });
+
+    // LA LIGNE DE QUALITE VOYAGE DANS LA MEME TRANSACTION.
+    //
+    // Elle partait apres, hors transaction : un echec apres le commit laissait un etat
+    // trace SANS sa provenance, et la base affirmait « etat BON » sans pouvoir dire qu'il
+    // venait d'un releve de terrain date et attribue.
+    expect(lot?.qualite).toMatchObject({
+      entityType: "Troncon", entityId: "t1", champ: "etat",
+      statut: "OBSERVED", source: "INSPECTION_TERRAIN", confiance: "HIGH",
+      observedById: "u1",
+    });
+  });
+
+  it("n'ouvre qu'UNE transaction pour les trois ecritures", async () => {
+    // Trois transactions successives ne vaudraient pas mieux que trois ecritures : ce
+    // qui compte est qu'elles reussissent ou echouent ENSEMBLE.
+    h.troncon = { etat: "MAUVAIS" };
+    await inspectionsService.create({ tronconId: "t1", etatObserve: "BON" }, "u1");
+    expect(h.lots.length).toBe(1);
+    expect(h.lots[0].length).toBe(3);
   });
 
   it("joint l'audit a la mise a jour de l'ouvrage", async () => {
@@ -143,12 +169,17 @@ describe("Ce que la propagation refuse de faire", () => {
     expect(h.lots).toEqual([]);
   });
 
-  it("ne propage rien si la cible est introuvable", async () => {
-    // Pas de troncon, pas d'ecriture : surtout pas de trace d'une mise a jour qui n'a
-    // pas eu lieu.
+  it("N'ECRIT AUCUNE LIGNE DE QUALITE si la cible est introuvable", async () => {
+    // LE DEFAUT CORRIGE. La ligne de qualite s'ecrivait hors des gardes : quand la cible
+    // etait introuvable, aucun etat n'etait propage et une ligne de qualite etait
+    // pourtant ecrite, affirmant une provenance de releve terrain pour une valeur jamais
+    // posee. Regrouper les trois ecritures sous une seule garde ferme le cas par
+    // construction.
     h.troncon = null;
     await inspectionsService.create({ tronconId: "inconnu", etatObserve: "BON" }, "u1");
     expect(h.lots).toEqual([]);
+    const { construireQualite } = await import("../../lib/qualite");
+    expect(construireQualite).not.toHaveBeenCalled();
   });
 
   it("prefere l'ouvrage au troncon quand les deux sont fournis", async () => {

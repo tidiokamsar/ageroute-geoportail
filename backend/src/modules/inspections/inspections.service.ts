@@ -2,7 +2,7 @@ import { prisma } from "../../lib/prisma";
 import { createCrudService, type ListParams } from "../../lib/crud-factory";
 import { createPhotoService } from "../../lib/photos";
 import { construireAudit } from "../../utils/audit";
-import { enregistrerQualite } from "../../lib/qualite";
+import { construireQualite } from "../../lib/qualite";
 
 /**
  * Inspection est la premiere migration explicite de l'ADR 11 hors du lot terrain.
@@ -50,56 +50,67 @@ async function propagateEtat(
   // La date du CONSTAT, pas celle de la saisie : c'est ce que dit dateInspection.
   const dateConstat = data.dateInspection ? new Date(data.dateInspection) : new Date();
 
-  if (data.ouvrageId) {
-    const before = await prisma.ouvrage.findUnique({ where: { id: data.ouvrageId }, select: { etat: true } });
-    if (before) {
-      // L'ETAT ET SA TRACE, OU NI L'UN NI L'AUTRE.
-      //
-      // Ces deux ecritures etaient successives : un echec d'audit laissait l'etat de
-      // l'ouvrage modifie sans dire qui l'avait change ni quand. C'est le pire silence
-      // possible sur ce champ, puisque c'est lui qui classe un ouvrage pour des travaux.
-      await prisma.$transaction([
-        prisma.ouvrage.update({
-          where: { id: data.ouvrageId },
-          data: { etat, derniereInspectionDate: dateConstat },
-        }),
-        construireAudit({
-          userId, action: "UPDATE", entityType: "Ouvrage", entityId: data.ouvrageId,
-          before: { etat: before.etat }, after: { etat: data.etatObserve, source: "inspection" },
-        }),
-      ]);
-    }
-  } else if (data.tronconId) {
-    const before = await prisma.troncon.findUnique({ where: { id: data.tronconId }, select: { etat: true } });
-    if (before) {
-      // `dateDerniereEvaluation` n'etait JAMAIS ecrite : le champ existe depuis
-      // l'origine et vaut 0 sur les 1 690 troncons. Les ouvrages recevaient bien leur
-      // date d'inspection, pas les troncons. Consequence : les 647 troncons dont
-      // l'etat est connu ne sont pas comparables entre eux — un « BON » de cette
-      // annee et un « BON » d'il y a dix ans occupent la meme case.
-      await prisma.$transaction([
-        prisma.troncon.update({
-          where: { id: data.tronconId },
-          data: { etat, dateDerniereEvaluation: dateConstat },
-        }),
-        construireAudit({
-          userId, action: "UPDATE", entityType: "Troncon", entityId: data.tronconId,
-          before: { etat: before.etat }, after: { etat: data.etatObserve, source: "inspection" },
-        }),
-      ]);
-    }
-  }
+  /**
+   * UNE SEULE TRANSACTION POUR LES TROIS ECRITURES.
+   *
+   * L'etat, sa trace d'audit et sa ligne de qualite partent ensemble ou pas du tout.
+   *
+   * Avant, les deux premieres etaient atomiques et la troisieme suivait, hors
+   * transaction : un echec apres le commit laissait un etat trace SANS sa provenance.
+   * La base affirmait alors « etat BON » sans pouvoir dire qu'il venait d'un releve de
+   * terrain date et attribue — l'asymetrie meme que le modele de qualite existe pour
+   * supprimer, et celle constatee le 04/09/2026 sur « 2e Boulevard ».
+   *
+   * UN DEFAUT CORRIGE AU PASSAGE
+   *
+   * La ligne de qualite s'ecrivait HORS des gardes `if (before)`. Quand la cible etait
+   * introuvable, aucun etat n'etait propage et une ligne de qualite etait pourtant
+   * ecrite, affirmant une provenance de releve terrain pour une valeur jamais posee.
+   * Regrouper les trois ecritures sous une seule garde ferme ce cas par construction
+   * plutot que par vigilance.
+   */
+  const cible = data.ouvrageId
+    ? { entityType: "Ouvrage" as const, entityId: data.ouvrageId }
+    : data.tronconId
+      ? { entityType: "Troncon" as const, entityId: data.tronconId }
+      : null;
+  if (!cible) return;
 
-  // Une inspection est le SEUL evenement de la base qui produise une valeur reellement
-  // constatee : datee, attribuee, et de methode connue. C'est ici que le modele de
-  // qualite cesse d'etre descriptif pour devenir alimente — aujourd'hui, aucune valeur
-  // de la base n'est OBSERVED.
-  const entityType = data.ouvrageId ? "Ouvrage" : "Troncon";
-  const entityId = data.ouvrageId ?? data.tronconId;
-  if (entityId) {
-    await enregistrerQualite({
-      entityType,
-      entityId,
+  // Lecture branchee et non via un delegue unifie : les deux types de delegue Prisma ne
+  // s'unifient pas en une signature appelable, et contourner par un cast ferait perdre
+  // la verification des champs selectionnes.
+  const before = cible.entityType === "Ouvrage"
+    ? await prisma.ouvrage.findUnique({ where: { id: cible.entityId }, select: { etat: true } })
+    : await prisma.troncon.findUnique({ where: { id: cible.entityId }, select: { etat: true } });
+  if (!before) return;
+
+  // `dateDerniereEvaluation` n'etait JAMAIS ecrite : le champ existe depuis l'origine et
+  // vaut 0 sur les 1 690 troncons. Les ouvrages recevaient bien leur date d'inspection,
+  // pas les troncons. Consequence : les 647 troncons dont l'etat est connu ne sont pas
+  // comparables entre eux — un « BON » de cette annee et un « BON » d'il y a dix ans
+  // occupent la meme case.
+  const majEtat = cible.entityType === "Ouvrage"
+    ? prisma.ouvrage.update({
+        where: { id: cible.entityId },
+        data: { etat, derniereInspectionDate: dateConstat },
+      })
+    : prisma.troncon.update({
+        where: { id: cible.entityId },
+        data: { etat, dateDerniereEvaluation: dateConstat },
+      });
+
+  await prisma.$transaction([
+    majEtat,
+    construireAudit({
+      userId, action: "UPDATE", entityType: cible.entityType, entityId: cible.entityId,
+      before: { etat: before.etat }, after: { etat: data.etatObserve, source: "inspection" },
+    }),
+    // Une inspection est le SEUL evenement de la base qui produise une valeur reellement
+    // constatee : datee, attribuee, et de methode connue. C'est ici que le modele de
+    // qualite cesse d'etre descriptif pour devenir alimente.
+    construireQualite({
+      entityType: cible.entityType,
+      entityId: cible.entityId,
       champ: "etat",
       statut: "OBSERVED",
       source: "INSPECTION_TERRAIN",
@@ -108,8 +119,8 @@ async function propagateEtat(
       observedById: userId,
       confiance: "HIGH",
       note: null,
-    });
-  }
+    }),
+  ]);
 }
 
 async function create(data: Record<string, unknown>, userId: string) {

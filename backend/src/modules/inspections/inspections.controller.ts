@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
-import { unlink } from "node:fs/promises";
+import { supprimerTeleversementNonEnregistre } from "../../lib/photos";
 import { inspectionsService } from "./inspections.service";
 import { inspectionCreateSchema, inspectionUpdateSchema } from "./inspections.schema";
 import { parseListQuery } from "../../lib/list-query";
@@ -80,6 +80,9 @@ export async function deleteHandler(req: Request, res: Response, next: NextFunct
   } catch (err) { next(err); }
 }
 export async function addPhotoHandler(req: Request, res: Response, next: NextFunction) {
+  // Distingue « jamais enregistree » de « enregistree puis probleme ailleurs » :
+  // seule la premiere justifie de supprimer le fichier televerse.
+  let enregistree = false;
   try {
     if (!req.file) throw new ApiError(400, "Photo manquante");
     if (!req.user) throw new ApiError(401, "Authentification requise");
@@ -89,12 +92,19 @@ export async function addPhotoHandler(req: Request, res: Response, next: NextFun
         select: { inspecteurId: true },
       });
       if (!cible || cible.inspecteurId !== req.user.id) {
-        await unlink(req.file.path).catch(() => undefined);
         throw new ApiError(404, "Inspection introuvable");
       }
     }
-    res.status(201).json(await inspectionsService.addPhoto(req.params.id, req.file.filename, req.user.id));
-  } catch (err) { next(err); }
+    const ajoutee = await inspectionsService.addPhoto(req.params.id, req.file.filename, req.user.id);
+    enregistree = true;
+    res.status(201).json(ajoutee);
+  } catch (err) {
+    // Le nettoyage couvre desormais TOUT echec, et plus seulement le 404 de propriete :
+    // depuis que l'audit rejoint la transaction, une panne de journalisation fait lever
+    // ici. Voir `supprimerTeleversementNonEnregistre`.
+    await supprimerTeleversementNonEnregistre(enregistree, req.file);
+    next(err);
+  }
 }
 export async function removePhotoHandler(req: Request, res: Response, next: NextFunction) {
   try {

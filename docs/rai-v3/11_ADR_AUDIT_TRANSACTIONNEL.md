@@ -128,13 +128,39 @@ mock avait tort, pas le code : l'un rendait la ligne vivante au lieu d'une copie
 que `before` aliasait la ligne que `update` modifiait ensuite ; l'autre ne fournissait pas
 le constructeur d'audit que la fabrique importe désormais.
 
+### Les deux points restants, fermés le 13/10/2026
+
+**La ligne de qualité rejoint la transaction.** `construireQualite` prépare l'écriture sans
+l'exécuter, comme `construireSaisies` et `construireAudit`, et la propagation ouvre
+désormais **une seule** transaction de trois écritures : l'état, sa trace et sa provenance.
+`enregistrerQualite` passe par le même constructeur, pour qu'il n'existe qu'une définition
+de la forme de cette écriture.
+
+Un défaut est apparu en restructurant, et il ne se voyait pas : **la ligne de qualité
+s'écrivait hors des gardes `if (before)`**. Quand la cible était introuvable, aucun état
+n'était propagé et une ligne de qualité était pourtant écrite, affirmant une provenance de
+relevé terrain pour une valeur jamais posée. Regrouper les trois écritures sous une seule
+garde ferme le cas par construction plutôt que par vigilance. Un test le défend.
+
+**Le fichier téléversé est nettoyé sur tout échec d'enregistrement.** Les trois
+gestionnaires de photos — inspections, ouvrages, ordres de travaux — appelaient leur
+service et laissaient toute erreur partir à `next(err)` : le fichier restait sur le disque
+sans ligne en base pour le référencer. Le cas le plus courant était banal, un identifiant
+inconnu rendant 404 après l'écriture des octets ; ouvrages et ordres de travaux n'avaient
+aucun nettoyage du tout.
+
+**Cette migration rendait le défaut plus probable** : depuis que l'audit des photos
+d'inspection rejoint la transaction, une panne de journalisation fait lever là où l'erreur
+était avalée. Un chemin d'erreur rare devient un chemin normal, et c'est exactement ce que
+cet ADR demandait de vérifier avant d'étendre la migration.
+
+Le nettoyage est porté par `supprimerTeleversementNonEnregistre`, partagée par les trois,
+et commandée par un **drapeau** et non par le simple `catch` : nettoyer dans tout `catch`
+supprimerait un fichier **déjà référencé** si l'écriture a réussi et que seule la réponse a
+échoué. La photo existerait alors dans la liste et plus sur le disque, ce qui est pire que
+l'orphelin corrigé. Un test défend cette distinction.
+
 ### Reste à faire
 
-`enregistrerQualite` écrit toujours **hors** de la transaction de propagation. État et
-trace sont maintenant atomiques, la ligne de qualité ne l'est pas : un échec après le
-commit laisse un état tracé sans sa ligne de provenance. C'est un moindre mal qu'un état
-non tracé, et cela reste à fermer.
-
-Le nettoyage du fichier téléversé si la transaction photo échoue n'est pas vérifié non
-plus. Les routes suppriment le fichier sur leurs chemins de refus explicites, mais le cas
-« transaction rejetée après l'écriture du fichier » n'a pas de test.
+Les sept services non migrés, et l'arbitrage sur la fidélité du champ `after` qui doit le
+précéder.

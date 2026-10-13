@@ -1,4 +1,5 @@
 import path from "path";
+import { unlink } from "node:fs/promises";
 import { ApiError } from "../middleware/error.middleware";
 import { prisma } from "./prisma";
 import { logAudit, construireAudit } from "../utils/audit";
@@ -60,6 +61,41 @@ export function createPhotoService(
   }
 
   return { addPhoto, removePhoto };
+}
+
+/**
+ * Supprime le fichier televerse quand l'enregistrement n'a PAS eu lieu.
+ *
+ * LE DEFAUT QU'ELLE FERME
+ *
+ * `multer` ecrit le fichier avant que le gestionnaire de route ne s'execute. Les trois
+ * gestionnaires de photos — inspections, ouvrages, ordres de travaux — appelaient ensuite
+ * leur service et laissaient toute erreur partir a `next(err)`. Le fichier restait alors
+ * sur le disque sans aucune ligne en base pour le referencer : un orphelin que rien ne
+ * reclame et que personne ne vient nettoyer.
+ *
+ * Le cas le plus courant est banal : un identifiant inconnu rend 404 apres que les
+ * octets soient ecrits.
+ *
+ * ET LA MIGRATION DE L'ADR 11 LE REND PLUS PROBABLE
+ *
+ * Depuis que l'audit des photos d'inspection rejoint la transaction metier, une panne de
+ * journalisation FAIT LEVER la ou l'erreur etait avalee. Le chemin d'erreur, jusque-la
+ * rare, devient un chemin normal — c'est exactement ce que l'ADR demandait de verifier
+ * avant d'etendre la migration.
+ *
+ * POURQUOI UN DRAPEAU ET PAS UN SIMPLE `catch`
+ *
+ * Nettoyer dans tout `catch` supprimerait un fichier DEJA REFERENCE si l'ecriture a
+ * reussi et que seule la reponse a echoue. Le drapeau distingue « jamais enregistree » de
+ * « enregistree puis probleme ailleurs », et seule la premiere justifie une suppression.
+ */
+export async function supprimerTeleversementNonEnregistre(
+  enregistree: boolean,
+  fichier: { path: string } | undefined,
+): Promise<void> {
+  if (enregistree || !fichier) return;
+  await unlink(fichier.path).catch(() => undefined);
 }
 
 export function photoAbsolutePath(filename: string): string {
