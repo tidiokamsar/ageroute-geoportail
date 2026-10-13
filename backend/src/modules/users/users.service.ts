@@ -1,6 +1,7 @@
 import { prisma } from "../../lib/prisma";
 import { hashPassword } from "../../utils/password";
 import { construireAudit, logAuditTransactionnelle } from "../../utils/audit";
+import { profilParCode, effetDuProfil } from "../../lib/profils";
 import { ApiError } from "../../middleware/error.middleware";
 import { revokeAllForUser } from "../auth/auth.service";
 import type { ListParams } from "../../lib/crud-factory";
@@ -79,7 +80,14 @@ async function create(data: UserCreateInput, actorId: string) {
   return created;
 }
 
-async function update(id: string, data: UserUpdateInput, actorId: string) {
+/**
+ * `motif` accompagne la modification dans la MEME ligne d'audit.
+ *
+ * Sans lui, appliquer un profil produirait une trace disant « le role est passe de X a Y
+ * et voici douze modules » sans dire POURQUOI. Une seconde ligne d'audit aurait separe
+ * l'acte de son intention, et laisse la possibilite que l'une survive sans l'autre.
+ */
+async function update(id: string, data: UserUpdateInput, actorId: string, motif?: string) {
   const before = await getById(id);
 
   // Garde-fou : on ne peut pas se desactiver soi-meme, ni desactiver le dernier ADMIN actif.
@@ -103,7 +111,7 @@ async function update(id: string, data: UserUpdateInput, actorId: string) {
       entityType: "User",
       entityId: id,
       before,
-      after: ligne,
+      after: motif ? { ...ligne, motif } : ligne,
     });
     return ligne;
   });
@@ -137,4 +145,28 @@ async function resetPassword(id: string, password: string, actorId: string) {
   await revokeAllForUser(id, "PASSWORD_RESET", actorId);
 }
 
-export const usersService = { list, getById, create, update, resetPassword };
+/**
+ * Applique un profil metier a un compte.
+ *
+ * ELLE DELEGUE A `update`, ET C'EST LE POINT IMPORTANT
+ *
+ * `update` porte deja les garde-fous qui comptent : on ne peut pas se desactiver
+ * soi-meme, ni retirer le role du DERNIER administrateur actif. Ecrire `role` et
+ * `modulesAutorises` directement ici les contournerait tous — et appliquer un profil
+ * « Auditeur » au dernier ADMIN suffirait a rendre la plateforme ingouvernable, sans que
+ * rien ne s'y oppose.
+ *
+ * Un profil n'est qu'un prereglage : il n'a aucune raison d'ouvrir un chemin d'ecriture
+ * parallele a celui qu'il prereglait.
+ */
+async function appliquerProfil(id: string, code: string, actorId: string) {
+  const profil = profilParCode(code);
+  if (!profil) throw new ApiError(422, `Profil inconnu : ${code}`);
+
+  const { role, modulesAutorises } = effetDuProfil(profil);
+  // Le motif voyage dans la meme ligne d'audit que la modification : la trace dit ce qui
+  // a change ET quel profil l'a voulu.
+  return update(id, { role, modulesAutorises } as UserUpdateInput, actorId, `profil:${profil.code}`);
+}
+
+export const usersService = { list, getById, create, update, resetPassword, appliquerProfil };
