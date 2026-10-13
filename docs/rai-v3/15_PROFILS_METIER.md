@@ -115,10 +115,36 @@ et permis que l'une survive sans l'autre.
 chaîne « profils » et rendrait un 404 d'utilisateur introuvable. Le dépôt connaît ce piège,
 un test de tronçons vérifie déjà que `/geo` n'est pas confondu avec un identifiant.
 
+## L'interface — 13/10/2026
+
+Un bouton par ligne dans l'écran Utilisateurs ouvre un modal qui liste les onze profils
+avec leur phrase d'usage, et **affiche l'avertissement des cinq non arbitrés à côté du
+profil concerné**. Sélectionner un profil montre le remplacement avant de l'appliquer
+(`LECTEUR → INSPECTEUR`, et la liste des modules), parce qu'un profil remplace et n'ajoute
+pas. Pour l'administrateur plateforme, le modal dit « aucun — un administrateur n'est pas
+restreint par module » plutôt que « 0 module », qui se lirait comme une absence d'accès.
+
+L'appel envoie le **code** et non le libellé : le libellé peut changer, le code non.
+
+### Un mensonge trouvé dans l'écran voisin
+
+L'écran d'accès aux modules affirmait : « Décoché : l'utilisateur voit tout ce que son rôle
+autorise déjà, sans restriction supplémentaire. »
+
+**C'était faux depuis la correction du 05/09/2026.** Une liste vide vaut « aucun module »,
+pas « aucune restriction ». Un administrateur qui décochait la case pour ouvrir les droits
+**les révoquait tous**, en croyant faire l'inverse, et rien ne le lui disait.
+
+Le texte est corrigé et un test l'empêche de revenir. Deux commentaires du backend portaient
+la même affirmation périmée — `module-access.middleware.ts` et `users.schema.ts` — et ont
+été corrigés aussi : trois endroits décrivaient une règle que le code n'applique plus.
+
 ## Ce qui n'est pas fait
 
 Aucun compte existant n'a reçu de profil. L'outil existe, son usage est une décision
 d'exploitation — et il faudrait d'abord trancher les cinq points ci-dessus, sans quoi on
 figerait mes déductions en décisions d'AGEROUTE.
 
-Le frontend n'expose pas encore ces deux routes.
+**La vérification est faite par 7 tests sur une API simulée, pas dans un navigateur.**
+Afficher ce modal pour de vrai demande un backend relié à une base, et la seule que
+`DATABASE_URL` désigne est la production. Je ne l'ai donc pas ouvert.

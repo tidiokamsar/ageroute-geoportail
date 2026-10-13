@@ -13,7 +13,8 @@ export const userUpdateSchema = z.object({
   nomComplet: z.string().min(2).optional(),
   role: z.enum(["ADMIN", "GESTIONNAIRE", "INSPECTEUR", "LECTEUR"]).optional(),
   actif: z.boolean().optional(),
-  // Tableau vide = aucune restriction (accès à tous les modules autorisés par le rôle).
+  // Tableau VIDE = aucun module accessible, et non « aucune restriction » : le sens du
+  // vide a ete inverse le 05/09/2026 (voir lib/access.ts). Seul un ADMIN y echappe.
   modulesAutorises: z.array(z.enum(MODULE_KEYS)).optional(),
 });
 
