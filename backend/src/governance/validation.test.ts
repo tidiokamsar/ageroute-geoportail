@@ -167,6 +167,51 @@ describe("Un refus dit ce qu'il reproche", () => {
   });
 });
 
+describe("La delegation resserre, sans jamais contourner l'auto-validation", () => {
+  it("laisse passer quand la delegation n'est PAS consultee", () => {
+    // Absent signifie « non consulte », et non « autorise ». Les appelants qui ne lisent
+    // pas encore les delegations gardent exactement le comportement d'avant : le
+    // resserrement du paragraphe 35 se fait domaine par domaine.
+    expect(validationPermise(d()).permis).toBe(true);
+  });
+
+  it("refuse hors delegation", () => {
+    expect(validationPermise(d({ delegation: { permis: false } })))
+      .toEqual({ permis: false, motif: "HORS_DELEGATION" });
+  });
+
+  it("accepte avec une delegation couvrante", () => {
+    expect(validationPermise(d({ delegation: { permis: true } })).permis).toBe(true);
+  });
+
+  it("NOMME L'AUTO-VALIDATION avant la delegation", () => {
+    // Le cas qui compte. Un agent qui tente de valider son propre releve doit lire
+    // « auto-validation », meme s'il n'est par ailleurs pas designe : lui repondre
+    // « vous n'etes pas designe » l'enverrait demander une delegation qui ne changerait
+    // rien, puisque la separation des roles n'est pas delegable.
+    expect(validationPermise(d({
+      auteurId: "x", validateurId: "x", delegation: { permis: false },
+    }))).toEqual({ permis: false, motif: "AUTO_VALIDATION" });
+  });
+
+  it("nomme le ROLE avant la delegation", () => {
+    // Le role est plus grossier : ne pas etre validateur du tout se dit avant de ne pas
+    // l'etre pour ce domaine-la.
+    expect(validationPermise(d({
+      validateurRole: "INSPECTEUR", delegation: { permis: false },
+    }))).toEqual({ permis: false, motif: "ROLE_INSUFFISANT" });
+  });
+
+  it("une delegation couvrante ne rachete PAS une transition interdite", () => {
+    // Etre designe autorise a trancher, pas a devalider : VALIDE ne revient jamais en
+    // arriere, quelle que soit l'autorite de celui qui le demande.
+    expect(validationPermise(d({
+      statutActuel: "VALIDE", decision: "REJETE", commentaire: "erreur",
+      delegation: { permis: true },
+    }))).toEqual({ permis: false, motif: "TRANSITION_INTERDITE" });
+  });
+});
+
 describe("Perimetre statistique : validation et territoire sont deux axes", () => {
   it("compte le reseau national", () => {
     expect(comptePourLeReseauNational("NATIONAL")).toBe(true);
@@ -210,7 +255,7 @@ describe("Perimetre statistique : validation et territoire sont deux axes", () =
 describe("Les refus s'expliquent a un agent, pas a un developpeur", () => {
   it("donne un message pour chaque motif", () => {
     const motifs = [
-      "ENTITE_NON_VALIDABLE", "ROLE_INSUFFISANT", "AUTO_VALIDATION",
+      "ENTITE_NON_VALIDABLE", "ROLE_INSUFFISANT", "AUTO_VALIDATION", "HORS_DELEGATION",
       "TRANSITION_INTERDITE", "COMMENTAIRE_REQUIS",
     ] as const;
     for (const x of motifs) {

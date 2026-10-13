@@ -40,6 +40,8 @@ const h = vi.hoisted(() => {
     photosDuDefaut: 0,
     /** Observation conteneur creee par le serveur, pour l'inspecter. */
     observationCreee: null as Record<string, unknown> | null,
+    /** Delegations du domaine DEFAUT presentes en base. */
+    delegations: [] as Record<string, unknown>[],
     setPointGeom: vi.fn(async () => {}),
     match: { tronconId: "t1", code: "RN1-001", nom: "RN1", classe: "RN", distanceM: 3, abscisseM: 120, pk: 4.2, pkMotif: "CALCULE", confiance: 0.9, ambigu: false },
     apparier: vi.fn(async () => h.match),
@@ -107,6 +109,9 @@ vi.mock("../lib/prisma", () => ({
       findFirst: vi.fn(async () => ({ id: "m1" })),
       findMany: vi.fn(async () => h.missions),
     },
+    // Paragraphe 35 : « un validateur est designe pour chaque domaine ». La route de
+    // decision lit ces designations ; un mock sans ce delegue fait rendre 500.
+    delegationValidation: { findMany: vi.fn(async () => h.delegations) },
     observation: {
       findFirst: vi.fn(async () => ({ id: "o1", missionId: null })),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
@@ -276,6 +281,7 @@ beforeEach(() => {
   h.media = null;
   h.photosDuDefaut = 0;
   h.observationCreee = null;
+  h.delegations = [];
   h.apparier.mockClear();
   vi.clearAllMocks();
 });
@@ -608,6 +614,98 @@ describe("POST /:id/decision — validation tierce", () => {
     expect(r.body.statutValidation).toBe("A_CORRIGER");
     expect(h.validations[0]).toMatchObject({ statutApres: "A_CORRIGER", commentaire: "La profondeur manque au relevé." });
     expect(h.audits[0]).toMatchObject({ action: "UPDATE" });
+  });
+});
+
+describe("POST /:id/decision — délégation de validation (§35)", () => {
+  /**
+   * CE QUE CE BLOC DEFEND
+   *
+   * Le §5 décrit le Coordonnateur comme faisant « validation selon délégation » ; le §35
+   * dit ce qu'est une délégation : « un validateur est désigné pour chaque domaine ».
+   * Avant, tout GESTIONNAIRE validait tout, partout.
+   *
+   * La règle est un RESSERREMENT PAR DOMAINE : tant que personne n'est désigné sur
+   * `DEFAUT`, la règle d'avant s'applique. Dès qu'un seul l'est, le domaine lui est
+   * réservé. Ces tests fixent les deux côtés, parce que c'est le genre de règle qu'une
+   * refonte simplifierait dans un sens ou dans l'autre.
+   */
+  const delegation = (p: Record<string, unknown> = {}) => ({
+    domaine: "DEFAUT",
+    validateurId: "gestionnaire-1",
+    regionId: null,
+    debutLe: new Date("2026-01-01T00:00:00.000Z"),
+    finLe: null,
+    revoqueeLe: null,
+    ...p,
+  });
+
+  function gestionnaire() {
+    h.compte.id = "gestionnaire-1";
+    h.compte.role = "GESTIONNAIRE";
+    h.defautExistant = defautEnBase({ constateParId: "agent-1" });
+  }
+
+  it("laisse valider tant que PERSONNE n'est désigné sur le domaine", async () => {
+    // Exiger une délégation dès le premier jour aurait arrêté la validation : les relevés
+    // s'accumuleraient en attente et la chaîne de décision resterait vide.
+    gestionnaire();
+    h.delegations = [];
+    const r = await request(app).post("/api/v2/defauts/d1/decision").send({ decision: "VALIDE" });
+    expect(r.status).toBe(200);
+  });
+
+  it("INSCRIT dans l'historique que l'autorité venait de l'absence de désignation", async () => {
+    // « Personne n'est désigné » et « vous êtes désigné » autorisent la même action pour
+    // des raisons opposées. Sans cette mention, on ne saura pas dans un an sur quoi une
+    // validation reposait.
+    gestionnaire();
+    h.delegations = [];
+    await request(app).post("/api/v2/defauts/d1/decision").send({ decision: "VALIDE" });
+    expect(h.validations[0]).toMatchObject({ source: "console:DOMAINE_NON_DESIGNE" });
+  });
+
+  it("RÉSERVE le domaine aux désignés dès qu'un seul l'est", async () => {
+    gestionnaire();
+    h.delegations = [delegation({ validateurId: "quelqu-un-d-autre" })];
+    const r = await request(app).post("/api/v2/defauts/d1/decision").send({ decision: "VALIDE" });
+    expect(r.status).toBe(403);
+    expect(r.body.motif).toBe("HORS_DELEGATION");
+  });
+
+  it("laisse passer le désigné, et le dit dans l'historique", async () => {
+    gestionnaire();
+    h.delegations = [delegation({ validateurId: "gestionnaire-1" })];
+    const r = await request(app).post("/api/v2/defauts/d1/decision").send({ decision: "VALIDE" });
+    expect(r.status).toBe(200);
+    expect(h.validations[0]).toMatchObject({ source: "console:DELEGATION_COUVRANTE" });
+  });
+
+  it("refuse une délégation EXPIRÉE, qui ne doit plus rien autoriser", async () => {
+    // L'erreur la plus coûteuse : quelqu'un garderait un pouvoir qu'on croit lui avoir
+    // retiré, et la ligne existant toujours, le journal donnerait le change.
+    //
+    // Ici la délégation expirée appartient à un autre : le domaine redevient donc non
+    // désigné, et la règle d'avant s'applique.
+    gestionnaire();
+    h.delegations = [delegation({ validateurId: "autre", finLe: new Date("2026-06-30T00:00:00.000Z") })];
+    const r = await request(app).post("/api/v2/defauts/d1/decision").send({ decision: "VALIDE" });
+    expect(r.status).toBe(200);
+    expect(h.validations[0]).toMatchObject({ source: "console:DOMAINE_NON_DESIGNE" });
+  });
+
+  it("NOMME L'AUTO-VALIDATION avant la délégation", async () => {
+    // Répondre « vous n'êtes pas désigné » à quelqu'un qui tente de valider son propre
+    // relevé l'enverrait demander une délégation qui ne changerait rien : la séparation
+    // des rôles n'est pas délégable.
+    h.compte.id = "gestionnaire-1";
+    h.compte.role = "GESTIONNAIRE";
+    h.defautExistant = defautEnBase({ constateParId: "gestionnaire-1" });
+    h.delegations = [delegation({ validateurId: "autre" })];
+
+    const r = await request(app).post("/api/v2/defauts/d1/decision").send({ decision: "VALIDE" });
+    expect(r.status).toBe(403);
+    expect(r.body.motif).toBe("AUTO_VALIDATION");
   });
 });
 

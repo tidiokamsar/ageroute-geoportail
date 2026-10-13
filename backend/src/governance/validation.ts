@@ -84,6 +84,7 @@ export type RefusValidation =
   | "ENTITE_NON_VALIDABLE"
   | "ROLE_INSUFFISANT"
   | "AUTO_VALIDATION"
+  | "HORS_DELEGATION"
   | "TRANSITION_INTERDITE"
   | "COMMENTAIRE_REQUIS";
 
@@ -100,6 +101,20 @@ export interface DemandeValidation {
   validateurRole: string;
   decision: "VALIDE" | "REJETE" | "A_CORRIGER";
   commentaire?: string | null;
+
+  /**
+   * Verdict de delegation, rendu par `governance/delegation`.
+   *
+   * ABSENT signifie « non consulte », et non « autorise ». Les appelants qui ne
+   * consultent pas encore les delegations conservent donc exactement le comportement
+   * d'avant — paragraphe 35 du cahier, « un validateur est designe pour chaque domaine »,
+   * dont le resserrement se fait domaine par domaine.
+   *
+   * La lecture en base reste chez l'appelant : cette fonction doit pouvoir s'eprouver
+   * sans base, et c'est la quatrieme fois dans ce programme qu'un module de regles doit
+   * etre extrait pour cette raison.
+   */
+  delegation?: { permis: boolean };
 }
 
 /**
@@ -131,6 +146,20 @@ export function validationPermise(
   // 81 ouvrages DTOAA : ils viennent d'un document, pas d'une personne.
   if (d.auteurId != null && d.auteurId === d.validateurId) {
     return { permis: false, motif: "AUTO_VALIDATION" };
+  }
+  /**
+   * LA DELEGATION PASSE APRES L'AUTO-VALIDATION, ET C'EST UNE DECISION.
+   *
+   * Un agent qui tente de valider son propre releve doit lire « auto-validation », meme
+   * s'il n'est par ailleurs pas designe pour cette zone. Lui repondre « vous n'etes pas
+   * designe » l'enverrait demander une delegation qui ne changerait rien : la separation
+   * des roles n'est pas delegable.
+   *
+   * Elle passe en revanche APRES le role, qui est plus grossier : ne pas etre validateur
+   * du tout se dit avant de ne pas l'etre pour ce domaine-la.
+   */
+  if (d.delegation !== undefined && !d.delegation.permis) {
+    return { permis: false, motif: "HORS_DELEGATION" };
   }
   if (!transitionPermise(d.statutActuel, d.decision)) {
     return { permis: false, motif: "TRANSITION_INTERDITE" };
@@ -176,6 +205,8 @@ export const EXPLICATIONS: Record<RefusValidation, string> = {
   ENTITE_NON_VALIDABLE: "Ce type d'objet ne passe pas par une validation métier.",
   ROLE_INSUFFISANT: "La validation relève d'un gestionnaire ou d'un administrateur.",
   AUTO_VALIDATION: "Un objet ne peut pas être validé par la personne qui l'a produit.",
+  HORS_DELEGATION:
+    "La validation de ce domaine est réservée aux personnes désignées, et vous ne l'êtes pas pour cette zone.",
   TRANSITION_INTERDITE: "L'objet n'est pas dans un état qui permet cette décision.",
   COMMENTAIRE_REQUIS: "Un refus ou une demande de correction doit indiquer ce qui doit être repris.",
 };

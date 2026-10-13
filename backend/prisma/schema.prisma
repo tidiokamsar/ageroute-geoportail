@@ -302,6 +302,10 @@ model User {
 
   validationsRendues Validation[] @relation("ValidationDecideur")
 
+  delegationsRecues    DelegationValidation[] @relation("DelegationValidateur")
+  delegationsAccordees DelegationValidation[] @relation("DelegationDelegant")
+  delegationsRevoquees DelegationValidation[] @relation("DelegationRevocateur")
+
   @@map("users")
 }
 
@@ -359,6 +363,8 @@ model Region {
   ordresTravaux  OrdreTravaux[]
   voiriesLocales VoirieLocale[]
   Mission        Mission[]
+
+  delegationsValidation DelegationValidation[]
 
   @@map("regions")
 }
@@ -1906,4 +1912,84 @@ model MediaDefaut {
 
   @@index([defautId])
   @@map("medias_defaut")
+}
+
+// ===================== DELEGATION DE VALIDATION =====================
+
+/// Domaines sur lesquels un validateur peut etre designe.
+///
+/// Paragraphe 35 du cahier : « Un validateur est designe pour chaque domaine. » Alignes
+/// sur `ENTITES_VALIDABLES` de `governance/validation.ts` — un domaine qui n'y figurerait
+/// pas designerait un validateur pour quelque chose qui ne se valide pas.
+enum DomaineValidation {
+  TRONCON
+  OUVRAGE
+  DEFAUT
+  OBSERVATION
+  POINT_NOIR
+  POSTE
+  CHANTIER
+}
+
+/// Designation d'un validateur sur un domaine, eventuellement borne a une region et a une
+/// periode.
+///
+/// CE QU'ELLE REMPLACE
+///
+/// `ROLES_VALIDATEURS` admet ADMIN et GESTIONNAIRE : tout gestionnaire pouvait donc
+/// valider n'importe quel defaut, n'importe quelle observation, partout dans le pays. Il
+/// n'y avait ni domaine, ni perimetre, ni terme, ni delegant. La « validation selon
+/// delegation » du paragraphe 5 n'avait aucun equivalent dans le code.
+///
+/// RIEN N'EST SUPPRIME, JAMAIS
+///
+/// Une delegation expiree ou revoquee reste en base. Elle a existe, des validations ont
+/// ete rendues sous son autorite, et les retirer rendrait ces validations inexplicables.
+/// `revoqueeLe` est donc une date et non une suppression — regle 2 d'AGENTS.md appliquee
+/// a un objet de gouvernance.
+///
+/// AUCUNE CONTRAINTE D'UNICITE, VOLONTAIREMENT
+///
+/// Une meme personne peut etre designee plusieurs fois sur un domaine : une region puis
+/// une autre, ou une periode puis la suivante. Une cle unique sur (domaine, validateur)
+/// interdirait l'historique que ce modele existe pour conserver.
+model DelegationValidation {
+  id String @id @default(uuid())
+
+  domaine DomaineValidation
+
+  validateurId String
+  validateur   User   @relation("DelegationValidateur", fields: [validateurId], references: [id])
+
+  /// Perimetre geographique. NUL = national, c'est-a-dire toutes les regions.
+  ///
+  /// Consequence a connaitre : une delegation REGIONALE ne couvre pas un objet dont la
+  /// region est inconnue — un defaut dont le troncon n'est pas apparie, par exemple.
+  /// L'accepter reviendrait a deduire une localisation de l'absence de localisation.
+  regionId Int?
+  region   Region? @relation(fields: [regionId], references: [id])
+
+  /// Qui delegue. Le paragraphe 35 designe un validateur ; savoir QUI l'a designe est ce
+  /// qui distingue une delegation d'une permission tombee du ciel.
+  delegueParId String
+  deleguePar   User   @relation("DelegationDelegant", fields: [delegueParId], references: [id])
+
+  debutLe DateTime  @default(now())
+  /// Terme. NUL = sans terme. Une delegation sans terme est un choix, pas un oubli.
+  finLe   DateTime?
+
+  revoqueeLe    DateTime?
+  revoqueeParId String?
+  revoqueePar   User?     @relation("DelegationRevocateur", fields: [revoqueeParId], references: [id])
+
+  /// Pourquoi cette designation. Lu lors d'un audit, des annees apres.
+  motif String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([domaine])
+  @@index([validateurId])
+  @@index([regionId])
+  @@map("delegations_validation")
 }

@@ -15,6 +15,7 @@ import { logAuditTransactionnelle } from "../utils/audit";
 import { enregistrerQualite } from "../lib/qualite";
 import { setPointGeom, deriveGeomFromTroncon, deriveGeomFromTronconAbscisse } from "../lib/geo";
 import { donneesObservationConteneur } from "../field/observation-conteneur";
+import { validationDeleguee, type Delegation } from "../governance/delegation";
 import {
   metrer, graviteValide, transitionEtatPermise,
   statutQualiteQuantite, EXPLICATIONS as EXPLICATIONS_DEFAUT, NOMS_MESURES,
@@ -739,8 +740,42 @@ const deciderDefaut: RequestHandler = async (req, res, next) => {
     const scope = await perimetreDefauts(user);
     const defaut = await prisma.defaut.findFirst({
       where: { id: req.params.id, deletedAt: null, ...scope },
+      // La region vient du troncon porteur, ou a defaut de la mission. Elle sert au
+      // perimetre geographique des delegations, et elle peut legitimement manquer :
+      // mesure du 07/10/2026, l'appariement rend `null` plutot que de deviner.
+      include: {
+        troncon: { select: { regionId: true } },
+        mission: { select: { regionId: true } },
+      },
     });
     if (!defaut) return res.status(404).json({ message: "Défaut introuvable" });
+
+    /**
+     * QUI EST DESIGNE POUR TRANCHER CE DOMAINE (paragraphe 35 du cahier).
+     *
+     * On charge les delegations du domaine DEFAUT, tous validateurs confondus : la regle
+     * en a besoin pour distinguer « personne n'est designe » — et alors la regle d'avant
+     * s'applique — de « quelqu'un l'est, mais pas vous ».
+     *
+     * On ne filtre PAS sur `validateurId` en base pour cette raison : filtrer rendrait
+     * une liste vide dans les deux cas, et le resserrement par domaine deviendrait
+     * indistinguable d'une absence de designation.
+     */
+    const regionId = defaut.troncon?.regionId ?? defaut.mission?.regionId ?? null;
+    const delegationsDuDomaine = (await prisma.delegationValidation.findMany({
+      where: { domaine: "DEFAUT" },
+      select: {
+        domaine: true, validateurId: true, regionId: true,
+        debutLe: true, finLe: true, revoqueeLe: true,
+      },
+    })) as Delegation[];
+    const delegation = validationDeleguee({
+      delegationsDuDomaine,
+      validateurId: user.id,
+      domaine: "DEFAUT",
+      regionId,
+      maintenant: new Date(),
+    });
 
     // L'AUTEUR VIENT DE LA LIGNE, PAS DE LA REQUETE. C'est le point ou la separation
     // des roles se tient ou tombe : un auteur fourni par le client desactiverait le
@@ -753,13 +788,27 @@ const deciderDefaut: RequestHandler = async (req, res, next) => {
       validateurRole: user.role,
       decision: c.decision,
       commentaire: c.commentaire,
+      delegation,
     });
     if (!verdict.permis) {
-      const code = verdict.motif === "ROLE_INSUFFISANT" || verdict.motif === "AUTO_VALIDATION" ? 403 : 409;
+      // 403 pour un defaut d'autorite — role, auto-validation, delegation — et 409 pour
+      // un defaut d'etat : la premiere categorie ne se corrige pas en reessayant.
+      const code = verdict.motif === "ROLE_INSUFFISANT"
+        || verdict.motif === "AUTO_VALIDATION"
+        || verdict.motif === "HORS_DELEGATION" ? 403 : 409;
       return res.status(code).json({ message: EXPLICATIONS_VALIDATION[verdict.motif], motif: verdict.motif, statut: defaut.statutValidation });
     }
 
     const origine = defaut.clientOperationId ? "terrain" : "console";
+    /**
+     * L'autorite de cette decision, inscrite dans l'historique.
+     *
+     * « Personne n'est designe sur ce domaine » et « vous etes designe » autorisent la
+     * meme action pour des raisons opposees. Sans cette mention, on ne saura pas dans un
+     * an si une validation reposait sur une designation ou sur son absence — et c'est
+     * exactement la question qu'un audit posera le jour ou le resserrement sera acheve.
+     */
+    const autorite = delegation.motif;
 
     const apres = await prisma.$transaction(async (tx) => {
       const maj = await tx.defaut.updateMany({
@@ -791,7 +840,7 @@ const deciderDefaut: RequestHandler = async (req, res, next) => {
           statutApres: c.decision,
           decideParId: user.id,
           auteurId: defaut.constateParId,
-          source: origine,
+          source: `${origine}:${autorite}`,
           commentaire: c.commentaire ?? null,
         },
       });
