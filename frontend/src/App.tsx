@@ -33,6 +33,7 @@ const RapportBailleurPage = lazy(() => import("./pages/RapportBailleurPage").the
 const UsersPage = lazy(() => import("./pages/UsersPage").then((m) => ({ default: m.UsersPage })));
 const SecuritePage = lazy(() => import("./pages/SecuritePage").then((m) => ({ default: m.SecuritePage })));
 const AdministrationPage = lazy(() => import("./pages/AdministrationPage").then((m) => ({ default: m.AdministrationPage })));
+const GouvernancePage = lazy(() => import("./pages/GouvernancePage").then((m) => ({ default: m.GouvernancePage })));
 const OrdresTravauxPage = lazy(() => import("./pages/OrdresTravauxPage").then((m) => ({ default: m.OrdresTravauxPage })));
 
 function PageFallback() {
@@ -86,6 +87,7 @@ const router = createBrowserRouter(
         <Route element={<AppLayout />}>
           <Route path="utilisateurs" element={<LazyPage><UsersPage /></LazyPage>} handle={{ title: "Utilisateurs" }} />
           <Route path="administration" element={<LazyPage><AdministrationPage /></LazyPage>} handle={{ title: "Administration" }} />
+          <Route path="gouvernance" element={<LazyPage><GouvernancePage /></LazyPage>} handle={{ title: "Désignation des validateurs" }} />
         </Route>
       </Route>
       <Route element={<ProtectedRoute roles={["ADMIN", "GESTIONNAIRE"]} />}>

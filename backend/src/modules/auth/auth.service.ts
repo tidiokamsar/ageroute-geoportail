@@ -74,7 +74,7 @@ function refreshExpiryDate(): Date {
   return new Date(Date.now() + amount * ms);
 }
 
-async function issueSession(user: { id: string; role: string; email: string; nomComplet: string; modulesAutorises?: string[] }, ipAddress?: string) {
+async function issueSession(user: { id: string; role: string; email: string; nomComplet: string; modulesAutorises?: string[]; peutDeleguerValidation?: boolean }, ipAddress?: string) {
   const accessToken = signAccessToken({ sub: user.id, role: user.role as never, email: user.email });
   const refreshToken = signRefreshToken(user.id);
   const tokenId = newRefreshTokenId();
@@ -117,7 +117,11 @@ async function issueSession(user: { id: string; role: string; email: string; nom
   return {
     accessToken,
     refreshToken,
-    user: { id: user.id, email: user.email, nomComplet: user.nomComplet, role: user.role, modulesAutorises: user.modulesAutorises ?? [] },
+    user: {
+      id: user.id, email: user.email, nomComplet: user.nomComplet, role: user.role,
+      modulesAutorises: user.modulesAutorises ?? [],
+      peutDeleguerValidation: user.peutDeleguerValidation ?? false,
+    },
   };
 }
 

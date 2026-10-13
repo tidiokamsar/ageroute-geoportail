@@ -35,6 +35,14 @@ export interface User {
   derniereConnexion?: string | null;
   totpEnabled?: boolean;
   modulesAutorises?: string[];
+  /**
+   * Droit de DESIGNER un validateur (paragraphe 35 du cahier).
+   *
+   * Porte par le compte et non par un role : « Direction Technique » est un profil, et
+   * les profils ne persistent pas. Six profils sur onze sont GESTIONNAIRE, donc un
+   * controle de role donnerait ce droit a presque tout le monde.
+   */
+  peutDeleguerValidation?: boolean;
   createdAt: string;
 }
 

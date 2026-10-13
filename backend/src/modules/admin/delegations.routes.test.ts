@@ -31,6 +31,8 @@ const h = vi.hoisted(() => ({
   creees: [] as Record<string, unknown>[],
   majs: [] as Record<string, unknown>[],
   audits: [] as Record<string, unknown>[],
+  /** Comptes rendus par la base pour la liste des validateurs possibles. */
+  comptes: [] as Record<string, unknown>[],
 }));
 
 vi.mock("../../middleware/auth.middleware", () => ({
@@ -55,6 +57,7 @@ vi.mock("../../lib/prisma", () => {
     user: {
       findUnique: vi.fn(async () => h.demandeur),
       findFirst: vi.fn(async () => h.cible),
+      findMany: vi.fn(async () => h.comptes),
     },
     region: { findUnique: vi.fn(async () => ({ id: 7 })) },
     delegationValidation: {
@@ -103,6 +106,10 @@ beforeEach(() => {
   h.creees = [];
   h.majs = [];
   h.audits = [];
+  h.comptes = [
+    { id: "11111111-1111-4111-8111-111111111111", nomComplet: "Mamadou Diallo", role: "GESTIONNAIRE" },
+    { id: "direction-1", nomComplet: "Direction Technique", role: "GESTIONNAIRE" },
+  ];
   vi.clearAllMocks();
 });
 
@@ -243,5 +250,51 @@ describe("Consulter les désignations", () => {
   it("laisse consulter qui porte le droit", async () => {
     const r = await request(app()).get("/api/gouvernance/delegations");
     expect(r.status).toBe(200);
+  });
+});
+
+describe("Deux points d'entrée, deux niveaux d'ouverture — et c'est délibéré", () => {
+  /**
+   * `/domaines` dit quels domaines ont une route de validation. C'est une propriété du
+   * LOGICIEL, identique pour tout le monde et lisible dans le code : la taire n'apporterait
+   * rien, et la taire à la Direction Technique serait absurde puisque c'est elle qui
+   * désigne.
+   *
+   * `/validateurs-possibles` nomme des comptes. Elle exige donc le même droit que la
+   * désignation.
+   *
+   * `/admin/gouvernance/validation`, enfin, reste réservée à ADMIN : elle dit où PERSONNE
+   * n'est désigné, ce qui est une carte des points faibles du contrôle de validation.
+   *
+   * Ces trois niveaux ont été posés un par un, et chacun pour une raison différente. Ce
+   * bloc les fixe, parce qu'une refonte les aligneraient volontiers sur le plus simple.
+   */
+  it("ouvre /domaines à tout compte authentifié", async () => {
+    h.demandeur = { id: "lecteur-1", role: "LECTEUR", peutDeleguerValidation: false, actif: true };
+    const r = await request(app()).get("/api/gouvernance/domaines");
+    expect(r.status).toBe(200);
+    expect(r.body.actifs).toEqual(["DEFAUT", "OBSERVATION"]);
+    expect(r.body.sansChemindeValidation).toHaveLength(5);
+  });
+
+  it("RÉSERVE /validateurs-possibles à qui porte le droit", async () => {
+    h.demandeur = { id: "g-1", role: "GESTIONNAIRE", peutDeleguerValidation: false };
+    const r = await request(app()).get("/api/gouvernance/validateurs-possibles");
+    expect(r.status).toBe(403);
+  });
+
+  it("rend les candidats, SOI-MÊME EXCLU", async () => {
+    // L'auto-désignation est refusée : proposer un choix qui sera rejeté fait perdre du
+    // temps à l'utilisateur.
+    const r = await request(app()).get("/api/gouvernance/validateurs-possibles");
+    expect(r.status).toBe(200);
+    expect(r.body.map((c: { id: string }) => c.id)).toEqual(["11111111-1111-4111-8111-111111111111"]);
+  });
+
+  it("ne rend que trois champs, et jamais l'adresse", async () => {
+    // Ouvrir `/api/users` aurait divulgué les adresses, les dernières connexions et
+    // l'état du second facteur de tous les comptes. Ici, de quoi choisir, et rien de plus.
+    const r = await request(app()).get("/api/gouvernance/validateurs-possibles");
+    expect(Object.keys(r.body[0]).sort()).toEqual(["id", "nomComplet", "role"]);
   });
 });

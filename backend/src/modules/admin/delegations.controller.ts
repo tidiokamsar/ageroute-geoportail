@@ -5,8 +5,10 @@ import { ApiError } from "../../middleware/error.middleware";
 import { logAuditTransactionnelle, construireAudit } from "../../utils/audit";
 import {
   designationPermise, revocationPermise, delegationEnVigueur,
-  DOMAINES_VALIDATION, EXPLICATIONS_DESIGNATION,
+  domainesSansChemindeValidation,
+  DOMAINES_VALIDATION, DOMAINES_AVEC_CHEMIN_DE_VALIDATION, EXPLICATIONS_DESIGNATION,
 } from "../../governance/delegation";
+import { ROLES_VALIDATEURS } from "../../governance/validation";
 
 /**
  * Designer et revoquer des validateurs (paragraphe 35 du cahier).
@@ -220,5 +222,70 @@ export async function revoquerDelegationHandler(req: Request, res: Response, nex
     return res.status(204).send();
   } catch (err) {
     return next(err);
+  }
+}
+
+/**
+ * Les domaines qui valident, et ceux ou designer serait sans effet.
+ *
+ * POURQUOI CECI N'EST PAS RESERVE A ADMIN, CONTRAIREMENT AU RAPPORT DE GOUVERNANCE
+ *
+ * `/api/admin/gouvernance/validation` est reserve, parce qu'il dit ou PERSONNE n'est
+ * designe : une carte des points faibles du controle de validation.
+ *
+ * Ceci est autre chose. « Aucune route ne valide un troncon » est une propriete du
+ * LOGICIEL, identique pour tout le monde et lisible dans le code. La taire a la Direction
+ * Technique serait absurde : c'est elle qui designe, et c'est donc elle qui doit savoir
+ * que designer sur cinq des sept domaines ne changerait rien aujourd'hui.
+ */
+export async function domainesValidationHandler(_req: Request, res: Response, next: NextFunction) {
+  try {
+    res.json({
+      actifs: [...DOMAINES_AVEC_CHEMIN_DE_VALIDATION],
+      sansChemindeValidation: domainesSansChemindeValidation(),
+      total: DOMAINES_VALIDATION.length,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * Les comptes qu'on peut designer validateur.
+ *
+ * POURQUOI CETTE ROUTE EXISTE PLUTOT QUE D'OUVRIR `/api/users`
+ *
+ * Le routeur des utilisateurs est reserve a ADMIN, et la Direction Technique n'en est pas.
+ * Sans cette route, elle ne pourrait designer personne depuis l'interface — le droit lui
+ * aurait ete accorde sans moyen de l'exercer.
+ *
+ * L'ouvrir a `/api/users` aurait divulgue les adresses, les dates de derniere connexion et
+ * l'etat du second facteur de tous les comptes. Ici, trois champs : l'identifiant, le nom
+ * et le role. C'est ce qu'il faut pour choisir, et rien de plus.
+ *
+ * Les LECTEUR et INSPECTEUR sont exclus : `ROLES_VALIDATEURS` ne les admet pas, et les
+ * designer creerait une delegation qui ne servirait jamais.
+ */
+export async function validateursPossiblesHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    if (!req.user) throw new ApiError(401, "Authentification requise");
+    const lecteur = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: { role: true, peutDeleguerValidation: true },
+    });
+    if (lecteur?.role !== "ADMIN" && !lecteur?.peutDeleguerValidation) {
+      throw new ApiError(403, "Désigner un validateur relève de la Direction Technique ou d'un administrateur.");
+    }
+
+    const comptes = await prisma.user.findMany({
+      where: { actif: true, role: { in: [...ROLES_VALIDATEURS] as never } },
+      select: { id: true, nomComplet: true, role: true },
+      orderBy: { nomComplet: "asc" },
+    });
+    // Soi-meme exclu a la source : l'auto-designation est refusee, et proposer un choix
+    // qui sera rejete fait perdre du temps a l'utilisateur.
+    res.json(comptes.filter((c) => c.id !== req.user!.id));
+  } catch (err) {
+    next(err);
   }
 }

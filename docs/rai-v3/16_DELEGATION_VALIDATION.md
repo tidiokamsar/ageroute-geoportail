@@ -225,11 +225,50 @@ ce qui lui est propre : la machine à états `BROUILLON / PROPOSEE / VALIDEE / R
 CONVERTIE`, celle de l'enum en base, qui ne se confond pas avec les quatre statuts de la
 gouvernance.
 
-### Ce qui reste
+## L'interface — 13/10/2026
 
-L'interface.
+`/gouvernance`, entrée « Validateurs » du menu Administration. Visible aux `ADMIN` **et**
+aux porteurs du droit : la gater sur le rôle aurait refusé la décision qu'on vient de
+prendre.
 
-Et, pour les cinq domaines patrimoniaux, la question n'est pas la délégation mais **la
+L'écran porte trois choses que le code savait et que personne ne voyait :
+
+- **Désigner la première personne resserre le domaine.** Tant que personne n'est désigné,
+  tout gestionnaire valide. Un administrateur qui l'ignore croit ajouter un droit alors
+  qu'il en retire à tous les autres.
+- **Cinq domaines sont marqués « sans effet aujourd'hui »**, dans l'avertissement et dans
+  la liste de choix elle-même. Sans cela, l'écran invitait à combler cinq cases qui ne
+  changent rien — pire qu'un manque affiché.
+- **Une délégation régionale ne couvre pas un objet dont la région est inconnue.**
+
+Les désignations révoquées et échues restent affichées, avec leur état : des validations
+ont été rendues sous leur autorité.
+
+### Les tests ont trouvé deux vrais défauts, pas des problèmes de test
+
+L'écran lisait l'état des domaines sur `/admin/gouvernance/validation` et la liste des
+comptes sur `/api/users`. **Les deux sont réservés à `ADMIN`** — donc la Direction
+Technique, celle qui désigne, n'aurait vu ni l'avertissement qui la concerne le plus, ni
+aucun candidat à désigner. Le droit lui aurait été accordé sans moyen de l'exercer.
+
+Deux points d'entrée ont été ajoutés, et leur ouverture diffère **pour trois raisons
+distinctes** :
+
+| Route | Qui | Pourquoi |
+|---|---|---|
+| `GET /gouvernance/domaines` | tout compte authentifié | « aucune route ne valide un tronçon » est une propriété du logiciel, lisible dans le code |
+| `GET /gouvernance/validateurs-possibles` | qui porte le droit | elle nomme des comptes — trois champs, jamais l'adresse |
+| `GET /admin/gouvernance/validation` | `ADMIN` seul | elle dit où **personne** n'est désigné : une carte des points faibles |
+
+Ces trois niveaux ont été posés un par un, chacun pour sa raison. Un bloc de tests les fixe,
+parce qu'une refonte les alignerait volontiers sur le plus simple.
+
+`peutDeleguerValidation` remonte désormais dans la session, sans quoi le menu ne pouvait
+pas montrer l'écran à la Direction Technique.
+
+## Ce qui reste
+
+Pour les cinq domaines patrimoniaux, la question n'est pas la délégation mais **la
 validation elle-même** : il n'existe aucun chemin pour rendre un tronçon officiel. C'est un
 chantier à part, et il faut décider s'il est voulu — la validation d'un relevé de terrain
 et celle d'un référentiel routier ne se ressemblent pas.

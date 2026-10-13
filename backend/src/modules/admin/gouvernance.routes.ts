@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireAuth } from "../../middleware/auth.middleware";
 import {
   listDelegationsHandler, creerDelegationHandler, revoquerDelegationHandler,
+  domainesValidationHandler, validateursPossiblesHandler,
 } from "./delegations.controller";
 
 /**
@@ -24,3 +25,7 @@ gouvernanceRouter.use(requireAuth);
 gouvernanceRouter.get("/delegations", listDelegationsHandler);
 gouvernanceRouter.post("/delegations", creerDelegationHandler);
 gouvernanceRouter.post("/delegations/:id/revocation", revoquerDelegationHandler);
+
+// Avant `/delegations/:id` : l'ordre compte, comme toujours.
+gouvernanceRouter.get("/domaines", domainesValidationHandler);
+gouvernanceRouter.get("/validateurs-possibles", validateursPossiblesHandler);
