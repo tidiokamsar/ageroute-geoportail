@@ -37,10 +37,24 @@ const h = vi.hoisted(() => ({
     praticabiliteNonDefinie: true,
   },
   succes: null as ((p: unknown) => void) | null,
+  enFile: [] as unknown[],
+  syncLance: 0,
+  pendingCount: 0,
 }));
 
 vi.mock("../lib/api", () => ({ api: h }));
 vi.mock("../lib/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+vi.mock("../lib/auth", () => ({ useAuth: () => ({ user: { id: "u-agent" } }) }));
+vi.mock("../hooks/useOfflineSync", () => ({
+  useOfflineSync: () => ({ pendingCount: h.pendingCount, syncing: false }),
+}));
+vi.mock("../lib/offlineDb", () => ({
+  addPendingPortion: async (item: unknown) => { h.enFile.push(item); },
+}));
+vi.mock("../lib/offlineSync", () => ({
+  refreshPendingCount: async () => {},
+  syncPendingOfflineData: async () => { h.syncLance += 1; },
+}));
 
 import { TerrainPortionsPage } from "./TerrainPortionsPage";
 
@@ -64,6 +78,10 @@ beforeEach(() => {
   h.get.mockReset();
   h.post.mockReset();
   h.succes = null;
+  h.enFile.length = 0;
+  h.syncLance = 0;
+  h.pendingCount = 0;
+  Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
   h.contexte = contexte();
   h.get.mockImplementation(async (url: string) => {
     if (url.includes("/v2/referentiels")) return { data: h.refs };
@@ -242,5 +260,73 @@ describe("Les ouvrages à proximité", () => {
     await localiser();
     expect(await screen.findByText(/Pont de la Moribaya/)).toBeInTheDocument();
     expect(screen.getByText("43 m")).toBeInTheDocument();
+  });
+});
+
+describe("Hors ligne : le relevé est conservé, jamais perdu", () => {
+  it("MET EN FILE sans même tenter la requête quand le réseau est absent", async () => {
+    // Une requête qui expire ferait attendre dix secondes un agent en bord de route.
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
+    render(<TerrainPortionsPage />);
+    const user = await localiser();
+    await user.click(screen.getByRole("button", { name: /Proposer cette portion/ }));
+    await waitFor(() => expect(h.enFile).toHaveLength(1));
+    expect(h.post).not.toHaveBeenCalled();
+    expect(h.enFile[0]).toMatchObject({
+      ownerUserId: "u-agent",
+      status: "pending",
+      payload: { debutM: 10_000, finM: 11_000 },
+    });
+  });
+
+  it("met en file quand la requête n'aboutit PAS, et pas quand le serveur REFUSE", async () => {
+    // La distinction qui compte. Un 409 mis en file reviendrait à chaque retour de réseau
+    // sans jamais passer ; une panne non mise en file perdrait une saisie de terrain.
+    h.post
+      .mockRejectedValueOnce({ message: "Network Error" })
+      .mockRejectedValueOnce({
+        response: { status: 409, data: { message: "Une portion validée couvre déjà ces mètres." } },
+      });
+    render(<TerrainPortionsPage />);
+    const user = await localiser();
+    const proposer = screen.getByRole("button", { name: /Proposer cette portion/ });
+
+    // Premiere tentative : la requete n'aboutit pas. Le releve doit survivre.
+    await user.click(proposer);
+    await waitFor(() => expect(h.enFile).toHaveLength(1));
+
+    // Seconde tentative : le serveur REFUSE. Rien ne doit entrer en file.
+    h.enFile.length = 0;
+    await user.click(proposer);
+    await waitFor(() => expect(h.post).toHaveBeenCalledTimes(2));
+    expect(h.enFile).toHaveLength(0);
+  });
+
+  it("forge la CLÉ D'IDEMPOTENCE avant de savoir si l'on est en ligne", async () => {
+    // Le même relevé doit pouvoir partir maintenant ou plus tard sans jamais produire deux
+    // portions. Une clé forgée après la coupure aurait différé d'un chemin à l'autre.
+    h.post.mockResolvedValue({ data: {} });
+    render(<TerrainPortionsPage />);
+    const user = await localiser();
+    await user.click(screen.getByRole("button", { name: /Proposer cette portion/ }));
+    await waitFor(() => expect(h.post).toHaveBeenCalled());
+    const envoye = h.post.mock.calls[0][1] as { clientOperationId: string };
+    expect(envoye.clientOperationId).toMatch(/^portion-.+-10000-\d+$/);
+  });
+});
+
+describe("Le bandeau de file d'attente", () => {
+  it("reste invisible quand la file est vide", async () => {
+    render(<TerrainPortionsPage />);
+    expect(screen.queryByText(/relevé\(s\) en attente/)).not.toBeInTheDocument();
+  });
+
+  it("annonce le nombre en attente et permet d'envoyer", async () => {
+    h.pendingCount = 3;
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<TerrainPortionsPage />);
+    expect(screen.getByText("3")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Envoyer maintenant/ }));
+    expect(h.syncLance).toBe(1);
   });
 });

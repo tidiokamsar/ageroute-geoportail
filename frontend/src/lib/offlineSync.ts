@@ -12,6 +12,10 @@ import {
   updatePendingInspection,
   type PendingDefaut,
   type PendingInspection,
+  type PendingPortion,
+  getAllPendingPortions,
+  updatePendingPortion,
+  removePendingPortion,
 } from "./offlineDb";
 
 type Listener = () => void;
@@ -51,10 +55,15 @@ export function getSyncState(): SyncState {
 }
 
 export async function refreshPendingCount() {
-  const [inspections, defauts] = await Promise.all([getAllPending(), getAllPendingDefauts()]);
+  const [inspections, defauts, portions] = await Promise.all([
+    getAllPending(), getAllPendingDefauts(), getAllPendingPortions(),
+  ]);
+  // Les trois files comptent ensemble : l'agent veut savoir COMBIEN il lui reste a
+  // remonter, pas de quel type. Un compteur par type l'obligerait a additionner.
   pendingCount = utilisateurSyncId
     ? inspections.filter((item) => item.ownerUserId === utilisateurSyncId).length
       + defauts.filter((item) => item.ownerUserId === utilisateurSyncId).length
+      + portions.filter((item) => item.ownerUserId === utilisateurSyncId).length
     : 0;
   emit();
 }
@@ -203,14 +212,21 @@ function appareilRevoque(err: unknown): boolean {
     && response.data.message.startsWith("Appareil inconnu, révoqué");
 }
 
-async function pousserDefaut(userId: string, item: PendingDefaut) {
+/**
+ * Pousse UNE operation de creation, quel que soit son type.
+ *
+ * GENERALISE PLUTOT QUE DUPLIQUE. La reprise apres revocation d'appareil ci-dessous est la
+ * partie delicate de cette fonction : la copier pour les portions aurait cree un second
+ * endroit ou la corriger, et c'est ainsi qu'un chemin finit par ne plus reprendre.
+ */
+async function pousserCreation(userId: string, entityType: string, localId: string, payload: unknown) {
   const operation = {
-    operationId: item.localId,
-    entityType: "Defaut",
-    entityId: item.localId,
+    operationId: localId,
+    entityType,
+    entityId: localId,
     operation: "CREATE",
     baseVersion: null,
-    payload: item.payload,
+    payload,
   };
   let deviceId = await appareilSync(userId);
   if (!deviceId || utilisateurSyncId !== userId) return null;
@@ -237,7 +253,7 @@ async function syncOneDefaut(item: PendingDefaut, userId: string): Promise<boole
   let etat: PendingDefaut = { ...item, tentatives };
   try {
     if (!etat.serverId) {
-      const reponse = await pousserDefaut(userId, etat);
+      const reponse = await pousserCreation(userId, "Defaut", etat.localId, etat.payload);
       if (!reponse) return false;
       const { data } = reponse;
       const resultat = data?.resultats?.[0] as { statut?: string; entityId?: string; motif?: string } | undefined;
@@ -282,6 +298,65 @@ async function syncOneDefaut(item: PendingDefaut, userId: string): Promise<boole
   }
 }
 
+/**
+ * Synchronise une portion qualifiee hors ligne.
+ *
+ * PLUS SIMPLE QUE LES DEFAUTS, PARCE QU'IL N'Y A PAS DE PHOTOS
+ *
+ * Pas de boucle d'envoi partiel, donc pas d'etat intermediaire a reprendre : l'operation
+ * aboutit ou non. `serverId` reste utile pour ne pas repousser une portion deja acceptee si
+ * le retrait de la file echouait.
+ *
+ * UN REFUS DEFINITIF SORT DE LA FILE SANS ETRE PERDU
+ *
+ * Il est marque `abandonnee` avec son motif, et reste visible : l'agent doit savoir que sa
+ * saisie n'est pas passee et pourquoi. Le retirer silencieusement ferait disparaitre une
+ * observation de terrain ; le retenter en boucle ne viderait jamais la file.
+ */
+async function syncOnePortion(item: PendingPortion, userId: string): Promise<boolean> {
+  if (item.status === "abandonnee") return false;
+  const tentatives = (item.tentatives ?? 0) + 1;
+  try {
+    const reponse = await pousserCreation(userId, "Portion", item.localId, item.payload);
+    if (!reponse) return false;
+    const resultat = reponse.data?.resultats?.[0] as
+      { statut?: string; entityId?: string; motif?: string } | undefined;
+
+    if (resultat && ["SYNCHRONISE", "REJOUEE"].includes(resultat.statut ?? "")) {
+      await removePendingPortion(item.localId);
+      return true;
+    }
+
+    // REJETE : le serveur a tranche. `reessayerDansMs` absent signale un refus definitif,
+    // et c'est le serveur qui le sait — lui seul connait l'etat du reseau.
+    const definitif = resultat?.statut === "REJETE"
+      && !(resultat as { reessayerDansMs?: number }).reessayerDansMs;
+    if (definitif) {
+      await updatePendingPortion({
+        ...item,
+        tentatives,
+        status: "abandonnee",
+        refusDefinitif: true,
+        errorMessage: `Refusé : ${resultat?.motif ?? "motif non précisé"}. Cette saisie ne passera pas en l'état.`,
+      });
+      return false;
+    }
+    throw new Error(resultat?.motif ?? "Le serveur n'a pas confirmé la synchronisation de la portion.");
+  } catch (err) {
+    const message = messageErreur(err);
+    const abandonnee = tentatives >= MAX_TENTATIVES;
+    await updatePendingPortion({
+      ...item,
+      tentatives,
+      status: abandonnee ? "abandonnee" : "error",
+      errorMessage: abandonnee
+        ? `${message} (abandon après ${tentatives} échecs consécutifs)`
+        : message,
+    });
+    return false;
+  }
+}
+
 export async function syncPendingOfflineData(): Promise<void> {
   if (syncing) return;
   if (!navigator.onLine || !utilisateurSyncId) return;
@@ -305,6 +380,13 @@ export async function syncPendingOfflineData(): Promise<void> {
       if (utilisateurSyncId !== userId) break;
       if (item.ownerUserId !== userId) continue;
       await syncOneDefaut(item, userId);
+    }
+
+    const portions = await getAllPendingPortions();
+    for (const item of portions) {
+      if (utilisateurSyncId !== userId) break;
+      if (item.ownerUserId !== userId) continue;
+      await syncOnePortion(item, userId);
     }
   } finally {
     syncing = false;

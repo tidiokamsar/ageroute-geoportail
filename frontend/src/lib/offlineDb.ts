@@ -1,11 +1,19 @@
-// Stockage local des inspections et défauts saisis hors-ligne (IndexedDB natif,
-// sans dépendance). La version 2 ajoute le magasin des défauts en conservant les
-// inspections déjà enregistrées dans le magasin historique.
+// Stockage local des inspections, défauts et portions saisis hors-ligne (IndexedDB
+// natif, sans dépendance). La version 2 ajoute le magasin des défauts, la version 3
+// celui des portions, en conservant à chaque fois les magasins déjà remplis.
+//
+// POURQUOI LA MIGRATION EST ADDITIVE, Y COMPRIS ICI
+//
+// Un agent peut avoir des observations non synchronisées sur son téléphone au moment où
+// l'application se met à jour. Recréer la base effacerait sa collecte, et une saisie de
+// terrain perdue ne se refait pas : il faudrait y retourner. `onupgradeneeded` ne crée
+// donc que les magasins absents.
 
 const DB_NAME = "bdri-offline";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const INSPECTIONS_STORE = "pending_inspections";
 const DEFAUTS_STORE = "pending_defauts";
+const PORTIONS_STORE = "pending_portions";
 
 export interface PendingInspection {
   localId: string;
@@ -42,6 +50,46 @@ export interface PendingInspection {
   // supprime, une validation refusee — se reproduirait sinon a chaque retour de
   // reseau, indefiniment et sans que personne ne le voie.
   tentatives?: number;
+}
+
+export interface PendingPortion {
+  localId: string;
+  /** Compte qui a saisi ce brouillon ; les files restent cloisonnées par utilisateur. */
+  ownerUserId?: string;
+  /** Identifiant serveur obtenu après création idempotente. */
+  serverId?: string;
+  payload: {
+    tronconId: string;
+    /** Abscisses en mètres depuis le début de la géométrie de référence, pas des PK. */
+    debutM: number;
+    finM: number;
+    revetement?: string | null;
+    etat?: string | null;
+    praticabilite?: string | null;
+    largeurM?: number | null;
+    source?: string | null;
+    /**
+     * Date du CONSTAT, pas de l'envoi.
+     *
+     * Une portion relevée lundi et remontée vendredi décrit lundi. Prendre la date d'envoi
+     * ferait vieillir toute la collecte hors ligne d'un coup, et un indicateur de fraîcheur
+     * mentirait sur l'âge réel des données.
+     */
+    observeeLe?: string | null;
+    confiance?: "HIGH" | "MEDIUM" | "LOW" | null;
+  };
+  createdAt: string;
+  status: "pending" | "error" | "abandonnee";
+  errorMessage?: string;
+  tentatives?: number;
+  /**
+   * `true` quand le serveur a refusé DÉFINITIVEMENT.
+   *
+   * Sans ce drapeau, un refus que rien ne changera — des bornes hors du tronçon, une
+   * portion validée déjà en place — reviendrait à chaque retour de réseau et la file ne se
+   * viderait jamais. L'agent doit le voir et agir, pas attendre.
+   */
+  refusDefinitif?: boolean;
 }
 
 export interface PendingDefaut {
@@ -95,6 +143,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(DEFAUTS_STORE)) {
         db.createObjectStore(DEFAUTS_STORE, { keyPath: "localId" });
+      }
+      if (!db.objectStoreNames.contains(PORTIONS_STORE)) {
+        db.createObjectStore(PORTIONS_STORE, { keyPath: "localId" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -163,6 +214,44 @@ export async function getAllPendingDefauts(): Promise<PendingDefaut[]> {
 
 export async function updatePendingDefaut(item: PendingDefaut): Promise<void> {
   return addPendingDefaut(item);
+}
+
+export async function addPendingPortion(item: PendingPortion): Promise<void> {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(PORTIONS_STORE, "readwrite");
+    tx.objectStore(PORTIONS_STORE).put(item);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+export async function getAllPendingPortions(): Promise<PendingPortion[]> {
+  const db = await openDb();
+  const items = await new Promise<PendingPortion[]>((resolve, reject) => {
+    const tx = db.transaction(PORTIONS_STORE, "readonly");
+    const req = tx.objectStore(PORTIONS_STORE).getAll();
+    req.onsuccess = () => resolve(req.result as PendingPortion[]);
+    req.onerror = () => reject(req.error);
+  });
+  db.close();
+  return items;
+}
+
+export async function updatePendingPortion(item: PendingPortion): Promise<void> {
+  return addPendingPortion(item);
+}
+
+export async function removePendingPortion(localId: string): Promise<void> {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(PORTIONS_STORE, "readwrite");
+    tx.objectStore(PORTIONS_STORE).delete(localId);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
 }
 
 export async function removePendingDefaut(localId: string): Promise<void> {

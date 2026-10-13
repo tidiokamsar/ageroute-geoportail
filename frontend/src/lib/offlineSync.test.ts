@@ -17,6 +17,8 @@ const appels = { creations: 0, photos: 0, defauts: 0, appareils: 0 };
 let echouerPhotoNo = 0; // 0 = aucune ; n = echouer a la n-ieme photo
 let echouerCreation = false;
 let echouerDefaut = false;
+/** Reponse imposee au prochain /v2/sync/push. Null = comportement par defaut. */
+let reponsePush: Record<string, unknown> | null = null;
 let changerCompteApresPhoto = false;
 let basculerCompte: () => void = () => undefined;
 
@@ -30,6 +32,7 @@ vi.mock("./api", () => ({
       if (url === "/v2/sync/push") {
         if (echouerDefaut) throw new Error("catalogue indisponible");
         appels.defauts++;
+        if (reponsePush !== null) return { data: { resultats: [reponsePush] } };
         return { data: { resultats: [{ statut: "SYNCHRONISE", entityId: `defaut-${appels.defauts}` }] } };
       }
       if (url === "/inspections") {
@@ -50,10 +53,12 @@ vi.mock("./api", () => ({
 // Base locale simulee : un Map suffit, et evite de dependre d'IndexedDB sous jsdom.
 const base = new Map<string, Record<string, unknown>>();
 const defautsLocaux = new Map<string, Record<string, unknown>>();
+const portionsLocales = new Map<string, Record<string, unknown>>();
 
 vi.mock("./offlineDb", () => ({
   getAllPending: vi.fn(async () => [...base.values()]),
   getAllPendingDefauts: vi.fn(async () => [...defautsLocaux.values()]),
+  getAllPendingPortions: vi.fn(async () => [...portionsLocales.values()]),
   updatePendingInspection: vi.fn(async (item: { localId: string }) => {
     base.set(item.localId, item as Record<string, unknown>);
   }),
@@ -65,6 +70,12 @@ vi.mock("./offlineDb", () => ({
   }),
   removePendingDefaut: vi.fn(async (localId: string) => {
     defautsLocaux.delete(localId);
+  }),
+  updatePendingPortion: vi.fn(async (item: { localId: string }) => {
+    portionsLocales.set(item.localId, item as Record<string, unknown>);
+  }),
+  removePendingPortion: vi.fn(async (localId: string) => {
+    portionsLocales.delete(localId);
   }),
 }));
 
@@ -86,6 +97,7 @@ function deposer(localId: string, nbPhotos: number) {
 beforeEach(() => {
   base.clear();
   defautsLocaux.clear();
+  portionsLocales.clear();
   appels.creations = 0;
   appels.photos = 0;
   appels.defauts = 0;
@@ -93,6 +105,7 @@ beforeEach(() => {
   echouerPhotoNo = 0;
   echouerCreation = false;
   echouerDefaut = false;
+  reponsePush = null;
   changerCompteApresPhoto = false;
   vi.mocked(api.post).mockClear();
   localStorage.clear();
@@ -314,5 +327,140 @@ describe("Synchronisation hors-ligne des défauts structurés", () => {
     expect(appels.defauts).toBe(0);
     expect(vi.mocked(api.post).mock.calls.some((call) => call[0] === "/v2/sync/push")).toBe(false);
     expect(defautsLocaux.has("44444444-4444-4444-8444-444444444444")).toBe(true);
+  });
+});
+
+/**
+ * La file des portions : ce que ces tests defendent.
+ *
+ * UN REFUS DEFINITIF NE DOIT NI BOUCLER NI DISPARAITRE
+ *
+ * C'est le seul endroit de cette file ou les deux erreurs coutent cher et s'excluent. Un
+ * refus definitif retente revient a chaque retour de reseau et la file ne se vide jamais :
+ * l'agent voit un compteur qui ne descend pas. Retire en silence, une saisie de terrain
+ * disparait, et une saisie de terrain perdue ne se refait pas : il faut y retourner.
+ *
+ * La reponse retenue : marque `abandonnee`, CONSERVE, avec son motif lisible.
+ *
+ * ET C'EST LE SERVEUR QUI TRANCHE. Lui seul sait si une portion validee a ete posee
+ * entre-temps sur ces metres. Le client lit `reessayerDansMs`, il n'en decide pas.
+ */
+describe("Synchronisation hors-ligne des portions", () => {
+  function deposerPortion(localId: string) {
+    portionsLocales.set(localId, {
+      localId,
+      ownerUserId: "u1",
+      payload: {
+        tronconId: "33333333-3333-4333-8333-333333333333",
+        debutM: 10_000,
+        finM: 11_000,
+        revetement: "LATERITE",
+        observeeLe: "2026-10-09T08:00:00.000Z",
+      },
+      createdAt: "2026-10-13T10:00:00.000Z",
+      status: "pending",
+    });
+  }
+
+  /** Les appels a `/v2/sync/push`, typage conserve pour que `tsc` reste propre. */
+  function pushs(api: { post: (...a: never[]) => unknown }) {
+    return vi.mocked(api.post).mock.calls.filter((c) => c[0] === "/v2/sync/push");
+  }
+
+  it("pousse la portion dans l'enveloppe du protocole et vide la file", async () => {
+    deposerPortion("aaaa1111-1111-4111-8111-111111111111");
+    const { api } = await import("./api");
+
+    await syncPendingOfflineData();
+
+    const appels = pushs(api);
+    expect(appels).toHaveLength(1);
+    const corps = appels[0][1] as { operations: Record<string, unknown>[] };
+    expect(corps.operations[0]).toMatchObject({
+      operationId: "aaaa1111-1111-4111-8111-111111111111",
+      entityType: "Portion",
+      operation: "CREATE",
+      baseVersion: null,
+    });
+    expect(portionsLocales.size).toBe(0);
+  });
+
+  it("conserve la DATE DE CONSTAT, pas celle de l'envoi", async () => {
+    // Une portion relevee le 9 et remontee le 13 decrit le 9. Confondre les deux ferait
+    // vieillir toute la collecte hors ligne d'un coup.
+    deposerPortion("aaaa2222-2222-4222-8222-222222222222");
+    const { api } = await import("./api");
+    await syncPendingOfflineData();
+    const corps = pushs(api)[0][1] as { operations: { payload: { observeeLe: string } }[] };
+    expect(corps.operations[0].payload.observeeLe).toBe("2026-10-09T08:00:00.000Z");
+  });
+
+  it("ABANDONNE un refus definitif, en le CONSERVANT avec son motif", async () => {
+    // Le test le plus important de ce bloc : ni reessai en boucle, ni disparition.
+    deposerPortion("aaaa3333-3333-4333-8333-333333333333");
+    reponsePush = { statut: "REJETE", motif: "CHEVAUCHE_UNE_VALIDEE" };
+
+    await syncPendingOfflineData();
+
+    const restant = portionsLocales.get("aaaa3333-3333-4333-8333-333333333333");
+    expect(restant?.status).toBe("abandonnee");
+    expect(restant?.refusDefinitif).toBe(true);
+    expect(String(restant?.errorMessage)).toMatch(/CHEVAUCHE_UNE_VALIDEE/);
+  });
+
+  it("n'est PLUS retentee une fois abandonnee", async () => {
+    // Sinon le compteur de l'agent ne descendrait jamais.
+    deposerPortion("aaaa4444-4444-4444-8444-444444444444");
+    reponsePush = { statut: "REJETE", motif: "HORS_TRONCON" };
+    await syncPendingOfflineData();
+
+    const { api } = await import("./api");
+    const avant = pushs(api).length;
+    reponsePush = null;
+    await syncPendingOfflineData();
+    expect(pushs(api).length).toBe(avant);
+  });
+
+  it("RETENTE un refus temporaire, que le serveur signale par reessayerDansMs", async () => {
+    // Un refus temporaire abandonne ferait perdre une observation de terrain.
+    deposerPortion("aaaa5555-5555-4555-8555-555555555555");
+    reponsePush = { statut: "REJETE", motif: "PORTION_INTROUVABLE", reessayerDansMs: 60_000 };
+
+    await syncPendingOfflineData();
+
+    const restant = portionsLocales.get("aaaa5555-5555-4555-8555-555555555555");
+    expect(restant?.status).toBe("error");
+    expect(restant?.refusDefinitif).toBeUndefined();
+  });
+
+  it("garde la MEME cle d'idempotence apres une erreur reseau", async () => {
+    // C'est ce qui empeche le doublon a la reprise.
+    deposerPortion("aaaa6666-6666-4666-8666-666666666666");
+    echouerDefaut = true;
+    await syncPendingOfflineData();
+    expect(portionsLocales.get("aaaa6666-6666-4666-8666-666666666666")?.status).toBe("error");
+
+    echouerDefaut = false;
+    const { api } = await import("./api");
+    vi.mocked(api.post).mockClear();
+    await syncPendingOfflineData();
+    const corps = pushs(api)[0][1] as { operations: { operationId: string }[] };
+    expect(corps.operations[0].operationId).toBe("aaaa6666-6666-4666-8666-666666666666");
+    expect(portionsLocales.size).toBe(0);
+  });
+
+  it("ne remonte PAS les portions d'un autre compte sur un appareil partage", async () => {
+    portionsLocales.set("aaaa7777-7777-4777-8777-777777777777", {
+      localId: "aaaa7777-7777-4777-8777-777777777777",
+      ownerUserId: "u2",
+      payload: { tronconId: "33333333-3333-4333-8333-333333333333", debutM: 0, finM: 500 },
+      createdAt: "2026-10-13T10:00:00.000Z",
+      status: "pending",
+    });
+    const { api } = await import("./api");
+    vi.mocked(api.post).mockClear();
+    await syncPendingOfflineData();
+    expect(pushs(api)).toHaveLength(0);
+    expect(portionsLocales.size).toBe(1);
   });
 });

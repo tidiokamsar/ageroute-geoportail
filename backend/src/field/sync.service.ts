@@ -1,4 +1,5 @@
 import { prisma } from "../lib/prisma";
+import { appliquerPortionSync, refusDefinitif } from "./portions.sync";
 import { deriveGeomFromTroncon, deriveGeomFromTronconAbscisse, setPointGeom } from "../lib/geo";
 import { logAuditTransactionnelle } from "../utils/audit";
 import { preparerDefautSync, type PreparationDefautSync } from "./defauts.sync";
@@ -21,12 +22,16 @@ import { decider, delaiAvantReessai, type Decision, type OperationEntrante } fro
  */
 
 /** Types que `push` sait appliquer. La liste grandira avec les services. */
-export const TYPES_ACCEPTES = new Set(["Observation", "Defaut"]);
+export const TYPES_ACCEPTES = new Set(["Observation", "Defaut", "Portion"]);
 
 /** Operations actuellement prises en charge par type, exposees aux clients terrain. */
 export const OPERATIONS_ACCEPTEES: Record<string, readonly string[]> = {
   Observation: ["CREATE", "UPDATE", "DELETE"],
   Defaut: ["CREATE"],
+  // CREATE seul, comme Defaut. Le decoupage, la fusion et la requalification passent par
+  // les routes metier : ce sont des arbitrages sur l'etat du reseau, et les faire arriver
+  // d'une file hors ligne demanderait de resoudre les conflits de bornes a l'aveugle.
+  Portion: ["CREATE"],
 };
 
 export interface ResultatOperation {
@@ -47,6 +52,20 @@ async function versionEntite(entityType: string, entityId: string): Promise<numb
     const observation = await prisma.observation.findUnique({ where: { id: entityId }, select: { version: true } });
     return observation?.version ?? null;
   }
+  /**
+   * PORTION N'A PAS DE COLONNE `version`, ET C'EST TRAITE EXPLICITEMENT.
+   *
+   * Sans ce branchement, une operation Portion tombait dans la requete `defaut` ci-dessous
+   * et rendait `null` parce qu'aucun defaut ne porte cet identifiant. La reponse etait
+   * juste PAR ACCIDENT, et fausse dans un cas : si un defaut portait le meme identifiant
+   * client — les deux sont generes par l'appareil — `decider` aurait lu la version d'une
+   * autre entite et traite le CREATE comme un rejeu.
+   *
+   * Une portion ne se concurrence pas par version : son idempotence vient de
+   * `clientOperationId`, unique en base, et ses transitions passent par les routes metier.
+   */
+  if (entityType === "Portion") return null;
+
   const defaut = await prisma.defaut.findUnique({ where: { id: entityId }, select: { version: true } });
   return defaut?.version ?? null;
 }
@@ -260,6 +279,31 @@ export async function appliquer(
           entityId: cree.id, after: cree,
         });
         return { operationId: op.operationId, statut: "SYNCHRONISE" as const, entityId: cree.id, version: cree.version };
+      }
+
+      if (op.entityType === "Portion") {
+        // Delegue au MEME service que la route en ligne, dans CETTE transaction. Voir
+        // `field/portions.sync.ts` pour pourquoi aucune regle n'est reimplementee ici.
+        const r = await appliquerPortionSync(tx, op.payload, {
+          userId: contexte.userId,
+          operationId: op.operationId,
+        });
+        if (!r.ok) {
+          // Un corps rejete peut contenir un champ imprevu : seul le motif est conserve.
+          await trace("REJETE", { derniereErreur: r.motif }, { redacted: true });
+          return {
+            operationId: op.operationId,
+            statut: "REJETE" as const,
+            motif: r.motif,
+            // Dit au telephone s'il doit renoncer ou reessayer. Sans cela, un refus
+            // definitif revient a chaque retour de reseau et la file ne se vide jamais.
+            ...(refusDefinitif(r.motif) ? {} : { reessayerDansMs: 60_000 }),
+          };
+        }
+        await trace("SYNCHRONISE");
+        // L'audit de la portion est pose par le depot, dans cette meme transaction : le
+        // redoubler ici produirait deux lignes pour une seule ecriture.
+        return { operationId: op.operationId, statut: "SYNCHRONISE" as const, entityId: r.portion.id };
       }
 
       const preparation = await preparerDefautSync(tx, {

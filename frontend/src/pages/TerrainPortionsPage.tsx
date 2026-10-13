@@ -4,6 +4,10 @@ import { api } from "../lib/api";
 import { toast } from "../lib/toast";
 import { Button } from "../components/ui/Button";
 import { usePositionGps } from "../hooks/usePositionGps";
+import { useAuth } from "../lib/auth";
+import { addPendingPortion } from "../lib/offlineDb";
+import { refreshPendingCount, syncPendingOfflineData } from "../lib/offlineSync";
+import { useOfflineSync } from "../hooks/useOfflineSync";
 
 /**
  * Mode terrain : qualifier la portion où je me trouve.
@@ -96,6 +100,8 @@ function ecartM(a: { lat: number; lon: number }, b: { lat: number; lon: number }
 
 export function TerrainPortionsPage() {
   const gps = usePositionGps();
+  const { user } = useAuth();
+  const { pendingCount, syncing } = useOfflineSync();
   const [contexte, setContexte] = useState<Contexte | null>(null);
   const [chargement, setChargement] = useState(false);
   const [refs, setRefs] = useState<Referentiels | null>(null);
@@ -145,26 +151,68 @@ export function TerrainPortionsPage() {
       return;
     }
     setEnvoi(true);
-    try {
-      await api.post("/v2/portions", {
-        tronconId: t.tronconId,
-        debutM: t.abscisseM,
-        finM: t.abscisseM + longueur,
-        revetement: revetement || null,
-        etat: etat || null,
-        praticabilite: praticabilite || null,
-        source: `terrain:${t.code}`,
-        observeeLe: new Date().toISOString(),
-        // La confiance de la PORTION suit celle du rattachement : qualifier depuis un
-        // appariement douteux ne produit pas une observation sûre.
-        confiance: t.confiance >= 0.8 ? "HIGH" : t.confiance >= 0.5 ? "MEDIUM" : "LOW",
-        clientOperationId: `portion-${t.tronconId}-${Math.round(t.abscisseM)}-${Date.now()}`,
+    /**
+     * La CLÉ D'IDEMPOTENCE est forgée une seule fois, avant de savoir si l'on est en ligne.
+     *
+     * C'est ce qui permet au même relevé de partir maintenant ou plus tard sans jamais
+     * produire deux portions. La forger après avoir constaté la coupure aurait créé une clé
+     * différente par chemin, et un envoi en ligne qui échoue au dernier moment puis se
+     * rejoue hors ligne aurait abouti à un doublon.
+     */
+    const localId = `portion-${t.tronconId}-${Math.round(t.abscisseM)}-${Date.now()}`;
+    const payload = {
+      tronconId: t.tronconId,
+      debutM: t.abscisseM,
+      finM: t.abscisseM + longueur,
+      revetement: revetement || null,
+      etat: etat || null,
+      praticabilite: praticabilite || null,
+      source: `terrain:${t.code}`,
+      observeeLe: new Date().toISOString(),
+      // La confiance de la PORTION suit celle du rattachement : qualifier depuis un
+      // appariement douteux ne produit pas une observation sûre.
+      confiance: (t.confiance >= 0.8 ? "HIGH" : t.confiance >= 0.5 ? "MEDIUM" : "LOW") as
+        "HIGH" | "MEDIUM" | "LOW",
+    };
+
+    async function mettreEnFile(raison: string) {
+      await addPendingPortion({
+        localId,
+        ownerUserId: user?.id,
+        payload,
+        createdAt: new Date().toISOString(),
+        status: "pending",
       });
+      await refreshPendingCount();
+      toast.success(`${raison} Relevé conservé sur l'appareil, il partira au retour du réseau.`);
+    }
+
+    try {
+      if (!navigator.onLine) {
+        // Hors ligne : on ne tente même pas. Une requête qui expire ferait attendre l'agent
+        // dix secondes pour rien, et il est en bord de route.
+        await mettreEnFile("Hors ligne.");
+        return;
+      }
+      await api.post("/v2/portions", { ...payload, clientOperationId: localId });
       toast.success("Portion proposée. Elle attend la validation d'un tiers.");
       await interroger(p.lat, p.lon, p.precisionM);
     } catch (e) {
-      const r = (e as { response?: { data?: { message?: string } } }).response;
-      toast.error(r?.data?.message ?? "Proposition refusée.");
+      const r = (e as { response?: { status?: number; data?: { message?: string } } }).response;
+      /**
+       * UN REFUS DU SERVEUR N'EST PAS UNE PANNE DE RÉSEAU.
+       *
+       * 409 ou 400 : le serveur a jugé, et le relever à nouveau donnerait le même verdict.
+       * Le mettre en file le ferait revenir à chaque retour de réseau sans jamais passer.
+       * L'agent doit lire le motif et corriger.
+       *
+       * Pas de réponse du tout : la requête n'a pas abouti, le relevé est conservé.
+       */
+      if (r?.status !== undefined) {
+        toast.error(r.data?.message ?? "Proposition refusée.");
+      } else {
+        await mettreEnFile("Réseau indisponible.");
+      }
     } finally {
       setEnvoi(false);
     }
@@ -179,6 +227,18 @@ export function TerrainPortionsPage() {
         <strong>Tout ce qui est saisi ici est une proposition.</strong> Une portion n'entre
         dans le référentiel officiel qu'après validation par un tiers habilité.
       </div>
+
+      {pendingCount > 0 && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border bg-slate-50 p-3 text-sm">
+          <span>
+            <strong>{pendingCount}</strong> relevé(s) en attente sur cet appareil.
+            {syncing && " Envoi en cours…"}
+          </span>
+          <Button variant="outline" onClick={() => void syncPendingOfflineData()} disabled={syncing || !navigator.onLine}>
+            Envoyer maintenant
+          </Button>
+        </div>
+      )}
 
       {/* ── Position ─────────────────────────────────────────────── */}
       <section className="rounded-lg border bg-white p-4">

@@ -71,8 +71,31 @@ async function portionParCleClient(cle: string): Promise<Portion | null> {
   return prisma.portion.findFirst({ where: { clientOperationId: cle }, select: CHAMPS });
 }
 
-async function appliquer(e: Ecriture): Promise<Portion[]> {
-  return prisma.$transaction(async (tx) => {
+/**
+ * Client de transaction attendu par `appliquerDans`.
+ *
+ * Volontairement etroit : il dit ce dont l'ecriture a besoin et rien de plus, ce qui permet
+ * de lui passer aussi bien le `tx` de ce depot que celui du service de synchronisation.
+ */
+type ClientTx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+/**
+ * Le corps de l'ecriture, dans une transaction DEJA OUVERTE.
+ *
+ * POURQUOI CETTE SEPARATION EXISTE
+ *
+ * Le service de synchronisation applique chaque operation dans UNE transaction qui porte
+ * l'ecriture metier, la trace de l'operation et le conflit eventuel. Prisma n'imbrique pas
+ * les transactions : appeler un service qui ouvre la sienne depuis cette transaction
+ * ecrirait EN DEHORS, en silence, et l'idempotence du protocole tomberait — le client
+ * reessaierait une operation dont l'ecriture a pourtant abouti.
+ *
+ * Le depot expose donc les deux formes : `appliquer`, qui ouvre sa transaction pour les
+ * routes en ligne, et `appliquerDans`, qui rejoint celle de l'appelant. Une seule regle
+ * metier, deux chemins d'ecriture.
+ */
+export async function appliquerDans(tx: ClientTx, e: Ecriture): Promise<Portion[]> {
+  {
     const maintenant = new Date();
 
     // Les remplacements D'ABORD : si une insertion devait echouer, rien n'a ete marque
@@ -144,7 +167,22 @@ async function appliquer(e: Ecriture): Promise<Portion[]> {
     }
 
     return creees;
-  });
+  }
+}
+
+/** Ouvre sa propre transaction. Forme utilisee par les routes en ligne. */
+async function appliquer(e: Ecriture): Promise<Portion[]> {
+  return prisma.$transaction((tx) => appliquerDans(tx, e));
+}
+
+/**
+ * Depot lie a une transaction existante.
+ *
+ * Les lectures passent par le client global : elles sont sans effet de bord, et les faire
+ * dans la transaction de l'appelant n'apporterait rien. Seule l'ecriture la rejoint.
+ */
+export function depotDans(tx: ClientTx): DepotPortions {
+  return { ...depotPrisma, appliquer: (e) => appliquerDans(tx, e) };
 }
 
 /**
