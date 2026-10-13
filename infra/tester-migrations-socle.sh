@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 #
-# Eprouve les CINQ migrations en attente du socle terrain contre la structure REELLE
-# de production, et tranche la question qui bloque le deploiement.
+# Eprouve les SIX migrations en attente contre la structure REELLE de production, et
+# tranche la question qui bloque le deploiement.
 #
+# Il y en a six et non cinq, et je l'ai appris en mesurant : `socle_terrain` est dans
+# `main` et sur le serveur depuis le 7 octobre, mais n'a JAMAIS ete appliquee. Une liste
+# etablie sur l'ecart avec `main` la manque, puisqu'elle y est deja. Etre dans `main` et
+# etre applique sont deux questions differentes.
+#
+#   20261007140000_socle_terrain
 #   20261007180000_audit_validation
 #   20261007200000_gouvernance_defauts
 #   20261013120000_delegation_validation
@@ -72,6 +78,7 @@ BASE="verification"
 # reference `observations` et `missions` du socle terrain, et `condition_engine` reference
 # `troncons` et `users`.
 MIGRATIONS=(
+    20261007140000_socle_terrain
     20261007180000_audit_validation
     20261007200000_gouvernance_defauts
     20261013120000_delegation_validation
@@ -213,8 +220,7 @@ if [ "${SOCLE:-0}" = "1" ]; then
 else
     alerte "20261007140000_socle_terrain N'EST PAS applique"
     info "il est dans 'main' mais pas dans cette base : les deux ne sont pas la meme question"
-    info "'gouvernance_defauts' creera 'defauts', qui reference 'observations' et 'missions'"
-    info "appliquez-le d'abord, ou ce banc d'essai echouera pour une raison d'ordre"
+    info "ce banc d'essai l'applique donc en premier, et le deploiement devra faire de meme"
 fi
 
 DEJA=0
@@ -353,6 +359,17 @@ DROP TABLE IF EXISTS "catalogue_defauts";
 DROP TABLE IF EXISTS "validations";
 DROP TABLE IF EXISTS "delegations_validation";
 
+-- Socle terrain. `defauts` vient d'etre supprimee ci-dessus : elle referencait
+-- `observations` et `missions`, donc l'ordre compte.
+DROP TABLE IF EXISTS "points_trace";
+DROP TABLE IF EXISTS "medias_observation";
+DROP TABLE IF EXISTS "conflits_sync";
+DROP TABLE IF EXISTS "operations_sync";
+DROP TABLE IF EXISTS "traces";
+DROP TABLE IF EXISTS "observations";
+DROP TABLE IF EXISTS "missions";
+DROP TABLE IF EXISTS "appareils";
+
 ALTER TABLE "users"        DROP COLUMN IF EXISTS "peutDeleguerValidation";
 ALTER TABLE "troncons"     DROP COLUMN IF EXISTS "statutValidation",
                            DROP COLUMN IF EXISTS "perimetre",
@@ -375,6 +392,11 @@ DROP TYPE IF EXISTS "MesureDefaut";
 DROP TYPE IF EXISTS "UniteDefaut";
 DROP TYPE IF EXISTS "PerimetreReseau";
 DROP TYPE IF EXISTS "StatutValidation";
+DROP TYPE IF EXISTS "TypeObservation";
+DROP TYPE IF EXISTS "TypeMission";
+DROP TYPE IF EXISTS "StatutSync";
+DROP TYPE IF EXISTS "StatutObservation";
+DROP TYPE IF EXISTS "StatutMission";
 
 -- PAS de retrait des trois valeurs de `AuditAction` : PostgreSQL n'a pas de
 -- `ALTER TYPE ... DROP VALUE`. Voir l'en-tete de ce fichier.

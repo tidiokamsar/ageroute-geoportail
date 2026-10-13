@@ -118,6 +118,28 @@ cloné avec `autocrlf=true` donnerait un écart sans qu'un seul caractère ait c
 que personne n'écrit ne coûte rien — mais le retour arrière ne rend pas la base à son état
 d'origine au sens strict, et l'inverse serait faux.
 
+## Le banc d'essai — PASSÉ le 13/10/2026 sur `gec`
+
+Exécuté sur la sauvegarde chiffrée de 03:00, dans un conteneur jetable, sans toucher la
+base de production :
+
+```
+0. Preconditions    Docker, 6 fichiers, archive, cle         OK
+1. Restauration     261 387 troncons, 1 172 ouvrages, 1 488 lignes d'audit
+                    33 tables, 410 colonnes, 31 enums
+2. Historique       aucune des 6 migrations appliquee — le chemin est net
+3. Application      les 6, dans l'ordre, sans erreur
+4. Structure        3 valeurs d'enum, 8 tables, 10 colonnes, 5 types  OK
+5. Donnees          261 387 troncons et 1 488 audits inchanges
+                    aucun statut, aucun perimetre, aucun droit accorde
+6. Rollback         33 tables et 410 colonnes revenues a l'identique, sans perte
+                    AuditAction conserve ses 3 valeurs (attendu)
+```
+
+**Verdict : appliquées, additives, réversibles sauf l'enum, sans perte.** Et une mesure qui
+compte pour la suite : la table `troncons` porte **261 387 lignes**, pas 1 690. Les
+migrations, index compris, passent dessus sans difficulté — c'est éprouvé, plus supposé.
+
 ## Le banc d'essai
 
 [`infra/tester-migrations-socle.sh`](../../infra/tester-migrations-socle.sh), écrit sur le
@@ -189,9 +211,11 @@ erreur de syntaxe y met le site hors ligne, donc ce n'est pas un contrôle optio
 
 ## Ce que le déploiement ne change pas
 
-**Le coût de l'import en masse n'est pas mesuré.** Chaque ligne ouvre désormais une
-transaction interactive, soit de l'ordre de 1 700 pour un import complet. À mesurer avant
-le premier import, pas pendant.
+**Le coût de l'import en masse n'est pas mesuré, et mon estimation était fausse de deux
+ordres de grandeur.** J'avais écrit « de l'ordre de 1 700 transactions interactives pour un
+import complet », en prenant la sous-population classée pour la table. La table porte
+**261 387 tronçons**. Un traitement qui ouvre une transaction par ligne en ouvrirait donc
+261 387, pas 1 700. À mesurer avant le premier import de masse, pas pendant.
 
 **Les cinq migrations sont additives et n'écrivent rien.** Aucun tronçon ne reçoit de
 statut de validation ni de périmètre, aucun compte ne reçoit le droit de déléguer. Le

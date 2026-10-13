@@ -105,8 +105,9 @@ seul interrupteur de publication. Le mécanisme est donc écrit et le verrou int
 publiable. Le chemin reste fermé par une décision, non par du code manquant.
 
 Et le Condition Engine a besoin de données que la base n'a pas : `traficMoyenJma` est
-renseigné sur **0 des 1 690 tronçons** antérieurs à la promotion de la voirie. Le TRAFIC,
-10 % du modèle, sera donc exclu de chaque score. D'où un seuil de couverture à 0,5 dans
+renseigné sur **0 des 261 387 tronçons** de la production — mesuré le 13/10/2026, pas sur
+la seule sous-population classée. Le TRAFIC, 10 % du modèle, sera donc exclu de chaque
+score. D'où un seuil de couverture à 0,5 dans
 `rci-2026.1` : exiger la totalité refuserait tout score aujourd'hui, et ce seuil attend le
 même arbitrage que les pondérations.
 
@@ -117,14 +118,26 @@ même arbitrage que les pondérations.
 > criticité stratégique est un facteur du **Risk Engine** (§14), où elle est également
 > vide. Les deux champs sont bien à zéro, mais ils bloquent deux moteurs différents.
 
-> **Une précision sur ces deux chiffres, parce que je les ai confondus.** `1 690` est le
-> nombre de tronçons **antérieurs à la promotion de la voirie**, ceux qui n'ont pas de
-> `sourceReference` ; c'est la population de toutes les mesures de qualité du dépôt. `1 691`
-> est ce que rend la **clause du périmètre « réseau classé »**. Les deux sont justes et
-> désignent des ensembles différents — j'ai écrit `1 691` là où la mesure portait sur
-> `1 690`, dans plusieurs fichiers de cette session. Rien n'en dépend fonctionnellement,
-> mais sur un projet dont la règle première est de ne pas confondre deux populations, cela
-> méritait d'être dit.
+> **Correction, mesurée sur la production le 13/10/2026.** J'avais écrit que `1 690` était
+> le nombre de tronçons sans `sourceReference` et `1 691` ce que rend la clause du périmètre
+> « réseau classé ». La base dit autre chose :
+>
+> | Population | Mesure |
+> |---|---|
+> | `troncons` au total (aucun supprimé logiquement) | **261 387** |
+> | dont `sourceReference IS NULL` | **1 691** |
+> | dont `traficMoyenJma` renseigné | **0** |
+> | dont `criticiteStrategique` renseigné | **0** |
+>
+> La population sans `sourceReference` vaut donc **1 691**, et non 1 690. Ma réconciliation
+> attribuait le bon chiffre au mauvais ensemble — et elle figurait dans un commit intitulé
+> « deux chiffres que j'avais confondus », ce qui ne la rendait pas plus juste.
+>
+> **Plus important : le réseau ne compte pas 1 690 tronçons mais 261 387.** Par classe :
+> 253 980 NON_CLASSEE, 5 757 RU, 1 029 RR, 621 RN. La promotion de la voirie a créé
+> l'essentiel de cette masse. `1 691` décrit le réseau classé d'origine, pas la table.
+> Toute mesure de ce dépôt qui parle du « réseau » en citant 1 690 ou 1 691 parle donc d'une
+> sous-population, et doit le dire.
 
 C'est en grande partie le même mur que les PK régionaux : **ce qui bloque d'abord n'est pas
 le code.** Le §13 a toutefois ceci de particulier qu'il lui manque aussi du code — la
