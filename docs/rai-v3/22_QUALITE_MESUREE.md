@@ -15,6 +15,7 @@ non sur ce qu'on en suppose.
 | Ouvrages sans géométrie | 2 | 1 172 | à traiter |
 | **Ouvrages sans statut de validation** | **1 172, soit tous** | 1 172 | à traiter |
 | **Ouvrages sans aucune date d'inspection** | **1 172, soit tous** | 1 172 | à surveiller |
+| **Tronçons entièrement hors du territoire** | **6 572**, dont 7 du réseau classé | 261 387 | à traiter |
 | Tronçons sans périmètre déclaré | 261 387, soit tous | 261 387 | à traiter |
 | Tronçons sans provenance (`sourceType` nul) | 1 691 | 261 387 | à traiter |
 | Revêtement non renseigné | 258 961 | 261 387 | à traiter |
@@ -101,11 +102,52 @@ Deux exemples du raisonnement :
   retenu, puis de marquer l'autre remplacé. Supprimer l'un des deux ferait perdre les
   observations qui y pendent.
 
+## Le hors-territoire, mesuré après coup : 6 572 et non 7
+
+La détection par `limites_admin` (10 régions de niveau 1) a été lancée le 13/10/2026, en
+lecture seule. Elle a pris **20 secondes** sur les 261 387 tronçons.
+
+| | Tronçons | Linéaire |
+|---|---|---|
+| Réseau classé d'origine (`sourceReference` nul) | **7** | 72,0 km |
+| Venus de la promotion de la voirie | **6 565** | ~5 968 km |
+| **Total entièrement hors des limites** | **6 572** | ~6 040 km |
+
+Les 7 sont exactement ceux documentés depuis septembre, tous des RN. **Les 6 565 autres
+étaient invisibles** : la promotion de la voirie OSM a importé environ six mille kilomètres
+de routes hors des limites administratives guinéennes, soit 2,3 % des tronçons.
+
+**Une réserve que je ne masque pas.** « Entièrement hors des limites de niveau 1 » n'est pas
+« route étrangère ». Un tracé qui longe la frontière à cinquante mètres compte ici comme
+hors territoire, et la précision de la couche de limites n'est pas vérifiée à cette échelle.
+Distinguer les deux demande, par tronçon, la distance minimale à la frontière : **j'ai lancé
+cette requête sur la production, elle ne s'est pas terminée en dix minutes, et je l'ai
+annulée.** Elle exigerait une frontière nationale pré-calculée et mise en tampon, donc une
+vue matérialisée, donc une écriture. Le chiffre de 6 572 est donc un majorant honnête, pas
+un décompte de routes étrangères.
+
+## La taille du réseau contraint la conception, et c'est ici qu'on le voit
+
+Vingt secondes pour un balayage national sont acceptables une fois, pas à chaque
+rafraîchissement d'un tableau de bord : dix appels simultanés occuperaient la base trois
+minutes. `GET /api/v2/qualite/anomalies` exige donc une `regionId`, et la portée nationale
+exige `national=true` **et** le rôle ADMIN. Ce n'est pas de la confidentialité — le rapport
+ne contient rien de sensible — c'est que celui qui lance un balayage complet doit l'avoir
+voulu.
+
+Les six détecteurs s'exécutent **en série** et non en parallèle, pour la même raison.
+
+Et le rapport **dit ce qu'il ne couvre pas**, dans sa propre réponse : la précision des
+limites, l'absence d'agrégation nationale des chevauchements de portions, et le fait que les
+doublons sont détectés sur l'égalité binaire des géométries — deux tracés identiques de
+représentation différente passent donc inaperçus.
+
 ## Ce qui reste à faire sur ce lot
 
 - **Brancher les détecteurs SQL** derrière une route `/api/v2/qualite/anomalies`, pour que le
   rapport se relise sans accès à la base.
 - **Les 42 doublons** méritent un arbitrage humain, objet par objet. Le moteur les nomme ;
   il ne les tranche pas.
-- La détection **hors territoire** demande la couche de limites administratives, présente en
-  base (`limites_administratives`), et une requête `ST_Within` qu'il reste à écrire.
+- **Distinguer le vrai hors-territoire du bruit de précision** des limites. Demande une
+  frontière pré-calculée en tampon, donc une vue matérialisée.
+- **L'agrégation nationale des chevauchements et ruptures de portions**, même raison.
