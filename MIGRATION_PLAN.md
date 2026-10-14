@@ -232,8 +232,17 @@ cette clause : la migration SQL fait foi, et le modèle le dit.
 | **Objectif** | les tables `lots_import` et `lignes_import` de `ROAD_SURVEY_IMPORT_SPEC.md` (§ E.3), socle des trois options d'échange avec l'ONR et ANASUR |
 | **Nature** | **additive** : deux types, deux tables, aucune donnée |
 | **Ce que la base tient elle-même** | **A28 par contrainte** : `lignesLues = importées + rejetées + en conflit + ignorées`, un importateur qui perd une ligne ne peut pas clore son lot ; **idempotence par contrainte** : empreinte SHA-256 unique par source, le même fichier est refusé avant toute écriture ; un rejet porte son motif, un import porte sa cible ; la charge originale est conservée ; **aucun chemin de suppression** |
-| **Tests** | 9 assertions SQL (refus et contre-épreuves) exécutées le 14/10 ; noyau TypeScript `src/import/pivot.noyau.ts` **sans aucun import**, 24 tests |
-| **Rollback exécuté** | **OUI**, aller-retour vérifié |
+| **Tests** | `prisma/tests/lots_import.test.sql`, **15 assertions** (refus et contre-épreuves) ; noyau `src/import/pivot.noyau.ts` **sans aucun import**, 27 tests ; orchestration `import.service.ts` + route `/api/v2/imports`, **14 tests** |
+| **Rollback exécuté** | **OUI**, aller-retour vérifié — deux fois, avant et après l'ajout du statut `VALIDEE` |
+
+**Un statut ajouté pendant que la migration est encore en attente.** À l'étape de validation du
+schéma, une ligne conforme n'est **ni importée ni rejetée** : elle attend l'application. Sans
+statut pour le dire, l'orchestration aurait dû mentir sur l'un des deux, ou violer A28. `VALIDEE`
+et le compteur `lignesValidees` ont été ajoutés **dans la migration en attente**, nulle part
+appliquée hors de la base de développement — un `ALTER TYPE ADD VALUE` ultérieur aurait été
+irréversible (leçon D-06). La contrainte de cohérence interdit en outre à un lot `VALIDE_SCHEMA`
+d'avoir une ligne importée, et à une ligne `VALIDEE` de porter un objet cible : **validée veut
+dire pas encore appliquée**, et la base le tient.
 
 **Écart consigné** : le **GeoPackage** du pivot (§ 7.15) n'est pas produit — aucune dépendance
 SQLite dans le paquet, et en ajouter une sans l'avoir choisie serait une décision prise en

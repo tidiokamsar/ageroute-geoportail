@@ -14,7 +14,7 @@
 > test, une migration, une mesure ou un point d'API.
 
 **Dressée le 14/10/2026** contre le prompt maître V10 lu en entier. Tests de référence :
-backend **1 211 passés**, frontend **294 passés**, 0 échec, TypeScript sans erreur.
+backend **1 228 passés**, frontend **294 passés**, 0 échec, TypeScript sans erreur.
 
 ---
 
@@ -51,7 +51,7 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 | **A25** | Sécurité : chaque alerte avec preuve ou blocage ; aucun secret | **PA** | **le volet dépôt est prouvé** : 225 commits analysés, aucun secret, **IP de production jamais committée**. Quatre alertes bloquées faute d'autorisation de production. `bdri_app` toujours superuser |
 | **A26** | Migrations : rollback **exécuté et vérifié** | **TP** | **rollback exécuté le 14/10** sur PostGIS 17-3.5 local, aller-retour vérifié : 20 objets → 0 → 20, états identiques, codes 0. Mais **la chaîne ne se rejoue pas sur base vierge** : 49/51, un défaut de type `uuid`/`text` (D-10), et 50 migrations sur 51 n'ont aucun script de descente |
 | **A27** | Aucune décision non approuvée présentée comme officielle | **TT** | `rci-2026.1` **désapprouvée** le 14/10 ; 9 barèmes en `standard_initial`, **aucun approuvé** ; praticabilité volontairement vide ; 6 573 hors-territoire et 42 doublons **classés, intacts et reproductibles** |
-| **A28** | Import BDR/ANASUR idempotent, 100 % des lignes dans un statut | **TP** | **les deux propriétés sont tenues par la base** : `lot_compteurs_complets` (somme des statuts = lignes lues) et empreinte SHA-256 unique par source, 9 assertions SQL. Noyau du pivot CSV/GeoJSON, 24 tests. **Aucun import de bout en bout** : aucun export n'existe, et l'orchestration (service, route) n'est pas écrite |
+| **A28** | Import BDR/ANASUR idempotent, 100 % des lignes dans un statut | **TP** | **les deux propriétés sont tenues par la base** (15 assertions SQL) **et par l'orchestration** : `/api/v2/imports` reçoit un fichier, l'empreinte **sur les octets reçus**, le vérifie ligne à ligne, enregistre le lot et toutes ses lignes dans un statut en une transaction auditée ; le même fichier renvoyé rend le lot existant **sans aucune écriture** ; erreurs exportables en CSV avec motif. 14 tests. **Reste l'étape 2, l'application** — aucune proposition n'est encore créée dans le référentiel, faute de rapprochement des identifiants et d'échantillon approuvé |
 | **A29** | Tâches internes avec preuves avant/après ; rapprochement en lecture | **TP** | **TI-01 livré** : `taches_internes`, 9 contraintes `CHECK`, 22 assertions SQL. « Une tâche clôturée possède des preuves avant/après » est tenu **par la base**, pas par une consigne. La frontière DigitalRoad est tenue par l'**absence des colonnes**, avec un garde-fou de 17 tests qui échoue si un montant apparaît. **TI-02 bloqué** (aucune donnée DigitalRoad, B-11), TI-03 absent |
 | **A30** | Détection satellitaire → proposition localisée, précision mesurée | **AB** | partie E non commencée |
 

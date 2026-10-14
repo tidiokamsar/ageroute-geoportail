@@ -12,7 +12,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   cleIdempotence, comptabiliser, compteursComplets, decouperLigneCsv,
-  ecrireCsv, ecrireGeoJson, lireCsv, lireGeoJson, verifierGeometrie, verifierLigne,
+  ecrireCsv, ecrireGeoJson, lireCsv, lireGeoJson, marquerDoublonsInternes,
+  verifierGeometrie, verifierLigne,
   SRID_PIVOT, TYPES_OBJET_PIVOT, type LignePivot,
 } from "./pivot.noyau";
 
@@ -155,25 +156,59 @@ describe("Memes comptes en CSV et en GeoJSON (X-02)", () => {
     const verdictsCsv = lireCsv(ecrireCsv(lignes)).lignes.map(verifierLigne);
 
     const comptes = (vs: ReturnType<typeof verifierLigne>[]) =>
-      comptabiliser(vs.map((v) => (v.ok ? "IMPORTEE" : "REJETEE")));
+      comptabiliser(vs.map((v) => (v.ok ? "VALIDEE" : "REJETEE")));
     expect(comptes(verdictsGj)).toEqual(comptes(verdictsCsv));
-    expect(comptes(verdictsGj)).toEqual({ lues: 4, importees: 4, rejetees: 0, enConflit: 0, ignorees: 0 });
+    expect(comptes(verdictsGj)).toEqual({ lues: 4, validees: 4, importees: 0, rejetees: 0, enConflit: 0, ignorees: 0 });
   });
 });
 
 describe("100 % des lignes dans un statut (T-02, A28)", () => {
   it("la somme des compteurs egale le nombre de lignes, quel que soit le melange", () => {
-    const c = comptabiliser(["IMPORTEE", "REJETEE", "EN_CONFLIT", "IGNOREE", "IMPORTEE", "REJETEE"]);
-    expect(c).toEqual({ lues: 6, importees: 2, rejetees: 2, enConflit: 1, ignorees: 1 });
+    const c = comptabiliser(["VALIDEE", "IMPORTEE", "REJETEE", "EN_CONFLIT", "IGNOREE", "VALIDEE", "REJETEE"]);
+    expect(c).toEqual({ lues: 7, validees: 2, importees: 1, rejetees: 2, enConflit: 1, ignorees: 1 });
     expect(compteursComplets(c)).toBe(true);
   });
 
   it("detecte des compteurs qui ne se somment pas -- la propriete que la base impose aussi", () => {
-    expect(compteursComplets({ lues: 5, importees: 2, rejetees: 2, enConflit: 0, ignorees: 0 })).toBe(false);
+    expect(compteursComplets({ lues: 5, validees: 0, importees: 2, rejetees: 2, enConflit: 0, ignorees: 0 })).toBe(false);
   });
 
   it("un lot vide se comptabilise sans erreur", () => {
-    expect(comptabiliser([])).toEqual({ lues: 0, importees: 0, rejetees: 0, enConflit: 0, ignorees: 0 });
+    expect(comptabiliser([])).toEqual({ lues: 0, validees: 0, importees: 0, rejetees: 0, enConflit: 0, ignorees: 0 });
+  });
+});
+
+describe("Doublons internes au lot", () => {
+  const ok = (type: "troncon" | "degradation", id: string) =>
+    verifierLigne({ systeme_source: "ONR", type_objet: type, identifiant_source: id,
+      geometrie: { type: "Point", coordinates: [-13.5, 9.6] } });
+
+  it("met a l'ecart la seconde occurrence et conserve la premiere, en disant laquelle", () => {
+    const r = marquerDoublonsInternes([
+      { numeroLigne: 1, verdict: ok("troncon", "A") },
+      { numeroLigne: 2, verdict: ok("troncon", "B") },
+      { numeroLigne: 3, verdict: ok("troncon", "A") },
+    ]);
+    expect(r.map((x) => x.statut)).toEqual(["VALIDEE", "VALIDEE", "IGNOREE"]);
+    expect(r[2].motif).toMatch(/ligne 1, conservee/);
+  });
+
+  it("ne confond pas deux types d'objet portant le meme identifiant", () => {
+    const r = marquerDoublonsInternes([
+      { numeroLigne: 1, verdict: ok("troncon", "A") },
+      { numeroLigne: 2, verdict: ok("degradation", "A") },
+    ]);
+    expect(r.map((x) => x.statut)).toEqual(["VALIDEE", "VALIDEE"]);
+  });
+
+  it("laisse un rejet rejete, avec son motif, sans le compter comme doublon", () => {
+    const r = marquerDoublonsInternes([
+      { numeroLigne: 1, verdict: verifierLigne({ systeme_source: "ONR" }) },
+      { numeroLigne: 2, verdict: ok("troncon", "A") },
+    ]);
+    expect(r[0].statut).toBe("REJETEE");
+    expect(r[0].motif).toMatch(/type_objet/);
+    expect(r[1].statut).toBe("VALIDEE");
   });
 });
 

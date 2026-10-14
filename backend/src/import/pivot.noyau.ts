@@ -71,10 +71,16 @@ export type VerdictLigne =
   | { ok: true; ligne: LignePivot }
   | { ok: false; motif: string };
 
-export type StatutLigne = "IMPORTEE" | "REJETEE" | "EN_CONFLIT" | "IGNOREE";
+/**
+ * Statuts d'une ligne. `VALIDEE` est celui de l'etape de validation du schema : la ligne
+ * respecte le contrat et ATTEND l'application -- rien n'a encore ete cree dans le referentiel.
+ * Sans lui, cette etape devrait mentir en disant « importee » ou « rejetee ».
+ */
+export type StatutLigne = "VALIDEE" | "IMPORTEE" | "REJETEE" | "EN_CONFLIT" | "IGNOREE";
 
 export interface Compteurs {
   lues: number;
+  validees: number;
   importees: number;
   rejetees: number;
   enConflit: number;
@@ -225,9 +231,10 @@ export function verifierLigne(brute: Record<string, unknown>): VerdictLigne {
  * qu'une ligne perdue en route ne peut pas passer inapercue.
  */
 export function comptabiliser(statuts: readonly StatutLigne[]): Compteurs {
-  const c: Compteurs = { lues: statuts.length, importees: 0, rejetees: 0, enConflit: 0, ignorees: 0 };
+  const c: Compteurs = { lues: statuts.length, validees: 0, importees: 0, rejetees: 0, enConflit: 0, ignorees: 0 };
   for (const s of statuts) {
-    if (s === "IMPORTEE") c.importees += 1;
+    if (s === "VALIDEE") c.validees += 1;
+    else if (s === "IMPORTEE") c.importees += 1;
     else if (s === "REJETEE") c.rejetees += 1;
     else if (s === "EN_CONFLIT") c.enConflit += 1;
     else c.ignorees += 1;
@@ -237,7 +244,35 @@ export function comptabiliser(statuts: readonly StatutLigne[]): Compteurs {
 
 /** Vrai si les compteurs se somment : la propriete que la base impose, verifiable avant elle. */
 export function compteursComplets(c: Compteurs): boolean {
-  return c.lues === c.importees + c.rejetees + c.enConflit + c.ignorees;
+  return c.lues === c.validees + c.importees + c.rejetees + c.enConflit + c.ignorees;
+}
+
+/**
+ * Marque les doublons INTERNES a un lot : une seconde ligne portant le meme
+ * (type_objet, identifiant_source) qu'une ligne precedente est mise a l'ecart (IGNOREE), la
+ * premiere etant conservee.
+ *
+ * C'est le seul dedoublonnage que le noyau se permet, parce qu'il ne compare le lot qu'a
+ * lui-meme. Un doublon contre le REFERENTIEL est une correspondance (BDR_ID_CROSSWALK_SPEC.md),
+ * jamais tranchee ici : « jamais de fusion automatique » (paragraphe B.4).
+ */
+export function marquerDoublonsInternes(
+  lignes: readonly { numeroLigne: number; verdict: VerdictLigne }[],
+): { numeroLigne: number; statut: StatutLigne; motif: string | null; ligne: LignePivot | null }[] {
+  const vus = new Map<string, number>();
+  return lignes.map(({ numeroLigne, verdict }) => {
+    if (!verdict.ok) return { numeroLigne, statut: "REJETEE", motif: verdict.motif, ligne: null };
+    const cle = `${verdict.ligne.typeObjet}|${verdict.ligne.identifiantSource}`;
+    const premiere = vus.get(cle);
+    if (premiere !== undefined) {
+      return {
+        numeroLigne, statut: "IGNOREE", ligne: verdict.ligne,
+        motif: `doublon dans le lot : meme ${verdict.ligne.typeObjet} ${verdict.ligne.identifiantSource} que la ligne ${premiere}, conservee`,
+      };
+    }
+    vus.set(cle, numeroLigne);
+    return { numeroLigne, statut: "VALIDEE", motif: null, ligne: verdict.ligne };
+  });
 }
 
 /* ===================================== CSV ===================================== */

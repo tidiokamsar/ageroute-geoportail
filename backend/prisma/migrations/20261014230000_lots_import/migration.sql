@@ -43,8 +43,14 @@ BEGIN
       ('RECU', 'VALIDE_SCHEMA', 'IMPORTE_TEST', 'IMPORTE', 'REJETE');
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'StatutLigneImport') THEN
+    -- VALIDEE : la ligne respecte le contrat et ATTEND L'APPLICATION. Elle n'est ni importee
+    -- (rien n'a ete cree dans le referentiel) ni rejetee. Sans ce statut, l'etape de
+    -- validation du schema ne pourrait pas satisfaire A28 -- chaque ligne dans un statut --
+    -- et l'orchestration aurait du mentir sur l'un des deux. Ajoute pendant que cette
+    -- migration est encore en attente : un ALTER TYPE ADD VALUE ulterieur aurait ete
+    -- irreversible (lecon D-06).
     CREATE TYPE "StatutLigneImport" AS ENUM
-      ('IMPORTEE', 'REJETEE', 'EN_CONFLIT', 'IGNOREE');
+      ('VALIDEE', 'IMPORTEE', 'REJETEE', 'EN_CONFLIT', 'IGNOREE');
   END IF;
 END $$;
 
@@ -75,8 +81,9 @@ CREATE TABLE IF NOT EXISTS "lots_import" (
 
   "statut" "StatutLotImport" NOT NULL DEFAULT 'RECU',
 
-  -- Compteurs, dont la somme est contrainte.
+  -- Compteurs, dont la somme est contrainte. Un par statut de ligne.
   "lignesLues"       INTEGER NOT NULL DEFAULT 0,
+  "lignesValidees"   INTEGER NOT NULL DEFAULT 0,
   "lignesImportees"  INTEGER NOT NULL DEFAULT 0,
   "lignesRejetees"   INTEGER NOT NULL DEFAULT 0,
   "lignesEnConflit"  INTEGER NOT NULL DEFAULT 0,
@@ -88,20 +95,23 @@ CREATE TABLE IF NOT EXISTS "lots_import" (
 
   -- A28 : 100 % des lignes dans exactement un statut.
   CONSTRAINT "lot_compteurs_complets" CHECK (
-    "lignesLues" = "lignesImportees" + "lignesRejetees" + "lignesEnConflit" + "lignesIgnorees"
+    "lignesLues" = "lignesValidees" + "lignesImportees" + "lignesRejetees"
+                 + "lignesEnConflit" + "lignesIgnorees"
   ),
   CONSTRAINT "lot_compteurs_positifs" CHECK (
-    "lignesLues" >= 0 AND "lignesImportees" >= 0 AND "lignesRejetees" >= 0
-    AND "lignesEnConflit" >= 0 AND "lignesIgnorees" >= 0
+    "lignesLues" >= 0 AND "lignesValidees" >= 0 AND "lignesImportees" >= 0
+    AND "lignesRejetees" >= 0 AND "lignesEnConflit" >= 0 AND "lignesIgnorees" >= 0
   ),
   -- Un SHA-256 hexadecimal fait 64 caracteres. Une empreinte d'une autre forme serait un
   -- identifiant choisi par l'appelant, et l'idempotence reposerait sur sa bonne foi.
   CONSTRAINT "lot_empreinte_sha256" CHECK ("empreinteFichier" ~ '^[0-9a-f]{64}$'),
   CONSTRAINT "lot_autorisation_non_vide" CHECK (length(btrim("autorisationRef")) > 0),
-  -- Un lot REJETE n'a importe aucune ligne ; un lot IMPORTE en a lu au moins une.
+  -- Un lot REJETE n'a rien valide ni importe ; un lot IMPORTE ou VALIDE_SCHEMA a lu au moins
+  -- une ligne ; un lot qui n'a pas encore ete applique n'a rien importe.
   CONSTRAINT "lot_statut_coherent" CHECK (
-    ("statut" <> 'REJETE' OR "lignesImportees" = 0)
-    AND ("statut" NOT IN ('IMPORTE', 'IMPORTE_TEST') OR "lignesLues" > 0)
+    ("statut" <> 'REJETE' OR ("lignesImportees" = 0 AND "lignesValidees" = 0))
+    AND ("statut" NOT IN ('IMPORTE', 'IMPORTE_TEST', 'VALIDE_SCHEMA') OR "lignesLues" > 0)
+    AND ("statut" NOT IN ('RECU', 'VALIDE_SCHEMA') OR "lignesImportees" = 0)
   )
 );
 
@@ -126,6 +136,8 @@ CREATE TABLE IF NOT EXISTS "lignes_import" (
   "transformations"   JSONB NOT NULL DEFAULT '[]'::jsonb,
 
   "statut"     "StatutLigneImport" NOT NULL,
+  -- Motif d'un rejet, OU raison d'une mise a l'ecart (IGNOREE : doublon dans le lot, par
+  -- exemple). Obligatoire pour un rejet, bienvenu pour le reste.
   "motifRejet" TEXT,
 
   "correspondanceId" TEXT,

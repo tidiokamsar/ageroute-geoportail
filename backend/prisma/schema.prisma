@@ -2967,6 +2967,8 @@ enum StatutLotImport {
 }
 
 enum StatutLigneImport {
+  /// Respecte le contrat, attend l'application : ni importee, ni rejetee.
+  VALIDEE
   IMPORTEE
   REJETEE
   EN_CONFLIT
@@ -2999,6 +3001,7 @@ model LotImport {
   statut StatutLotImport @default(RECU)
 
   lignesLues      Int @default(0)
+  lignesValidees  Int @default(0)
   lignesImportees Int @default(0)
   lignesRejetees  Int @default(0)
   lignesEnConflit Int @default(0)

@@ -220,17 +220,31 @@ donc entièrement sur `pg_dump`. C'est **B-16**, et l'arbitrage est **D-10**.
    neuf conditions, **rien d'inventé** — durée de vie, effet, fenêtre, trafic nuls — et un défaut
    trouvé par le banc d'essai : `UNIQUE` ignorait les `NULL`, corrigé par `NULLS NOT DISTINCT`.
 
+4. ~~L'orchestration de l'import, étape 1~~ — **fait le 14/10 au soir** : `import.service.ts` et
+   `/api/v2/imports`, 14 tests. L'empreinte est calculée **sur les octets reçus**, jamais fournie ;
+   le même fichier renvoyé rend le lot existant **sans aucune écriture, pas même un audit** ;
+   chaque ligne finit `VALIDEE`, `REJETEE` ou `IGNOREE` (doublon interne au lot, la première
+   conservée) ; un CRS refusé donne un lot `REJETE` **enregistré avec son motif**, pas un 400 ;
+   les erreurs s'exportent en CSV avec la charge originale. **Aucune fonction d'application
+   n'est exportée** : une promesse dans une API est une dette. Et un statut `VALIDEE` ajouté à
+   la migration **pendant qu'elle est encore en attente**, pour ne pas avoir à mentir entre
+   « importée » et « rejetée ».
+
 **Ce qui reste actionnable sans accès ni décision** :
 
-1. **L'orchestration de l'import** — service transactionnel et route `/api/v2/imports`, audités,
-   sur les tables et le noyau existants ; puis un **jeu d'essai de bout en bout** avec un export
-   fictif en pivot, clairement fictif (§ B.6).
-2. **Le garde-fou de transition** du cycle de vie des interventions (`APPROUVÉ → EN_EXÉCUTION`
+1. **Le garde-fou de transition** du cycle de vie des interventions (`APPROUVÉ → EN_EXÉCUTION`
    interdit sans message DigitalRoad) — étape 4 de la conception, modèle de
    `taches-internes.garde.test.ts`.
+2. **Un écran de suivi des lots** dans la console : liste, compteurs, téléchargement des erreurs
+   — l'API existe, l'écran non.
 3. **Poser à l'ONR, par le canal institutionnel**, les deux questions que les pages ont fait
    naître : L²R Base est-il toujours la base nationale, et ANASUR Collect l'alimente-t-il ou s'y
    substitue-t-il ?
+
+**Ce qui attend un échantillon approuvé** : l'étape 2 de l'import — le rapprochement des
+identifiants et la création de propositions `A_VALIDER`. Elle ne doit pas être écrite avant :
+sans rapprochement, elle créerait des objets sans lien avec le référentiel, c'est-à-dire les
+doublons que le § B.4 interdit.
 
 Le constat du § 2 continue de dominer : rien de tout cela ne produira d'indicateur tant qu'aucune
 donnée de terrain n'entre.

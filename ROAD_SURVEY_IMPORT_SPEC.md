@@ -4,7 +4,7 @@
 > conserve source, auteur/importateur, date, méthode, format, lot, validations, erreurs et
 > transformations appliquées ». **Rédigé le 14/10/2026.**
 >
-> 🔒 **État au 14/10 au soir** : les tables lots_import et lignes_import **existent** (migration 20261014230000) et tiennent A28 par contrainte ; le noyau du pivot CSV/GeoJSON **existe** (src/import/pivot.noyau.ts, 24 tests). L'**orchestration** — service transactionnel, route, rapport — reste une proposition. Le GeoPackage est un écart consigné.
+> 🔒 **État au 14/10 au soir** : les tables lots_import et lignes_import **existent** (migration 20261014230000) et tiennent A28 par contrainte ; le noyau du pivot CSV/GeoJSON **existe** (src/import/pivot.noyau.ts, 24 tests). L'**orchestration, étape 1** — réception, empreinte, validation du schéma, enregistrement transactionnel audité, erreurs exportables — **existe** (`src/import/import.service.ts`, `/api/v2/imports`, 14 tests). L'**étape 2, l'application** — créer des propositions `A_VALIDER` dans le référentiel — n'existe pas, et aucune fonction ne la promet : elle exige le rapprochement des identifiants, qui exige un premier échantillon approuvé. Le GeoPackage est un écart consigné.
 
 ## 1. Un seul contrat pour toutes les sources
 
@@ -48,7 +48,7 @@ Chaque ligne importée, quel que soit l'objet cible, porte :
 | `identifiantSource` | tel que reçu |
 | `chargeOriginale` | **la ligne brute**, JSON, avant toute transformation |
 | `transformations` | liste ordonnée : conversion d'unité, de SRID, de code — **jamais une valeur inventée** |
-| `statut` | `IMPORTEE`, `REJETEE`, `EN_CONFLIT`, `IGNOREE` — **exactement un** |
+| `statut` | `VALIDEE`, `IMPORTEE`, `REJETEE`, `EN_CONFLIT`, `IGNOREE` — **exactement un**. `VALIDEE` : conforme au contrat, **en attente d'application** — ni importée ni rejetée. Sans ce statut, l'étape de validation du schéma devrait mentir sur l'un des deux |
 | `motifRejet` | règle violée, obligatoire si `REJETEE` |
 | `correspondanceId` | vers `correspondances_identifiants` (`BDR_ID_CROSSWALK_SPEC.md`) |
 | `objetCibleId`, `objetCibleType` | ce qui a été créé — **toujours en `A_VALIDER`** |

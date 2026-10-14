@@ -4,9 +4,17 @@
 > critère **A28** : « import idempotent, **100 % des lignes dans un statut** ». **Rédigé le
 > 14/10/2026.**
 >
-> 🔒 Aucun de ces tests n'a été exécuté : **il n'existe aucun export à importer**. Ce document
-> fixe ce qui devra passer, pour que l'importateur soit écrit contre des critères et non
-> l'inverse.
+> 🔒 **État au 14/10 au soir.** Aucun export réel n'existe. Mais l'étape 1 de l'orchestration
+> est écrite, et quatre de ces tests **passent sur des fichiers fictifs, clairement fictifs**
+> (`src/api-v2/imports.routes.test.ts`) : **T-02** (100 % des lignes dans un statut, et la base le
+> contraint), **T-03** (provenance : source, importateur, autorisation, empreinte, charge
+> originale), **T-04** (erreurs exportables avec motif), **T-06** (idempotence : le même fichier
+> renvoyé n'écrit rien). **T-11** passe pour le refus d'un CRS autre que 4326.
+>
+> Les autres — T-01, T-05, T-07 à T-10, T-12 — portent sur l'**application** du lot, qui n'existe
+> pas et ne doit pas exister avant un échantillon approuvé. Ce document a été écrit avant le code,
+> pour que l'importateur soit écrit contre des critères et non l'inverse ; c'est ce qui s'est
+> passé.
 
 ## 0. Préconditions, toutes institutionnelles
 
