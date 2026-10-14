@@ -92,11 +92,27 @@ export interface TypeDefaut {
   mesuresRequises: readonly MesureDefaut[];
   /** Nombre de crans de gravite. NUL pour les types qui ne se graduent pas. */
   graviteMax: number | null;
+  /**
+   * Taille d'UNE occurrence, dans l'unite du type. Nulle quand le catalogue ne la declare
+   * pas, et c'est le cas normal.
+   *
+   * POURQUOI CETTE VALEUR EST UNE DONNEE DE CATALOGUE ET NON UNE CONSTANTE
+   *
+   * Dire qu'un nid-de-poule standard fait 0,5 m2 est une convention de metre, donc une
+   * decision d'AGEROUTE. Ecrite en dur, personne ne pourrait dire qui l'a prise ni la
+   * changer sans livrer une version. Meme regle que pour les coefficients du RCI et les
+   * referentiels : le mecanisme attend la valeur, il ne la devance pas.
+   *
+   * Absente, le comptage ne se convertit pas, et la quantite est REFUSEE avec
+   * MESURES_INSUFFISANTES plutot que devinee.
+   */
+  coefficientUnitaire?: number | null;
 }
 
 export type MethodeQuantite =
   | "SAISIE"
   | "COMPTAGE"
+  | "COMPTAGE_COEFFICIENT"
   | "LONGUEUR"
   | "LONGUEUR_LARGEUR"
   | "LONGUEUR_LARGEUR_PROFONDEUR";
@@ -104,6 +120,7 @@ export type MethodeQuantite =
 export type RefusQuantite =
   | "MESURES_INSUFFISANTES"
   | "MESURE_ABERRANTE"
+  | "COEFFICIENT_ABERRANT"
   | "DEPASSE_LE_TRONCON";
 
 export type ResultatQuantite =
@@ -163,14 +180,41 @@ export function mesuresManquantes(
  *
  * `longueurTronconM` borne le resultat quand on le connait : un defaut plus long que le
  * troncon qui le porte est une erreur de saisie ou de rattachement, jamais un defaut.
+ *
+ * LE COEFFICIENT UNITAIRE EST LE DERNIER RECOURS, ET C'EST VOULU
+ *
+ * Douze nids-de-poule de taille standard ne pouvaient pas s'exprimer : en METRE_CARRE le
+ * moteur exigeait une longueur ET une largeur. Avec un coefficient declare au catalogue,
+ * `nombre x coefficient` donne la surface.
+ *
+ * Mais il passe APRES les mesures directes :
+ *
+ *   quantite saisie au decametre    ->  SAISIE, c'est un constat
+ *   longueur x largeur relevees     ->  derivation sur des mesures reelles
+ *   nombre x coefficient            ->  derivation sur une CONVENTION
+ *
+ * L'ordre n'est pas esthetique. Un coefficient est une moyenne decidee en bureau ; une
+ * mesure est ce que l'agent a vu. Donner le pas au coefficient remplacerait des constats
+ * par des moyennes, et le cout qui en sortirait serait indiscutable faute d'etre trace.
+ *
+ * La methode rendue dit laquelle des trois a servi, et c'est tout l'interet de la
+ * distinguer : `COMPTAGE_COEFFICIENT` signale une quantite conventionnelle.
  */
 export function quantite(
   m: MesuresDefaut,
   unite: UniteDefaut,
   longueurTronconM?: number | null,
+  coefficientUnitaire?: number | null,
 ): ResultatQuantite {
   for (const v of [m.nombre, m.longueurM, m.largeurM, m.profondeurM, m.quantiteSaisie]) {
     if (mesurePresenteMaisFausse(v)) return { valeur: null, motif: "MESURE_ABERRANTE" };
+  }
+
+  // Un coefficient present mais faux fait REFUSER, comme une mesure fausse. Un catalogue
+  // portant `coefficientUnitaire: 0` ferait sinon rendre une quantite nulle pour douze
+  // nids-de-poule bien reels, et ce zero traverserait tout le calcul de cout sans alerter.
+  if (mesurePresenteMaisFausse(coefficientUnitaire)) {
+    return { valeur: null, motif: "COEFFICIENT_ABERRANT" };
   }
 
   // Le depassement se juge sur la longueur relevee, seule mesure comparable a celle du
@@ -190,23 +234,49 @@ export function quantite(
         : { valeur: null, motif: "MESURES_INSUFFISANTES" };
 
     case "METRE":
-      return mesureValide(m.longueurM)
-        ? { valeur: arrondir(m.longueurM), methode: "LONGUEUR" }
-        : { valeur: null, motif: "MESURES_INSUFFISANTES" };
+      if (mesureValide(m.longueurM)) {
+        return { valeur: arrondir(m.longueurM), methode: "LONGUEUR" };
+      }
+      return parComptage(m, coefficientUnitaire);
 
     case "METRE_CARRE":
-      return mesureValide(m.longueurM) && mesureValide(m.largeurM)
-        ? { valeur: arrondir(m.longueurM * m.largeurM), methode: "LONGUEUR_LARGEUR" }
-        : { valeur: null, motif: "MESURES_INSUFFISANTES" };
+      if (mesureValide(m.longueurM) && mesureValide(m.largeurM)) {
+        return { valeur: arrondir(m.longueurM * m.largeurM), methode: "LONGUEUR_LARGEUR" };
+      }
+      return parComptage(m, coefficientUnitaire);
 
     case "METRE_CUBE":
-      return mesureValide(m.longueurM) && mesureValide(m.largeurM) && mesureValide(m.profondeurM)
-        ? {
-            valeur: arrondir(m.longueurM * m.largeurM * m.profondeurM),
-            methode: "LONGUEUR_LARGEUR_PROFONDEUR",
-          }
-        : { valeur: null, motif: "MESURES_INSUFFISANTES" };
+      if (mesureValide(m.longueurM) && mesureValide(m.largeurM) && mesureValide(m.profondeurM)) {
+        return {
+          valeur: arrondir(m.longueurM * m.largeurM * m.profondeurM),
+          methode: "LONGUEUR_LARGEUR_PROFONDEUR",
+        };
+      }
+      return parComptage(m, coefficientUnitaire);
   }
+}
+
+/**
+ * Dernier recours : un comptage converti par le coefficient du catalogue.
+ *
+ * Sans coefficient declare, on refuse. Multiplier par 1 par defaut confondrait « douze
+ * occurrences » avec « douze metres carres », ce qui est faux dans l'unite du type et
+ * passerait inapercu.
+ *
+ * `UNITE` n'appelle jamais cette fonction : pour un type qui se compte, le nombre EST la
+ * quantite, et un coefficient n'aurait rien a convertir.
+ */
+function parComptage(
+  m: MesuresDefaut,
+  coefficientUnitaire: number | null | undefined,
+): ResultatQuantite {
+  if (!mesureValide(m.nombre) || !mesureValide(coefficientUnitaire)) {
+    return { valeur: null, motif: "MESURES_INSUFFISANTES" };
+  }
+  return {
+    valeur: arrondir(m.nombre * coefficientUnitaire),
+    methode: "COMPTAGE_COEFFICIENT",
+  };
 }
 
 export type RefusMetre = RefusQuantite | "RELEVE_INCOMPLET";
@@ -243,7 +313,7 @@ export function metrer(
   const manquantes = mesuresManquantes(m, type.mesuresRequises);
   if (manquantes.length > 0) return { valeur: null, motif: "RELEVE_INCOMPLET", manquantes };
 
-  const q = quantite(m, type.unite, longueurTronconM);
+  const q = quantite(m, type.unite, longueurTronconM, type.coefficientUnitaire);
   return q.valeur === null ? q : { valeur: q.valeur, unite: type.unite, methode: q.methode };
 }
 
@@ -253,6 +323,12 @@ export function metrer(
  * Elle sert a decider, donc elle doit porter d'ou elle vient. Seule la valeur mesuree
  * au metre par l'agent est OBSERVED ; tout produit de mesures est DERIVED, meme quand
  * ses facteurs sont justes.
+ *
+ * ATTENTION A UN NOM : `COMPTAGE_COEFFICIENT` doit rendre DERIVED, pas OBSERVED. L'agent a
+ * bien COMPTE douze occurrences — c'est un constat — mais la surface rendue vient d'une
+ * convention de catalogue, donc elle est derivee. L'egalite stricte ci-dessous le donne
+ * correctement, et le test l'exige : un `startsWith("COMPTAGE")` ecrit un jour par
+ * commodite transformerait une convention en constat.
  */
 export function statutQualiteQuantite(methode: MethodeQuantite): "OBSERVED" | "DERIVED" {
   return methode === "SAISIE" || methode === "COMPTAGE" ? "OBSERVED" : "DERIVED";
@@ -386,6 +462,7 @@ export const NOMS_MESURES: Record<MesureDefaut, string> = {
 export const EXPLICATIONS: Record<RefusMetre | RefusGravite, string> = {
   MESURES_INSUFFISANTES: "Les mesures relevées ne permettent pas de calculer la quantité pour cette unité.",
   MESURE_ABERRANTE: "Une des mesures est nulle ou négative : corrigez-la avant d'enregistrer.",
+  COEFFICIENT_ABERRANT: "La taille unitaire définie pour ce type de défaut est nulle ou négative : signalez-le à votre administrateur.",
   DEPASSE_LE_TRONCON: "Le défaut est plus long que le tronçon qui le porte : vérifiez la mesure ou le rattachement.",
   RELEVE_INCOMPLET: "Ce type de défaut demande des mesures qui n'ont pas été relevées.",
   HORS_ECHELLE: "La gravité sort de l'échelle prévue pour ce type de défaut.",

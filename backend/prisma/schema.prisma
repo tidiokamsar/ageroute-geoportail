@@ -1715,6 +1715,14 @@ enum MethodeQuantite {
   LONGUEUR
   LONGUEUR_LARGEUR
   LONGUEUR_LARGEUR_PROFONDEUR
+
+  /// Comptage converti par `CatalogueDefaut.coefficientUnitaire`. Ajoutee le 14/10/2026.
+  ///
+  /// DISTINCTE DE `COMPTAGE`, et la distinction porte tout : l'agent a bien compte douze
+  /// occurrences, mais la surface rendue vient d'une convention de catalogue. Le statut
+  /// de qualite est donc DERIVED, la ou `COMPTAGE` est OBSERVED. Les confondre ferait
+  /// passer une moyenne de bureau pour un constat de terrain.
+  COMPTAGE_COEFFICIENT
 }
 
 /// Importance spatiale du defaut sur le troncon, independante de sa gravite.
@@ -1786,6 +1794,19 @@ model CatalogueDefaut {
   /// Nombre de crans de gravite. NUL pour les types qui ne se graduent pas : un panneau
   /// manquant est absent ou present, le graduer remplirait un champ sans rien mesurer.
   graviteMax Int? @default(4)
+
+  /// Taille d'UNE occurrence, dans l'unite ci-dessus. Permet de convertir un comptage en
+  /// quantite : douze nids-de-poule a 0,5 m2 font 6 m2.
+  ///
+  /// NULLE PAR DEFAUT, ET C'EST LE CAS NORMAL. Dire qu'un nid-de-poule standard fait
+  /// 0,5 m2 est une convention de metre, donc une decision d'AGEROUTE. Absente, le moteur
+  /// REFUSE de convertir un comptage plutot que de multiplier par un — ce qui
+  /// confondrait « douze occurrences » avec « douze metres carres ».
+  ///
+  /// Le moteur ne s'en sert qu'en DERNIER RECOURS, apres la quantite saisie et apres les
+  /// mesures directes : une convention de bureau ne doit pas primer sur un constat de
+  /// terrain. La methode rendue le dit, `COMPTAGE_COEFFICIENT`.
+  coefficientUnitaire Decimal? @db.Decimal(12, 4)
 
   /// Seuils normatifs par cran, vides tant qu'aucun referentiel officiel n'est adopte.
   seuils Json?

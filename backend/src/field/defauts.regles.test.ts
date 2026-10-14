@@ -367,15 +367,88 @@ describe("L'etat physique vit a part de la validation", () => {
 });
 
 describe("Les refus s'expliquent a un agent, pas a un developpeur", () => {
-  it("donne un message pour chaque motif", () => {
-    const motifs = [
-      "MESURES_INSUFFISANTES", "MESURE_ABERRANTE", "DEPASSE_LE_TRONCON", "RELEVE_INCOMPLET",
-      "HORS_ECHELLE", "TYPE_SANS_GRAVITE", "GRAVITE_REQUISE",
-    ] as const;
+  // La liste etait ecrite en dur et comptait sept motifs. Un huitieme ajoute au type
+  // n'aurait pas fait echouer ce test : il aurait simplement cesse d'etre verifie, en
+  // silence. Elle est donc derivee de la table elle-meme.
+  it("donne un message pour chaque motif, et la liste est exhaustive par construction", () => {
+    const motifs = Object.keys(EXPLICATIONS) as (keyof typeof EXPLICATIONS)[];
+    expect(motifs.length).toBeGreaterThanOrEqual(8);
     for (const x of motifs) {
       expect(EXPLICATIONS[x].length, x).toBeGreaterThan(20);
       // Ni code, ni jargon : ces phrases s'affichent sur un telephone, en mission.
       expect(EXPLICATIONS[x], x).not.toMatch(/_|\bundefined\b|\bnull\b|[A-Z]{4,}/);
     }
+  });
+});
+
+describe("Le coefficient unitaire : douze nids-de-poule deviennent une surface", () => {
+  const TYPE_M2: TypeDefaut = {
+    code: "NID_DE_POULE", unite: "METRE_CARRE", mesuresRequises: [], graviteMax: 4,
+    coefficientUnitaire: 0.5,
+  };
+
+  it("convertit un comptage quand aucune mesure directe n'est disponible", () => {
+    const r = quantite({ nombre: 12 }, "METRE_CARRE", null, 0.5);
+    expect(r).toEqual({ valeur: 6, methode: "COMPTAGE_COEFFICIENT" });
+  });
+
+  it("CEDE LE PAS aux mesures directes, parce qu'un constat vaut mieux qu'une convention", () => {
+    const r = quantite({ nombre: 12, longueurM: 4, largeurM: 3 }, "METRE_CARRE", null, 0.5);
+    expect(r).toEqual({ valeur: 12, methode: "LONGUEUR_LARGEUR" });
+  });
+
+  it("CEDE LE PAS a la quantite saisie, qui est le constat le plus direct", () => {
+    const r = quantite({ nombre: 12, quantiteSaisie: 7.5 }, "METRE_CARRE", null, 0.5);
+    expect(r).toEqual({ valeur: 7.5, methode: "SAISIE" });
+  });
+
+  it("REFUSE quand le catalogue ne declare aucun coefficient, au lieu de multiplier par un", () => {
+    // Multiplier par 1 par defaut confondrait « douze occurrences » avec « douze metres
+    // carres » : faux dans l'unite du type, et invisible.
+    const r = quantite({ nombre: 12 }, "METRE_CARRE", null, null);
+    expect(r).toEqual({ valeur: null, motif: "MESURES_INSUFFISANTES" });
+  });
+
+  it("REFUSE un coefficient nul ou negatif, et le distingue d'une mesure fausse", () => {
+    for (const mauvais of [0, -0.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(quantite({ nombre: 12 }, "METRE_CARRE", null, mauvais), String(mauvais))
+        .toEqual({ valeur: null, motif: "COEFFICIENT_ABERRANT" });
+    }
+  });
+
+  it("s'applique aussi au metre et au metre cube", () => {
+    expect(quantite({ nombre: 5 }, "METRE", null, 2))
+      .toEqual({ valeur: 10, methode: "COMPTAGE_COEFFICIENT" });
+    expect(quantite({ nombre: 4 }, "METRE_CUBE", null, 0.25))
+      .toEqual({ valeur: 1, methode: "COMPTAGE_COEFFICIENT" });
+  });
+
+  it("ne s'applique PAS a l'unite, ou le nombre EST deja la quantite", () => {
+    const r = quantite({ nombre: 12 }, "UNITE", null, 0.5);
+    expect(r).toEqual({ valeur: 12, methode: "COMPTAGE" });
+  });
+
+  it("est une quantite DERIVEE, jamais un constat", () => {
+    expect(statutQualiteQuantite("COMPTAGE_COEFFICIENT")).toBe("DERIVED");
+    // Et le comptage nu reste un constat : l'agent a bien compte.
+    expect(statutQualiteQuantite("COMPTAGE")).toBe("OBSERVED");
+  });
+
+  it("passe par metrer, qui lit le coefficient du type", () => {
+    expect(metrer({ nombre: 12 }, TYPE_M2))
+      .toEqual({ valeur: 6, unite: "METRE_CARRE", methode: "COMPTAGE_COEFFICIENT" });
+  });
+
+  it("metrer refuse quand le type n'a pas de coefficient et que les mesures manquent", () => {
+    const sansCoef: TypeDefaut = { ...TYPE_M2, coefficientUnitaire: null };
+    expect(metrer({ nombre: 12 }, sansCoef))
+      .toEqual({ valeur: null, motif: "MESURES_INSUFFISANTES" });
+  });
+
+  it("n'echappe pas au plafond de la longueur du troncon", () => {
+    // Le garde-fou existant se juge sur la longueur relevee, et un comptage n'en a pas :
+    // ce test fixe le comportement plutot que de le laisser au hasard.
+    const r = quantite({ nombre: 12, longueurM: 500 }, "METRE_CARRE", 200, 0.5);
+    expect(r).toEqual({ valeur: null, motif: "DEPASSE_LE_TRONCON" });
   });
 });

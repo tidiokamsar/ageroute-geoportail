@@ -164,6 +164,8 @@ export async function preparerDefautSync(
     unite: catalogue.unite,
     mesuresRequises: catalogue.mesuresRequises,
     graviteMax: catalogue.graviteMax,
+    // Decimal de Prisma vers number : le moteur de metrage est pur et ignore Prisma.
+    coefficientUnitaire: catalogue.coefficientUnitaire ? Number(catalogue.coefficientUnitaire) : null,
   };
   const gravite = graviteValide(c.gravite ?? null, catalogue.graviteMax);
   if (!gravite.permis) return refuser(gravite.motif);

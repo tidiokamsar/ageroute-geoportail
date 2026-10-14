@@ -2,7 +2,7 @@ import { Router, type Request, type RequestHandler } from "express";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile, unlink } from "node:fs/promises";
 import { z } from "zod";
-import { StatutValidation } from "@prisma/client";
+import { Prisma, StatutValidation } from "@prisma/client";
 import { requireRole } from "../middleware/rbac.middleware";
 import { uploadPhoto } from "../middleware/upload-photo.middleware";
 import { plafondPhotos } from "../middleware/quota-photos.middleware";
@@ -111,9 +111,27 @@ const creation = z.object({
   mesures: mesuresSchema.optional(),
 }).strict();
 
-/** Le catalogue en tant que le moteur de metrage le lit. */
-function typeDefaut(c: { code: string; unite: TypeDefaut["unite"]; mesuresRequises: TypeDefaut["mesuresRequises"]; graviteMax: number | null }): TypeDefaut {
-  return { code: c.code, unite: c.unite, mesuresRequises: c.mesuresRequises, graviteMax: c.graviteMax };
+/**
+ * Le catalogue en tant que le moteur de metrage le lit.
+ *
+ * `coefficientUnitaire` arrive en `Decimal` de Prisma et le moteur travaille en `number` :
+ * la conversion se fait ICI, une fois, plutot que dans le moteur, qui doit rester pur et
+ * ignorant de Prisma.
+ */
+function typeDefaut(c: {
+  code: string;
+  unite: TypeDefaut["unite"];
+  mesuresRequises: TypeDefaut["mesuresRequises"];
+  graviteMax: number | null;
+  coefficientUnitaire?: Prisma.Decimal | null;
+}): TypeDefaut {
+  return {
+    code: c.code,
+    unite: c.unite,
+    mesuresRequises: c.mesuresRequises,
+    graviteMax: c.graviteMax,
+    coefficientUnitaire: c.coefficientUnitaire ? Number(c.coefficientUnitaire) : null,
+  };
 }
 
 /** Les agents voient leurs relevés et ceux des missions qui leur sont affectées. */
@@ -435,6 +453,9 @@ defautsV2Router.get("/catalogue", requireAuth, requireModuleAccess("inspections"
         unite: true,
         mesuresRequises: true,
         graviteMax: true,
+        // L'agent doit savoir qu'un comptage sera converti, et par quelle valeur : une
+        // surface de 6 m2 obtenue depuis douze occurrences n'est pas une surface mesuree.
+        coefficientUnitaire: true,
         version: true,
       },
     });
