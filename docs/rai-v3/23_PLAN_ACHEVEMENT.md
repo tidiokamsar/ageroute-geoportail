@@ -25,10 +25,11 @@ peux mener seul de bout en bout.**
 
 | # | Tâche | Pourquoi maintenant | Effort |
 |---|---|---|---|
-| 0.1 | **Fiches de comparaison des 42 doublons géométriques** | livrable de vos 5 décisions, ne demande aucun arbitrage pour être *produit* | moyen |
-| 0.2 | **Référentiel provisoire des 1 029 axes régionaux** | idem ; sans inventer aucune longueur, comme vous l'avez demandé | moyen |
-| 0.3 | **Seed des référentiels états de chaussée et revêtements** | les tables sont déployées et vides ; l'écran de terrain n'a aucun vocabulaire à proposer | faible |
-| 0.4 | **Index GiST planaire sur `troncons.geom`** | son absence m'a fait échouer deux requêtes d'audit ; migration additive | faible |
+| 0.1 | ~~Fiches de comparaison des 42 doublons géométriques~~ | **fait le 14/10** — [AUDIT_DOUBLONS_GEOMETRIQUES.md](AUDIT_DOUBLONS_GEOMETRIQUES.md) | — |
+| 0.2 | ~~Référentiel provisoire des 1 029 axes régionaux~~ | **fait le 14/10** — [REFERENTIEL_AXES_REGIONAUX.md](REFERENTIEL_AXES_REGIONAUX.md) | — |
+| 0.3 | ~~Seed des référentiels états de chaussée et revêtements~~ | **fait le 14/10**, 8 revêtements et 5 états en production, praticabilité laissée vide | — |
+| 0.4 | ~~Index GiST planaire sur `troncons.geom`~~ | **abandonné le 14/10 : la mesure a démenti mon diagnostic.** Remplacé par 0.4bis | — |
+| 0.4bis | ~~Restructurer le détecteur hors territoire~~ | **fait le 14/10 : 58,2 s → 14,2 s**, sans aucun nouvel index | — |
 | 0.5 | **Agrégation SQL de la couverture réseau** | `couverture()` est par tronçon ; 261 387 lignes interdisent le calcul en mémoire | moyen |
 | 0.6 | **Continuité dans l'appariement** (cap, position précédente) | `heading` compte 0 occurrence ; améliore un module déjà bon | moyen |
 | 0.7 | **Coefficient multiplicateur dans le métré** | écart nommé le 13/10, jamais traité | faible |
@@ -36,10 +37,18 @@ peux mener seul de bout en bout.**
 | 0.9 | **Nettoyer les avertissements `act()`** de `TerrainPortionsPage` | 21 tests passent mais bruyamment ; le bruit masque les vraies régressions | faible |
 | 0.10 | **Rafraîchir `AGENTS.md`** | il donne la PWA et l'API publique comme non déployées, et annonce 21 routes | faible |
 
-**0.4 mérite un mot.** L'index existant porte sur `(geom)::geography`. Toute comparaison
-planaire — `ST_Intersects`, `<->`, `ST_DWithin` en degrés — dégénère donc en balayage de
-261 387 lignes. Je l'ai découvert en échouant, deux fois. L'ajouter évite que le prochain le
-redécouvre de la même façon.
+**0.4 mérite un mot, parce que j'avais tort.** J'avais inscrit l'ajout d'un index GiST
+planaire sur `troncons.geom`, en raisonnant que l'index existant porte sur `(geom)::geography`
+et que toute comparaison planaire dégénère donc en balayage.
+
+La mesure l'a démenti. Les deux seules comparaisons planaires du backend sont dans le
+détecteur hors territoire, et sa forme corrélée **utilise déjà** l'index de `limites_admin` :
+le balayage des 261 387 tronçons est voulu, puisqu'il faut un verdict par ligne. Un index sur
+`troncons.geom` n'aurait rien changé, et aurait coûté un verrou en production pour rien.
+
+Le vrai problème n'était pas un index manquant, c'était **le sens du parcours**. En partant des
+limites découpées pour entrer dans l'index géographique **existant**, la requête passe de
+**58,2 s à 14,2 s**. Mesuré avant et après, sans ajouter un seul index.
 
 ## Phase 1 — vos neuf arbitrages
 

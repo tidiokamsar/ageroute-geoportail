@@ -153,9 +153,31 @@ temporaires : la session fermée, il ne reste rien en base.
 | Source | Chiffre | Mesure du 13/10 |
 |---|---|---|
 | Addendum V4.1 | 6 565 tronçons | **6 573** |
-| Mon estimation antérieure | 6 572 | **6 573** |
+| `qualite/anomalies.depot.ts` | 6 572 | **6 573** |
 | Part du réseau, annoncée par moi | 3,26 % | **0,340 %** du réseau classé |
 
-Les trois décomptes de tronçons concordent à huit unités près, ce qui est cohérent avec des
-mesures prises à des dates différentes sur une base vivante. En revanche, la part du réseau
-était fausse d'un facteur dix, pour avoir divisé par le mauvais périmètre.
+La part du réseau était fausse d'un facteur dix, pour avoir divisé par le mauvais périmètre.
+
+### L'écart de 6 572 à 6 573 est expliqué, et il tient à trois mètres
+
+Mesuré le 14/10 : l'écart d'une unité avec le moteur de qualité n'est **pas** une dérive de
+date. Les deux formes mesurent dans des métriques différentes, et un seul objet change de
+verdict.
+
+| Forme | Métrique | Verdict |
+|---|---|---|
+| `NOT EXISTS` sur les polygones de région | planaire, en degrés | 6 572 |
+| `JOIN` sur l'union découpée | géodésique, en mètres | **6 573** |
+
+L'objet est `GNL-OSM-w321375684`, un **sentier de 55,8 m** à 7,80357 N / 8,83055 O, à la
+frontière de Nzérékoré. En planaire sa distance à la limite est `0,000000000000` degré — il la
+touche ; en géodésique elle est de **3,247 m** — il en est séparé.
+
+La raison est géométrique : une arête de frontière est une **droite** en lon/lat et un **arc
+de grand cercle** en mètres. Sur une arête longue, les deux divergent de quelques mètres.
+
+**Les deux réponses sont défendables**, et c'est la démonstration la plus nette du propos de
+cet audit : sur un polygone dont la précision est kilométrique, discuter de trois mètres n'a
+aucun sens. La forme géodésique est retenue dans le code parce qu'elle mesure en mètres, comme
+tout le reste du module, et parce qu'elle est **quatre fois plus rapide** — 14,2 s contre
+58,2 s sur la portée nationale.

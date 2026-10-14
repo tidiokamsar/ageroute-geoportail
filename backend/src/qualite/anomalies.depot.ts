@@ -49,37 +49,79 @@ export interface ComptageFamille {
 /**
  * Troncons dont la geometrie ne touche AUCUNE limite de niveau 1.
  *
- * `NOT EXISTS` plutot qu'une union prealable : la forme corrélée utilise l'index GiST de
- * `limites_admin`, l'union ne l'utiliserait pas.
+ * POURQUOI LA FORME A CHANGE LE 14/10/2026, ET CE QUE CELA A COUTE DE LE MESURER
  *
- * MESURE DU 13/10/2026, SANS PORTEE : 6 572 troncons, dont 7 du reseau classe d'origine
- * (72 km, les sept documentes depuis septembre) et 6 565 venus de la promotion de la
- * voirie, soit environ 6 000 km. La promotion a donc importe du reseau hors de Guinee, ce
- * qu'aucune mesure anterieure n'avait vu.
+ * L'ancienne forme etait un `NOT EXISTS` correle, avec ce commentaire : « la forme correlee
+ * utilise l'index GiST de `limites_admin`, l'union ne l'utiliserait pas ». C'etait VRAI, et
+ * insuffisant : l'index de `limites_admin` sert bien, mais le plan balaie quand meme les
+ * 261 387 troncons et teste chacun contre des polygones de 7 899 sommets au total.
+ *
+ *   forme correlee, planaire                      58 243 ms
+ *   forme pilotee par les limites decoupees       14 196 ms
+ *
+ * Quatre fois plus rapide, et SANS nouvel index : le `JOIN` part des morceaux de territoire
+ * et entre dans `troncons_geom_geography_idx`, qui existe deja. `ST_Subdivide` est ce qui
+ * rend l'index utile — l'union en un seul morceau a une boite englobante couvrant tout le
+ * pays, donc l'index ne filtrerait rien.
+ *
+ * J'avais d'abord cru qu'il fallait ajouter un index GiST planaire sur `troncons.geom`. La
+ * mesure l'a dementi : le probleme n'etait pas l'index manquant, c'etait le SENS du
+ * parcours.
+ *
+ * UN TRONCON CHANGE DE VERDICT, ET IL FAUT LE SAVOIR
+ *
+ *   ancienne forme (planaire, en degres)       6 572 hors territoire
+ *   nouvelle forme (geodesique, en metres)     6 573
+ *
+ * L'ecart est UN seul objet : `GNL-OSM-w321375684`, un sentier de 55,8 m a 7,80357 N /
+ * 8,83055 O. En planaire il touche la limite a 0,000000000000 degre ; en geodesique il en
+ * est a 3,247 m. Une arete de frontiere est une droite en lon/lat et un arc de grand cercle
+ * en metres : les deux divergent de quelques metres sur une longue arete.
+ *
+ * Les deux reponses sont donc defendables, et discuter de trois metres sur un polygone dont
+ * la precision est kilometrique n'a pas de sens. La forme geodesique est retenue parce
+ * qu'elle mesure en METRES, comme tout le reste de ce module, et parce qu'elle est quatre
+ * fois plus rapide. Voir `docs/rai-v3/AUDIT_TRONCONS_HORS_TERRITOIRE.md`.
+ *
+ * MESURE DU 14/10/2026, SANS PORTEE : 6 573 troncons. 6 566 portent `voirie_locale:*` et
+ * sont deja hors reseau classe ; SEPT seulement comptent dans les 21 156,6 km publies, pour
+ * 72,0 km — six RN4 vers Gabu et une RN1 vers le Senegal.
  */
 export async function horsTerritoire(p: Portee): Promise<ComptageFamille> {
   const [compte] = await prisma.$queryRaw<{ n: bigint; total: bigint }[]>`
-    SELECT count(*) FILTER (WHERE hors) AS n, count(*) AS total
-      FROM (
-        SELECT NOT EXISTS (
-                 SELECT 1 FROM limites_admin l
-                  WHERE l.niveau = 1 AND ST_Intersects(t.geom, l.geom)
-               ) AS hors
-          FROM troncons t
-         WHERE t."deletedAt" IS NULL AND t.geom IS NOT NULL
-           AND (${p.regionId}::int IS NULL OR t."regionId" = ${p.regionId}::int)
-      ) q
+    WITH pays AS MATERIALIZED (
+      SELECT g AS geom
+        FROM (SELECT ST_Union(geom) AS u FROM limites_admin WHERE niveau = 1) s,
+             ST_Subdivide(s.u, 64) AS g
+    ), dedans AS MATERIALIZED (
+      SELECT DISTINCT t.id
+        FROM pays pa JOIN troncons t
+          ON ST_Intersects(t.geom::geography, pa.geom::geography)
+       WHERE t."deletedAt" IS NULL AND t.geom IS NOT NULL
+         AND (${p.regionId}::int IS NULL OR t."regionId" = ${p.regionId}::int)
+    )
+    SELECT count(*) FILTER (WHERE d.id IS NULL) AS n, count(*) AS total
+      FROM troncons t LEFT JOIN dedans d ON d.id = t.id
+     WHERE t."deletedAt" IS NULL AND t.geom IS NOT NULL
+       AND (${p.regionId}::int IS NULL OR t."regionId" = ${p.regionId}::int)
   `;
 
   const exemples = await prisma.$queryRaw<{ id: string; code: string; km: number }[]>`
+    WITH pays AS MATERIALIZED (
+      SELECT g AS geom
+        FROM (SELECT ST_Union(geom) AS u FROM limites_admin WHERE niveau = 1) s,
+             ST_Subdivide(s.u, 64) AS g
+    ), dedans AS MATERIALIZED (
+      SELECT DISTINCT t.id
+        FROM pays pa JOIN troncons t
+          ON ST_Intersects(t.geom::geography, pa.geom::geography)
+       WHERE t."deletedAt" IS NULL AND t.geom IS NOT NULL
+         AND (${p.regionId}::int IS NULL OR t."regionId" = ${p.regionId}::int)
+    )
     SELECT t.id, t.code, ST_Length(t.geom::geography) / 1000.0 AS km
-      FROM troncons t
-     WHERE t."deletedAt" IS NULL AND t.geom IS NOT NULL
+      FROM troncons t LEFT JOIN dedans d ON d.id = t.id
+     WHERE t."deletedAt" IS NULL AND t.geom IS NOT NULL AND d.id IS NULL
        AND (${p.regionId}::int IS NULL OR t."regionId" = ${p.regionId}::int)
-       AND NOT EXISTS (
-             SELECT 1 FROM limites_admin l
-              WHERE l.niveau = 1 AND ST_Intersects(t.geom, l.geom)
-           )
      ORDER BY ST_Length(t.geom::geography) DESC
      LIMIT ${PLAFOND_EXEMPLES}
   `;
