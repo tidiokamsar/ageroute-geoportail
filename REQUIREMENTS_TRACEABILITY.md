@@ -1,138 +1,134 @@
-# Tableau de conformité du cahier des charges
+# Matrice de conformité
 
-**Rafraîchi le 14/10/2026.** Première rédaction le 13/10, avant le déploiement : plusieurs
-lignes y donnaient comme absent ou non appliqué ce qui est désormais en production. Chaque
-état ci-dessous porte sa preuve, vérifiable dans le dépôt ou mesurée en base.
+> Fichier canonique exigé par le § A.9 du prompt maître V10. Il remplace
+> `docs/rai-v3/21_TABLEAU_CONFORMITE.md`, dont il conserve l'historique Git.
+>
+> Statuts du § A.10 : **TT** terminée et testée · **TP** tests partiels · **NT** non testée ·
+> **PA** partielle · **MQ** maquette ou simulation · **AB** absente · **BL** bloquée ·
+> **EA** en attente d'approbation.
+>
+> La porte de sortie de la phase 0 (§ F.1) exige qu'**aucune case « à vérifier » ne subsiste** :
+> chaque ligne porte un statut prouvé, ou dit quel accès manque.
+>
+> 🔒 **Un écran visible n'est jamais une preuve** (§ A.10). Chaque statut cite un fichier, un
+> test, une migration, une mesure ou un point d'API.
 
-**Règle de lecture** : un écran visible n'est jamais une preuve. Et **un module déployé n'est
-pas un module alimenté** : plusieurs lignes marquées T portent sur des tables vides, ce que la
-colonne « Écart » dit explicitement.
+**Dressée le 14/10/2026** contre le prompt maître V10 lu en entier. Tests de référence :
+backend **1 145 passés**, frontend **294 passés**, 0 échec, TypeScript sans erreur.
 
-## Barème
+---
 
-| État | Signification |
+## 1. Les trente scénarios d'acceptation du § G.1
+
+C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte de chaque phase.
+
+| # | Scénario | Statut | Preuve ou cause |
+|---|---|---|---|
+| **A1** | Ouverture du mode terrain | **TP** | `hooks/usePositionGps.ts`, 15 tests : trois erreurs distinctes dont la permission refusée. **Jamais éprouvé sur appareil** |
+| **A2** | Identification du tronçon, ≥ 95 % et 0 rattachement sous le seuil | **TT** | `appariement.a2.test.ts`, 11 tests sur **23 cas annotés** : **100 %** de bon candidat en tête, **0** présélection fautive. Distances données, non calculées : voir § 4 |
+| **A3** | Incertitude : l'agent choisit, ou l'observation reste non rattachée | **TT** | issue `CHOIX_AGEN T` et `NON_RATTACHE` avec motif, `appariement.noyau.ts` ; position brute toujours conservée |
+| **A4** | Dégradation sans PK | **TT** | `pkDeFraction` rend `TRONCON_SANS_PK` ; `api-v2/defauts.routes.ts` accepte une abscisse locale ; 49 tests de métré |
+| **A5** | Métré, écart < 1 % en projection métrique | **NT** | les règles sont testées (60 tests) mais **aucune géométrie de test de référence** n'existe. Et le § 7.1 impose UTM 28N/29N pour les surfaces : les longueurs passent par `geography`, les **surfaces ne sont pas encore projetées** |
+| **A6** | Proposition de portion sans altérer le tronçon | **TT** | contrainte d'exclusion `btree_gist` en base ; `portions.routes.test.ts` vérifie qu'un `statutValidation` envoyé par le client est ignoré |
+| **A7** | Hors ligne : 50 observations, 0 doublon, 0 perte | **TP** | `operations_sync`, `clientOperationId` unique, `field/portions.sync.ts` 13 tests, `offlineSync.test.ts` 23 tests. **Jamais éprouvé sur appareil ni sur 50 observations réelles** |
+| **A8** | Conflit signalé, deux versions conservées | **TP** | table `conflits_sync`, `field/sync.service.ts` 11 tests. Pas de parcours de bout en bout |
+| **A9** | Une proposition non validée n'apparaît jamais comme officielle | **TT** | `statutValidation` par défaut `A_VALIDER` ; `governance/validation.ts` 75 tests ; exports et carte filtrent |
+| **A10** | 403 sur appel direct d'API pour un `LECTEUR` ou hors zone | **PA** | RBAC testé (`middleware/rbac`), délégation par domaine testée. **ABAC par territoire partiel** : 5 domaines sur 8 sans route |
+| **A11** | Anomalie détectée, classée, expliquée, donnée intacte | **TT** | `qualite/anomalies.ts` 23 tests, `api-v2/qualite.routes.ts` 14 tests, **9 familles** ; un test vérifie qu'aucune correction ne propose de supprimer |
+| **A12** | Chaque indicateur égal à sa requête de contrôle | **PA** | `reseau/couverture.reseau.ts` est reproductible et documenté (212 ms). Mais le tableau de bord **ne connaît ni portions ni qualité** |
+| **A13** | Intégrations : seules les données validées émises, rejeu sans effet de bord | **BL** | aucun accès DigitalRoad ni SharePoint (B-11, B-12). Aucune outbox transactionnelle écrite |
+| **A14** | Non-régression des fonctions existantes | **TT** | **1 145 + 294 tests**, 0 échec ; les 16 tests d'appariement antérieurs tiennent après extraction du noyau |
+| **A15** | Rattachement < 300 ms p95 ; Géoportail fluide | **NT** | **jamais mesuré**. L'ordre de grandeur connu est indirect : la requête de candidats passe de 2,5 s à quelques millisecondes avec le filtre d'emprise |
+| **A16** | Roulage, marqueur < 200 ms, erreur < 30 m | **AB** | § 7.13 non commencé |
+| **A17** | Roulage, événement linéaire Début/Fin | **AB** | idem |
+| **A18** | Trace 1 Hz 2 h, HMM ≥ 97 %, IRI par 100 m | **AB** | **le HMM est la pièce manquante du lot 3** ; aucun IRI |
+| **A19** | Roulage, robustesse veille/appel/redémarrage | **AB** | exige les plugins natifs (ADR-009) |
+| **A20** | Géoportail : rendu < 3 s en 3G, recherche < 300 ms, déviation < 2 s, OGC | **NT** | aucune mesure ; tuiles vectorielles, permalien et pgRouting absents |
+| **A21** | Chaque tronçon : code national, provenance, score qualité, rattachement | **BL** | **la codification nationale n'existe pas** et les routes communautaires n'ont aucune valeur d'énumération (D-06). Provenance présente sur 259 696 tronçons, absente sur 1 691 |
+| **A22** | Programmation reproductible, justifiée, fiche figée | **AB** | aucun moteur ; barèmes et matrices présents, **lus par aucun code** |
+| **A23** | Interopérabilité ONR : pivot, L²R, sections UEMOA, correspondance éditable | **BL** | formats L²R non publiés (§ B.1) ; à demander à l'ONR |
+| **A24** | Exploitation : incident hors ligne → main courante immuable, Info Route < 1 min | **AB** | § 7.17 non commencé |
+| **A25** | Sécurité : chaque alerte avec preuve ou blocage ; aucun secret | **PA** | **le volet dépôt est prouvé** : 225 commits analysés, aucun secret, **IP de production jamais committée**. Quatre alertes bloquées faute d'autorisation de production. `bdri_app` toujours superuser |
+| **A26** | Migrations : rollback **exécuté et vérifié** | **BL** | 51 locales, 50 appliquées, 1 en attente. **Rollback non exécuté** : aucune base de développement (B-13) |
+| **A27** | Aucune décision non approuvée présentée comme officielle | **TT** | `rci-2026.1` **désapprouvée** le 14/10 ; 9 barèmes en `standard_initial`, **aucun approuvé** ; praticabilité volontairement vide ; 6 573 hors-territoire et 42 doublons **classés, intacts et reproductibles** |
+| **A28** | Import BDR/ANASUR idempotent, 100 % des lignes dans un statut | **AB** | aucun import écrit ; questionnaire ANASUR à produire (§ B.3) |
+| **A29** | Tâches internes avec preuves avant/après ; rapprochement en lecture | **AB** | TI-01 à TI-03 non commencés |
+| **A30** | Détection satellitaire → proposition localisée, précision mesurée | **AB** | partie E non commencée |
+
+**Bilan : 9 TT, 3 TP, 3 PA, 3 NT, 4 BL, 8 AB.** Aucune case « à vérifier ».
+
+---
+
+## 2. Les critères permanents du § G 🔒
+
+| Critère | Statut | Preuve |
+|---|---|---|
+| Aucune donnée de production écrasée ou supprimée silencieusement | **TT** | suppression logique seulement (`deletedAt`) ; `remplaceeLe` distinct ; les 50 migrations déployées n'ont écrit **aucune ligne**, pas même un audit |
+| Toutes les observations importées ont statut et provenance | **PA** | 259 696 tronçons portent `sourceReference` ; **1 691 n'en ont aucune** — les plus anciens, qui sont le réseau classé |
+| Aucune détection IA automatiquement validée | **TT** | la contrainte `media_analyse_coherente` impose date et modèle ; aucun chemin d'écriture ne valide |
+| Aucun coût estimatif ne devient montant contractuel | **TT** | `decomptes` vide, module gelé ; aucun moteur de coût n'existe encore |
+| Toute opération hors ligne répétée reste idempotente | **TT** | `clientOperationId` unique en base ; 13 tests dédiés |
+| Toute modification sensible autorisée côté serveur et auditée | **TT** | `logAuditTransactionnelle` dans la transaction ; 1 506 lignes d'audit |
+| Toute mesure porte sa méthode et son incertitude | **PA** | `valeurs_qualite` porte méthode, statut et confiance. Mais `dateDerniereEvaluation` est **nulle sur 261 387 lignes** |
+| Les indicateurs affichent sources, périmètre et limites | **PA** | l'API publique affiche `methode` et `calculeeA`. Le périmètre n'est pas affiché partout, et c'est la faute que j'ai commise deux fois |
+| Les quatre migrations passent, rollback vérifié | **BL** | les quatre sont appliquées depuis le 13/10 ; leur rollback n'a jamais été exécuté |
+| Les alertes de sécurité ont preuve ou blocage documenté | **TT** | [SECURITY_REMEDIATION.md](SECURITY_REMEDIATION.md) |
+| Aucune mise en production sans autorisation explicite | **TT** | deux opérations depuis V10, toutes deux explicitement autorisées |
+
+---
+
+## 3. Les sections du § 7
+
+| § | Exigence | Statut | Écart principal |
+|---|---|---|---|
+| 7.1 | Conventions géospatiales 🔒 | **PA** | longueurs en `geography` : conforme. **UTM 28N/29N non employé** pour les surfaces. SQL paramétré : corrigé et gardé par un test |
+| 7.2 | Référencement linéaire, ISO 19148, bitemporel | **PA** | portions, lignage, exclusion : faits. **Historisation bitemporelle écrite, migration non déployée.** Codification nationale absente |
+| 7.3 | Map-matching ponctuel et de trace | **PA** | ponctuel **complet** avec les 5 facteurs et les 3 issues ; **HMM absent** |
+| 7.4 | Catalogue et métrés | **TP** | 13 types ; le § 7.16 exige **≥ 21 types**, revêtu et non revêtu. Photos de référence par gravité absentes |
+| 7.5 | Workflow de validation | **TT** | — |
+| 7.6 | Moteur de qualité | **TT** | — |
+| 7.7 | Évaluation, prévision, programmation | **EA** | RCI écrit, **désapprouvé** ; risque, traitement, coût, programmation **absents** |
+| 7.8 | Application mobile | **AB** | Capacitor figé (ADR-009), non commencé ; **aucun APK compilable ici** (B-10) |
+| 7.9 | Sécurité | **PA** | RBAC fait, ABAC partiel ; 4 risques ouverts |
+| 7.10 | Intégrations | **BL** | aucun accès |
+| 7.11 | Interface web, WCAG 2.1 AA | **PA** | design system présent ; **accessibilité jamais mesurée**, et le `lint` du dépôt ne fonctionne pas (B-29) |
+| 7.12 | Tableau de bord national | **PA** | ignore portions et qualité |
+| 7.13 | Collecte en roulage | **AB** | priorité M, non commencé |
+| 7.14 | Niveau d'excellence | **AB** | tuiles vectorielles, vue de route, curseur temporel, pgRouting, gazetier, métadonnées ISO 19115 |
+| **7.15** | **Interopérabilité BDR / L²R** | **BL** | 8 flux à construire ; formats L²R non publiés. **Format pivot ouvert** réalisable sans eux |
+| **7.16** | **Étalon fonctionnel Logiroad Center** | **AB** | 17 capacités plancher, dont 5 marquées ★ propres au contexte guinéen |
+| **7.17** | **Couche d'exploitation** | **AB** | main courante, patrouilles, P1–P4, cellule de veille, Info Route |
+
+---
+
+## 4. Ce que cette matrice ne prouve pas
+
+**Trois limites, et les dire fait partie du travail.**
+
+**Les tests sont locaux.** Le § G l'exige : « ne présente pas des tests locaux comme des tests de
+production ». Les 1 439 tests tournent sur mon poste et en CI ; **aucun parcours n'a été éprouvé
+sur un appareil Android**, et aucun sur une base de développement — il n'en existe pas.
+
+**Le critère A2 mesure la décision, pas la géométrie.** Les distances et orientations du jeu
+annoté sont **données**, non calculées par PostGIS, et le jeu est synthétique. Il établit que le
+classement est juste quand les distances sont justes ; il ne dit rien du bruit GPS réel.
+
+**Les mesures en base datent du 14/10 et ne seront plus reproductibles.** Le § A.5.1 a coupé
+l'accès à la production. Tout chiffre de cette matrice portant sur les données vieillira sans
+que rien ne le signale.
+
+---
+
+## 5. Ce qui bloque la porte de la phase 0
+
+Le § F.1 exige quatre preuves pour franchir la phase 0. Trois sont acquises.
+
+| Preuve exigée | État |
 |---|---|
-| **T** | TERMINÉE ET TESTÉE |
-| **IT** | IMPLÉMENTÉE MAIS À TESTER |
-| **P** | PARTIELLEMENT IMPLÉMENTÉE |
-| **M** | MAQUETTE OU SIMULATION |
-| **A** | ABSENTE |
-| **B** | BLOQUÉE PAR UNE DÉPENDANCE OU UN ACCÈS |
+| `SECURITY_REMEDIATION.md` avec preuves | **acquis** — volet dépôt prouvé, quatre alertes bloquées et documentées |
+| `REQUIREMENTS_TRACEABILITY.md` sans « à vérifier » | **acquis** — ce document |
+| `DECISIONS_PENDING.md` complet | **acquis** — 10 décisions, dont une tranchée |
+| **`MIGRATION_PLAN.md` testé** | **NON** — le rollback n'a pas été exécuté, faute de base de développement (B-13) |
 
-## Chaîne de qualification terrain
-
-| Exigence | État | Preuve | Écart | Action | Prio |
-|---|---|---|---|---|---|
-| GPS → tronçon, abscisse locale, PK facultatif | **T** | `geo/appariement.ts` + tests | — | — | — |
-| Confiance tenant compte de la séparation entre candidats | **T** | `confiance()`, deux facteurs multipliés | — | — | — |
-| Refus de rattacher sous seuil | **T** | `CONFIANCE_MINIMALE = 0.35` | — | — | — |
-| Candidats proposés en cas d'ambiguïté | **T** | `candidats()`, drapeau `ambigu` | — | — | — |
-| Continuité du déplacement (cap, position précédente) | **A** | mesuré le 14/10 : `heading` **0 occurrence** | l'appariement ignore la direction | ajouter cap et point précédent à `OptionsAppariement` | moyenne |
-| Contexte terrain en une requête | **T** | `api-v2/field.routes.ts`, 10 tests ; **401 en production** | — | — | — |
-| Portions homogènes : modèle et règles | **T** | `reseau/portions.ts`, **40 tests** | — | — | — |
-| Portions : table et migration | **T** | migration `20261013180000` **appliquée le 13/10 à 18:21** | **table vide : 0 ligne** | alimenter par la collecte | — |
-| Écriture : créer, découper, fusionner, requalifier | **T** | `portions.service.ts` **17 tests**, `api-v2/portions.routes.ts` **19 tests** | — | — | — |
-| Référentiels configurables | **P** | migration `20261013200000` **appliquée** ; `api-v2/referentiels.routes.ts` **401** | **les 3 tables sont vides** | lancer le seed des états de chaussée et des revêtements | **haute** |
-| Praticabilité | **B** | migration `20261013260000` appliquée, table vide | **le cahier n'énonce aucune valeur** | **décision AGEROUTE** | haute |
-| Écran de terrain | **T** | `TerrainPortionsPage.tsx` **21 tests**, `PortionsValidationPage.tsx` **16 tests** | avertissements `act()` dans les tests | nettoyer les enveloppes `act` | basse |
-| Position GPS continue côté client | **T** | `hooks/usePositionGps.ts`, **15 tests** | — | — | — |
-
-## Défauts et actifs
-
-| Exigence | État | Preuve | Écart | Action | Prio |
-|---|---|---|---|---|---|
-| Défaut indépendant du PK | **T** | `defauts` + `geom` + `emprise` | **table vide : 0 ligne** | alimenter par la collecte | — |
-| Catalogue administrable | **T** | `catalogue_defauts`, 13 types ; `/api/v2/defauts/catalogue` **401** | — | — | — |
-| Gravité et étendue séparées | **T** | `EtendueDefaut` + gravité | — | — | — |
-| Métré depuis les dimensions | **T** | `field/defauts.regles.ts`, **49 tests** | coefficient multiplicateur absent | ajouter `quantite = nombre x coefficient` | basse |
-| Familles d'ouvrages | **T** | `TypeOuvrage` = **13 valeurs** en production | les 4 manques nommés le 13/10 sont **comblés** (`FOSSE`, `CANIVEAU`, `SIGNALISATION`, `GLISSIERE`) | vérifier si le cahier en exige davantage que 13 | basse |
-| Recherche d'actifs à proximité | **T** | `contexte.prisma.ts`, `ST_DWithin` | — | — | — |
-
-## Gouvernance et qualité
-
-| Exigence | État | Preuve | Écart | Action | Prio |
-|---|---|---|---|---|---|
-| Validation par un tiers, pas d'auto-validation | **T** | `governance/validation.ts`, 75 tests | — | — | — |
-| Contrôle **côté serveur** | **T** | `portions.routes.test.ts` : `statutValidation` client ignoré | — | — | — |
-| Validateur désigné par domaine | **T** | `governance/delegation.ts` ; `PORTION` ajouté à `DomaineValidation` | 5 domaines sur 8 sans route | lier `TRONCON`, `OUVRAGE`, etc. | moyenne |
-| Audit de toute écriture | **T** | `logAuditTransactionnelle` dans la transaction | — | — | — |
-| Chevauchements signalés, non corrigés | **T** | `chevauchements()` + contrainte d'exclusion `btree_gist` | — | — | — |
-| **Moteur de qualité des données** | **T** | `qualite/anomalies.ts` **23 tests**, `api-v2/qualite.routes.ts` **14 tests** ; **401 en production** | — | — | — |
-
-Le moteur de qualité était marqué **P** le 13/10 avec la mention « pas de moteur consolidé ».
-Il existe depuis, avec **9 familles d'anomalies**, une agrégation (un détecteur par objet
-émettrait plus d'un million de lignes) et un test vérifiant qu'**aucune correction proposée ne
-dit « supprimer »**, sur les neuf familles.
-
-## Décision et pilotage
-
-| Exigence | État | Preuve | Écart | Action | Prio |
-|---|---|---|---|---|---|
-| Indicateur d'état (RCI) configurable et explicable | **B** | `engines/condition.ts` **38 tests** ; normalisation et classes **appliquées** | **règle non approuvée**, `regles_condition` vide | **décision AGEROUTE** | **haute** |
-| Couche de collecte du RCI | **T** | `engines/condition.collecte.ts`, **20 tests** | — | — | — |
-| Classes de score | **T** | `classerScore()`, migration `20261013300000` appliquée | — | — | — |
-| Correspondance état → score | **T** | migration `20261013280000` appliquée, valeurs arbitrées le 13/10 | — | — | — |
-| Fiche 360° du tronçon | **T** | `troncons.service.ts` `fiche()`, **11 tests** | — | — | — |
-| Longueurs par revêtement, état, critique | **T** | `indicateurs()`, 6 tests | — | — | référentiels |
-| Couverture à l'échelle du réseau | **P** | `couverture()` par tronçon | 261 387 tronçons : calcul en mémoire exclu | agrégation SQL ou vue matérialisée | moyenne |
-| Moteur de risque | **A** | mesuré le 14/10 : `engines/risque.ts` **absent** | — | après l'approbation du RCI | haute |
-| Moteur de traitements | **A** | mesuré : `engines/traitement.ts` **absent** | **mais `baremes_intervention` porte déjà 9 lignes** reliant état de départ et type d'intervention | écrire le moteur, les données existent | moyenne |
-| Prix unitaires et coûts | **A** | mesuré : `engines/cout.ts` **absent** | **`baremes_intervention.coutKmGnf` existe, peuplé**, de 350 M à 3,5 Md GNF/km | écrire le moteur ; **tracer d'abord l'origine des prix** | moyenne |
-| Provenance des barèmes de coût | **A** | `BaremeIntervention` a **5 colonnes** : ni `source`, ni `version`, ni approbation | un coût de 3,5 Md GNF/km que personne ne peut attribuer | ajouter la provenance **avant** d'écrire le moteur | **haute** |
-| Prédiction de dégradation | **P** | `matrices_degradation`, **9 lignes**, `source: standard_initial`, version 1 | **aucun code ne la lit** | brancher au moteur de programmation | moyenne |
-| Programmation | **A** | mesuré : `engines/programmation.ts` **absent**, alors que la route `/programmation` est déclarée | **une page sans moteur** | après les coûts | moyenne |
-| État avant / intervention / après | **A** | mesuré le 14/10 : `etatAvant`/`etatApres` **0 occurrence** | — | relation via `portions_lignage` | moyenne |
-| Tableau de bord national | **P** | `modules/dashboard` | ne connaît ni portions ni qualité | étendre | moyenne |
-| Alertes | **P** | `jobs/alertes-contractuelles.ts` | contractuelles seulement, **pas patrimoniales** | après les indicateurs | basse |
-
-## Mobile et hors ligne
-
-| Exigence | État | Preuve | Écart | Action | Prio |
-|---|---|---|---|---|---|
-| Hors ligne : file, idempotence, conflits | **T** | `operations_sync`, `conflits_sync` ; `/api/v2/sync/status` **401** | — | — | — |
-| Idempotence des portions | **T** | `clientOperationId`, migration `20261013220000` **appliquée** ; `field/portions.sync.ts` **13 tests** | — | — | — |
-| PWA renforcée | **T** | `public/sw.js` + `sw-policy.js` ; **`/sw.js` répond 200 en production** | — | — | — |
-| Application mobile native | **A** | aucun `app.json`, `build.gradle`, `metro.config` | **seule une PWA existe** | enveloppe Capacitor | haute |
-| Compilation et test d'un APK | **B** | mesuré : `adb`, `gradle`, `java` absents de cet environnement | aucune chaîne Android | **compilation à faire ailleurs** | — |
-
-Le choix retenu reste la **PWA renforcée plus enveloppe Capacitor** : elle réutilise
-React/Vite/Leaflet déjà en place, s'installe depuis le navigateur, se teste ici, et Capacitor
-enveloppe ensuite le même code sans réécrire la carte ni le hors-ligne. La production de l'APK
-est un blocage d'accès, pas un choix.
-
-## Ce qui est déployé et vérifié
-
-Déploiement du 13/10/2026, images construites à 18:17:26. **48 migrations appliquées**,
-« Database schema is up to date! ». `/api/health` 200, `echecsDepuisDemarrage` **0**, aucune
-erreur au journal. `/api/public/carte/geo` sert 785 Ko en 0,36 s.
-
-**1 329 tests passent** : 1 047 backend sur 76 fichiers, 282 frontend sur 22.
-
-## Les obstacles qui exigent une décision, et non du code
-
-1. **Les coefficients du RCI et l'approbation de la règle.** Sans elle, aucun score n'est
-   publiable, donc pas de risque, pas de traitement, pas de programmation. C'est le verrou de
-   toute la moitié aval.
-2. **Les valeurs de praticabilité.** Le référentiel est déployé et sort vide parce que le
-   cahier n'en énonce aucune.
-3. **Le répertoire des routes régionales.** 1 029 tronçons régionaux portent 1 029 noms
-   distincts sans structure de route : leurs PK ne sont pas calculables.
-4. **La règle de périmètre hors territoire.** 7 tronçons de RN4 et RN1, 72,0 km, comptent dans
-   les 21 156,6 km publiés. Voir [AUDIT_TRONCONS_HORS_TERRITOIRE.md](AUDIT_TRONCONS_HORS_TERRITOIRE.md).
-
-Et quatre points de sécurité, dont un seul est traité :
-
-| Point | État |
-|---|---|
-| Compte de test détenant `ADMIN` en production | **rétrogradé** le 13/10, audité `SECURITY_EVENT` |
-| Dépôt public contenant une IP de production et un chemin de clé | **ouvert** |
-| Mot de passe ADMIN transmis en clair, jamais changé | **ouvert** |
-| `bdri_app` superuser PostgreSQL et seul rôle de connexion | **ouvert** — exige un rôle de secours d'abord |
-
-## Le verrou qui n'est dans aucun tableau
-
-Mesuré en base le 14/10 : `missions` **0**, `observations` **0**, `defauts` **0**, `portions`
-**0**, les trois référentiels **0**, `regles_condition` **0**, `evaluations_condition` **0**.
-
-Toute la chaîne amont est écrite, testée, déployée — et vide. **Le chemin critique du projet
-n'est plus le code, c'est la première campagne de collecte.**
+**Un seul blocage sépare le projet de la fin de la phase 0**, et il se lève en démarrant Docker
+sur ce poste ou en fournissant une base de développement.

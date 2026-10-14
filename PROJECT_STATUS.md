@@ -94,6 +94,11 @@ Détail, et **ce qui n'est pas testé**, dans [TEST_EVIDENCE.md](TEST_EVIDENCE.m
 | § 15 | **ADR-009** : Capacitor figé, ADR-002 (React Native) remplacée, avec ce que mon analyse avait juste et faux | [TECHNICAL_DECISIONS.md](TECHNICAL_DECISIONS.md) |
 | § A.6.1 | **`rci-2026.1` désapprouvée** par un geste audité, et `RCI_METHOD_DECISION.md` écrit | [RCI_METHOD_DECISION.md](RCI_METHOD_DECISION.md) |
 | § A.8 | **Migrations réconciliées** : 51 locales, 50 appliquées, 1 en attente. L'état de référence du § A.4 était périmé de neuf migrations | [MIGRATION_PLAN.md](MIGRATION_PLAN.md) |
+| § K.4 | **Mandat V10 lu en entier**, parties A à K. Les critères d'acceptation vont à **A30**, non A24 | — |
+| § A.9 | **Matrice de conformité refaite** contre les trente scénarios : 9 terminés et testés, 3 tests partiels, 3 partiels, 3 non testés, 4 bloqués, 8 absents. **Aucune case « à vérifier »** | [REQUIREMENTS_TRACEABILITY.md](REQUIREMENTS_TRACEABILITY.md) |
+| § D | **Quinze ADR** des arbitrages D1–D15, dont deux corrigent mes décisions antérieures : D14 amende ADR-006, D6 referme l'écart É-4 du RCI | [TECHNICAL_DECISIONS.md](TECHNICAL_DECISIONS.md) |
+| § 7.17 | **Praticabilité : une proposition existait et je la déclarais absente.** Le mandat propose lui-même P1 à P4 ; la fiche D-02 la porte désormais, avec les quatre manques qui subsistent | [DECISIONS_PENDING.md](DECISIONS_PENDING.md) |
+| § D4 | **Nouvelle décision en attente D-09** : l'arbitrage D4 impose « aucun second annuaire » alors que la table `utilisateurs` en est un. Aucun OIDC n'existe — vérifié | [DECISIONS_PENDING.md](DECISIONS_PENDING.md) |
 
 ---
 
@@ -135,7 +140,10 @@ tournera dans la coque.
 | Hors ligne, packs, roulage complet | sync faite ; **packs, IRI, photo continue absents** |
 | Indices, prévision, programmation | RCI écrit mais **désapprouvé** ; **risque, traitement, coût, programmation absents** — barèmes et matrices présents, lus par aucun code |
 | Tableau de bord, Control Tower, Géoportail d'excellence | partiels |
-| Écosystème ONR / BDR / ANASUR (partie B) | **non commencé** — parties B à H du mandat non encore lues en détail |
+| Écosystème ONR / BDR / ANASUR (partie B) | **non commencé** — les 15 livrables du § B.6 restent à produire ; formats L²R non publiés |
+| Exploitation et information routière (§ 7.17) | **non commencé** — main courante, patrouilles, P1–P4, cellule de veille, Info Route |
+| Observation de la Terre (partie E) | **non commencé** — palier 0 gratuit, aucune dépense requise |
+| Tâches internes et rapprochement (TI-01 à TI-03) | **non commencé** — entré au périmètre par l'arbitrage D1 |
 | Intégrations DigitalRoad, SharePoint | **bloquées, aucun accès** |
 | Durcissement, observabilité | partiel |
 
@@ -143,17 +151,27 @@ tournera dans la coque.
 
 ## 7. Prochaine action
 
-**Lire les parties B à H du prompt maître V10** — écosystème national ONR/BDR/L²R/ANASUR
-Collect, arbitrages « juste milieu » D1–D15, observation de la Terre, catalogue des
-fonctionnalités — et en tirer la mise à jour de
-[REQUIREMENTS_TRACEABILITY.md](REQUIREMENTS_TRACEABILITY.md) avec des statuts prouvés, comme le
-§ K.4 l'exige.
+Le mandat V10 est **lu en entier**, la matrice de conformité est refaite sans case « à
+vérifier », et les quinze ADR des arbitrages sont écrites. Les trois exigences documentaires du
+§ K.4 sont donc tenues.
 
-Je n'ai lu à ce stade que les parties A, I, J et K. Les parties B à H portent une part
-substantielle du périmètre — notamment les livrables de l'écosystème national du § B.6 et les
-quinze arbitrages du § D — et il serait malhonnête de présenter la matrice de conformité comme
-à jour sans les avoir lues.
+**Il reste un seul obstacle à la fin de la phase 0**, et il est technique : le § F.1 exige
+« `MIGRATION_PLAN.md` **testé** », or le rollback n'a jamais été exécuté faute de base de
+développement (B-13). Il se lève en démarrant Docker sur ce poste. C'est **la prochaine action**,
+parce qu'aucun autre travail ne peut franchir la porte à sa place.
 
-**Ensuite**, par ordre de valeur et sans dépendre d'une décision : le **map-matching de trace
-HMM** (§ 7.3.7), qui conditionne le critère A18 et que le § 15 fige comme bibliothèque
-TypeScript partagée.
+**Ensuite**, par ordre de valeur et sans dépendre d'une décision institutionnelle :
+
+1. **Map-matching de trace HMM** (§ 7.3.7) — conditionne le critère A18, et le § 15 le fige comme
+   bibliothèque TypeScript partagée. `geo/appariement.noyau.ts` est déjà écrit sans import pour
+   le recevoir.
+2. **Vue dérivée des sections fixes** (IO-03/IO-04) — l'arbitrage D6 en fait le format d'échange
+   avec la BDR nationale, donc le prérequis du critère A23. Aucune table à créer : une vue
+   paramétrable par le pas.
+3. **Benchmark cartographique sur les 261 387 tronçons** — l'arbitrage D3 en fait une « porte de
+   décision ». Tant qu'il n'existe pas, « Leaflet suffit » est une hypothèse.
+4. **TI-01, tâches internes** — entré au périmètre par D1, ne dépend d'aucune décision en
+   attente, et débloque le critère A29.
+
+Le constat du § 2 continue de dominer : rien de tout cela ne produira d'indicateur tant qu'aucune
+donnée de terrain n'entre.

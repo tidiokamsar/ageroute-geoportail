@@ -131,12 +131,91 @@ refuse d'inventer.
 Le modèle anticipe désormais le contexte que V10 attend : cause, date de début, durée estimée,
 tonnage maximal (migration `20261014170000`, non déployée).
 
-**Ce qui manque** : les valeurs, avec code stable, libellé, définition opérationnelle, critères
-d'attribution, conditions de changement, source et date de réévaluation. Et la distinction que
-V10 souligne : **l'état physique de la chaussée n'est pas la possibilité réelle de circuler.**
+### Correction du 14/10 : une proposition existe, et je l'avais déclarée absente
 
-**Conséquence tant que rien n'est arrêté** : aucune portion ne peut porter de praticabilité, et
-T-07 (priorité M) reste bloquée.
+J'ai écrit ci-dessus, et dans mes rapports précédents, qu'aucune valeur n'était proposée nulle
+part. **C'est inexact.** Le § 7.17 du prompt maître V10 **propose lui-même quatre niveaux**, et
+l'arbitrage D7 les range explicitement en fiche de décision : « les propositions de v2.6
+deviennent des fiches de décision ; moteurs paramétrables, résultats « provisoires » jusqu'à
+approbation ».
+
+La fiche doit donc porter cette proposition, et non constater un vide. Verbatim du § 7.17,
+présenté par le mandat lui-même comme **« proposition à faire approuver »** :
+
+| Code | Libellé proposé | Définition opérationnelle proposée |
+|---|---|---|
+| **P1** | circulation normale | — |
+| **P2** | délicate | 4×4 conseillé, vitesse réduite |
+| **P3** | difficile | poids lourds interdits ou restriction de tonnage, passage à vos risques |
+| **P4** | impraticable / coupée | déviation |
+
+Le § 7.17 ajoute que **chaque niveau porte cause, date, durée estimée et auteur**, et se propage
+à la carte, aux alertes, au routage (déviations) et à l'Info Route.
+
+**Le modèle est déjà prêt à les recevoir** : la migration `20261014170000` ajoute cause, date de
+début, durée estimée et tonnage maximal. Elle n'est pas déployée.
+
+### Ce qui reste à décider, et qui n'est pas dans la proposition
+
+La proposition est un squelette utilisable, pas un référentiel. Quatre manques, dans l'ordre où
+ils bloquent :
+
+1. **Les critères d'attribution.** Rien ne dit à quel moment une portion passe de P2 à P3. Sans
+   critère, deux agents classeront la même piste différemment, et le niveau cessera d'être un
+   langage commun — ce qui est précisément sa raison d'être (EX-02).
+2. **Le tonnage de P3.** « restriction de tonnage » sans valeur n'est pas applicable ; et une
+   valeur inventée par moi aurait force de règle sur le terrain.
+3. **Qui attribue, et qui peut lever.** Un P4 ferme une route : c'est un acte d'exploitation,
+   pas une observation. Le § 7.17 ne dit pas quel rôle en a le droit.
+4. **La durée de validité.** Un P4 de saison des pluies doit expirer ; sinon la carte affichera
+   des coupures levées depuis des mois.
+
+**La distinction que V10 souligne, et qui justifie à elle seule ce référentiel** : l'état
+physique de la chaussée n'est pas la possibilité réelle de circuler. Une route en bon état peut
+être coupée par un radier submergé.
+
+**Ce que je peux faire sans votre décision** : peupler le référentiel avec les quatre niveaux
+**étiquetés provisoires et non approuvés**, exactement comme les 9 barèmes de D-07, de sorte que
+le mécanisme soit éprouvable sans qu'aucun niveau ne fasse foi. **Ce que je ne peux pas** :
+fixer les critères d'attribution ni le tonnage.
+
+**Conséquence tant que rien n'est arrêté** : aucune portion ne peut porter de praticabilité
+opposable, et T-07 (priorité M) reste bloquée. Mais la proposition étant désormais identifiée,
+le blocage n'est plus « aucune valeur n'existe » — il est « les critères d'attribution
+manquent », ce qui est une question beaucoup plus petite.
+
+---
+
+## D-09 🔴 Fournisseur d'identité et ERP de référence (arbitrage D4)
+
+Ce point découle de l'arbitrage **D4** de la partie D, qui tranche « comptes ERP = référence ;
+fédération OIDC vers l'IdP effectif **(à vérifier)** ; aucun second annuaire » — mais **ne nomme
+ni l'ERP ni l'IdP**.
+
+**Mesuré le 14/10.** Aucune fédération n'existe. Aucune occurrence d'`oidc`, `openid`, `saml` ni
+`passport` dans `backend/src` : les correspondances apparentes étaient le mot français
+« entrant ». L'authentification est entièrement locale — JWT d'accès 15 min, rafraîchissement
+rotatif révocable 7 j, Argon2id — avec **799 jetons de rafraîchissement** actifs et une table
+`utilisateurs` propre.
+
+**Le conflit est net** : « aucun second annuaire » est exactement ce que cette table est
+aujourd'hui. Ce n'était pas une faute — c'était la seule option sans accès à un IdP — mais la
+cible est une fédération, et deux annuaires qui divergent sont pires qu'un seul.
+
+**Les deux questions, et aucune n'est technique** :
+
+1. Quel **ERP** porte les comptes de référence d'AGEROUTE ?
+2. Quel **IdP** expose-t-il, et parle-t-il OIDC ? D4 écarte Entra ID comme postulat sans dire ce
+   qui le remplace.
+
+**Ce que je ne peux pas faire** : le vérifier moi-même. Le garde-fou V10 est explicite — aucun
+accès à un système tiers sans autorisation écrite et interface approuvée.
+
+**Ce que je peux faire sans décision, et qui est le vrai livrable ici** : concevoir la bascule
+**sans suppression de comptes**. Un rattachement — le compte local se lie à une identité fédérée
+et conserve son historique d'audit — plutôt qu'une migration qui recréerait les comptes et
+casserait les 1 506 lignes d'`audit_logs` qui les citent. Le § A.5.8 proscrit les suppressions
+silencieuses, et un annuaire remplacé en est une.
 
 ---
 
