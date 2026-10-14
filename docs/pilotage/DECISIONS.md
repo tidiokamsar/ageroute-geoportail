@@ -173,3 +173,48 @@ suivent le § 12.
 croisées pour un gain de rangement, alors que le § 4 demande surtout de ne pas refaire ce qui
 est consigné. Un `docs/pilotage/CONFORMITE.md` qui pointe vers la matrice existante répond à
 l'exigence sans détruire la traçabilité.
+
+
+---
+
+## ADR-007 — `observeeLe` n'est pas renommé en `valideDu` : ce sont deux choses
+
+**Date** : 14/10/2026. **Statut** : actée.
+
+**Contexte.** Le § 7.2 exige `valide_du` / `valide_au`. `portions` portait déjà `observeeLe`,
+documenté « quand elle a été CONSTATÉE (pas saisie) ». La tentation était de renommer, d'autant
+que la table est vide et qu'un renommage ne coûte donc rien.
+
+**Décision.** Ne pas renommer. **Ajouter** `valideDu` et `valideAu`.
+
+**Motif.** Un agent peut constater le 2 avril qu'une piste est en latérite **depuis l'an
+dernier**. `observeeLe` dit quand on a regardé, `valideDu` depuis quand c'est vrai. Les fondre
+perdrait la provenance de l'information, et l'on ne pourrait plus distinguer une donnée fraîche
+d'une donnée rétrospective.
+
+Trois dates, trois sens : `observeeLe` (on a regardé), `valideDu` (c'est vrai), `createdAt`
+(le système l'a enregistré). Les confondre rend l'histoire du réseau inexplicable.
+
+---
+
+## ADR-008 — Les scripts de descente vivent hors du dossier de migration
+
+**Date** : 14/10/2026. **Statut** : actée.
+
+**Contexte.** Le § 9.4 exige des migrations « testées en montée **et** en descente ». Prisma
+Migrate ne gère pas de migrations descendantes : il faut les écrire à la main. La place
+naturelle est à côté de la montée, dans le dossier de la migration.
+
+**Décision.** `backend/prisma/descentes/<nom-de-la-migration>.sql`, hors de
+`prisma/migrations/`.
+
+**Motif.** Prisma lit `migration.sql` dans chaque dossier, et un second `.sql` y est très
+probablement ignoré — le nom est codé en dur dans l'outil. Mais je n'ai pas pu l'établir avec
+certitude, et **le risque est asymétrique** : si un `descente.sql` était exécuté pendant un
+`migrate deploy`, il supprimerait en production les colonnes que la migration vient d'ajouter.
+
+Devant une incertitude dont le coût est une perte de données, le dossier séparé est la réponse.
+On perd un peu de localité, on gagne l'impossibilité de cet accident.
+
+**Conséquence.** Le contrôle de CI « chaque dossier de migration porte un `migration.sql` »
+reste sans ambiguïté, et les dossiers de migration ne contiennent qu'un seul fichier.

@@ -1599,6 +1599,26 @@ model MediaObservation {
   cap        Float?
   capturedA  DateTime?
 
+  /// ARCHITECTURE PRETE POUR LA VISION PAR ORDINATEUR (T-03). Le point 9 de l''exigence
+  /// « vision nationale » demandait que l''architecture y soit prete, pas la vision.
+  ///
+  /// LA DISTINCTION QUI PORTE TOUT : « non analyse » n''est pas « analyse sans detection ».
+  /// Une seule colonne les confondrait, et un tableau de bord afficherait « aucun defaut
+  /// detecte » sur des photos que rien n''a jamais regardees — le meme mensonge que le
+  /// moteur de condition refuse en distinguant une composante ABSENTE d''un zero.
+  ///
+  ///   analyseeLe nulle                      personne n''a regarde
+  ///   analyseeLe posee, resultat tableau []  analyse, rien trouve
+  ///
+  /// Le modele est VERSIONNE : une detection d''une version ancienne ne vaut pas une
+  /// detection recente, et le paragraphe 14 l''exige. Les resultats sont des PROPOSITIONS
+  /// soumises au workflow de validation, jamais des donnees officielles.
+  analyseeLe       DateTime?
+  analyseModele    String?
+  analyseVersion   String?
+  analyseResultat  Json?
+  analyseConfiance Decimal?  @db.Decimal(4, 3)
+
   createdAt DateTime @default(now())
 
   @@index([observationId])
@@ -2052,6 +2072,26 @@ model MediaDefaut {
   cap        Float?
   capturedA  DateTime?
 
+  /// ARCHITECTURE PRETE POUR LA VISION PAR ORDINATEUR (T-03). Le point 9 de l''exigence
+  /// « vision nationale » demandait que l''architecture y soit prete, pas la vision.
+  ///
+  /// LA DISTINCTION QUI PORTE TOUT : « non analyse » n''est pas « analyse sans detection ».
+  /// Une seule colonne les confondrait, et un tableau de bord afficherait « aucun defaut
+  /// detecte » sur des photos que rien n''a jamais regardees — le meme mensonge que le
+  /// moteur de condition refuse en distinguant une composante ABSENTE d''un zero.
+  ///
+  ///   analyseeLe nulle                      personne n''a regarde
+  ///   analyseeLe posee, resultat tableau []  analyse, rien trouve
+  ///
+  /// Le modele est VERSIONNE : une detection d''une version ancienne ne vaut pas une
+  /// detection recente, et le paragraphe 14 l''exige. Les resultats sont des PROPOSITIONS
+  /// soumises au workflow de validation, jamais des donnees officielles.
+  analyseeLe       DateTime?
+  analyseModele    String?
+  analyseVersion   String?
+  analyseResultat  Json?
+  analyseConfiance Decimal?  @db.Decimal(4, 3)
+
   createdAt DateTime @default(now())
 
   @@index([defautId])
@@ -2461,6 +2501,39 @@ model Portion {
   /// Une portion de terrain est une PROPOSITION jusqu'a validation par un tiers.
   statutValidation StatutValidation @default(A_VALIDER)
 
+  /// AXE TERRAIN de l''historisation bitemporelle (paragraphe 7.2 du mandat v2.1).
+  ///
+  /// `valideDu` dit depuis quand le contenu de cette version est VRAI SUR LE TERRAIN,
+  /// `valideAu` jusqu''a quand — EXCLU, l''intervalle etant semi-ouvert. Ferme des deux
+  /// cotes, deux versions successives seraient toutes deux valides a l''instant de la
+  /// bascule et toute requete a cette date rendrait deux reponses.
+  ///
+  /// TROIS DATES, TROIS SENS, ET LES CONFONDRE REND L''HISTOIRE INEXPLICABLE :
+  ///
+  ///   observeeLe   quand on a REGARDE
+  ///   valideDu     depuis quand c''est VRAI
+  ///   createdAt    quand le systeme l''a ENREGISTRE
+  ///
+  /// Une route reprise le 15 mars et relevee le 2 avril : valideDu au 15/03, observeeLe au
+  /// 02/04, createdAt au 02/04. Sans `valideAu`, la base ne pouvait pas dire que l''ancienne
+  /// version avait cesse d''etre vraie le 15 mars — seulement qu''on l''avait close le 2 avril.
+  ///
+  /// Les regles sont dans `reseau/bitemporel.ts`, eprouvees par 32 tests sans base.
+  valideDu DateTime? @db.Date
+  valideAu DateTime? @db.Date
+
+  /// CONTEXTE de la praticabilite (T-07, priorite M). Le statut lui-meme vit dans
+  /// `praticabilite`, rattache a un referentiel volontairement vide (B-01).
+  ///
+  /// Anticipes au lot 2 comme l''exige le paragraphe 14 : ajouter une colonne a une table
+  /// peuplee coute cher, et `portions` ne le restera pas.
+  praticabiliteCause       String?
+  praticabiliteDepuis      DateTime? @db.Date
+  praticabiliteDureeJours  Int?
+  /// Tonnage maximal admis quand la praticabilite est LIMITEE. Nul quand la limite n''est
+  /// pas un tonnage — 4x4 uniquement, par exemple.
+  praticabiliteTonnageMaxT Decimal?  @db.Decimal(6, 2)
+
   /// Date a laquelle cette version a ete remplacee par un decoupage, une fusion ou une
   /// requalification. NULLE si elle est courante.
   ///
@@ -2492,6 +2565,7 @@ model Portion {
 
   @@index([tronconId, debutM])
   @@index([tronconId, remplaceeLe])
+  @@index([tronconId, valideDu], map: "portions_tronconId_valideDu_idx")
   @@index([statutValidation])
   @@index([deletedAt])
   @@index([observationId])

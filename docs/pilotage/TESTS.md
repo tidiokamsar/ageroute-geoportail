@@ -3,6 +3,29 @@
 > Exigé par le § 4 du mandat v2.1. Le § 2.7 impose que toute affirmation de réussite cite la
 > commande lancée et son résultat. Aucune ligne de ce fichier n'est écrite sans l'avoir vue.
 
+## 14/10/2026 — lot 2, référentiel linéaire
+
+| Commande | Résultat |
+|---|---|
+| `npx tsc -p tsconfig.json --noEmit` (backend) | aucune erreur |
+| `npx vitest run src/reseau/bitemporel.test.ts` | **32 passés** |
+| `npx vitest run` (backend) | **1 105 passés**, 0 échec, 26,0 s |
+| `npx prisma generate` | client généré, schéma valide |
+| Contrôle « chaque dossier de migration porte un migration.sql » | **51 dossiers, 0 manquant** |
+
+**Séquence rouge puis verte** (§ 9.2) : les 32 tests bitemporels ont été écrits avant le
+module et ont d''abord échoué.
+
+### Ce qui n''est PAS testé, et que je ne déclare pas testé
+
+**La migration `20261014170000_historisation_bitemporelle` n''a été éprouvée ni en montée ni
+en descente.** Le § 9.4 l''exige « sur une base de développement » ; il n''en existe aucune.
+Mesuré le 14/10 : aucun `psql`, aucun service PostgreSQL, aucune installation PostgreSQL,
+Docker Desktop injoignable et absent du chemin standard. C''est le blocage B-13, et le garde-fou
+§ 2.1 interdit par ailleurs d''utiliser la production.
+
+Le script de descente est écrit, relu et commenté — pas exécuté.
+
 ## 14/10/2026 — lot 1, socle
 
 | Commande | Résultat |
