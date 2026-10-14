@@ -1,198 +1,159 @@
-# État du projet au 14/10/2026
+# État du projet
 
-Livrable demandé par l'addendum V4.1. Chaque chiffre de ce document est mesuré contre la
-production ou le dépôt, à la date indiquée. Rien n'y est estimé.
+> Fichier canonique exigé par le § A.9 du prompt maître V10. **À lire en premier à chaque
+> session**, avec [BLOCKERS.md](BLOCKERS.md) et [DECISIONS_PENDING.md](DECISIONS_PENDING.md),
+> puis reprendre à la « prochaine action ».
+>
+> Le § A.9 interdit de refaire un audit déjà consigné : **le mettre à jour**.
 
-## 1. Ce qui est en production, et vérifié
+**Vérifié le 14/10/2026.** Branche de travail : `lot/03-map-matching`. Toute mesure porte sa
+date et sa méthode ; ce qui n'est pas vérifié est dit comme tel (§ A.5.7).
 
-| Élément | État |
+---
+
+## 1. Production
+
+| Élément | État vérifié |
 |---|---|
-| Domaine | `carte.ageroute.gov.gn`, HTTP 200 |
-| Déploiement | 13/10/2026, images construites à 18:17:26, conteneurs démarrés à 18:19:27 |
-| Migrations | **48 dossiers, toutes appliquées**, « Database schema is up to date! » |
-| Santé | `/api/health` 200, base 8 ms, stockage 4 ms, `echecsDepuisDemarrage` **0** |
+| Domaine | `carte.ageroute.gov.gn`, HTTP **200** |
+| Dernier déploiement | **14/10/2026 à 14:23**, images construites à 14:17 |
+| Migrations | **50 appliquées**, « Database schema is up to date! » |
+| Santé | `/api/health` 200, base 5 ms, stockage 2 ms, `echecsDepuisDemarrage` **0** |
 | Journal backend | **0 erreur** depuis le redémarrage |
-| API publique | `/api/public/carte/geo` 200, 785 Ko en 0,36 s |
+| API publique | `/api/public/carte/geo` sert 785 Ko en 0,36 s |
 | PWA | `/sw.js` 200 |
-| Routes protégées | `/api/v2/portions`, `/qualite/anomalies`, `/sync/status`, `/referentiels`, `/missions`, `/observations`, `/devices`, `/field/current-context`, `/defauts/catalogue` répondent **401** |
 
-Un 401 est la bonne preuve ici : il établit que la route existe **et** qu'elle est fermée.
-Un 404 aurait voulu dire non déployée.
+**Depuis le 14/10 à 14:23, aucune opération de production** autre que la désapprobation de la
+règle RCI à 16:19, explicitement autorisée. Le § A.5.1 l'exige.
 
-## 2. Ce que la base contient réellement
+---
+
+## 2. Ce que la base contient, et le constat qui domine tout
 
 | Table | Lignes |
 |---|---|
-| `troncons` | 261 387 |
+| `troncons` | 261 387, dont **1 691 au réseau classé** (21 156,6 km) |
 | `valeurs_qualite` | 1 820 694 |
 | `ouvrages` | 1 172 |
-| `chantiers` | 496 |
-| `audit_logs` | 1 491 |
-| `postes` | 10 |
-| `users` | 9 |
-| `points_noirs` | 2 |
-| `inspections` | **1** |
-| `defauts` | **0** |
-| `missions` | **0** |
-| `observations` | **0** |
-| `portions` | **0** |
-| `referentiel_etats_chaussee` | **0** |
-| `referentiel_revetements` | **0** |
-| `referentiel_praticabilites` | **0** |
-| `regles_condition` | **0** |
-| `evaluations_condition` | **0** |
+| `chantiers` | 496 — **module gelé** (§ A.3) |
+| `refresh_tokens` | 799 |
+| `catalogue_defauts` | 13 |
+| `baremes_intervention` | 9, **aucun approuvé** |
+| `matrices_degradation` | 9, **lues par aucun code** |
+| `referentiel_revetements` / `_etats_chaussee` | 8 / 5 |
+| `regles_condition` | 1, **désapprouvée le 14/10 à 16:19** |
+| `missions`, `observations`, `defauts`, `portions`, `evaluations_condition` | **0** |
+| `referentiel_praticabilites` | **0** — décision institutionnelle attendue |
 
-**C'est le constat central de ce document.** Toute la chaîne de collecte terrain est écrite,
-testée, déployée — et vide. Aucune mission, aucune observation, aucun défaut, aucune portion.
-Les trois référentiels configurables livrés le 13/10 sont vides. La règle RCI n'existe pas.
+**Toute la chaîne de collecte est écrite, testée, déployée — et vide.** C'est le constat
+central, et il n'est pas technique.
 
-**Le verrou du projet n'est donc pas le code, c'est l'alimentation.** Aucun développement
-supplémentaire ne produira un indicateur tant qu'aucune donnée de terrain n'entre.
+Sur les 1 691 tronçons du réseau classé, **649 portent un état déclaré** et **un seul** un état
+réellement observé (`RES-857`). `troncons.dateDerniereEvaluation` est **nulle sur les 261 387
+lignes**. Aucune mesure de déflexion, aucune mesure d'IRI.
 
-### Le réseau, en deux périmètres qu'il ne faut pas confondre
+**Aucun développement supplémentaire ne produira d'indicateur tant qu'aucune donnée de terrain
+n'entre.**
 
-| Périmètre | Tronçons | Km |
-|---|---|---|
-| Registre complet (`tout`) | 261 387 | 185 264,4 |
-| **Réseau classé** (`reference`) | **1 691** | **21 156,6** |
-| Voirie locale reprise d'OSM | 259 696 | 164 107,8 |
+### Le réseau, contre les chiffres officiels
 
-L'API publique publie le réseau classé. **Les 261 387 tronçons sont donc dominés à 99,4 % par
-la voirie locale importée** : le réseau qui porte les statistiques officielles n'en compte que
-1 691. Confondre les deux fait varier tout pourcentage d'un facteur neuf en kilomètres et de
-plus de cent en nombre de tronçons — erreur que j'ai commise deux fois le 13/10, dans l'audit
-hors territoire puis dans l'audit RCI, avant de la corriger.
+Mesuré contre les chiffres que le § A.2 cite (TDR de la BDR nationale, 2020) :
 
-### Les états, par périmètre
-
-| Périmètre | Avec un état | Non évalués | Part |
+| Classe officielle | Officiel | Mesuré | Écart |
 |---|---|---|---|
-| **Réseau classé** | **649** | 1 042 | **38,4 %** |
-| Voirie locale | 6 191 | 253 505 | 2,4 % |
+| Nationales | 7 576 km | **7 824,4 km** | **+3,3 %** |
+| Préfectorales | 15 879 km | 13 295,6 km (classe `RR`) | −16,3 % |
+| **Communautaires** | 19 846 km | **valeur inexistante dans l'énumération** | — |
+| Voiries urbaines | ≈ 2 000 km | **36,6 km** | −98 % |
+| Total | ≈ 45 300 km | 21 156,6 km | **48 %** |
 
-| État déclaré | Réseau classé | Voirie locale |
+Le réseau national est essentiellement complet. Les communautaires n'ont **aucune valeur
+d'énumération** pour exister, et les voiries urbaines sont quasi absentes. Voir D-06 dans
+[DECISIONS_PENDING.md](DECISIONS_PENDING.md).
+
+---
+
+## 3. Tests
+
+| Suite | Résultat, 14/10/2026 |
+|---|---|
+| Backend `npx vitest run` | **1 145 passés**, 0 échec |
+| Frontend `npx vitest run` | **294 passés**, 0 échec |
+| `tsc --noEmit`, les deux paquets | aucune erreur |
+
+Détail, et **ce qui n'est pas testé**, dans [TEST_EVIDENCE.md](TEST_EVIDENCE.md).
+
+---
+
+## 4. Fait depuis l'arrivée du mandat V10
+
+| # | Travail | Preuve |
 |---|---|---|
-| MOYEN | 296 | 5 454 |
-| MAUVAIS | **133** | 1 |
-| BON | 125 | 735 |
-| CRITIQUE | **95** | 1 |
+| § A.7 | **Sécurité P0 vérifiée** : aucun secret ni IP de production jamais committé sur 225 commits. Le dépôt est bien public, mais rien n'a fuité — **aucune rotation nécessaire** | [SECURITY_REMEDIATION.md](SECURITY_REMEDIATION.md) |
+| § A.9 | Huit **fichiers de suivi canoniques** à la racine, renommés depuis les miens pour ne pas créer de concurrents | historique Git préservé |
+| § 15 | **ADR-009** : Capacitor figé, ADR-002 (React Native) remplacée, avec ce que mon analyse avait juste et faux | [TECHNICAL_DECISIONS.md](TECHNICAL_DECISIONS.md) |
+| § A.6.1 | **`rci-2026.1` désapprouvée** par un geste audité, et `RCI_METHOD_DECISION.md` écrit | [RCI_METHOD_DECISION.md](RCI_METHOD_DECISION.md) |
+| § A.8 | **Migrations réconciliées** : 51 locales, 50 appliquées, 1 en attente. L'état de référence du § A.4 était périmé de neuf migrations | [MIGRATION_PLAN.md](MIGRATION_PLAN.md) |
 
-**Les états dégradés sont tous dans le réseau classé**, ce qui est cohérent : 133 mauvais et
-95 critiques y sont déclarés, contre un seul de chaque sur 259 696 voies locales. La campagne
-de déclaration qui n'a produit que du moyen et du bon concerne la voirie locale, pas le réseau
-national.
+---
 
-**Mais un seul état observé s'y trouve** : `RES-857`, moyen, 04/09/2026. Les trois autres
-états réellement observés du pays portent des codes OSM et sont donc de la voirie locale.
+## 5. Fait avant le mandat V10, et qui tient
 
-## 3. Ce qui est construit mais ne peut rien produire encore
+Chaîne de collecte complète et déployée : appariement GPS avec confiance et refus sous seuil,
+contexte terrain en une requête, portions homogènes (créer, scinder, fusionner, requalifier,
+lignage, contrainte d'exclusion `btree_gist`), écran de terrain, écran de validation,
+idempotence hors ligne, moteur de qualité à 9 familles, PWA renforcée, 13 types de défauts,
+4 familles d'actifs linéaires, fiche 360°.
 
-**Le RCI ne rend aucun score, et c'est le comportement correct.** `regles_condition` est vide,
-donc rien n'est calculable. Même alimentée, la couverture maximale atteignable est **0,45**
-pour un seuil arbitré à **0,5** : le moteur refuserait chaque score avec
-`COUVERTURE_INSUFFISANTE`. Voir [AUDIT_RCI.md](AUDIT_RCI.md).
+Et trois travaux des lots 1 à 3 :
 
-**Sur les dix composantes du modèle, une seule a une source**, et elle est faible :
+- **Bogue des PK corrigé** — il existait en deux exemplaires et rendait `PK 1+1000` pour
+  1,9999 km. Unifié dans `lib/pk.ts`, 12 tests.
+- **Historisation bitemporelle** — `reseau/bitemporel.ts`, 32 tests, les deux axes de temps
+  répondant différemment à la même date de terrain.
+- **Noyau d'appariement partageable** — `geo/appariement.noyau.ts`, sans aucun import, avec les
+  deux facteurs manquants du § 7.3.3 (cap, continuité) et les trois issues du § 7.3.4. Critère
+  **A2 mesuré sur 23 cas annotés : 100 %**, exigé ≥ 95 %, et **0 rattachement automatique sous
+  le seuil**.
 
-| Composante | Données sur le réseau classé |
+Le § 15 ayant figé Capacitor, ce noyau devient plus utile encore : c'est le même JavaScript qui
+tournera dans la coque.
+
+---
+
+## 6. Restant, par lot du § F.2
+
+| Lot | État |
 |---|---|
-| CHAUSSEE | **649 états déclarés sur 1 691**, dont **un seul réellement observé** |
-| OUVRAGES | 126 ouvrages lisibles sur 1 172 |
-| TRAFIC, DRAINAGE, SIGNALISATION, SECURITE | **0** |
-| HISTORIQUE, INCIDENTS, ENVIRONNEMENT, AUTRES | **aucune source** |
+| Audit, conformité, architecture | **fait**, tenu à jour |
+| Socle, SRID, CI | **fait** |
+| Référentiel linéaire | historisation **faite** ; codification, pgRouting, gazetier **bloqués** par D-06 |
+| Map-matching | ponctuel et scoring **faits** ; **trace HMM absente** (critère A18) |
+| Dégradations, métrés, ouvrages | faits ; **fiche d'inspection d'ouvrage T-04 absente** |
+| Validation, audit, qualité | **faits** |
+| Mobile et écran de roulage | **Capacitor figé, non commencé** ; plugins Kotlin à écrire |
+| Hors ligne, packs, roulage complet | sync faite ; **packs, IRI, photo continue absents** |
+| Indices, prévision, programmation | RCI écrit mais **désapprouvé** ; **risque, traitement, coût, programmation absents** — barèmes et matrices présents, lus par aucun code |
+| Tableau de bord, Control Tower, Géoportail d'excellence | partiels |
+| Écosystème ONR / BDR / ANASUR (partie B) | **non commencé** — parties B à H du mandat non encore lues en détail |
+| Intégrations DigitalRoad, SharePoint | **bloquées, aucun accès** |
+| Durcissement, observabilité | partiel |
 
-Et `troncons.dateDerniereEvaluation` est **nulle sur les 261 387 lignes** : par la règle du
-moteur, les 6 840 états sont tous périmés.
+---
 
-## 4. Ce qui n'existe pas du tout
+## 7. Prochaine action
 
-`backend/src/engines/` ne contient que le moteur de condition et sa collecte. **Les moteurs
-Risque, Traitement, Coût et Programmation du cahier n'ont aucun code** — alors que la route
-`/programmation` est déclarée dans `App.tsx`.
+**Lire les parties B à H du prompt maître V10** — écosystème national ONR/BDR/L²R/ANASUR
+Collect, arbitrages « juste milieu » D1–D15, observation de la Terre, catalogue des
+fonctionnalités — et en tirer la mise à jour de
+[REQUIREMENTS_TRACEABILITY.md](REQUIREMENTS_TRACEABILITY.md) avec des statuts prouvés, comme le
+§ K.4 l'exige.
 
-Une page dont le moteur n'existe pas n'est pas une fonctionnalité livrée. Un tableau de
-conformité qui la compterait comme faite serait faux, et c'est le piège principal de ce genre
-de document.
+Je n'ai lu à ce stade que les parties A, I, J et K. Les parties B à H portent une part
+substantielle du périmètre — notamment les livrables de l'écosystème national du § B.6 et les
+quinze arbitrages du § D — et il serait malhonnête de présenter la matrice de conformité comme
+à jour sans les avoir lues.
 
-### Mais leurs données existent, et j'avais écrit le contraire
-
-Mesuré le 14/10/2026. J'avais affirmé « aucune table de prix » : c'est faux.
-
-| Table | Lignes | Contenu | Lue par du code ? |
-|---|---|---|---|
-| `baremes_intervention` | **9** | famille de revêtement × état de départ → type d'intervention et **coût au km en GNF** | **non** |
-| `matrices_degradation` | **9** | probabilités de transition BON→MOYEN→MAUVAIS→CRITIQUE par famille et classe de trafic | **non** |
-
-Les barèmes couvrent bitume, terre-latérite et pavé, pour les états moyen, mauvais et
-critique, avec des coûts de **350 millions à 3,5 milliards GNF au kilomètre**. Les trois
-moteurs aval ne partent donc pas de rien : il leur manque le code, pas les référentiels.
-
-**Et un défaut grave s'y cache.** `BaremeIntervention` porte **cinq colonnes** — identifiant,
-famille, état, type d'intervention, coût — et **ni `source`, ni `version`, ni approbation**,
-là où `MatriceDegradation` trace les trois. Un coût de 3,5 milliards GNF au kilomètre que
-personne ne peut attribuer est exactement le genre de nombre qui finit dans un document
-officiel sans que quiconque puisse dire qui l'a fixé.
-
-**Tracer l'origine de ces prix doit précéder l'écriture du moteur de coûts**, pas le suivre.
-Le cahier exige par ailleurs qu'« une estimation de coûts ne crée jamais automatiquement un
-décompte » — et la table `decomptes` existe, vide.
-
-## 5. Les défauts mesurés, et non corrigés
-
-**72 km de routes nationales hors territoire comptent dans le réseau classé.** Sept tronçons,
-six RN4 vers Gabú et une RN1 vers le Sénégal, entre 224 m et 4 282 m hors limites.
-`lib/reseau.ts` déclare depuis le 07/10/2026 un préfixe `hors_territoire:` pour les exclure :
-en base, ce préfixe compte **zéro ligne**. Le mécanisme existe, il n'a jamais été appliqué.
-Voir [AUDIT_TRONCONS_HORS_TERRITOIRE.md](AUDIT_TRONCONS_HORS_TERRITOIRE.md).
-
-**Dérive Prisma préexistante.** La table `limites_admin` et treize index créés en SQL brut ne
-figurent pas dans `schema.prisma`. Conséquence opérationnelle : `prisma migrate dev` ne doit
-**jamais** être lancé contre la production, il proposerait de les supprimer. Seul
-`migrate deploy` est admis. Voir [PLAN_MIGRATIONS_PRODUCTION.md](PLAN_MIGRATIONS_PRODUCTION.md).
-
-**`bdri_app` est SUPERUSER et c'est le seul rôle de connexion.** Réduire ses privilèges exige
-d'abord un rôle de secours, sans quoi la réduction coupe le service.
-Voir [AUDIT_SECURITE_DEPOT_PUBLIC.md](AUDIT_SECURITE_DEPOT_PUBLIC.md).
-
-## 6. Les décisions qui vous attendent
-
-Aucune ne demande de développement. Toutes bloquent une mise en service.
-
-| Sujet | Décision attendue |
-|---|---|
-| Pondérations RCI | le cahier §13 (avec signalisation 10) ou votre liste à neuf composantes (avec environnement 5 + autres 5) |
-| « Autres critères » | la définir, ou retirer ses 5 points : sans définition elle est du poids mort renormalisé |
-| Fraîcheur | 365 jours proposés, non arbitrés |
-| Confiances acceptées | `HIGH` et `MEDIUM` proposées, non arbitrées |
-| **Approbation de la règle** | **le seul geste rendant un score publiable** |
-| `dateDerniereEvaluation` | doit-elle être alimentée, et par quoi — pas par `valeurs_qualite.observedAt`, qui porte des dates de reprise |
-| Praticabilité | valeurs du référentiel à approuver avant usage officiel |
-| Hors territoire | ne rien exclure, exclure les 7 (−0,340 %), ou exclure au-delà d'un seuil |
-| Fusion `main` | la branche est en avance de **51 commits** sur le tronc |
-
-## 7. Ce que je n'ai pas fait
-
-**Rien n'a été appliqué sans votre arbitrage.** Aucun tronçon supprimé, aucune géométrie
-modifiée, aucune `sourceReference` écrite, aucune règle approuvée, aucun seuil appliqué.
-
-**Trois livrables des cinq décisions du 13/10 manquent encore** : les fiches de comparaison
-des 42 doublons géométriques, le référentiel provisoire des 1 029 axes régionaux, et la règle
-de périmètre validée. Les deux premiers sont du travail de production de documents ; le
-troisième est votre décision.
-
-**Et trois choses me sont matériellement impossibles ici** : construire un APK (ni `adb`, ni
-`gradle`, ni `java` sur ce poste), vérifier les contrats d'intégration DigitalRoad (aucun
-accès), et mesurer le coût d'un import de masse autrement qu'en le lançant.
-
-## 8. Divergences avec la documentation existante
-
-**`AGENTS.md` annonce 21 routes applicatives contre 13 déployées.** Le dépôt en déclare
-aujourd'hui 29 dans `App.tsx`, dont `/login`, `/carte` et `/embed/carte` qui ne sont pas des
-pages de l'application. L'écart tient surtout aux pages ajoutées le 13/10. Cette note est à
-rafraîchir.
-
-**`AGENTS.md` donne la PWA et l'API publique comme non déployées.** Elles le sont depuis le
-13/10 : `/sw.js` et `/api/public/carte/geo` répondent 200.
-
-Le dépôt porte 26 documents dans `docs/rai-v3/`, dont 19 numérotés, et 1 329 tests
-automatisés (1 047 backend sur 76 fichiers, 282 frontend sur 22).
+**Ensuite**, par ordre de valeur et sans dépendre d'une décision : le **map-matching de trace
+HMM** (§ 7.3.7), qui conditionne le critère A18 et que le § 15 fige comme bibliothèque
+TypeScript partagée.
