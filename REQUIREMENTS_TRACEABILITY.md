@@ -14,7 +14,7 @@
 > test, une migration, une mesure ou un point d'API.
 
 **Dressée le 14/10/2026** contre le prompt maître V10 lu en entier. Tests de référence :
-backend **1 145 passés**, frontend **294 passés**, 0 échec, TypeScript sans erreur.
+backend **1 170 passés**, frontend **294 passés**, 0 échec, TypeScript sans erreur.
 
 ---
 
@@ -41,7 +41,7 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 | **A15** | Rattachement < 300 ms p95 ; Géoportail fluide | **NT** | **jamais mesuré**. L'ordre de grandeur connu est indirect : la requête de candidats passe de 2,5 s à quelques millisecondes avec le filtre d'emprise |
 | **A16** | Roulage, marqueur < 200 ms, erreur < 30 m | **AB** | § 7.13 non commencé |
 | **A17** | Roulage, événement linéaire Début/Fin | **AB** | idem |
-| **A18** | Trace 1 Hz 2 h, HMM ≥ 97 %, IRI par 100 m | **AB** | **le HMM est la pièce manquante du lot 3** ; aucun IRI |
+| **A18** | Trace 1 Hz 2 h, HMM ≥ 97 %, IRI par 100 m | **PA** | **HMM écrit et mesuré** : `appariement.trace.ts`, 25 tests, **130/130 points justes** sur 4 traces annotées (exigé ≥ 97 %), 8 sorties du référentiel sur 8 détectées, 7 200 points sans débordement. **Mais l'IRI n'existe pas**, et le taux dépend d'un graphe de réseau — voir § 4 |
 | **A19** | Roulage, robustesse veille/appel/redémarrage | **AB** | exige les plugins natifs (ADR-009) |
 | **A20** | Géoportail : rendu < 3 s en 3G, recherche < 300 ms, déviation < 2 s, OGC | **NT** | aucune mesure ; tuiles vectorielles, permalien et pgRouting absents |
 | **A21** | Chaque tronçon : code national, provenance, score qualité, rattachement | **BL** | **la codification nationale n'existe pas** et les routes communautaires n'ont aucune valeur d'énumération (D-06). Provenance présente sur 259 696 tronçons, absente sur 1 691 |
@@ -55,7 +55,7 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 | **A29** | Tâches internes avec preuves avant/après ; rapprochement en lecture | **AB** | TI-01 à TI-03 non commencés |
 | **A30** | Détection satellitaire → proposition localisée, précision mesurée | **AB** | partie E non commencée |
 
-**Bilan : 9 TT, 3 TP, 3 PA, 3 NT, 4 BL, 8 AB.** Aucune case « à vérifier ».
+**Bilan : 9 TT, 3 TP, 4 PA, 3 NT, 4 BL, 7 AB.** Aucune case « à vérifier ».
 
 ---
 
@@ -83,7 +83,7 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 |---|---|---|---|
 | 7.1 | Conventions géospatiales 🔒 | **PA** | longueurs en `geography` : conforme. **UTM 28N/29N non employé** pour les surfaces. SQL paramétré : corrigé et gardé par un test |
 | 7.2 | Référencement linéaire, ISO 19148, bitemporel | **PA** | portions, lignage, exclusion : faits. **Historisation bitemporelle écrite, migration non déployée.** Codification nationale absente |
-| 7.3 | Map-matching ponctuel et de trace | **PA** | ponctuel **complet** avec les 5 facteurs et les 3 issues ; **HMM absent** |
+| 7.3 | Map-matching ponctuel et de trace | **TP** | ponctuel **complet** avec les 5 facteurs et les 3 issues ; **trace HMM écrite et mesurée**. Reste : le graphe de réseau, sans lequel le HMM retombe sur la distance seule entre tronçons différents |
 | 7.4 | Catalogue et métrés | **TP** | 13 types ; le § 7.16 exige **≥ 21 types**, revêtu et non revêtu. Photos de référence par gravité absentes |
 | 7.5 | Workflow de validation | **TT** | — |
 | 7.6 | Moteur de qualité | **TT** | — |
@@ -116,6 +116,14 @@ classement est juste quand les distances sont justes ; il ne dit rien du bruit G
 **Les mesures en base datent du 14/10 et ne seront plus reproductibles.** Le § A.5.1 a coupé
 l'accès à la production. Tout chiffre de cette matrice portant sur les données vieillira sans
 que rien ne le signale.
+
+**Le 130/130 du critère A18 repose sur un graphe de réseau que le dépôt n'a pas encore.** C'est
+la limite la plus importante à connaître, et un test la mesure exprès : privé de la distance sur
+le réseau, le HMM ne sait pas qu'une contre-allée parallèle est à 800 m de détour, la transition
+devient neutre et la décision retombe sur la distance seule — des points repassent alors sur la
+contre-allée. Le taux mesure donc l'algorithme, **pas** la chaîne complète. Le graphe (pgRouting,
+§ 7.14) reste à construire, et le jeu de traces est synthétique : seul le pilote corridor (D12)
+donnera une mesure sous bruit réel.
 
 ---
 
