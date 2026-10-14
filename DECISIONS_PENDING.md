@@ -9,10 +9,43 @@
 
 ---
 
-## D-00 🔴 Conflit à trancher d'abord : la règle RCI a été approuvée, V10 la dit en attente
+## D-00 ✅ TRANCHÉ — la règle RCI est désapprouvée depuis le 14/10/2026 à 16:19
 
-**C'est le seul point de ce document qui porte sur une action déjà faite, et il doit être
-tranché avant toute autre chose touchant au RCI.**
+**Décision du commanditaire** : « désapprouve la règle RCI », le 14/10/2026. L'**option B**
+ci-dessous a donc été retenue et exécutée.
+
+### Ce qui a été fait, et vérifié
+
+`rci-2026.1` est désapprouvée en production : `approuveeLe` et `approuveeParId` sont nuls.
+**Trois lignes d'audit** retracent désormais toute l'histoire de la règle — création à 13:58,
+approbation à 14:02:51, retrait à 16:19:35 — avec auteur et motif à chaque fois.
+
+Le geste est passé par un script dédié, `desapprouver-regle-condition.ts`, et non par un
+`UPDATE` à la main : celui-ci aurait retiré l'interrupteur de publication sans trace, sans
+auteur et sans motif, ce que la colonne `approuveeParId` existe précisément pour empêcher. Le
+script exige `--version`, `--par` et `--motif`, refuse un compte non ADMIN, et refuse de
+désapprouver une règle qui ne l'est pas — pour ne pas écrire une ligne d'audit pour un geste
+sans effet.
+
+**Ce qui n'a pas bougé** : les huit pondérations, la normalisation, les six classes et le seuil
+de 0,5 sont intacts. Désapprouver dit « cette règle ne fait plus foi en l'état » ; l'amender
+serait un autre geste.
+
+**Et rien n'a été perdu** : `evaluations_condition` comptait **zéro** ligne. Le retrait ne
+change donc rien à ce qui a été publié, ce qui était l'argument central de la recommandation.
+
+Le script a été exécuté dans le conteneur existant **sans reconstruire l'image**, donc sans
+déploiement : seule une copie éphémère du fichier a été placée puis retirée. Service vérifié
+après coup — `/` 200, base 5 ms, `echecsDepuisDemarrage` 0, aucune erreur au journal.
+
+### Ce qui reste à faire pour réapprouver
+
+Produire **`RCI_METHOD_DECISION.md`** : matrice de correspondance entre le RCI interne, la
+méthode **VIZIR** citée par l'ONR pour les chaussées revêtues et la **note d'état structurel
+UEMOA**, avec écarts, impacts et fiche d'approbation (§ A.6.1). C'est désormais le seul
+livrable qui bloque une réapprobation.
+
+### Le raisonnement conservé, pour mémoire
 
 ### Les faits
 
