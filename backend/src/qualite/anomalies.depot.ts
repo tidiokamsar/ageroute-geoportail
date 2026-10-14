@@ -109,8 +109,21 @@ export async function horsTerritoire(p: Portee): Promise<ComptageFamille> {
  * representation differe — qu'un `ST_Equals` sur les seuls candidats pourra chercher plus
  * tard, si quelqu'un en a besoin.
  *
- * MESURE DU 13/10/2026 : 42 groupes, 42 objets en trop. Toute statistique de lineaire
- * compte donc ces metres deux fois.
+ * MESURE DU 13/10/2026 : 42 groupes, 42 objets en trop, 18,4 km.
+ *
+ * CORRECTION DU 14/10/2026 : j'avais ecrit ici « toute statistique de lineaire compte donc
+ * ces metres deux fois ». C'est FAUX pour le chiffre publie.
+ *
+ * Les 42 groupes sont tous des paires, et chaque paire a EXACTEMENT un membre dans le
+ * reseau classe (`sourceReference` nul, cree le 29/06) et un membre de voirie locale
+ * (`voirie_locale:*`, importe d'OSM le 03-04/09), que `lib/reseau.ts` exclut deja. Mesure :
+ * 42 troncons du reseau classe ont un jumeau geometrique, soit un par groupe.
+ *
+ *   reseau classe, 21 156,6 km, le chiffre publie  ->  comptees UNE fois
+ *   registre complet, 185 264,4 km                 ->  comptees deux fois, 18,4 km en trop
+ *
+ * L'ancienne formulation faisait croire a une erreur dans les 21 156,6 km alors qu'il n'y
+ * en a pas. Le detail des 42 paires est dans `docs/rai-v3/AUDIT_DOUBLONS_GEOMETRIQUES.md`.
  */
 export async function doublonsDeGeometrie(p: Portee): Promise<ComptageFamille> {
   const lignes = await prisma.$queryRaw<{ ids: string[]; codes: string[]; n: bigint; km: number }[]>`
