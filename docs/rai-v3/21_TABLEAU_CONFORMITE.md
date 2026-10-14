@@ -1,10 +1,12 @@
 # Tableau de conformité du cahier des charges
 
-Mesuré le 13/10/2026 contre le code réel. Chaque ligne porte sa preuve, vérifiable dans le
-dépôt. Les états suivent le vocabulaire demandé par le mandat.
+**Rafraîchi le 14/10/2026.** Première rédaction le 13/10, avant le déploiement : plusieurs
+lignes y donnaient comme absent ou non appliqué ce qui est désormais en production. Chaque
+état ci-dessous porte sa preuve, vérifiable dans le dépôt ou mesurée en base.
 
-**Règle de lecture** : un écran visible n'est jamais une preuve. Chaque état ci-dessous
-s'appuie sur du code, un test, une migration ou une mesure en base, nommés.
+**Règle de lecture** : un écran visible n'est jamais une preuve. Et **un module déployé n'est
+pas un module alimenté** : plusieurs lignes marquées T portent sur des tables vides, ce que la
+colonne « Écart » dit explicitement.
 
 ## Barème
 
@@ -19,124 +21,116 @@ s'appuie sur du code, un test, une migration ou une mesure en base, nommés.
 
 ## Chaîne de qualification terrain
 
-| Exigence | État | Preuve | Écart | Action | Prio | Dépend de | Test d'acceptation |
-|---|---|---|---|---|---|---|---|
-| GPS → tronçon, abscisse locale, PK facultatif | **T** | `geo/appariement.ts`, `geo/appariement.test.ts` | — | — | — | — | Position précise sur RN : tronçon et abscisse rendus |
-| Confiance tenant compte de la séparation entre candidats | **T** | `confiance()`, deux facteurs multipliés | — | — | — | — | Deux routes parallèles : confiance s'annule |
-| Refus de rattacher sous seuil | **T** | `CONFIANCE_MINIMALE = 0.35` | — | — | — | — | GPS à 15 m en urbain : `apparie: false` |
-| Candidats proposés en cas d'ambiguïté | **T** | `candidats()`, drapeau `ambigu` | — | — | — | — | Intersection : `ambigu: true` |
-| Continuité du déplacement (cap, position précédente) | **A** | mesuré : `heading` absent du dépôt | l'appariement ignore la direction | ajouter cap et point précédent à `OptionsAppariement` | moyenne | — | Trajet le long de deux parallèles : pas de saut |
-| Contexte terrain en une requête | **T** | `api-v2/field.routes.ts`, 10 tests | — | — | — | portions | `GET current-context` rend tronçon, portion, couverture, actifs |
-| Portions homogènes : modèle et règles | **T** | `reseau/portions.ts`, 40 tests | — | — | — | — | Tronçon à 4 portions : répartition exacte, trous nommés |
-| Portions : table et migration | **IT** | migration `20261013180000`, non appliquée | non déployée | appliquer après validation | haute | — | Banc d'essai sur copie : passé le 13/10 |
-| Écriture : créer, découper, fusionner, requalifier | **T** | `reseau/portions.service.ts`, 17 + 12 tests | — | — | — | table | Découpe : original remplacé, deux morceaux, lignage |
-| Référentiels configurables | **IT** | migration `20261013200000`, non appliquée | non déployée | appliquer, puis `npm run referentiels:seed` | haute | — | Code inventé refusé par la clé étrangère |
-| Praticabilité | **B** | `referentiel_praticabilites` sort vide | **le cahier n'énonce aucune valeur** | **décision AGEROUTE** | haute | décision | Une portion peut porter une praticabilité |
-| Écran de terrain | **A** | aucun composant ne consomme `current-context` | l'API existe, rien ne l'appelle | écrire la page et ses tests | **haute** | contexte | Un agent voit sa position, sa portion, et qualifie |
+| Exigence | État | Preuve | Écart | Action | Prio |
+|---|---|---|---|---|---|
+| GPS → tronçon, abscisse locale, PK facultatif | **T** | `geo/appariement.ts` + tests | — | — | — |
+| Confiance tenant compte de la séparation entre candidats | **T** | `confiance()`, deux facteurs multipliés | — | — | — |
+| Refus de rattacher sous seuil | **T** | `CONFIANCE_MINIMALE = 0.35` | — | — | — |
+| Candidats proposés en cas d'ambiguïté | **T** | `candidats()`, drapeau `ambigu` | — | — | — |
+| Continuité du déplacement (cap, position précédente) | **A** | mesuré le 14/10 : `heading` **0 occurrence** | l'appariement ignore la direction | ajouter cap et point précédent à `OptionsAppariement` | moyenne |
+| Contexte terrain en une requête | **T** | `api-v2/field.routes.ts`, 10 tests ; **401 en production** | — | — | — |
+| Portions homogènes : modèle et règles | **T** | `reseau/portions.ts`, **40 tests** | — | — | — |
+| Portions : table et migration | **T** | migration `20261013180000` **appliquée le 13/10 à 18:21** | **table vide : 0 ligne** | alimenter par la collecte | — |
+| Écriture : créer, découper, fusionner, requalifier | **T** | `portions.service.ts` **17 tests**, `api-v2/portions.routes.ts` **19 tests** | — | — | — |
+| Référentiels configurables | **P** | migration `20261013200000` **appliquée** ; `api-v2/referentiels.routes.ts` **401** | **les 3 tables sont vides** | lancer le seed des états de chaussée et des revêtements | **haute** |
+| Praticabilité | **B** | migration `20261013260000` appliquée, table vide | **le cahier n'énonce aucune valeur** | **décision AGEROUTE** | haute |
+| Écran de terrain | **T** | `TerrainPortionsPage.tsx` **21 tests**, `PortionsValidationPage.tsx` **16 tests** | avertissements `act()` dans les tests | nettoyer les enveloppes `act` | basse |
+| Position GPS continue côté client | **T** | `hooks/usePositionGps.ts`, **15 tests** | — | — | — |
 
 ## Défauts et actifs
 
-| Exigence | État | Preuve | Écart | Action | Prio | Dépend de | Test d'acceptation |
-|---|---|---|---|---|---|---|---|
-| Défaut indépendant du PK | **T** | `defauts` + `geom` + `emprise` | — | — | — | — | Défaut créé sans PK, localisé par abscisse |
-| Catalogue administrable | **T** | `catalogue_defauts`, 13 types | — | — | — | — | Un type ajouté apparaît sans déploiement |
-| Gravité et étendue séparées | **T** | `EtendueDefaut` + gravité | — | — | — | — | Nid-de-poule grave et ponctuel |
-| Métré depuis les dimensions | **T** | `field/defauts.regles.ts`, `MethodeQuantite` | coefficient multiplicateur absent | ajouter `quantite = nombre x coefficient` | basse | — | Surface = longueur x largeur |
-| Ouvrages : 15 familles | **P** | `TypeOuvrage` = 9 valeurs | manquent fossés, caniveaux, signalisation, glissières | migration additive de l'enum | moyenne | — | Un fossé peut être inventorié |
-| Recherche d'actifs à proximité | **T** | `contexte.prisma.ts`, `ST_DWithin` | — | — | — | — | Ouvrage à 40 m rendu, trié par distance |
+| Exigence | État | Preuve | Écart | Action | Prio |
+|---|---|---|---|---|---|
+| Défaut indépendant du PK | **T** | `defauts` + `geom` + `emprise` | **table vide : 0 ligne** | alimenter par la collecte | — |
+| Catalogue administrable | **T** | `catalogue_defauts`, 13 types ; `/api/v2/defauts/catalogue` **401** | — | — | — |
+| Gravité et étendue séparées | **T** | `EtendueDefaut` + gravité | — | — | — |
+| Métré depuis les dimensions | **T** | `field/defauts.regles.ts`, **49 tests** | coefficient multiplicateur absent | ajouter `quantite = nombre x coefficient` | basse |
+| Familles d'ouvrages | **T** | `TypeOuvrage` = **13 valeurs** en production | les 4 manques nommés le 13/10 sont **comblés** (`FOSSE`, `CANIVEAU`, `SIGNALISATION`, `GLISSIERE`) | vérifier si le cahier en exige davantage que 13 | basse |
+| Recherche d'actifs à proximité | **T** | `contexte.prisma.ts`, `ST_DWithin` | — | — | — |
 
 ## Gouvernance et qualité
 
-| Exigence | État | Preuve | Écart | Action | Prio | Dépend de | Test d'acceptation |
-|---|---|---|---|---|---|---|---|
-| Validation par un tiers, pas d'auto-validation | **T** | `governance/validation.ts`, 75 tests | — | — | — | — | Auteur validant son relevé : 403 AUTO_VALIDATION |
-| Contrôle **côté serveur** | **T** | `portions.routes.test.ts` : `statutValidation` client ignoré | — | — | — | — | `statutValidation: VALIDE` au POST : ignoré |
-| Validateur désigné par domaine | **T** | `governance/delegation.ts` | 5 domaines sur 8 sans route | lier `TRONCON`, `OUVRAGE`, etc. | moyenne | décision | Hors délégation : 403 |
-| Audit de toute écriture | **T** | `logAuditTransactionnelle` dans la transaction | — | — | — | — | Découpe : 3 lignes d'audit, même transaction |
-| Chevauchements signalés, non corrigés | **T** | `chevauchements()`, contrainte d'exclusion | — | — | — | — | Deux validées chevauchantes : refus base |
-| Moteur de qualité des données | **P** | `valeurs_qualite`, `conflits_sync`, `chevauchements()` | pas de moteur consolidé : doublons, géométries invalides, inspections périmées | écrire `qualite/controles.ts` | **haute** | aucune | 9 familles d'anomalies classées sans suppression |
+| Exigence | État | Preuve | Écart | Action | Prio |
+|---|---|---|---|---|---|
+| Validation par un tiers, pas d'auto-validation | **T** | `governance/validation.ts`, 75 tests | — | — | — |
+| Contrôle **côté serveur** | **T** | `portions.routes.test.ts` : `statutValidation` client ignoré | — | — | — |
+| Validateur désigné par domaine | **T** | `governance/delegation.ts` ; `PORTION` ajouté à `DomaineValidation` | 5 domaines sur 8 sans route | lier `TRONCON`, `OUVRAGE`, etc. | moyenne |
+| Audit de toute écriture | **T** | `logAuditTransactionnelle` dans la transaction | — | — | — |
+| Chevauchements signalés, non corrigés | **T** | `chevauchements()` + contrainte d'exclusion `btree_gist` | — | — | — |
+| **Moteur de qualité des données** | **T** | `qualite/anomalies.ts` **23 tests**, `api-v2/qualite.routes.ts` **14 tests** ; **401 en production** | — | — | — |
+
+Le moteur de qualité était marqué **P** le 13/10 avec la mention « pas de moteur consolidé ».
+Il existe depuis, avec **9 familles d'anomalies**, une agrégation (un détecteur par objet
+émettrait plus d'un million de lignes) et un test vérifiant qu'**aucune correction proposée ne
+dit « supprimer »**, sur les neuf familles.
 
 ## Décision et pilotage
 
-| Exigence | État | Preuve | Écart | Action | Prio | Dépend de | Test d'acceptation |
-|---|---|---|---|---|---|---|---|
-| Indicateur d'état (RCI) configurable et explicable | **IT** | `engines/condition.ts`, 26 tests | **coefficients non approuvés** | **décision AGEROUTE** | **haute** | décision | Score publiable une fois la règle approuvée |
-| Couche de collecte du RCI | **A** | `calculerRci` n'est appelé que par ses tests | rien ne produit les 8 composantes | écrire la collecte | haute | décision | Un tronçon reçoit un score depuis ses données |
-| Longueurs par revêtement, état, critique | **T** | `indicateurs()`, 6 tests | — | — | — | référentiels | « Inconnu » jamais compté comme « non bitumé » |
-| Couverture à l'échelle du réseau | **P** | `couverture()` par tronçon | 261 387 tronçons : calcul en mémoire exclu | agrégation SQL ou vue matérialisée | moyenne | portions | Couverture par région en moins d'une seconde |
-| Moteur de risque | **A** | aucune occurrence | — | après le RCI | basse | RCI | — |
-| Moteur de traitements | **A** | mesuré : « traitement » = mot français, 14 fois | — | après le RCI | basse | RCI | — |
-| Prix unitaires et coûts | **A** | aucune table de prix | — | après les traitements | basse | traitements | — |
-| Programmation | **A** | aucune occurrence | — | après les coûts | basse | coûts | — |
-| État avant / intervention / après | **A** | `etatAvant`/`etatApres` : zéro occurrence | — | relation via `portions_lignage` | moyenne | portions | Un OT lie deux versions de portion |
-| Tableau de bord national | **P** | `modules/dashboard` | ne connaît ni portions ni qualité | étendre après les portions | moyenne | portions | Chiffres égaux aux données stockées |
-| Alertes | **P** | `jobs/alertes-contractuelles.ts` | contractuelles seulement, pas patrimoniales | après les indicateurs | basse | RCI | — |
+| Exigence | État | Preuve | Écart | Action | Prio |
+|---|---|---|---|---|---|
+| Indicateur d'état (RCI) configurable et explicable | **B** | `engines/condition.ts` **38 tests** ; normalisation et classes **appliquées** | **règle non approuvée**, `regles_condition` vide | **décision AGEROUTE** | **haute** |
+| Couche de collecte du RCI | **T** | `engines/condition.collecte.ts`, **20 tests** | — | — | — |
+| Classes de score | **T** | `classerScore()`, migration `20261013300000` appliquée | — | — | — |
+| Correspondance état → score | **T** | migration `20261013280000` appliquée, valeurs arbitrées le 13/10 | — | — | — |
+| Fiche 360° du tronçon | **T** | `troncons.service.ts` `fiche()`, **11 tests** | — | — | — |
+| Longueurs par revêtement, état, critique | **T** | `indicateurs()`, 6 tests | — | — | référentiels |
+| Couverture à l'échelle du réseau | **P** | `couverture()` par tronçon | 261 387 tronçons : calcul en mémoire exclu | agrégation SQL ou vue matérialisée | moyenne |
+| Moteur de risque | **A** | mesuré le 14/10 : `engines/risque.ts` **absent** | — | après l'approbation du RCI | haute |
+| Moteur de traitements | **A** | mesuré : `engines/traitement.ts` **absent** | — | après le risque | moyenne |
+| Prix unitaires et coûts | **A** | mesuré : `engines/cout.ts` **absent**, aucune table de prix | — | après les traitements | moyenne |
+| Programmation | **A** | mesuré : `engines/programmation.ts` **absent**, alors que la route `/programmation` est déclarée | **une page sans moteur** | après les coûts | moyenne |
+| État avant / intervention / après | **A** | mesuré le 14/10 : `etatAvant`/`etatApres` **0 occurrence** | — | relation via `portions_lignage` | moyenne |
+| Tableau de bord national | **P** | `modules/dashboard` | ne connaît ni portions ni qualité | étendre | moyenne |
+| Alertes | **P** | `jobs/alertes-contractuelles.ts` | contractuelles seulement, **pas patrimoniales** | après les indicateurs | basse |
 
 ## Mobile et hors ligne
 
-| Exigence | État | Preuve | Écart | Action | Prio | Dépend de | Test d'acceptation |
-|---|---|---|---|---|---|---|---|
-| Hors ligne : file, idempotence, conflits | **T** | `operations_sync`, `conflits_sync`, `api-v2/sync.routes.ts` | — | — | — | — | Coupure réseau : reprise sans doublon |
-| Idempotence des portions | **IT** | `clientOperationId`, migration `20261013220000` | non appliquée | appliquer | haute | — | Même clé rejouée : portion existante rendue |
-| Application mobile | **A** | mesuré : aucun `app.json`, `build.gradle`, `metro.config` | **seule une PWA existe** | voir la décision ci-dessous | **haute** | — | Un APK s'installe et collecte hors ligne |
-| Compilation et test d'un APK | **B** | mesuré : `adb`, `gradle`, `java` absents de cet environnement | aucune chaîne Android disponible | écrire le code et la procédure ; **compilation à faire ailleurs** | — | accès | — |
+| Exigence | État | Preuve | Écart | Action | Prio |
+|---|---|---|---|---|---|
+| Hors ligne : file, idempotence, conflits | **T** | `operations_sync`, `conflits_sync` ; `/api/v2/sync/status` **401** | — | — | — |
+| Idempotence des portions | **T** | `clientOperationId`, migration `20261013220000` **appliquée** ; `field/portions.sync.ts` **13 tests** | — | — | — |
+| PWA renforcée | **T** | `public/sw.js` + `sw-policy.js` ; **`/sw.js` répond 200 en production** | — | — | — |
+| Application mobile native | **A** | aucun `app.json`, `build.gradle`, `metro.config` | **seule une PWA existe** | enveloppe Capacitor | haute |
+| Compilation et test d'un APK | **B** | mesuré : `adb`, `gradle`, `java` absents de cet environnement | aucune chaîne Android | **compilation à faire ailleurs** | — |
 
-### Décision documentée sur le mobile
+Le choix retenu reste la **PWA renforcée plus enveloppe Capacitor** : elle réutilise
+React/Vite/Leaflet déjà en place, s'installe depuis le navigateur, se teste ici, et Capacitor
+enveloppe ensuite le même code sans réécrire la carte ni le hors-ligne. La production de l'APK
+est un blocage d'accès, pas un choix.
 
-Le mandat demande de choisir la solution la plus cohérente avec les technologies du projet
-et de justifier. Trois options, et une seule est vérifiable ici.
+## Ce qui est déployé et vérifié
 
-| Option | Coût | Vérifiable dans cet environnement |
-|---|---|---|
-| Android natif (Kotlin) | tout réécrire | **non** : ni SDK, ni Java |
-| React Native | nouvelle base, duplication du code carte | **non** : build Android requis |
-| **PWA renforcée + enveloppe Capacitor** | réutilise React/Vite/Leaflet déjà là | **oui pour la PWA**, non pour l'APK |
+Déploiement du 13/10/2026, images construites à 18:17:26. **48 migrations appliquées**,
+« Database schema is up to date! ». `/api/health` 200, `echecsDepuisDemarrage` **0**, aucune
+erreur au journal. `/api/public/carte/geo` sert 785 Ko en 0,36 s.
 
-**Retenu : la troisième.** La PWA existe déjà avec son service worker et sa file de
-synchronisation ; la renforcer est réutilisable immédiatement, s'installe depuis le
-navigateur sur Android, et se teste ici (`vitest`, `vite build`). Capacitor enveloppe
-ensuite exactement le même code pour produire un APK, sans réécrire la carte ni l'offline.
-
-Le §9 du cahier disait « Android-first », et un APK reste nécessaire pour la distribution
-hors navigateur et pour l'accès caméra fiable. **La production de l'APK est donc préparée
-et documentée, mais non exécutée : cet environnement n'a pas de chaîne Android.** C'est un
-blocage d'accès, pas un choix.
+**1 329 tests passent** : 1 047 backend sur 76 fichiers, 282 frontend sur 22.
 
 ## Les obstacles qui exigent une décision, et non du code
 
-Le mandat demande de signaler explicitement ce qui requiert une intervention. Trois choses,
-et aucune ne se contourne techniquement.
-
-1. **Les coefficients du RCI.** Le mécanisme est écrit et la règle `rci-2026.1` existe, non
-   approuvée. Sans approbation, aucun score n'est publiable, donc pas de risque, pas de
-   traitement, pas de programmation. C'est le verrou de toute la moitié aval.
-2. **Les valeurs de praticabilité.** Le référentiel existe et sort vide, parce que le cahier
-   n'en énonce aucune. Aucune portion ne peut en porter avant qu'elles soient fixées.
+1. **Les coefficients du RCI et l'approbation de la règle.** Sans elle, aucun score n'est
+   publiable, donc pas de risque, pas de traitement, pas de programmation. C'est le verrou de
+   toute la moitié aval.
+2. **Les valeurs de praticabilité.** Le référentiel est déployé et sort vide parce que le
+   cahier n'en énonce aucune.
 3. **Le répertoire des routes régionales.** 1 029 tronçons régionaux portent 1 029 noms
-   distincts sans structure de route : leurs PK ne sont pas calculables. L'abscisse locale
-   contourne le problème pour la qualification, pas pour la restitution officielle.
+   distincts sans structure de route : leurs PK ne sont pas calculables.
+4. **La règle de périmètre hors territoire.** 7 tronçons de RN4 et RN1, 72,0 km, comptent dans
+   les 21 156,6 km publiés. Voir [AUDIT_TRONCONS_HORS_TERRITOIRE.md](AUDIT_TRONCONS_HORS_TERRITOIRE.md).
 
-Et quatre points de sécurité, hérités, qui ne sont pas des décisions techniques :
+Et quatre points de sécurité, dont un seul est traité :
 
-- **Le dépôt est public** et contient une IP de serveur de production ainsi que le chemin de
-  la clé de chiffrement des sauvegardes. `AGENTS.md` règle 1 l'interdit explicitement.
-- **Le mot de passe ADMIN** transmis en clair n'a jamais été changé.
-- **Un compte de test détient `ADMIN`** en production.
-- **`bdri_app`, le compte applicatif, est superuser PostgreSQL** : une injection SQL
-  donnerait les pleins pouvoirs sur l'instance. Se corrige sans rien casser.
+| Point | État |
+|---|---|
+| Compte de test détenant `ADMIN` en production | **rétrogradé** le 13/10, audité `SECURITY_EVENT` |
+| Dépôt public contenant une IP de production et un chemin de clé | **ouvert** |
+| Mot de passe ADMIN transmis en clair, jamais changé | **ouvert** |
+| `bdri_app` superuser PostgreSQL et seul rôle de connexion | **ouvert** — exige un rôle de secours d'abord |
 
-## Ordre d'exécution retenu
+## Le verrou qui n'est dans aucun tableau
 
-Les dépendances ci-dessus imposent cet ordre, et non une préférence.
+Mesuré en base le 14/10 : `missions` **0**, `observations` **0**, `defauts` **0**, `portions`
+**0**, les trois référentiels **0**, `regles_condition` **0**, `evaluations_condition` **0**.
 
-1. **L'écran de terrain** qui consomme `current-context` et l'écriture de portions. C'est le
-   seul maillon manquant du parcours complet, et tout le reste s'appuie sur des portions
-   réellement saisies.
-2. **Le moteur de qualité des données**, qui ne dépend d'aucune décision et travaille sur ce
-   qui existe déjà.
-3. **Les quatre familles d'actifs manquantes**, migration additive indépendante.
-4. **La PWA renforcée** en application de terrain, puis l'enveloppe Capacitor préparée.
-5. **L'agrégation SQL de la couverture**, premier endroit où 261 387 tronçons contraignent
-   la conception.
-6. **La continuité dans l'appariement**, qui améliore un module déjà bon.
-7. Le reste attend les trois décisions.
+Toute la chaîne amont est écrite, testée, déployée — et vide. **Le chemin critique du projet
+n'est plus le code, c'est la première campagne de collecte.**
