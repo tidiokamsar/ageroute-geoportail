@@ -114,6 +114,29 @@ Une page dont le moteur n'existe pas n'est pas une fonctionnalité livrée. Un t
 conformité qui la compterait comme faite serait faux, et c'est le piège principal de ce genre
 de document.
 
+### Mais leurs données existent, et j'avais écrit le contraire
+
+Mesuré le 14/10/2026. J'avais affirmé « aucune table de prix » : c'est faux.
+
+| Table | Lignes | Contenu | Lue par du code ? |
+|---|---|---|---|
+| `baremes_intervention` | **9** | famille de revêtement × état de départ → type d'intervention et **coût au km en GNF** | **non** |
+| `matrices_degradation` | **9** | probabilités de transition BON→MOYEN→MAUVAIS→CRITIQUE par famille et classe de trafic | **non** |
+
+Les barèmes couvrent bitume, terre-latérite et pavé, pour les états moyen, mauvais et
+critique, avec des coûts de **350 millions à 3,5 milliards GNF au kilomètre**. Les trois
+moteurs aval ne partent donc pas de rien : il leur manque le code, pas les référentiels.
+
+**Et un défaut grave s'y cache.** `BaremeIntervention` porte **cinq colonnes** — identifiant,
+famille, état, type d'intervention, coût — et **ni `source`, ni `version`, ni approbation**,
+là où `MatriceDegradation` trace les trois. Un coût de 3,5 milliards GNF au kilomètre que
+personne ne peut attribuer est exactement le genre de nombre qui finit dans un document
+officiel sans que quiconque puisse dire qui l'a fixé.
+
+**Tracer l'origine de ces prix doit précéder l'écriture du moteur de coûts**, pas le suivre.
+Le cahier exige par ailleurs qu'« une estimation de coûts ne crée jamais automatiquement un
+décompte » — et la table `decomptes` existe, vide.
+
 ## 5. Les défauts mesurés, et non corrigés
 
 **72 km de routes nationales hors territoire comptent dans le réseau classé.** Sept tronçons,

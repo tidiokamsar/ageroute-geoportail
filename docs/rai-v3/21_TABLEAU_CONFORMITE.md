@@ -76,8 +76,10 @@ dit « supprimer »**, sur les neuf familles.
 | Longueurs par revêtement, état, critique | **T** | `indicateurs()`, 6 tests | — | — | référentiels |
 | Couverture à l'échelle du réseau | **P** | `couverture()` par tronçon | 261 387 tronçons : calcul en mémoire exclu | agrégation SQL ou vue matérialisée | moyenne |
 | Moteur de risque | **A** | mesuré le 14/10 : `engines/risque.ts` **absent** | — | après l'approbation du RCI | haute |
-| Moteur de traitements | **A** | mesuré : `engines/traitement.ts` **absent** | — | après le risque | moyenne |
-| Prix unitaires et coûts | **A** | mesuré : `engines/cout.ts` **absent**, aucune table de prix | — | après les traitements | moyenne |
+| Moteur de traitements | **A** | mesuré : `engines/traitement.ts` **absent** | **mais `baremes_intervention` porte déjà 9 lignes** reliant état de départ et type d'intervention | écrire le moteur, les données existent | moyenne |
+| Prix unitaires et coûts | **A** | mesuré : `engines/cout.ts` **absent** | **`baremes_intervention.coutKmGnf` existe, peuplé**, de 350 M à 3,5 Md GNF/km | écrire le moteur ; **tracer d'abord l'origine des prix** | moyenne |
+| Provenance des barèmes de coût | **A** | `BaremeIntervention` a **5 colonnes** : ni `source`, ni `version`, ni approbation | un coût de 3,5 Md GNF/km que personne ne peut attribuer | ajouter la provenance **avant** d'écrire le moteur | **haute** |
+| Prédiction de dégradation | **P** | `matrices_degradation`, **9 lignes**, `source: standard_initial`, version 1 | **aucun code ne la lit** | brancher au moteur de programmation | moyenne |
 | Programmation | **A** | mesuré : `engines/programmation.ts` **absent**, alors que la route `/programmation` est déclarée | **une page sans moteur** | après les coûts | moyenne |
 | État avant / intervention / après | **A** | mesuré le 14/10 : `etatAvant`/`etatApres` **0 occurrence** | — | relation via `portions_lignage` | moyenne |
 | Tableau de bord national | **P** | `modules/dashboard` | ne connaît ni portions ni qualité | étendre | moyenne |

@@ -82,10 +82,22 @@ d'état disponible : un risque est un état croisé avec un enjeu.
 
 | # | Tâche | Dépend de |
 |---|---|---|
-| 3.1 | **Moteur de traitements** (`engines/traitement.ts`) | 2.2 |
-| 3.2 | **Table de prix unitaires** et **moteur de coûts** (`engines/cout.ts`) | 3.1 |
-| 3.3 | **Moteur de programmation** (`engines/programmation.ts`) | 3.2 |
+| **3.0** | **Tracer l'origine des barèmes de coût** — `BaremeIntervention` n'a ni `source`, ni `version`, ni approbation | rien, **à faire avant 3.2** |
+| 3.1 | **Moteur de traitements** (`engines/traitement.ts`) — `baremes_intervention` porte déjà les 9 règles état → intervention | 2.2 |
+| 3.2 | **Moteur de coûts** (`engines/cout.ts`) — les prix existent dans `baremes_intervention.coutKmGnf` | 3.0, 3.1 |
+| 3.3 | **Moteur de programmation** (`engines/programmation.ts`) — `matrices_degradation` porte déjà les probabilités de transition | 3.2 |
 | 3.4 | **Alertes patrimoniales**, à côté des alertes contractuelles existantes | 2.1 |
+
+**J'ai écrit « aucune table de prix » dans la première version de ce plan, et c'était faux.**
+`baremes_intervention` porte 9 lignes peuplées, de 350 millions à 3,5 milliards GNF au
+kilomètre, et `matrices_degradation` 9 lignes de probabilités de transition. Aucun code ne les
+lit. Les trois moteurs aval ne partent donc pas de rien : il leur manque le code, pas les
+référentiels — ce qui réduit la phase 3 sans la supprimer.
+
+**3.0 est nouveau et passe avant 3.2.** Un coût de 3,5 milliards GNF au kilomètre sans source
+ni approbation est exactement le nombre qui finit dans un rapport bailleur sans que personne
+puisse dire qui l'a fixé. `MatriceDegradation` trace sa source et sa version ; `BaremeIntervention`
+ne trace rien. L'asymétrie est à corriger avant qu'un moteur ne s'appuie dessus.
 
 **Contrainte du cahier à ne pas perdre de vue** : « Les estimations de coûts ne doivent jamais
 créer automatiquement un décompte. » Le moteur de coûts produit une estimation, pas un

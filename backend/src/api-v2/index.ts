@@ -9,6 +9,7 @@ import { fieldV2Router } from "./field.routes";
 import { portionsV2Router } from "./portions.routes";
 import { referentielsV2Router } from "./referentiels.routes";
 import { qualiteV2Router } from "./qualite.routes";
+import { reseauV2Router } from "./reseau.routes";
 
 /**
  * `/api/v2` — la nouvelle surface d'API.
@@ -65,6 +66,7 @@ apiV2Router.use("/field", fieldV2Router);
 apiV2Router.use("/portions", portionsV2Router);
 apiV2Router.use("/referentiels", referentielsV2Router);
 apiV2Router.use("/qualite", qualiteV2Router);
+apiV2Router.use("/reseau", reseauV2Router);
 
 /**
  * Inventaire de la surface v2, pour qu'un client sache ce qui existe reellement.
