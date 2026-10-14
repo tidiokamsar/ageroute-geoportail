@@ -40,10 +40,24 @@ après coup — `/` 200, base 5 ms, `echecsDepuisDemarrage` 0, aucune erreur au 
 
 ### Ce qui reste à faire pour réapprouver
 
-Produire **`RCI_METHOD_DECISION.md`** : matrice de correspondance entre le RCI interne, la
-méthode **VIZIR** citée par l'ONR pour les chaussées revêtues et la **note d'état structurel
-UEMOA**, avec écarts, impacts et fiche d'approbation (§ A.6.1). C'est désormais le seul
-livrable qui bloque une réapprobation.
+~~Produire `RCI_METHOD_DECISION.md`~~ — **écrit le 14/10/2026**, voir
+[RCI_METHOD_DECISION.md](RCI_METHOD_DECISION.md).
+
+**Sa conclusion change la question.** Le RCI, VIZIR et la directive UEMOA **ne mesurent pas le
+même objet** : seuls 30 % du RCI — la composante CHAUSSEE — ont un correspondant. Les sept
+autres composantes décrivent un actif au sens de la gestion patrimoniale, dont ni VIZIR ni
+l'UEMOA ne traitent. Et le RCI n'a aucune notion de **déflexion**, dont VIZIR a besoin pour sa
+note structurelle.
+
+**Ce qui reste à obtenir avant de pouvoir réapprouver** : le texte de la directive n° 11 avec
+ses neuf indices (je n'ai lu que des tableaux en images), la formule de `Is` de VIZIR, la
+méthode **Vizirette** pour les routes non revêtues — majoritaires en Guinée et hors du champ de
+la directive — et ce que l'ONR calcule réellement. Cinq demandes listées au § 9 du document.
+
+**Quatre écarts demandent votre arbitrage**, détaillés au § 7 : le nom de l'indice (un « RCI »
+où la chaussée pèse 30 % se lira comme un état de chaussée), le **trafic traité comme un état
+alors qu'il est une sollicitation**, le sens inversé des échelles, et portions homogènes contre
+sections fixes de 100 ou 200 m.
 
 ### Le raisonnement conservé, pour mémoire
 
