@@ -5,59 +5,70 @@
 
 ## Lot en cours
 
-**Lot 1 — socle**, branche `lot/01-socle`. Lot 0 terminé.
-
-### Lot 1, fait et prouvé
-
-- **Bogue de formatage des PK corrigé**, celui que cite le § 1 du mandat. Il existait en
-  **deux exemplaires** (`DetailPanel.tsx`, `TronconsPage.tsx`) avec deux sorties différentes.
-  `Math.round` pouvait rendre 1000 : `1,9999 km` s''affichait **`PK 1+1000`** au lieu de
-  `PK 2+000`. Unifié dans `lib/pk.ts`, calcul en mètres entiers, **12 tests**.
-- **Quatre familles d''actifs s''affichaient en code brut** (`GLISSIERE`) : j''avais ajouté les
-  valeurs à l''énumération le 13/10 sans compléter la table de libellés du frontend. Corrigé.
-- **CI réparée** : elle existait (mon entrée B-24 était fausse) mais ne se déclenchait pas sur
-  les branches de lot, donc plus du tout sous la discipline du § 2.5. Déclencheurs étendus,
-  plus deux contrôles locaux : dossiers de migration complets, scan de secrets.
-- **Garde de conformité au § 7.1** : `lib/sql-parametre.test.ts`, 6 tests, impose qu''un
-  fichier employant `$queryRawUnsafe` soit justifié et que la garde invoquée existe vraiment.
+**Lot 2 — référentiel linéaire**, branche `lot/02-referentiel`. Lots 0 et 1 terminés.
 
 ## Ce que le mandat v2.1 change par rapport à ce qui a été fait
 
 Le mandat v2.1 est arrivé le 14/10/2026 à 14:20, **après** un déploiement en production
-terminé et vérifié le même jour à 14:23. Trois de ses règles modifient la conduite des
-travaux, et une invalide une pratique en cours.
+terminé et vérifié le même jour à 14:23.
 
 | Règle v2.1 | Effet |
 |---|---|
-| § 2.1 🔒 aucune opération sur la production | **Le déploiement du 14/10 était le dernier.** Travail local uniquement désormais |
-| § 2.5 🔒 branche par lot, Conventional Commits | Adopté à partir de `lot/00-pilotage` |
-| § 1.2 périmètre exclu | Marchés, contrats, chantiers, ordres de travaux, décomptes **gelés** — le dépôt en contient |
-| § 7.1 🔒 SQL paramétré, jamais de concaténation | **Violation trouvée dans du code du 14/10 et corrigée** (voir ADR-005) |
+| § 2.1 🔒 aucune opération sur la production | **Le déploiement du 14/10 était le dernier.** Travail local uniquement |
+| § 2.5 🔒 branche par lot, Conventional Commits | Adopté depuis `lot/00-pilotage` |
+| § 1.2 périmètre exclu | Marchés, contrats, chantiers, ordres de travaux, décomptes **gelés** ([ADR-003](DECISIONS.md)) |
+| § 7.1 🔒 SQL paramétré | Violation trouvée dans du code du 14/10 et corrigée ([ADR-005](DECISIONS.md)) |
 
-## Fait, et prouvé
+## Lot 0 — pilotage, terminé
 
-Travail antérieur au mandat v2.1, conservé parce que § 4 interdit de refaire un audit déjà
-consigné. Les preuves sont dans [../rai-v3/](../rai-v3/).
+Mandat lu en entier, confronté au dépôt. Mémoire de travail du § 4 créée. Cahier consolidé
+([CDC-CONSOLIDE.md](../specs/CDC-CONSOLIDE.md), sept contradictions tranchées) et **ADR
+mobile** ([ADR-002](../architecture/ADR-002-TECHNOLOGIE-MOBILE.md), React Native).
 
-- **Audit et matrice de conformité** : `../rai-v3/21_TABLEAU_CONFORMITE.md` (format exigé par
-  le § 5 : exigence, état, preuve, écart, action, priorité, dépendances, test).
-- **Chaîne de collecte complète et déployée** : appariement GPS avec score de confiance et
-  refus sous seuil, contexte terrain en une requête, portions homogènes (créer, scinder,
-  fusionner, requalifier, lignage), contrainte d'exclusion `btree_gist` contre les
-  chevauchements, écran de terrain, écran de validation, idempotence hors ligne.
-- **Moteur de qualité** : 9 familles d'anomalies, aucune correction ne propose de supprimer.
-- **RCI** : moteur, collecte, normalisation, classes. Règle `rci-2026.1` **approuvée le
-  14/10/2026** — et qui ne produit aucun score, la couverture maximale atteignable étant 0,45
-  pour un seuil arbitré à 0,5.
-- **Barèmes de coût rendus paramétrables** : provenance, approbation, millésime, largeur,
-  devise, fenêtre de validité ; les 9 coûts inchangés et non approuvés.
-- **Couverture du réseau agrégée en SQL** : 212 ms sur le réseau classé, fusion des
-  recouvrements éprouvée contre 8 cas calculés à la main.
-- **Sept audits mesurés** : RCI, hors territoire, doublons géométriques, axes régionaux,
-  qualité, sécurité du dépôt, migrations.
+Deux écarts de référentiel découverts et mesurés : **les routes communautaires n'existent pas
+dans l'énumération `ClasseRoute`** (B-27, ≈ 20 000 km annoncés sans place dans le modèle) et le
+réseau régional manque d'un sixième (B-28). Le réseau national, lui, concorde à 4 % près.
 
-Dernière exécution de la suite : `npx vitest run` → **1 067 passés, 0 échec**, TypeScript sans
-erreur. Détail dans [TESTS.md](TESTS.md).
+## Lot 1 — socle, terminé
+
+- **Bogue de formatage des PK corrigé**, celui que cite le § 1 du mandat. Il existait en
+  **deux exemplaires** avec deux sorties différentes. `Math.round` pouvait rendre 1000 :
+  `1,9999 km` s'affichait **`PK 1+1000`** au lieu de `PK 2+000`. Unifié dans `lib/pk.ts`,
+  calcul en mètres entiers, **12 tests**.
+- **Quatre familles d'actifs s'affichaient en code brut** (`GLISSIERE`) : j'avais ajouté les
+  valeurs à l'énumération le 13/10 sans compléter la table de libellés. Corrigé.
+- **CI réparée.** Elle existait — mon entrée B-24 était fausse — mais ne se déclenchait que sur
+  `push` vers `main` et sur les PR : sous la discipline du § 2.5, elle ne tournait **plus
+  jamais**. Déclencheurs étendus, plus deux contrôles locaux (dossiers de migration complets,
+  scan de secrets).
+- **Garde de conformité au § 7.1** : `lib/sql-parametre.test.ts`, 6 tests. Elle a échoué à son
+  premier lancement et signalé deux fichiers que je n'avais pas examinés.
+
+## Lot 2 — référentiel linéaire, fait et prouvé
+
+- **Historisation bitemporelle** (§ 7.2). Le modèle portait trois dates — `observeeLe`,
+  `createdAt`, `remplaceeLe` — et il manquait la **date d'effet de fin**. Une route reprise le
+  15 mars et relevée le 2 avril : la base ne pouvait dire que le 2 avril. `valideDu` /
+  `valideAu` ajoutées, intervalle **semi-ouvert** garanti par contrainte.
+- **Les règles, et non seulement les colonnes** : `reseau/bitemporel.ts`, **32 tests**, sans
+  base. Les deux axes répondent séparément, et un test vérifie qu'ils donnent des réponses
+  **différentes** pour la même date de terrain.
+- **Anticipation exigée par le § 14** : contexte de praticabilité (T-07, M) et champs
+  d'inférence sur `medias_defaut` (T-03), avec la distinction « non analysé » / « analysé sans
+  détection » garantie par contrainte.
+- **Script de descente écrit**, sorti du dossier de migration ([ADR-008](DECISIONS.md)).
+- `observeeLe` **non renommé** en `valideDu` : ce sont deux choses ([ADR-007](DECISIONS.md)).
+
+### Ce que le lot 2 ne tient pas, et je ne le déclare pas tenu
+
+**La migration n'a été éprouvée ni en montée ni en descente.** Le § 9.4 l'exige « sur une base
+de développement » ; il n'en existe aucune. Mesuré le 14/10 : aucun `psql`, aucun service ni
+installation PostgreSQL, Docker Desktop injoignable et absent du chemin standard. C'est B-13,
+et le § 2.1 interdit d'utiliser la production.
+
+**Codification nationale, topologie routable (pgRouting) et gazetier des localités** restent au
+lot 2 mais sont **bloqués** par B-06, B-07 et B-27 : les écrire sans le classement officiel
+figerait une nomenclature inventée.
 
 ## État des données en production au 14/10/2026
 
@@ -77,46 +88,46 @@ testée, déployée — et vide.**
 | `missions`, `observations`, `defauts`, `portions`, `evaluations_condition` | **0** |
 | `referentiel_praticabilites` | **0** — décision institutionnelle attendue |
 
-Aucun développement supplémentaire ne produira d'indicateur tant qu'aucune donnée de terrain
-n'entre. C'est le verrou du programme.
+Sur 1 691 tronçons du réseau classé, 649 portent un état déclaré et **un seul** un état
+réellement observé. Aucun développement supplémentaire ne produira d'indicateur tant qu'aucune
+donnée de terrain n'entre.
+
+## Tests
+
+Dernière exécution : backend **1 105 passés**, frontend **294 passés**, TypeScript sans erreur.
+Détail, et ce qui n'est pas testé : [TESTS.md](TESTS.md).
 
 ## Restant, par lot du § 8
 
 | Lot | État |
 |---|---|
-| 0 audit, conformité, architecture cible | audit fait ; **CDC consolidé et ADR mobile à écrire** |
-| 1 socle, SRID, CI | SRID conformes (`geography`), **CI absente** |
-| 2 référentiel linéaire, codification, topologie, gazetier | portions faites ; **codification nationale, pgRouting, gazetier absents** |
-| 3 map-matching ponctuel et de trace HMM | ponctuel fait ; **HMM absent** |
-| 4 dégradations, métrés, ouvrages | faits ; **fiche d'inspection d'ouvrage T-04 et praticabilité T-07 absentes** |
+| 0 audit, conformité, architecture cible | **terminé** |
+| 1 socle, SRID, CI | **terminé** |
+| 2 référentiel linéaire | historisation **faite** ; codification, pgRouting, gazetier **bloqués** |
+| 3 map-matching ponctuel et de trace HMM | ponctuel fait ; **continuité et HMM absents** |
+| 4 dégradations, métrés, ouvrages | faits ; **fiche d'inspection d'ouvrage T-04 absente**, praticabilité T-07 anticipée au modèle mais bloquée (B-01) |
 | 5 validation, audit, qualité | faits |
-| 6 mobile en ligne + écran roulage | **PWA seule ; écran roulage absent** |
+| 6 mobile en ligne + écran roulage | **React Native décidé, non commencé** |
 | 7 hors ligne, packs, roulage complet | sync faite ; **packs, IRI, photo continue, HMM embarqué absents** |
-| 8 indices, prévision, programmation | RCI fait ; **risque, traitement, coût, programmation absents** |
+| 8 indices, prévision, programmation | RCI fait ; **risque, traitement, coût, programmation absents** — barèmes et matrices présents, lus par aucun code |
 | 9 tableau de bord, Géoportail d'excellence | partiels |
 | 10 intégrations | **bloqué, aucun accès** |
 | 11 durcissement | partiel |
 
 ## Prochaine action
 
-**Lot 2 — référentiel linéaire.** Deux chantiers indépendants des blocages, dans cet ordre :
+**Lot 3 — map-matching ponctuel et de trace.** Prochain lot non bloqué, et il commence par ce
+que le lot 1 lui a renvoyé :
 
-1. **Historisation bitemporelle** des portions (§ 7.2) : `valide_du` / `valide_au` comme dates
-   d'effet terrain, distinctes de `enregistre_le`. Le modèle porte déjà `remplaceeLe` et
-   `portions_lignage`, donc clôture et réouverture de version ; il manque la date d'effet.
-   Migration additive, testable en montée et en descente sans base de production.
-2. **Anticipation des fonctions C dans le modèle** (§ 14) : praticabilité saisonnière (T-07),
-   points de calibration du PK (T-09), champs de résultat d'inférence sur `medias_defaut`
-   (T-03). Le § 14 l'exige dès le lot 2 « pour éviter des migrations lourdes ultérieures ».
-
-**Les jeux de données GPS annotés passent au lot 3**, où ils appartiennent : le critère A2 juge
-le map-matching, qui est le contenu de ce lot. Les y forcer au lot 1 aurait produit un jeu de
-test sans le code qu''il doit éprouver.
-
-Codification nationale, topologie routable et gazetier (§ 7.14) restent au lot 2 mais sont
-**bloqués** par B-06, B-07 et B-27 : ils demandent le classement officiel.
-
-Le CDC consolidé et l'ADR mobile sont écrits. Ce dernier a révélé deux écarts de référentiel
-majeurs, consignés en B-27 et B-28 : **les routes communautaires n'existent pas dans
-l'énumération `ClasseRoute`**, soit ≈ 20 000 km annoncés sans place dans le modèle, et le
-réseau régional manque d'un sixième. Le réseau national, lui, concorde à 4 % près.
+1. **Jeu de points GPS annotés** (B-26), condition du critère A2 (« ≥ 95 % de bon candidat en
+   tête quand la confiance est haute »). Construits de façon **synthétique** — routes
+   parallèles à moins de 50 m, carrefours, chaussées séparées, précision dégradée — parce que
+   la vérité terrain y est alors connue **par construction**, ce qu'un extrait de production ne
+   donne pas. Et parce que le § 2.1 a coupé l'accès à la production.
+2. **Continuité du déplacement** dans l'appariement : cap et position précédente. Mesuré le
+   14/10 : `heading` compte **zéro occurrence** dans le dépôt, alors que le § 7.3 en fait un
+   des cinq facteurs du score de confiance.
+3. **Map-matching de trace par modèle de Markov caché** (§ 7.3.7, Newson & Krumm), noyau
+   TypeScript partagé serveur et mobile. C'est la pièce qui tranche les cas ambigus par la
+   continuité du parcours, et elle conditionne le critère A18 (≥ 97 % des points sur le bon
+   tronçon).
