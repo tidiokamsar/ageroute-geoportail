@@ -378,3 +378,55 @@ périmètre et ressources du pilote corridor.
 
 Aucune n'est contournable techniquement, et le § A.5.12 interdit tout accès à un système tiers
 sans autorisation écrite et interface approuvée.
+
+---
+
+## D-10 🔴 La chaîne de migrations ne reconstruit pas la base : que corriger, et quand
+
+**Découvert le 14/10/2026** en montant la base de développement, et mesuré : sur une base
+vierge, **49 des 51 migrations se rejouent, 2 échouent, dont une seule réellement.**
+
+`decomptes.marcheId` est déclaré `UUID` et référence `marches.id`, créé en `TEXT` par la
+migration précédente. `schema.prisma` dit `@db.Uuid` pour les deux. La production fonctionne
+parce que la migration porte `CREATE TABLE IF NOT EXISTS "marches"` : la table existait déjà,
+créée depuis le schéma Prisma, donc en `uuid`, et le corps a été sauté.
+
+**La conséquence est ce qui demande votre arbitrage** : aucun environnement neuf ne peut être
+monté par `migrate deploy`, et le plan de reprise après sinistre repose entièrement sur
+`pg_dump`. Détail et mesures au § 3 bis de [MIGRATION_PLAN.md](MIGRATION_PLAN.md).
+
+### Pourquoi ce n'est pas une simple correction de fichier
+
+Prisma enregistre une **empreinte de chaque fichier de migration** dans `_prisma_migrations`.
+Modifier `20260702110000_marches_bailleurs_avancement` ferait **échouer le prochain
+`migrate deploy` en production** sur une erreur d'empreinte. Et comme l'échec sur une base
+vierge survient *avant* les migrations suivantes, aucune migration de réparation placée après
+ne peut rattraper le défaut.
+
+### Trois options
+
+| Option | Effet | Coût et risque |
+|---|---|---|
+| **A. Corriger le fichier et réparer l'empreinte en production** | la chaîne redevient rejouable de bout en bout | exige une **écriture dans `_prisma_migrations`** en production, donc une opération que le § A.5.1 interdit sans votre autorisation. C'est la seule option qui restaure vraiment la reconstruction |
+| **B. Ne rien toucher, et acter que la reconstruction passe par `pg_dump`** | aucun risque, aucune opération de production | la reprise après sinistre dépend des sauvegardes seules. Un environnement de préproduction devra être cloné depuis un dump, jamais créé depuis zéro |
+| **C. Repartir d'une migration de référence** (*squash*) : un fichier unique décrivant l'état réel, les 51 marqués appliqués | chaîne propre pour l'avenir | perd l'historique des migrations, et **exige aussi des écritures dans `_prisma_migrations`**. Le § A.5.2 interdit par ailleurs de marquer artificiellement une migration comme appliquée — ce que cette option fait par construction |
+
+### Recommandation
+
+**L'option B maintenant, l'option A au prochain déploiement autorisé.**
+
+B ne coûte rien et décrit la réalité : la sauvegarde *est* déjà le chemin de reprise, il n'était
+simplement pas écrit. Acter cela a une valeur immédiate — cela change le rang des archives
+`pg_dump`, qui passent de filet de sécurité à **unique chemin de reconstruction**, et donc leur
+régime de vérification.
+
+A est la bonne réparation de fond, mais elle demande une écriture en production. L'associer à un
+déploiement déjà autorisé évite d'ouvrir une opération de production pour elle seule, et le
+risque est faible : la correction porte sur un type de colonne que la production possède déjà
+correctement, donc le fichier corrigé décrirait enfin ce qui existe.
+
+C est à écarter, et pas seulement par préférence : elle contredit le § A.5.2.
+
+**Ce que je n'ai pas fait, et volontairement** : corriger le fichier. Cela aurait réparé la
+reconstruction locale en armant une erreur d'empreinte au prochain déploiement, c'est-à-dire
+échangé un défaut mesuré contre un défaut caché.

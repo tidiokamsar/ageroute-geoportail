@@ -49,13 +49,13 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 | **A23** | Interopérabilité ONR : pivot, L²R, sections UEMOA, correspondance éditable | **BL** | formats L²R non publiés (§ B.1) ; à demander à l'ONR |
 | **A24** | Exploitation : incident hors ligne → main courante immuable, Info Route < 1 min | **AB** | § 7.17 non commencé |
 | **A25** | Sécurité : chaque alerte avec preuve ou blocage ; aucun secret | **PA** | **le volet dépôt est prouvé** : 225 commits analysés, aucun secret, **IP de production jamais committée**. Quatre alertes bloquées faute d'autorisation de production. `bdri_app` toujours superuser |
-| **A26** | Migrations : rollback **exécuté et vérifié** | **BL** | 51 locales, 50 appliquées, 1 en attente. **Rollback non exécuté** : aucune base de développement (B-13) |
+| **A26** | Migrations : rollback **exécuté et vérifié** | **TP** | **rollback exécuté le 14/10** sur PostGIS 17-3.5 local, aller-retour vérifié : 20 objets → 0 → 20, états identiques, codes 0. Mais **la chaîne ne se rejoue pas sur base vierge** : 49/51, un défaut de type `uuid`/`text` (D-10), et 50 migrations sur 51 n'ont aucun script de descente |
 | **A27** | Aucune décision non approuvée présentée comme officielle | **TT** | `rci-2026.1` **désapprouvée** le 14/10 ; 9 barèmes en `standard_initial`, **aucun approuvé** ; praticabilité volontairement vide ; 6 573 hors-territoire et 42 doublons **classés, intacts et reproductibles** |
 | **A28** | Import BDR/ANASUR idempotent, 100 % des lignes dans un statut | **AB** | aucun import écrit ; questionnaire ANASUR à produire (§ B.3) |
 | **A29** | Tâches internes avec preuves avant/après ; rapprochement en lecture | **AB** | TI-01 à TI-03 non commencés |
 | **A30** | Détection satellitaire → proposition localisée, précision mesurée | **AB** | partie E non commencée |
 
-**Bilan : 9 TT, 3 TP, 4 PA, 3 NT, 4 BL, 7 AB.** Aucune case « à vérifier ».
+**Bilan : 9 TT, 4 TP, 4 PA, 3 NT, 3 BL, 7 AB.** Aucune case « à vérifier ».
 
 ---
 
@@ -71,7 +71,7 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 | Toute modification sensible autorisée côté serveur et auditée | **TT** | `logAuditTransactionnelle` dans la transaction ; 1 506 lignes d'audit |
 | Toute mesure porte sa méthode et son incertitude | **PA** | `valeurs_qualite` porte méthode, statut et confiance. Mais `dateDerniereEvaluation` est **nulle sur 261 387 lignes** |
 | Les indicateurs affichent sources, périmètre et limites | **PA** | l'API publique affiche `methode` et `calculeeA`. Le périmètre n'est pas affiché partout, et c'est la faute que j'ai commise deux fois |
-| Les quatre migrations passent, rollback vérifié | **BL** | les quatre sont appliquées depuis le 13/10 ; leur rollback n'a jamais été exécuté |
+| Les quatre migrations passent, rollback vérifié | **PA** | les quatre sont appliquées depuis le 13/10. **Un rollback est désormais vérifié** — celui de la migration en attente, seul à posséder un script. Les quatre-là n'en ont aucun |
 | Les alertes de sécurité ont preuve ou blocage documenté | **TT** | [SECURITY_REMEDIATION.md](SECURITY_REMEDIATION.md) |
 | Aucune mise en production sans autorisation explicite | **TT** | deux opérations depuis V10, toutes deux explicitement autorisées |
 
@@ -136,7 +136,15 @@ Le § F.1 exige quatre preuves pour franchir la phase 0. Trois sont acquises.
 | `SECURITY_REMEDIATION.md` avec preuves | **acquis** — volet dépôt prouvé, quatre alertes bloquées et documentées |
 | `REQUIREMENTS_TRACEABILITY.md` sans « à vérifier » | **acquis** — ce document |
 | `DECISIONS_PENDING.md` complet | **acquis** — 10 décisions, dont une tranchée |
-| **`MIGRATION_PLAN.md` testé** | **NON** — le rollback n'a pas été exécuté, faute de base de développement (B-13) |
+| **`MIGRATION_PLAN.md` testé** | **acquis** — rollback exécuté et vérifié en aller-retour le 14/10, B-13 clos |
 
-**Un seul blocage sépare le projet de la fin de la phase 0**, et il se lève en démarrant Docker
-sur ce poste ou en fournissant une base de développement.
+**Les quatre preuves de la porte de phase 0 sont acquises.**
+
+Mais il serait faux d'en conclure que la phase 0 est sans reste. Le test du rollback a révélé un
+fait que personne n'avait mesuré : **la chaîne de migrations ne reconstruit pas la base** —
+49 des 51 se rejouent sur une base vierge, et le plan de reprise après sinistre repose donc
+entièrement sur `pg_dump`. Ce n'est pas une preuve manquante de la porte, c'est un risque
+découvert *en la franchissant*, et il attend un arbitrage (**D-10**).
+
+Les quatre alertes de sécurité encore ouvertes, elles, restent bloquées par l'absence
+d'autorisation de production, et non par un manque de travail.

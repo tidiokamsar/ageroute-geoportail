@@ -51,44 +51,123 @@ pour les 50 migrations que son image contient. Ce verdict est exact et incomplet
 | **Données concernées** | **aucune ligne écrite ni modifiée.** `portions` et `medias_defaut` comptaient **0 ligne** en production au 14/10 |
 | **Compatibilité avec la version déployée** | **compatible dans les deux sens.** Toutes les colonnes ajoutées sont nullables ou ont une valeur par défaut : le code actuellement déployé, qui les ignore, continue de fonctionner. Et le code qui les lit fonctionne sur une base où elles valent `NULL` |
 | **Tests** | Les **règles** sont éprouvées sans base : `reseau/bitemporel.ts`, **32 tests**, dont les deux axes de temps répondant différemment à la même date de terrain. `prisma generate` valide le schéma. Suite complète : **1 145 tests backend**, 0 échec |
-| **Rollback réellement exécuté** | **NON. Voir § 3 — c'est le seul point du § A.8 qui n'est pas tenu, et je ne le déclare pas tenu** |
+| **Rollback réellement exécuté** | **OUI, le 14/10/2026**, aller-retour vérifié sur base PostGIS locale. Voir § 3 |
 | **Contrôles post-migration** | listés au § 6 |
 | **Compatibilité frontend** | **aucun impact** : aucun écran ne lit encore ces colonnes |
 | **Évolution par étapes** | sans objet : la migration est additive et tient en une étape. Le schéma *expand → migrate → contract* ne s'applique pas, il n'y a pas de phase *contract* |
 
-**Script de descente** : `backend/prisma/descentes/20261014170000_historisation_bitemporelle.sql`,
-écrit, relu, commenté — **non exécuté**. Il vit hors du dossier de migration, par prudence
-asymétrique ([ADR-008](TECHNICAL_DECISIONS.md)) : Prisma lit `migration.sql`, et un second `.sql`
-y est très probablement ignoré, mais je n'ai pas pu l'établir avec certitude. Si je me trompais,
-il supprimerait en production les colonnes que la migration vient d'ajouter.
+**Script de descente** : `backend/prisma/descentes/20261014170000_historisation_bitemporelle.sql`.
+Il vit hors du dossier de migration, par prudence asymétrique
+([ADR-008](TECHNICAL_DECISIONS.md)) : Prisma lit `migration.sql`, et un second `.sql` y est très
+probablement ignoré, mais je n'ai pas pu l'établir avec certitude. Si je me trompais, il
+supprimerait en production les colonnes que la migration vient d'ajouter.
 
 ---
 
-## 3. Ce que le § A.8 exige et que je ne peux pas tenir
+## 3. Le rollback, exécuté et vérifié le 14/10/2026
 
-**Le rollback n'a pas été exécuté, sur aucune base.**
+**B-13 est levé.** Docker a démarré sur le poste, et une base de développement isolée a été
+montée : `postgis/postgis:17-3.5` — la **même image que la production** —, conteneur
+`bdri-dev-db`, port `127.0.0.1:5434`, identifiants locaux jetables. PostgreSQL **17.5**, PostGIS
+**3.5** avec GEOS, PROJ et STATS.
 
-Le § A.8 demande un « rollback **réellement exécuté** sur base représentative ». Mesuré le
-14/10/2026 sur le poste de travail :
+### Méthode, et pourquoi elle est en trois temps
 
-| Vérification | Résultat |
+Le § A.8 demande un rollback « réellement exécuté ». Un script de descente qui s'exécute sans
+erreur ne prouve pourtant qu'une moitié : il faut aussi que la **remontée** redonne exactement
+l'état de départ. Une descente qui retire une colonne en oubliant sa contrainte laisse une base
+qui *semble* propre et refusera la remontée.
+
+L'état comparé n'est donc pas « la migration a tourné » mais l'inventaire des **20 objets** que
+la montée crée : 11 colonnes avec leur type, 6 contraintes `CHECK`, 3 index, relevés par requête
+sur `information_schema`, `pg_constraint` et `pg_indexes`.
+
+| Temps | Geste | Objets relevés | Code de sortie |
+|---|---|---|---|
+| 1 | état après la montée | **20** | — |
+| 2 | **exécution de la descente** | **0** | **0** |
+| 3 | **remontée** | **20** | **0** |
+
+**L'état 3 est identique à l'état 1**, comparaison objet par objet, type par type. Aucun résidu
+après la descente, aucun manque après la remontée.
+
+Ce temps 3 établit en prime que le script de montée est **rejouable**, ce que le § A.8 ne
+demandait pas explicitement mais dont toute récupération dépend.
+
+### Ce que ce test ne couvre pas
+
+**Il porte sur une base vide.** La descente retire des colonnes : sur une base peuplée, elle
+détruirait leur contenu sans recours. Le script porte en tête les requêtes de comptage à
+exécuter avant toute descente réelle, et cette exigence est intacte.
+
+**Il ne porte que sur une migration des cinquante et une.** C'est la seule qui possède un script
+de descente : `backend/prisma/descentes/` ne contient qu'un fichier. Les cinquante autres sont
+appliquées en production et n'ont **aucun retour arrière écrit**. L'exigence du § A.8 est donc
+tenue pour la migration en attente, et non pour l'historique.
+
+---
+
+## 3 bis. 🔴 Ce que le rejoue a révélé : la chaîne ne reconstruit pas la base
+
+En montant la base de développement, j'ai découvert un fait que personne n'avait mesuré, et qui
+compte davantage que le rollback.
+
+**`prisma migrate deploy` échoue sur une base vierge.** Mesuré en rejouant les 51 fichiers un par
+un sur une base neuve :
+
+| Mesure | Valeur |
 |---|---|
-| `psql` disponible | **non** |
-| Service PostgreSQL | **aucun** |
-| Installation PostgreSQL | **aucune** |
-| Docker | CLI présente, **moteur injoignable** (`npipe://…dockerDesktopLinuxEngine`) |
-| Docker Desktop au chemin standard | **absent** |
+| Migrations rejouées sans erreur | **49** |
+| En échec | **2**, dont **une seule réelle** |
 
-Et le § A.5.1 interdit d'utiliser la production pour éprouver un retour arrière — ce qui serait
-de toute façon une mauvaise idée.
+| Migration | Erreur |
+|---|---|
+| `20260702140000_decomptes` | `foreign key constraint "decomptes_marcheId_fkey" cannot be implemented` — `marcheId` est `uuid`, `marches.id` est `text` |
+| `20260902140000_p1_soft_delete_decomptes_bailleurs` | `relation "decomptes" does not exist` — **conséquence** de la précédente |
 
-**C'est le blocage B-13.** Il suffirait de démarrer Docker sur ce poste, ou de fournir une base
-de développement, pour le lever : la migration et sa descente pourraient alors être éprouvées en
-montée **et** en descente, comme le mandat l'exige, en quelques minutes.
+### La cause, et elle est instructive
 
-**En attendant, cette migration ne doit pas être déployée.** Non parce qu'elle est risquée — elle
-est additive et porte sur deux tables vides — mais parce que la règle du § A.8 n'est pas
-satisfaite, et qu'une exception accordée une fois devient une pratique.
+| Source | Type de `marches.id` |
+|---|---|
+| `schema.prisma`, ligne 742 | `String @id @default(uuid()) @db.Uuid` → **`uuid`** |
+| `20260702110000_marches_bailleurs_avancement`, ligne 31 | `"id" TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text` → **`text`** |
+
+Les deux se contredisent, et **aucune migration ne change jamais ce type**.
+
+Si la production fonctionne, c'est que cette migration déclare `CREATE TABLE **IF NOT EXISTS**
+"marches"` : la table existait déjà, créée depuis `schema.prisma`, donc avec un `id` en `uuid`.
+Le corps de la migration a été **sauté**, et la clé étrangère de `decomptes` a trouvé le type
+qu'elle attendait.
+
+Dix-sept `CREATE TABLE IF NOT EXISTS` figurent dans ces migrations, contre trente-deux sans
+garde. Cette garde, qui ressemble à de la prudence, a ici **masqué une divergence pendant trois
+mois**.
+
+### La conséquence, qui est la vraie découverte
+
+**La chaîne de migrations n'est pas le chemin de reconstruction de cette base.** Elle en est une
+trace partielle, ce que `AGENTS.md` disait déjà des origines du dépôt : « le commit initial est
+un instantané, pas une reconstruction de l'historique réel ».
+
+Donc, et il faut l'écrire sans adoucir :
+
+- **aucun environnement neuf** — développement, préproduction, reprise après sinistre — ne peut
+  être monté par `migrate deploy` seul ;
+- **le plan de reprise doit reposer sur une sauvegarde `pg_dump`**, pas sur les migrations. Les
+  trois archives des 13 et 14/10 prennent donc un rang qu'elles n'avaient pas : elles ne sont pas
+  un filet, elles sont **le seul chemin** ;
+- un correctif n'est pas anodin. Prisma enregistre une **empreinte de chaque fichier** dans
+  `_prisma_migrations` : corriger `20260702110000` ferait échouer le prochain `migrate deploy` en
+  production sur une erreur d'empreinte. Et comme l'échec survient *avant* toute migration
+  ultérieure, aucune migration de réparation placée après ne peut aider.
+
+**C'est donc une décision, pas une correction**, et elle vous revient. Trois options, leurs
+conséquences et ma recommandation sont consignées en **D-10** dans
+[DECISIONS_PENDING.md](DECISIONS_PENDING.md).
+
+**Ce que je n'ai pas fait** : toucher aux fichiers de migration. Les corriger silencieusement
+aurait réparé la reconstruction locale en armant une erreur d'empreinte au prochain déploiement
+de production.
 
 ---
 
@@ -202,11 +281,16 @@ script de descente : il doit être conscient, pas un effet de bord.
 
 ## 7. Ce qui bloque le déploiement, et dans quel ordre le lever
 
-| # | Blocage | Levée |
+| # | Blocage | État au 14/10 au soir |
 |---|---|---|
-| 1 | **Rollback non éprouvé** (§ 3) | démarrer Docker sur le poste, ou fournir une base de développement (B-13) |
-| 2 | **L'image du conteneur ne contient pas cette migration** | elle a été construite avant. La livrer exige un `--build`, donc un déploiement |
-| 3 | **Autorisation explicite** du responsable AGEROUTE | § A.5.1 et § A.8 |
+| 1 | **Rollback non éprouvé** | ✅ **levé** — exécuté et vérifié en aller-retour (§ 3). B-13 clos |
+| 2 | **L'image du conteneur ne contient pas cette migration** | ouvert. Elle a été construite avant ; la livrer exige un `--build`, donc un déploiement |
+| 3 | **Autorisation explicite** du responsable AGEROUTE | ouvert, § A.5.1 et § A.8 |
 
-Les trois sont indépendants. Le premier est le seul que je puisse lever moi-même, et seulement
-si Docker démarre.
+Le seul que je pouvais lever moi-même l'est. Les deux autres vous appartiennent.
+
+**Et un quatrième point est apparu**, qui ne bloque pas *ce* déploiement mais qu'il serait
+malhonnête de ne pas placer ici : la chaîne de migrations ne reconstruit pas la base (§ 3 bis).
+La migration en attente, elle, reste strictement additive et sans risque pour la production —
+les deux faits sont indépendants, et le second ne doit pas servir de prétexte à retarder le
+premier.

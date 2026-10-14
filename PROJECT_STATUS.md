@@ -99,6 +99,9 @@ Détail, et **ce qui n'est pas testé**, dans [TEST_EVIDENCE.md](TEST_EVIDENCE.m
 | § D | **Quinze ADR** des arbitrages D1–D15, dont deux corrigent mes décisions antérieures : D14 amende ADR-006, D6 referme l'écart É-4 du RCI | [TECHNICAL_DECISIONS.md](TECHNICAL_DECISIONS.md) |
 | § 7.17 | **Praticabilité : une proposition existait et je la déclarais absente.** Le mandat propose lui-même P1 à P4 ; la fiche D-02 la porte désormais, avec les quatre manques qui subsistent | [DECISIONS_PENDING.md](DECISIONS_PENDING.md) |
 | § D4 | **Nouvelle décision en attente D-09** : l'arbitrage D4 impose « aucun second annuaire » alors que la table `utilisateurs` en est un. Aucun OIDC n'existe — vérifié | [DECISIONS_PENDING.md](DECISIONS_PENDING.md) |
+| § 7.3.7 | **Map-matching de trace HMM** écrit et mesuré : critère **A18 à 130 points justes sur 130**, exigé ≥ 97 %, 8 sorties du référentiel détectées sur 8, 7 200 points sans débordement | `geo/appariement.trace.ts`, 25 tests |
+| § A.8 | **Rollback exécuté et vérifié** : B-13 levé, base PostGIS 17-3.5 isolée, aller-retour 20 objets → 0 → 20, états identiques. **La porte de la phase 0 est franchie** | [MIGRATION_PLAN.md](MIGRATION_PLAN.md) § 3 |
+| § A.8 | **Et le rejoue a révélé B-16** : la chaîne de migrations ne reconstruit pas la base, 49 sur 51. La reprise après sinistre repose sur `pg_dump` seul | [MIGRATION_PLAN.md](MIGRATION_PLAN.md) § 3 bis, arbitrage D-10 |
 
 ---
 
@@ -151,20 +154,22 @@ tournera dans la coque.
 
 ## 7. Prochaine action
 
-Le mandat V10 est **lu en entier**, la matrice de conformité est refaite sans case « à
-vérifier », et les quinze ADR des arbitrages sont écrites. Les trois exigences documentaires du
-§ K.4 sont donc tenues.
+**La porte de la phase 0 est franchie.** Les quatre preuves du § F.1 sont acquises : sécurité
+prouvée, matrice sans case « à vérifier », décisions consignées, et **rollback exécuté et
+vérifié** le 14/10 — B-13 levé en démarrant Docker et en montant une base PostGIS 17-3.5
+isolée, la même image que la production.
 
-**Il reste un seul obstacle à la fin de la phase 0**, et il est technique : le § F.1 exige
-« `MIGRATION_PLAN.md` **testé** », or le rollback n'a jamais été exécuté faute de base de
-développement (B-13). Il se lève en démarrant Docker sur ce poste. C'est **la prochaine action**,
-parce qu'aucun autre travail ne peut franchir la porte à sa place.
+**Mais franchir la porte a révélé un risque plus grave que celui qu'elle gardait.** La chaîne de
+migrations **ne reconstruit pas la base** : 49 des 51 se rejouent sur une base vierge, un défaut
+de type `uuid` contre `text` masqué depuis juillet par un `CREATE TABLE IF NOT EXISTS`. Aucun
+environnement neuf ne peut être monté par `migrate deploy`, et la reprise après sinistre repose
+donc entièrement sur `pg_dump`. C'est **B-16**, et l'arbitrage est **D-10**.
 
 **Ensuite**, par ordre de valeur et sans dépendre d'une décision institutionnelle :
 
-1. **Map-matching de trace HMM** (§ 7.3.7) — conditionne le critère A18, et le § 15 le fige comme
-   bibliothèque TypeScript partagée. `geo/appariement.noyau.ts` est déjà écrit sans import pour
-   le recevoir.
+1. ~~Map-matching de trace HMM~~ — **fait le 14/10** : `geo/appariement.trace.ts`, 25 tests,
+   critère **A18 mesuré à 130/130** sur 4 traces annotées. Reste le graphe de réseau, sans lequel
+   le HMM retombe sur la distance seule entre tronçons différents.
 2. **Vue dérivée des sections fixes** (IO-03/IO-04) — l'arbitrage D6 en fait le format d'échange
    avec la BDR nationale, donc le prérequis du critère A23. Aucune table à créer : une vue
    paramétrable par le pas.
