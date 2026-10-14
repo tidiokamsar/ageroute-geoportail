@@ -170,9 +170,12 @@ donc entièrement sur `pg_dump`. C'est **B-16**, et l'arbitrage est **D-10**.
 1. ~~Map-matching de trace HMM~~ — **fait le 14/10** : `geo/appariement.trace.ts`, 25 tests,
    critère **A18 mesuré à 130/130** sur 4 traces annotées. Reste le graphe de réseau, sans lequel
    le HMM retombe sur la distance seule entre tronçons différents.
-2. **Vue dérivée des sections fixes** (IO-03/IO-04) — l'arbitrage D6 en fait le format d'échange
-   avec la BDR nationale, donc le prérequis du critère A23. Aucune table à créer : une vue
-   paramétrable par le pas.
+2. ~~Vue dérivée des sections fixes~~ — **fait le 14/10** : `reseau_sections_fixes`, 14
+   assertions SQL, critère **B11** tenu sur ses deux moitiés mesurables. Aucune table créée, donc
+   la saisie au niveau section est impossible et non seulement interdite. La **note UEMOA
+   (IO-03) reste absente**, faute du texte de la directive. Et le banc d'essai a révélé un défaut
+   que la correction `20261014200000` répare : la contrainte d'exclusion de `portions` ignorait
+   l'axe terrain, donc la bitemporalité était inexploitable en base.
 3. **Benchmark cartographique sur les 261 387 tronçons** — l'arbitrage D3 en fait une « porte de
    décision ». Tant qu'il n'existe pas, « Leaflet suffit » est une hypothèse.
 4. **TI-01, tâches internes** — entré au périmètre par D1, ne dépend d'aucune décision en

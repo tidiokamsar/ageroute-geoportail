@@ -24,9 +24,9 @@ migrations.**
 
 | Mesure | Valeur |
 |---|---|
-| Dossiers de migration locaux | **51** |
+| Dossiers de migration locaux | **53** |
 | Appliquées en production | **50** |
-| **En attente** | **1** |
+| **En attente** | **3** |
 | Appliquées sans fichier local (orphelines) | **0** |
 | Lignes de `_prisma_migrations` inachevées ou annulées | 1, **expliquée au § 5** |
 
@@ -104,6 +104,93 @@ exécuter avant toute descente réelle, et cette exigence est intacte.
 de descente : `backend/prisma/descentes/` ne contient qu'un fichier. Les cinquante autres sont
 appliquées en production et n'ont **aucun retour arrière écrit**. L'exigence du § A.8 est donc
 tenue pour la migration en attente, et non pour l'historique.
+
+---
+
+## 2 bis. Les deux autres migrations en attente, écrites le 14/10 au soir
+
+### `20261014190000_sections_fixes_derivees` — IO-04
+
+| Champ du § A.8 | Contenu |
+|---|---|
+| **Objectif** | La vue dérivée des **sections fixes** que l'arbitrage **D6** impose : « portions homogènes = vérité, sections fixes = vue dérivée paramétrable ». Fonction `reseau_sections_fixes(pas_m, troncon_ids, a_la_date)` |
+| **Nature** | **additive, et sans aucune table.** Elle crée une fonction. Aucune ligne écrite, aucune table existante touchée |
+| **Pourquoi aucune table** | Une table de sections serait un second endroit où l'état du réseau existe, donc où il peut diverger — et elle rendrait **techniquement possible** la saisie au niveau section, que D6 interdit. Une interdiction tenue par l'absence de l'objet vaut mieux qu'une interdiction tenue par une consigne |
+| **Tests** | `backend/prisma/tests/sections_fixes.test.sql`, **14 assertions**, toutes passées. Détail au § 2 ter |
+| **Rollback exécuté** | **OUI.** La descente ne peut rien détruire : elle retire une fonction. C'est le seul retour arrière de ce dépôt dont on puisse le dire sans compter de lignes au préalable |
+| **Compatibilité** | aucun impact sur le code déployé : rien ne l'appelle encore |
+
+**Ce qu'elle ne fait pas** : la **note UEMOA**. Le critère B11 attend que chaque section porte
+« l'état de la portion dominante **et la note UEMOA** ». La première moitié est livrée, la
+seconde est **volontairement absente** : [RCI_METHOD_DECISION.md](RCI_METHOD_DECISION.md) a
+établi que le texte de la directive n° 11/2009 et ses neuf indices ne sont pas en ma possession.
+Une colonne remplie par une formule devinée serait pire qu'absente — elle aurait l'air d'une note
+sous-régionale comparable. **IO-04 est livré, IO-03 reste suspendu** à la demande D-01.
+
+### `20261014200000_exclusion_portions_bitemporelle` — un défaut trouvé en testant
+
+| Champ du § A.8 | Contenu |
+|---|---|
+| **Objectif** | Corriger la contrainte d'exclusion de `portions`, qui **ignorait l'axe terrain** |
+| **Dépendances** | `20261014170000_historisation_bitemporelle`, qui crée `valideDu` et `valideAu`. **Les deux doivent être déployées ensemble, dans cet ordre** |
+| **Nature** | la contrainte est remplacée par une **strictement plus permissive**. Tout état qui satisfaisait l'ancienne satisfait la nouvelle, donc la recréation ne peut pas échouer sur des données existantes. `portions` comptait 0 ligne au 14/10 |
+| **Rollback exécuté** | **OUI**, aller-retour vérifié : la contrainte revient à sa forme d'origine à deux opérandes, puis la troisième réapparaît |
+
+**Le défaut, et il était silencieux.** La contrainte créée par `20261013180000_portions_homogenes`
+porte sur `("tronconId", numrange("debutM","finM"))` seulement. Soit une portion
+[120 m, 400 m) en bon état du 1ᵉʳ janvier au 1ᵉʳ juin, reprise ensuite, donc mauvaise à partir du
+1ᵉʳ juin : **ce sont deux faits qui ne se contredisent pas**, portant sur des périodes de terrain
+disjointes, tous deux crus aujourd'hui. Aucun ne remplace l'autre.
+
+La contrainte les refusait. Le seul contournement était de poser `remplaceeLe` sur l'ancienne
+version — employer une date **système** pour exprimer une succession **terrain**, en confondant
+précisément les deux axes que l'[ADR-007](TECHNICAL_DECISIONS.md) a séparés.
+
+**Conséquence** : l'axe terrain existait en colonnes, se testait dans `reseau/bitemporel.ts` par
+32 tests sans base, et **aucune donnée ne pouvait l'exercer en base.** Le défaut n'est apparu
+qu'en écrivant le banc d'essai des sections fixes, qui a tenté d'insérer les deux versions.
+
+La correction ajoute un troisième opérande, `daterange("valideDu","valideAu",'[)')` : deux
+versions ne se heurtent plus que si elles se chevauchent **sur les deux axes**. Une borne nulle
+vaut l'infini et chevauche donc tout — lecture voulue et la plus prudente, puisqu'une portion
+dont personne ne sait depuis quand elle est vraie revendique implicitement toute l'histoire.
+
+**Et la descente de celle-ci peut légitimement échouer**, seule de tout le dépôt : elle restaure
+une contrainte **plus stricte**, qu'une base exploitant l'axe terrain peut refuser. Le script
+porte en tête la requête de comptage des conflits. Un échec y dirait « j'exploite l'axe terrain,
+vous ne pouvez plus revenir sans choisir quoi perdre » — et ce choix est humain, jamais
+automatique (§ A.5.8).
+
+---
+
+## 2 ter. Le banc d'essai des sections fixes, et ce qu'il établit
+
+`backend/prisma/tests/sections_fixes.test.sql`, exécuté dans une transaction **annulée**, donc
+sans rien écrire de durable. Un `RAISE EXCEPTION` sur la première assertion fausse fait échouer
+la commande : le fichier est utilisable en intégration continue dès qu'une base y sera
+disponible.
+
+**14 assertions, toutes passées.** Le jeu de test emploie une géométrie dont la longueur est
+**volontairement non ronde** — 995,449 m — et une `longueurKm` déclarée **volontairement fausse**
+de 1,2 km, soit 20,5 % d'écart.
+
+| Propriété éprouvée | Résultat |
+|---|---|
+| **B11.1** somme des sections = longueur du tronçon | vrai aux pas de **100, 200, 37 et 5 000 m** — 10, 5, 27 et 1 sections, somme toujours 995,449 m |
+| La dernière section est un **reste** | 95,449 m au pas de 100 m |
+| **B11.2** état de la portion **dominante** | section [100, 200) : 20 m de mauvais contre 80 m de bon → **bon**, dominance 80 %. C'est le piège du critère : la majorité gagne, pas la portion qui commence la première |
+| Une section **non couverte** apparaît quand même | état nul, couverture 0, 0 portion. La disparaître se lirait comme une route sans existence, alors que c'est l'observation qui manque |
+| La couverture ne dépasse **jamais** 1 | garanti par construction — le filtre est celui de la contrainte d'exclusion, donc sans chevauchement, et les intervalles sont semi-ouverts |
+| **A9** une proposition non validée n'a aucun effet | une portion `A_VALIDER` couvrant tout le tronçon : **zéro influence** |
+| La **géométrie** fait foi, pas la longueur déclarée | les deux sont rendues côte à côte, écart de 20,5 % visible et non masqué |
+| Un tronçon **sans géométrie** est exclu | 0 section, aucun repli sur la longueur déclarée |
+| Un pas nul ou négatif **échoue bruyamment** | et non rendu comme un résultat vide, qu'un appelant lirait « ce tronçon n'a pas de section » |
+| L'axe **terrain** répond à la date | section [200, 300) : bon au 1ᵉʳ mars, mauvais au 1ᵉʳ septembre |
+| **Contre-épreuve** : la contrainte refuse encore | un chevauchement sur les deux axes, et un chevauchement métrique à période commune |
+
+Cette dernière ligne compte autant que les autres : sans elle, **supprimer purement la contrainte
+aurait fait passer le test**. Les deux premières assertions bitemporelles prouvent qu'elle
+accepte ce qu'elle doit accepter ; seule la contre-épreuve prouve qu'elle refuse encore.
 
 ---
 

@@ -46,7 +46,7 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 | **A20** | Géoportail : rendu < 3 s en 3G, recherche < 300 ms, déviation < 2 s, OGC | **NT** | aucune mesure ; tuiles vectorielles, permalien et pgRouting absents |
 | **A21** | Chaque tronçon : code national, provenance, score qualité, rattachement | **BL** | **la codification nationale n'existe pas** et les routes communautaires n'ont aucune valeur d'énumération (D-06). Provenance présente sur 259 696 tronçons, absente sur 1 691 |
 | **A22** | Programmation reproductible, justifiée, fiche figée | **AB** | aucun moteur ; barèmes et matrices présents, **lus par aucun code** |
-| **A23** | Interopérabilité ONR : pivot, L²R, sections UEMOA, correspondance éditable | **BL** | formats L²R non publiés (§ B.1) ; à demander à l'ONR |
+| **A23** | Interopérabilité ONR : pivot, L²R, sections UEMOA, correspondance éditable | **PA** | **sections fixes livrées** (IO-04) : `reseau_sections_fixes`, 14 assertions SQL, critère **B11** tenu sur ses deux moitiés mesurables. La **note UEMOA (IO-03) reste absente**, faute du texte de la directive n° 11/2009. Pivot et L²R toujours bloqués, formats non publiés |
 | **A24** | Exploitation : incident hors ligne → main courante immuable, Info Route < 1 min | **AB** | § 7.17 non commencé |
 | **A25** | Sécurité : chaque alerte avec preuve ou blocage ; aucun secret | **PA** | **le volet dépôt est prouvé** : 225 commits analysés, aucun secret, **IP de production jamais committée**. Quatre alertes bloquées faute d'autorisation de production. `bdri_app` toujours superuser |
 | **A26** | Migrations : rollback **exécuté et vérifié** | **TP** | **rollback exécuté le 14/10** sur PostGIS 17-3.5 local, aller-retour vérifié : 20 objets → 0 → 20, états identiques, codes 0. Mais **la chaîne ne se rejoue pas sur base vierge** : 49/51, un défaut de type `uuid`/`text` (D-10), et 50 migrations sur 51 n'ont aucun script de descente |
@@ -55,7 +55,7 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 | **A29** | Tâches internes avec preuves avant/après ; rapprochement en lecture | **AB** | TI-01 à TI-03 non commencés |
 | **A30** | Détection satellitaire → proposition localisée, précision mesurée | **AB** | partie E non commencée |
 
-**Bilan : 9 TT, 4 TP, 4 PA, 3 NT, 3 BL, 7 AB.** Aucune case « à vérifier ».
+**Bilan : 9 TT, 4 TP, 5 PA, 3 NT, 2 BL, 7 AB.** Aucune case « à vérifier ».
 
 ---
 
@@ -82,7 +82,7 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 | § | Exigence | Statut | Écart principal |
 |---|---|---|---|
 | 7.1 | Conventions géospatiales 🔒 | **PA** | longueurs en `geography` : conforme. **UTM 28N/29N non employé** pour les surfaces. SQL paramétré : corrigé et gardé par un test |
-| 7.2 | Référencement linéaire, ISO 19148, bitemporel | **PA** | portions, lignage, exclusion : faits. **Historisation bitemporelle écrite, migration non déployée.** Codification nationale absente |
+| 7.2 | Référencement linéaire, ISO 19148, bitemporel | **PA** | portions, lignage, exclusion : faits. Historisation bitemporelle écrite, **et son défaut corrigé** — la contrainte d'exclusion ignorait l'axe terrain, donc aucune donnée ne pouvait l'exercer. Trois migrations non déployées. Codification nationale absente |
 | 7.3 | Map-matching ponctuel et de trace | **TP** | ponctuel **complet** avec les 5 facteurs et les 3 issues ; **trace HMM écrite et mesurée**. Reste : le graphe de réseau, sans lequel le HMM retombe sur la distance seule entre tronçons différents |
 | 7.4 | Catalogue et métrés | **TP** | 13 types ; le § 7.16 exige **≥ 21 types**, revêtu et non revêtu. Photos de référence par gravité absentes |
 | 7.5 | Workflow de validation | **TT** | — |
@@ -95,7 +95,7 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 | 7.12 | Tableau de bord national | **PA** | ignore portions et qualité |
 | 7.13 | Collecte en roulage | **AB** | priorité M, non commencé |
 | 7.14 | Niveau d'excellence | **AB** | tuiles vectorielles, vue de route, curseur temporel, pgRouting, gazetier, métadonnées ISO 19115 |
-| **7.15** | **Interopérabilité BDR / L²R** | **BL** | 8 flux à construire ; formats L²R non publiés. **Format pivot ouvert** réalisable sans eux |
+| **7.15** | **Interopérabilité BDR / L²R** | **PA** | **IO-04 livré** : sections fixes paramétrables, dérivées des portions, sans table ni saisie possible au niveau section. 7 flux restants ; formats L²R non publiés. **Format pivot ouvert** réalisable sans eux |
 | **7.16** | **Étalon fonctionnel Logiroad Center** | **AB** | 17 capacités plancher, dont 5 marquées ★ propres au contexte guinéen |
 | **7.17** | **Couche d'exploitation** | **AB** | main courante, patrouilles, P1–P4, cellule de veille, Info Route |
 
