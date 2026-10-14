@@ -1,4 +1,8 @@
-# Journal des décisions (ADR)
+# Journal des décisions techniques (ADR)
+
+> Fichier canonique exigé par le § A.9 du prompt maître V10. Il remplace
+> `docs/pilotage/DECISIONS.md`, dont il conserve l'historique Git.
+
 
 > Exigé par le § 4 du mandat v2.1. Format court : contexte, options, décision, conséquences.
 > Une entrée par décision structurante, jamais réécrite — une décision révisée fait une
@@ -218,3 +222,73 @@ On perd un peu de localité, on gagne l'impossibilité de cet accident.
 
 **Conséquence.** Le contrôle de CI « chaque dossier de migration porte un `migration.sql` »
 reste sans ambiguïté, et les dossiers de migration ne contiennent qu'un seul fichier.
+
+---
+
+## ADR-009 — V10 fige Capacitor : ADR-002 est remplacée
+
+**Date** : 14/10/2026, 16:01. **Statut** : actée. **Remplace** [ADR-002](docs/architecture/ADR-002-TECHNOLOGIE-MOBILE.md),
+prise deux heures plus tôt.
+
+**Contexte.** Le § 15 du prompt maître V10 fige la pile mobile : **Capacitor**, coque de
+l'application React existante, avec des **plugins natifs Kotlin** pour le roulage — service de
+premier plan, IMU à 100 Hz, GNSS en arrière-plan, capture cadencée — plus
+`@capacitor-community/sqlite`, carte hors ligne par service worker puis PMTiles, Maestro ou
+Appium pour l'E2E, et une CI de build Android.
+
+Et il écarte nommément : « Réécriture React Native ou Flutter de **toute** l'application (seul
+le module roulage peut migrer, sur preuve du pilote) » et « PWA pure pour le roulage ».
+
+**Décision.** Capacitor, conformément au § 15. ADR-002 est remplacée.
+
+### Ce que mon analyse d'ADR-002 avait juste, et ce qu'elle avait faux
+
+**Juste** : la démonstration qu'une **PWA pure** ne peut pas tenir le § 7.13. Quatre exigences
+y échappent — service de premier plan Android, trace GNSS à 1 Hz en arrière-plan, accéléromètre
+pour l'IRI, reprise après redémarrage. V10 l'écarte aussi, et pour les mêmes raisons.
+
+**Faux** : avoir écarté Capacitor en écrivant que « les capacités de roulage passeraient par
+des greffons natifs, c'est-à-dire précisément là où la réutilisation est nulle ». J'en ai
+conclu « le pire des deux », et c'était une conclusion hâtive.
+
+V10 répond, et la réponse est meilleure que mon raisonnement : **on écrit les plugins Kotlin, et
+on garde une seule base de code applicative.** Les greffons natifs sont du code à écrire dans
+les deux options — React Native en a besoin aussi pour l'IMU à 100 Hz et le service de premier
+plan. La différence est qu'en Capacitor, tout le reste de l'application — carte, formulaires,
+listes, file de synchronisation — n'est pas réécrit.
+
+J'ai comparé « réutilisation du code métier » quand la vraie question était « réutilisation de
+l'application entière ». Le § 15 le dit en une ligne : « Réutilise l'existant et les compétences
+web ; capteurs couverts par plugins ».
+
+**Et un argument que je n'avais pas pesé** : les compétences de la DSI d'AGEROUTE. Une
+application React maintenue par une équipe web reste maintenable ; une base React Native
+suppose une compétence mobile à recruter ou à former.
+
+### Ce qui survit d'ADR-002
+
+Le travail du lot 3 n'est pas perdu, il devient même plus pertinent. Le § 15 fige le
+map-matching comme « **bibliothèque TypeScript maison partagée** : ponctuel + trace HMM, index
+spatial flatbush/rbush sur le pack de mission, **mêmes tests serveur et mobile** ».
+
+C'est exactement `geo/appariement.noyau.ts`, écrit sans aucun import précisément pour être
+portable — et en Capacitor, « portable » devient trivial : c'est le même JavaScript qui tourne
+dans la coque. L'extraction du noyau était le bon geste, quelle que soit la coque.
+
+### Conséquences
+
+- La porte reste ouverte : « seul le module roulage peut migrer [vers React Native], **sur
+  preuve du pilote** ». Une migration partielle devra donc être justifiée par une mesure, pas
+  par une préférence.
+- Les plugins Kotlin à écrire sont nommés par le § 15 : service de premier plan, IMU 100 Hz,
+  GNSS arrière-plan, capture cadencée.
+- Le blocage reste le même : **aucun APK compilable ici** — ni `adb`, ni `gradle`, ni `java`.
+  Le § A.4 demande de « vérifier l'environnement actuel » : vérifié le 14/10, toujours absent.
+  Voir `BLOCKERS.md`.
+- `docs/architecture/ADR-002-TECHNOLOGIE-MOBILE.md` est conservée comme trace du raisonnement,
+  avec un renvoi vers cette décision. Le § A.5.8 proscrit les suppressions silencieuses, et une
+  décision renversée se lit mieux à côté de celle qui la renverse.
+
+**Coût de sortie.** Faible aujourd'hui : aucune ligne de code mobile n'a été écrite sous
+ADR-002. C'est précisément pour cela que j'avais ouvert l'ADR avant de commencer le code plutôt
+qu'après.

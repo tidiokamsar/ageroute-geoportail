@@ -1,8 +1,14 @@
 # ADR-002 — Technologie de l'application mobile de terrain
 
-**Date** : 14/10/2026. **Statut** : **actée**. **Remplace** la décision « PWA renforcée +
-enveloppe Capacitor » consignée le 13/10/2026 dans
-[21_TABLEAU_CONFORMITE.md](../rai-v3/21_TABLEAU_CONFORMITE.md).
+**Date** : 14/10/2026. **Statut** : **REMPLACÉE le 14/10/2026 à 16:01 par
+[ADR-009](../../TECHNICAL_DECISIONS.md)**, le § 15 du prompt maître V10 figeant Capacitor.
+
+> **Conservée comme trace du raisonnement.** Sa démonstration qu'une PWA pure ne peut pas tenir
+> le § 7.13 reste valide et V10 l'écarte pour les mêmes raisons. Ce qu'elle avait faux est son
+> rejet de Capacitor : j'ai comparé la réutilisation du *code métier* quand la vraie question
+> était la réutilisation de *l'application entière*. Voir ADR-009.
+
+**Remplaçait** la décision « PWA renforcée + enveloppe Capacitor » du 13/10/2026.
 
 ---
 
