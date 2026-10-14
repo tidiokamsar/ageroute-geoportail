@@ -119,7 +119,7 @@ fonctionne en pratique comme une liste à huit sur 95 points.
 
 | Composante | Source | Données disponibles |
 |---|---|---|
-| CHAUSSEE | `troncons.etat`, portions validées | 6 840 portent un état, dont **4 réellement observés** |
+| CHAUSSEE | `troncons.etat`, portions validées | **649 sur 1 691** du réseau classé, dont **un seul observé** |
 | OUVRAGES | `ouvrages.etat` | 126 / 1 172 lisibles, soit 10,7 % |
 | TRAFIC | `troncons.traficMoyenJma` | **0 / 261 387** |
 | DRAINAGE | défauts d'assainissement | **0 défaut** |
@@ -133,6 +133,33 @@ fonctionne en pratique comme une liste à huit sur 95 points.
 **Fiabilité de ce qui existe** : `troncons.etat` est une valeur **déclarée**, pas constatée.
 La collecte la retient avec une confiance `LOW`, et une portion validée — datée, attribuée,
 validée par un tiers — prime sur elle quand les deux existent.
+
+### Le périmètre change tout, et je m'étais trompé
+
+J'ai écrit « 6 840 / 261 387, soit 2,6 % ». **Ce pourcentage mélange deux périmètres.** Les
+261 387 tronçons sont à 99,4 % de la voirie locale reprise d'OpenStreetMap, que
+`lib/reseau.ts` exclut déjà du réseau classé. Mesure du 14/10/2026 :
+
+| Périmètre | Tronçons | Avec un état | Part |
+|---|---|---|---|
+| **Réseau classé** | **1 691** | **649** | **38,4 %** |
+| Voirie locale | 259 696 | 6 191 | 2,4 % |
+
+**La couverture de la composante CHAUSSEE sur le réseau qui compte est donc de 38,4 %, pas de
+2,6 %.** C'est quinze fois mieux que ce que j'avais annoncé, et cela change l'appréciation du
+modèle : la chaussée n'est pas une source anecdotique sur le réseau national.
+
+Et la répartition des états y est autre :
+
+| État déclaré | Réseau classé | Voirie locale |
+|---|---|---|
+| MOYEN | 296 | 5 454 |
+| MAUVAIS | **133** | 1 |
+| BON | 125 | 735 |
+| CRITIQUE | **95** | 1 |
+
+Les états dégradés sont **tous** dans le réseau classé. Le constat « la campagne n'a produit
+que du moyen et du bon » vaut donc pour la voirie locale, pas pour le réseau national.
 
 ### Fraîcheur des 6 840 états : mesurée le 13/10/2026
 
@@ -149,8 +176,9 @@ La provenance, elle, est enregistrée. En croisant `troncons.etat` avec `valeurs
 | `IMPORTED_UNVERIFIED`, clôture de chantier | 4 | 04/09/2026 |
 | **aucune ligne de provenance** | **644** | — |
 
-Les quatre seuls états observés du réseau : `GNL-OSM-w253617037` critique, `RES-857` moyen,
-`KALOUM-OSM-w39196737` mauvais, `GNL-OSM-w270214785` bon.
+Les quatre seuls états observés du registre : `GNL-OSM-w253617037` critique, `RES-857` moyen,
+`KALOUM-OSM-w39196737` mauvais, `GNL-OSM-w270214785` bon. **Trois portent des codes OSM, donc
+de la voirie locale : un seul état observé existe sur le réseau classé**, `RES-857`.
 
 **`valeurs_qualite.observedAt` ne doit pas servir de date d'observation.** Les 6 192 valeurs
 déclarées sont toutes datées du 03 ou 04/09/2026, soit la fenêtre de la migration de
@@ -165,9 +193,9 @@ seuil de 365 jours la déclarerait fraîche. C'est précisément le piège contr
 critique**. Une campagne de déclaration qui ne produit que du moyen et du bon ressemble à un
 remplissage par défaut, pas à une évaluation.
 
-**Conséquence pour l'approbation** : la collecte exploitable n'est pas de 6 840 tronçons mais
-de **quatre**. Arbitrer la fraîcheur à 365 jours ou à toute autre valeur ne change rien tant
-que la colonne de date reste vide.
+**Conséquence pour l'approbation** : sur le réseau classé, la collecte *datée* est de **un**
+tronçon, et la collecte *déclarée* de 649. Arbitrer la fraîcheur à 365 jours ou à toute autre
+valeur ne change rien tant que `dateDerniereEvaluation` reste vide sur les 261 387 lignes.
 
 ## 6. Des scores calculés sur des données incomplètes ?
 
@@ -176,12 +204,16 @@ que la colonne de date reste vide.
 
 Et c'est le résultat voulu. Couverture atteignable, mesurée :
 
-| Situation | Couverture | Tronçons |
+| Situation | Couverture | Tronçons (registre entier) |
 |---|---|---|
 | Chaussée seule | 0,30 | **6 834** |
 | Chaussée + ouvrage | **0,45** | **6** |
 | Ouvrage seul | 0,15 | 0 |
 | Rien de lisible | — | **254 547** |
+
+Ces décomptes portent sur le **registre entier**. Sur le réseau classé, la population
+« chaussée seule » est de 649 tronçons sur 1 691. Le raisonnement sur le seuil ne change pas —
+six tronçons atteignant 0,45 restent six — mais le dénominateur doit être nommé.
 
 **Le maximum atteignable est 0,45.** Avec un seuil à 0,5, le moteur refuse donc chaque score.
 
