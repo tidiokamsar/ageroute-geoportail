@@ -178,8 +178,22 @@ donc entièrement sur `pg_dump`. C'est **B-16**, et l'arbitrage est **D-10**.
    l'axe terrain, donc la bitemporalité était inexploitable en base.
 3. **Benchmark cartographique sur les 261 387 tronçons** — l'arbitrage D3 en fait une « porte de
    décision ». Tant qu'il n'existe pas, « Leaflet suffit » est une hypothèse.
-4. **TI-01, tâches internes** — entré au périmètre par D1, ne dépend d'aucune décision en
-   attente, et débloque le critère A29.
+4. ~~TI-01, tâches internes~~ — **fait le 14/10** : `taches_internes`, 9 contraintes `CHECK`,
+   22 assertions SQL, 17 tests de garde-fou. **A29 est tenu par la base**, et la frontière
+   DigitalRoad par l'absence des colonnes — garde-fou éprouvé par injection. TI-02 reste bloqué
+   faute de données DigitalRoad, TI-03 est un document.
+
+**Donc, désormais** :
+
+1. **Benchmark cartographique** (D3) — « porte de décision » du mandat, mais **bloqué par les
+   données** : la base de développement est vide et la production gelée. Il faudrait soit une
+   autorisation de lecture, soit un jeu synthétique de 261 387 tronçons, dont la valeur
+   probante serait moindre.
+2. **TI-03, registre des sources de vérité** (`DATA_SOURCE_OF_TRUTH.md`) — document, lot 2,
+   ne dépend d'aucun accès.
+3. **Les 15 livrables du § B.6**, dont `ANASUR_COLLECT_TECHNICAL_QUESTIONNAIRE.md` et
+   `ONR_BDR_COMPLIANCE_MATRIX.md` — documents, et le questionnaire ANASUR est précisément ce
+   qui débloquerait plus tard A28.
 
 Le constat du § 2 continue de dominer : rien de tout cela ne produira d'indicateur tant qu'aucune
 donnée de terrain n'entre.

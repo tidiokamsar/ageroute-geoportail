@@ -343,6 +343,10 @@ model User {
   baremesApprouves          BaremeIntervention[]       @relation("BaremeApprouve")
   matricesApprouvees        MatriceDegradation[]        @relation("MatriceApprouvee")
 
+  tachesInternesCreees      TacheInterne[]             @relation("TacheInterneAuteur")
+  tachesInternesEnCharge    TacheInterne[]             @relation("TacheInterneResponsable")
+  tachesInternesCloturees   TacheInterne[]             @relation("TacheInterneClotureur")
+
   @@map("users")
 }
 
@@ -477,6 +481,7 @@ model Troncon {
 
   evaluationsCondition EvaluationCondition[]
   portions             Portion[]
+  tachesInternes       TacheInterne[]
 
   @@index([regionId])
   @@index([etat])
@@ -549,7 +554,8 @@ model Ouvrage {
   updatedAt        DateTime                             @updatedAt
   Observation      Observation[]
 
-  defauts Defaut[]
+  defauts        Defaut[]
+  tachesInternes TacheInterne[]
 
   statutValidation StatutValidation?
 
@@ -2033,7 +2039,8 @@ model Defaut {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 
-  medias MediaDefaut[]
+  medias         MediaDefaut[]
+  tachesInternes TacheInterne[]
 
   @@index([catalogueId])
   @@index([tronconId])
@@ -2766,4 +2773,131 @@ model ReferentielPraticabilite {
 
   @@index([actif, ordre])
   @@map("referentiel_praticabilites")
+}
+
+/// Vocabulaire ADMINISTRABLE des natures de tache interne (TI-01).
+///
+/// Table et non enumeration : `ALTER TYPE ... ADD VALUE` est IRREVERSIBLE, et la decision D-06
+/// montre ce que cela coute — `ClasseRoute` n'a aucune valeur pour les routes communautaires et
+/// il n'existe pas de geste propre pour l'ajouter.
+///
+/// `source` dit d'ou vient chaque valeur, pour ne jamais confondre « enonce par le mandat » et
+/// « arrete par AGEROUTE ». Les cinq lignes semees portent `mandat_v10` et ne sont PAS une
+/// nomenclature officielle.
+model ReferentielNatureTache {
+  code    String  @id
+  libelle String
+  ordre   Int
+  actif   Boolean @default(true)
+  source  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  taches TacheInterne[]
+
+  @@map("referentiel_natures_tache")
+}
+
+enum StatutTacheInterne {
+  OUVERTE
+  EN_COURS
+  CLOTUREE
+  ABANDONNEE
+}
+
+/// TACHE D'INTERVENTION INTERNE, NON CONTRACTUELLE (TI-01, arbitrage D1).
+///
+/// Petites interventions en regie, cantonnage, verifications, nettoyage d'ouvrages, inspections
+/// periodiques : le quotidien des equipes AGEROUTE, trace sans dupliquer l'ERP.
+///
+/// LA FRONTIERE DIGITALROAD EST TENUE PAR L'ABSENCE DES COLONNES, et c'est le point a ne pas
+/// defaire. Il n'existe ici aucun montant, aucun prix, aucun marche, aucune entreprise, aucun
+/// decompte, aucun paiement — donc des qu'un prestataire ou un marche intervient, l'objet n'est
+/// tout simplement pas representable et doit vivre dans DigitalRoad.
+///
+/// Une interdiction tenue par l'absence de l'objet vaut mieux qu'une interdiction tenue par une
+/// consigne : `taches-internes.garde.test.ts` balaie ce modele et fait echouer la suite si une
+/// telle colonne apparait un jour par commodite.
+///
+/// Les QUANTITES CONSTATEES sont autorisees, et la nuance est le coeur de TI-01 : « 40 m3 de
+/// laterite reprise » est un constat de terrain, « 12 millions GNF » est un engagement.
+model TacheInterne {
+  id String @id @default(uuid())
+
+  /// Identifiant STABLE exige par TI-01, lisible par un agent au telephone. Il ne change jamais,
+  /// ce qui le distingue de `id`, purement technique.
+  reference String @unique
+
+  nature    String
+  natureRef ReferentielNatureTache @relation(fields: [nature], references: [code])
+
+  intitule    String
+  description String?
+
+  /// Perimetre geographique. Aucun rattachement n'est obligatoire SEUL, mais au moins un est
+  /// exige en base : une tache qui ne designe rien ne se retrouve pas sur le terrain.
+  tronconId String?
+  troncon   Troncon? @relation(fields: [tronconId], references: [id])
+  /// Abscisses sur la geometrie du troncon. Les deux ou aucune, et `tronconId` obligatoire —
+  /// des abscisses sans troncon n'ont aucun systeme de reference.
+  debutM    Float?
+  finM      Float?
+  ouvrageId String?
+  ouvrage   Ouvrage? @relation(fields: [ouvrageId], references: [id])
+  defautId  String?
+  defaut    Defaut?  @relation(fields: [defautId], references: [id])
+  /// Point, pour ce qui ne se rattache ni a un troncon ni a un ouvrage.
+  /// `Unsupported` : les geometries PostGIS ne sont pas gerees nativement par Prisma (§ 7.1).
+  geom      Unsupported("geometry(Point, 4326)")?
+
+  responsableId String
+  responsable   User   @relation("TacheInterneResponsable", fields: [responsableId], references: [id])
+  echeanceLe    DateTime? @db.Date
+
+  statut StatutTacheInterne @default(OUVERTE)
+
+  /// Quantite CONSTATEE, jamais un montant. Nulle ou accompagnee de son unite : « 40 » seul ne
+  /// veut rien dire, et une contrainte en base le refuse.
+  quantiteConstatee Decimal? @db.Decimal(12, 3)
+  quantiteUnite     String?
+
+  /// PREUVES AVANT/APRES, portees par la tache et non par une table de medias.
+  ///
+  /// C'est ce qui rend le critere A29 verifiable PAR LA BASE. « Une tache cloturee possede des
+  /// preuves avant/apres » croise deux tables si les preuves vivent ailleurs, et un tel invariant
+  /// ne s'exprime pas en `CHECK` : il faudrait un declencheur, le premier de ce depot, invisible
+  /// a Prisma et au lecteur. Sur la ligne, l'invariant devient local et declaratif.
+  ///
+  /// Et c'est plus juste metier : avant/apres est une PAIRE, pas un album.
+  preuveAvantChemin  String?
+  preuveAvantPriseLe DateTime?
+  preuveApresChemin  String?
+  preuveApresPriseLe DateTime?
+
+  clotureeLe    DateTime?
+  clotureeParId String?
+  clotureePar   User?     @relation("TacheInterneClotureur", fields: [clotureeParId], references: [id])
+  /// Un abandon est une decision : il se motive. Sans cela, l'abandon deviendrait la sortie
+  /// facile pour toute tache dont on ne veut pas produire les preuves.
+  abandonMotif  String?
+
+  /// Cle d'idempotence generee par l'appareil avant tout envoi, comme pour les portions et les
+  /// observations. Sans elle, une reponse perdue en zone blanche cree une tache en double.
+  clientOperationId String? @unique
+
+  creeParId String
+  creePar   User   @relation("TacheInterneAuteur", fields: [creeParId], references: [id])
+
+  /// Suppression LOGIQUE uniquement.
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([tronconId])
+  @@index([ouvrageId])
+  @@index([defautId])
+  @@index([responsableId])
+  @@index([deletedAt])
+  @@map("taches_internes")
 }

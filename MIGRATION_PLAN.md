@@ -24,9 +24,9 @@ migrations.**
 
 | Mesure | Valeur |
 |---|---|
-| Dossiers de migration locaux | **53** |
+| Dossiers de migration locaux | **54** |
 | Appliquées en production | **50** |
-| **En attente** | **3** |
+| **En attente** | **4** |
 | Appliquées sans fichier local (orphelines) | **0** |
 | Lignes de `_prisma_migrations` inachevées ou annulées | 1, **expliquée au § 5** |
 
@@ -160,6 +160,50 @@ une contrainte **plus stricte**, qu'une base exploitant l'axe terrain peut refus
 porte en tête la requête de comptage des conflits. Un échec y dirait « j'exploite l'axe terrain,
 vous ne pouvez plus revenir sans choisir quoi perdre » — et ce choix est humain, jamais
 automatique (§ A.5.8).
+
+---
+
+### `20261014210000_taches_internes` — TI-01
+
+| Champ du § A.8 | Contenu |
+|---|---|
+| **Objectif** | Les **tâches d'intervention internes, non contractuelles** que l'arbitrage **D1** fait entrer au périmètre : régie, cantonnage, vérifications, nettoyage d'ouvrages, inspections périodiques |
+| **Nature** | **additive** : un type, deux tables, cinq lignes de référentiel semées. Aucune table existante modifiée, aucune donnée patrimoniale touchée |
+| **Tests** | `backend/prisma/tests/taches_internes.test.sql`, **22 assertions**, toutes passées ; `src/field/taches-internes.garde.test.ts`, **17 tests** |
+| **Rollback exécuté** | **OUI**, aller-retour vérifié : table et type retirés, **référentiel conservé** — voir ci-dessous |
+| **Compatibilité** | aucun impact sur le code déployé ; rien ne lit encore ces tables |
+
+**La frontière DigitalRoad est tenue par l'absence des colonnes.** `taches_internes` n'a aucun
+montant, prix, marché, entreprise, décompte ni paiement, et aucune clé étrangère vers `marches` :
+dès qu'un prestataire ou un marché intervient, l'objet **n'est pas représentable** et doit vivre
+dans DigitalRoad. La règle est donc structurelle plutôt que documentaire.
+
+Mais une absence ne se défend pas toute seule — rien n'empêcherait d'ajouter un jour
+`montantEstime` « juste pour information ». `taches-internes.garde.test.ts` balaie le modèle et
+la migration, et **il a été éprouvé par injection** : un champ `montantEstimeGnf` ajouté
+temporairement fait bien échouer la suite, avec le motif et la référence à D1. Le test vérifie
+aussi la **présence** des champs que le § 14.12 exige, sans quoi il passerait sur un modèle vide.
+
+Les **quantités constatées** sont autorisées, et la nuance est le cœur de TI-01 : « 40 m³ de
+latérite reprise » est un constat de terrain, « 12 millions GNF » est un engagement.
+
+**Le critère A29 est tenu par la base, et non par le service.** « Une tâche interne clôturée
+possède des preuves avant/après » croise deux tables si les preuves vivent dans une table de
+médias, et un tel invariant ne s'exprime pas en `CHECK` : il faudrait un **déclencheur, le
+premier de ce dépôt**, invisible à Prisma et au lecteur. En plaçant la paire sur la ligne,
+l'invariant devient local et déclaratif — et c'est aussi plus juste métier, avant/après étant une
+paire et non un album.
+
+**La nature est un référentiel, pas une énumération**, et c'est la leçon de D-06 : `ALTER TYPE
+ADD VALUE` est irréversible, et `ClasseRoute` n'a toujours aucune valeur pour les 19 846 km de
+routes communautaires. Les cinq natures semées portent `source = 'mandat_v10'` et ne sont **pas
+déclarées approuvées** : ce sont celles que le mandat énonce, pas une nomenclature officielle
+d'AGEROUTE.
+
+**Sa descente détruit des données si la table en porte** — elle supprime la trace de ce
+qu'AGEROUTE exécute elle-même. Le script porte les requêtes de comptage en tête. En revanche il
+**conserve le référentiel des natures** : si quelqu'un y a ajouté des natures propres depuis le
+semis, les effacer serait une perte invisible, et une table de vocabulaire orpheline ne gêne rien.
 
 ---
 

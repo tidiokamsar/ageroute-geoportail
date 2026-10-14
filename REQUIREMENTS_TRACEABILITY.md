@@ -14,7 +14,7 @@
 > test, une migration, une mesure ou un point d'API.
 
 **Dressée le 14/10/2026** contre le prompt maître V10 lu en entier. Tests de référence :
-backend **1 170 passés**, frontend **294 passés**, 0 échec, TypeScript sans erreur.
+backend **1 187 passés**, frontend **294 passés**, 0 échec, TypeScript sans erreur.
 
 ---
 
@@ -52,10 +52,10 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 | **A26** | Migrations : rollback **exécuté et vérifié** | **TP** | **rollback exécuté le 14/10** sur PostGIS 17-3.5 local, aller-retour vérifié : 20 objets → 0 → 20, états identiques, codes 0. Mais **la chaîne ne se rejoue pas sur base vierge** : 49/51, un défaut de type `uuid`/`text` (D-10), et 50 migrations sur 51 n'ont aucun script de descente |
 | **A27** | Aucune décision non approuvée présentée comme officielle | **TT** | `rci-2026.1` **désapprouvée** le 14/10 ; 9 barèmes en `standard_initial`, **aucun approuvé** ; praticabilité volontairement vide ; 6 573 hors-territoire et 42 doublons **classés, intacts et reproductibles** |
 | **A28** | Import BDR/ANASUR idempotent, 100 % des lignes dans un statut | **AB** | aucun import écrit ; questionnaire ANASUR à produire (§ B.3) |
-| **A29** | Tâches internes avec preuves avant/après ; rapprochement en lecture | **AB** | TI-01 à TI-03 non commencés |
+| **A29** | Tâches internes avec preuves avant/après ; rapprochement en lecture | **TP** | **TI-01 livré** : `taches_internes`, 9 contraintes `CHECK`, 22 assertions SQL. « Une tâche clôturée possède des preuves avant/après » est tenu **par la base**, pas par une consigne. La frontière DigitalRoad est tenue par l'**absence des colonnes**, avec un garde-fou de 17 tests qui échoue si un montant apparaît. **TI-02 bloqué** (aucune donnée DigitalRoad, B-11), TI-03 absent |
 | **A30** | Détection satellitaire → proposition localisée, précision mesurée | **AB** | partie E non commencée |
 
-**Bilan : 9 TT, 4 TP, 5 PA, 3 NT, 2 BL, 7 AB.** Aucune case « à vérifier ».
+**Bilan : 9 TT, 5 TP, 5 PA, 3 NT, 2 BL, 6 AB.** Aucune case « à vérifier ».
 
 ---
 
@@ -66,7 +66,7 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 | Aucune donnée de production écrasée ou supprimée silencieusement | **TT** | suppression logique seulement (`deletedAt`) ; `remplaceeLe` distinct ; les 50 migrations déployées n'ont écrit **aucune ligne**, pas même un audit |
 | Toutes les observations importées ont statut et provenance | **PA** | 259 696 tronçons portent `sourceReference` ; **1 691 n'en ont aucune** — les plus anciens, qui sont le réseau classé |
 | Aucune détection IA automatiquement validée | **TT** | la contrainte `media_analyse_coherente` impose date et modèle ; aucun chemin d'écriture ne valide |
-| Aucun coût estimatif ne devient montant contractuel | **TT** | `decomptes` vide, module gelé ; aucun moteur de coût n'existe encore |
+| Aucun coût estimatif ne devient montant contractuel | **TT** | `decomptes` vide, module gelé ; aucun moteur de coût. Et `taches_internes` n'a **aucune colonne de montant**, garde-fou automatisé |
 | Toute opération hors ligne répétée reste idempotente | **TT** | `clientOperationId` unique en base ; 13 tests dédiés |
 | Toute modification sensible autorisée côté serveur et auditée | **TT** | `logAuditTransactionnelle` dans la transaction ; 1 506 lignes d'audit |
 | Toute mesure porte sa méthode et son incertitude | **PA** | `valeurs_qualite` porte méthode, statut et confiance. Mais `dateDerniereEvaluation` est **nulle sur 261 387 lignes** |
