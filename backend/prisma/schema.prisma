@@ -340,6 +340,8 @@ model User {
   reglesConditionApprouvees RegleCondition[]           @relation("RegleConditionApprobateur")
   portionsCreees            Portion[]                  @relation("PortionAuteur")
   praticabilitesApprouvees  ReferentielPraticabilite[] @relation("PraticabiliteApprobateur")
+  baremesApprouves          BaremeIntervention[]       @relation("BaremeApprouve")
+  matricesApprouvees        MatriceDegradation[]        @relation("MatriceApprouvee")
 
   @@map("users")
 }
@@ -933,6 +935,16 @@ model MatriceDegradation {
   version              Int      @default(1)
   updatedAt            DateTime @updatedAt
 
+  /// Une probabilite de transition est une HYPOTHESE DE MODELE, pas une mesure. « Une
+  /// chaussee bitumee a faible trafic passe de BON a MOYEN avec une probabilite de 0,08
+  /// par an » se discute : le meme interrupteur que la regle de condition s'applique donc
+  /// ici. Non approuvee, la matrice peut servir a simuler, pas a programmer officiellement.
+  approuveLe    DateTime?
+  approuveParId String?
+  approuvePar   User?     @relation("MatriceApprouvee", fields: [approuveParId], references: [id], onDelete: SetNull)
+  commentaire   String?
+  actif         Boolean   @default(true)
+
   @@unique([familleRevetement, classeTrafic])
   @@map("matrices_degradation")
 }
@@ -941,12 +953,66 @@ model MatriceDegradation {
 // "coût de report" (entretenir tôt coûte ~10× moins que reconstruire).
 model BaremeIntervention {
   id                Int    @id @default(autoincrement())
+
+  /// Famille de cout, PLUS GROSSIERE que le revetement : `bitume` recouvre
+  /// BETON_BITUMINEUX et ENDUIT_SUPERFICIEL, `terre_laterite` recouvre TERRE et LATERITE.
+  /// Ce n'est donc PAS une cle etrangere vers `ReferentielRevetement` : l'y contraindre
+  /// forcerait a scinder un prix en plusieurs, donc a inventer des distinctions que
+  /// personne n'a decidees. Le lien vit dans l'autre sens, sur
+  /// `ReferentielRevetement.familleCout`.
   familleRevetement String
   etatDepart        String
   typeIntervention  String
   coutKmGnf         BigInt
 
-  @@unique([familleRevetement, etatDepart])
+  /// Identifiant stable, pour qu'une estimation puisse DIRE quelle ligne de bareme elle a
+  /// utilisee. Sans lui, un cout estime ne serait rattachable a aucune decision de prix.
+  code    String?
+  libelle String?
+
+  /// Provenance, sur le modele de `MatriceDegradation`. Les neuf lignes d'origine portent
+  /// `standard_initial` : ce sont des valeurs par defaut, pas des prix arretes.
+  source  String @default("standard_initial")
+  version Int    @default(1)
+
+  /// Le seul geste qui rend une estimation publiable, comme pour la regle de condition.
+  /// Un cout de 3,5 milliards GNF au kilometre doit etre imputable a quelqu'un.
+  approuveLe    DateTime?
+  approuveParId String?
+  approuvePar   User?     @relation("BaremeApprouve", fields: [approuveParId], references: [id], onDelete: SetNull)
+
+  /// CE QUI MANQUAIT POUR QUE LE PRIX SOIT LISIBLE
+  ///
+  /// « 3 500 000 000 GNF/km » ne se compare a rien et ne s'actualise pas. Un millesime, une
+  /// largeur et une devise sont le minimum pour qu'un chiffre de cette taille veuille dire
+  /// quelque chose. Les trois sont NULLES sur les lignes d'origine, volontairement :
+  /// personne ne sait pour quelle annee ni quelle largeur elles ont ete posees, et les
+  /// deviner serait inventer la donnee que l'on cherche a rendre verifiable.
+  anneeReference   Int?
+  devise           String   @default("GNF")
+  largeurChausseeM Decimal? @db.Decimal(6, 2)
+  uniteCout        String   @default("KM")
+
+  actif       Boolean @default(true)
+  ordre       Int     @default(0)
+  commentaire String?
+
+  /// Fenetre de validite. Un prix remplace n'est pas supprime : il cesse d'etre valide.
+  validDe DateTime? @db.Date
+  validA  DateTime? @db.Date
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// LA CLE PORTE LE TYPE ET LA VERSION, ET C'EST UN CHANGEMENT DE FOND
+  ///
+  /// L'ancienne cle `(familleRevetement, etatDepart)` imposait UN SEUL type d'intervention
+  /// par etat : une chaussee bitumee MAUVAIS ne pouvait couter qu'une rehabilitation,
+  /// jamais une reconstruction anticipee. Le paragraphe 11 du cahier demande « une
+  /// comparaison entre scenarios de maintenance » — avec l'ancienne cle, il n'y avait rien
+  /// a comparer.
+  @@unique([familleRevetement, etatDepart, typeIntervention, version], map: "baremes_intervention_famille_etat_type_version_key")
+  @@index([actif, familleRevetement, etatDepart], map: "baremes_intervention_actif_famille_idx")
   @@map("baremes_intervention")
 }
 
@@ -2497,6 +2563,19 @@ model ReferentielRevetement {
   /// portent deja. Supprimer la ligne casserait leur cle etrangere, et une portion dont
   /// on ne sait plus le revetement n'est plus explicable.
   actif Boolean @default(true)
+
+  /// FAMILLE DE BAREME DE COUT, ou NULLE.
+  ///
+  /// Les baremes connaissent trois familles — bitume, terre_laterite, pave — la ou ce
+  /// referentiel porte huit codes : la famille est plus GROSSIERE que le revetement.
+  /// Chaque revetement declare donc la sienne, et l'administrateur la gere ici.
+  ///
+  /// NULLE SIGNIFIE « AUCUN BAREME NE CHIFFRE CE REVETEMENT », et c'est le cas de BETON,
+  /// AUTRE et NON_RENSEIGNE. `BETON` designe le beton de ciment : revetu mais non
+  /// bitumineux, et aucun bareme ne le couvre. Le rattacher a `bitume` lui donnerait un
+  /// prix qui n'est pas le sien. Un moteur de couts doit donc REFUSER d'estimer plutot que
+  /// deviner — le meme refus que le RCI oppose a une composante sans correspondance.
+  familleCout String?
 
   /// Ce revetement compte-t-il dans la LONGUEUR BITUMEE ?
   ///
