@@ -201,15 +201,36 @@ donc entièrement sur `pg_dump`. C'est **B-16**, et l'arbitrage est **D-10**.
    `CONVERTI_OT` vers le module gelé ; et `troncons` porte des nombres **orphelins**
    (`coutRehabEstime`, `criticiteStrategique`) sans méthode ni version.
 
+**Les trois actions suivantes, faites le 14/10 au soir** :
+
+1. ~~Le pivot ouvert et l'importateur~~ — `src/import/pivot.noyau.ts` sans aucun import, CSV et
+   GeoJSON, SRID 4326 seul, 24 tests ; tables `lots_import` / `lignes_import` où **A28 est tenu
+   par la base** (somme des statuts contrainte, empreinte unique par source), 9 assertions.
+   **GeoPackage en écart consigné** : aucune dépendance SQLite, et en ajouter une serait une
+   décision prise en passant. L'orchestration (service, route) reste à écrire.
+2. ~~Lire les pages sources~~ — six pages lues. **Trois corrections** à l'analyse ONR : L²R
+   **a été déployé** à l'ONR (L²R Base remplace Visage en juillet 2018, 7 351 km décrits) ;
+   l'ONR parle lui-même de sections « homogènes » ; le TDR fait de la nomenclature une entrée
+   « donnée par le gestionnaire », ce qui nuance l'hypothèse du § B.1. Et deux absences : ONR et
+   AGEROUTE **absents** des deux articles sur l'atelier ANASUR Collect ; l'éditeur d'ANASUR
+   Collect absent des deux.
+3. ~~Le catalogue des traitements~~ — mais **depuis les barèmes, pas depuis les matrices** :
+   `matrices_degradation` sont les **lois de vieillissement** (probabilités markoviennes par
+   revêtement × trafic), ce que ma conception de l'après-midi avait manqué. Trois traitements,
+   neuf conditions, **rien d'inventé** — durée de vie, effet, fenêtre, trafic nuls — et un défaut
+   trouvé par le banc d'essai : `UNIQUE` ignorait les `NULL`, corrigé par `NULLS NOT DISTINCT`.
+
 **Ce qui reste actionnable sans accès ni décision** :
 
-1. **Le pivot ouvert et l'importateur** (`ROAD_SURVEY_IMPORT_SPEC.md`) — ils servent aux trois
-   options d'échange et ne dépendent d'aucune réponse de l'ONR. C'est le premier code du
-   lot 11.
-2. **Lire les pages sources** ONR, Logiroad et ministère, publiques, pour confronter
-   `ONR_BDR_SOURCE_ANALYSIS.md` ligne à ligne.
-3. **Le catalogue des traitements** depuis `matrices_degradation` — étape 2 de
-   `MAINTENANCE_PROGRAMMING_DESIGN.md`, la seule du § 7.7 qui ne dépende pas de D-07.
+1. **L'orchestration de l'import** — service transactionnel et route `/api/v2/imports`, audités,
+   sur les tables et le noyau existants ; puis un **jeu d'essai de bout en bout** avec un export
+   fictif en pivot, clairement fictif (§ B.6).
+2. **Le garde-fou de transition** du cycle de vie des interventions (`APPROUVÉ → EN_EXÉCUTION`
+   interdit sans message DigitalRoad) — étape 4 de la conception, modèle de
+   `taches-internes.garde.test.ts`.
+3. **Poser à l'ONR, par le canal institutionnel**, les deux questions que les pages ont fait
+   naître : L²R Base est-il toujours la base nationale, et ANASUR Collect l'alimente-t-il ou s'y
+   substitue-t-il ?
 
 Le constat du § 2 continue de dominer : rien de tout cela ne produira d'indicateur tant qu'aucune
 donnée de terrain n'entre.

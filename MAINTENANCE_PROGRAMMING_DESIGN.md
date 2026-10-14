@@ -19,7 +19,7 @@
 | **Programming Engine** | rien | PPE, PAE, scénarios, optimisation, fiche d'intervention, cycle de vie |
 | **Control Tower** | tableau de bord qui **ignore portions et qualité** ; `reseau/couverture.reseau.ts` reproductible (212 ms) | cellule de veille, suivi programme/réalisé, suivi budgétaire |
 | **Fiche 360°** | existe pour tronçon et ouvrage | volet portion, volet programmation |
-| **Lois de vieillissement** | « réutiliser la spécification existante », dit le § 7.7 — **je ne l'ai pas trouvée dans le dépôt**. À localiser avant d'écrire | tout |
+| **Lois de vieillissement** | **trouvées — correction** : `matrices_degradation` est exactement cela. 9 lignes = 3 familles de revêtement (bitume, terre/latérite, pavé) × 3 classes de trafic (T1 faible, T2 moyen, T3 fort), chacune portant trois **probabilités de transition markoviennes** `pBonVersMoyen`, `pMoyenVersMauvais`, `pMauvaisVersCritique`, avec `source = standard_initial`, version 1, **aucune approuvée**. C'est la « spécification existante » du § 7.7. Elle n'est **pas** l'embryon du catalogue des traitements, comme la première version de ce document l'écrivait : les traitements sont dans `baremes_intervention` (`typeIntervention`) | le pas de temps des probabilités (annuel ?) **n'est pas documenté** ; aucun recalage possible sans observations répétées |
 
 **Et la contrainte qui domine la conception** : `missions`, `observations`, `defauts`,
 `portions`, `evaluations_condition` sont à **0 ligne**. Un moteur de programmation sans état

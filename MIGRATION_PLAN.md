@@ -24,9 +24,9 @@ migrations.**
 
 | Mesure | Valeur |
 |---|---|
-| Dossiers de migration locaux | **54** |
+| Dossiers de migration locaux | **56** |
 | Appliquées en production | **50** |
-| **En attente** | **4** |
+| **En attente** | **6** |
 | Appliquées sans fichier local (orphelines) | **0** |
 | Lignes de `_prisma_migrations` inachevées ou annulées | 1, **expliquée au § 5** |
 
@@ -204,6 +204,41 @@ d'AGEROUTE.
 qu'AGEROUTE exécute elle-même. Le script porte les requêtes de comptage en tête. En revanche il
 **conserve le référentiel des natures** : si quelqu'un y a ajouté des natures propres depuis le
 semis, les effacer serait une perte invisible, et une table de vocabulaire orpheline ne gêne rien.
+
+---
+
+### `20261014220000_catalogue_traitements` — § 7.7, étape 2
+
+| Champ du § A.8 | Contenu |
+|---|---|
+| **Objectif** | le **catalogue des traitements** et sa matrice d'orientation (état × revêtement × trafic → traitement), étape 2 de `MAINTENANCE_PROGRAMMING_DESIGN.md` — la seule du § 7.7 qui ne dépende pas de D-07 |
+| **Nature** | **additive** : deux tables, **douze lignes semées depuis `baremes_intervention`** par requête, et non recopiées — trois traitements (`entretien_periodique`, `rehabilitation`, `reconstruction`) et neuf conditions. **Rien d'inventé** : durée de vie, effet sur l'indice, fenêtre de réalisation et classe de trafic sont **nuls**, et aucun traitement n'est approuvé |
+| **Pourquoi aucune clé étrangère depuis les barèmes** | `baremes_intervention` est peuplée en production, où ses valeurs ne sont plus vérifiables depuis le gel : un `ADD CONSTRAINT` pourrait y échouer et bloquer tout `migrate deploy`. Le banc d'essai vérifie la correspondance à la place |
+| **Tests** | `prisma/tests/catalogue_traitements.test.sql`, **12 assertions**, toutes passées |
+| **Rollback exécuté** | **OUI**, aller-retour vérifié, deux fois — avant et après la correction ci-dessous |
+
+**Un défaut trouvé par le banc d'essai, et corrigé avant tout commit.** La contrainte
+`UNIQUE (famille, état, classeTrafic)` **ne jouait pas** : en SQL deux `NULL` sont distincts, et
+`classeTrafic` est nulle sur les neuf conditions semées. `(bitume, MOYEN)` acceptait donc deux
+traitements — la matrice n'était une fonction que sur le papier. Correction par
+`UNIQUE NULLS NOT DISTINCT` (PostgreSQL 15+, la production est en 17), vérifiée par
+`pg_get_constraintdef` puis par la contre-épreuve qui échouait. Prisma ne sait pas exprimer
+cette clause : la migration SQL fait foi, et le modèle le dit.
+
+### `20261014230000_lots_import` — le contrat d'import unique
+
+| Champ du § A.8 | Contenu |
+|---|---|
+| **Objectif** | les tables `lots_import` et `lignes_import` de `ROAD_SURVEY_IMPORT_SPEC.md` (§ E.3), socle des trois options d'échange avec l'ONR et ANASUR |
+| **Nature** | **additive** : deux types, deux tables, aucune donnée |
+| **Ce que la base tient elle-même** | **A28 par contrainte** : `lignesLues = importées + rejetées + en conflit + ignorées`, un importateur qui perd une ligne ne peut pas clore son lot ; **idempotence par contrainte** : empreinte SHA-256 unique par source, le même fichier est refusé avant toute écriture ; un rejet porte son motif, un import porte sa cible ; la charge originale est conservée ; **aucun chemin de suppression** |
+| **Tests** | 9 assertions SQL (refus et contre-épreuves) exécutées le 14/10 ; noyau TypeScript `src/import/pivot.noyau.ts` **sans aucun import**, 24 tests |
+| **Rollback exécuté** | **OUI**, aller-retour vérifié |
+
+**Écart consigné** : le **GeoPackage** du pivot (§ 7.15) n'est pas produit — aucune dépendance
+SQLite dans le paquet, et en ajouter une sans l'avoir choisie serait une décision prise en
+passant. CSV et GeoJSON suffisent à l'option A d'échange de fichiers, celle que le TDR de l'ONR
+décrit lui-même.
 
 ---
 

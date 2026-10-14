@@ -14,7 +14,7 @@
 > test, une migration, une mesure ou un point d'API.
 
 **Dressée le 14/10/2026** contre le prompt maître V10 lu en entier. Tests de référence :
-backend **1 187 passés**, frontend **294 passés**, 0 échec, TypeScript sans erreur.
+backend **1 211 passés**, frontend **294 passés**, 0 échec, TypeScript sans erreur.
 
 ---
 
@@ -46,16 +46,16 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 | **A20** | Géoportail : rendu < 3 s en 3G, recherche < 300 ms, déviation < 2 s, OGC | **NT** | aucune mesure ; tuiles vectorielles, permalien et pgRouting absents |
 | **A21** | Chaque tronçon : code national, provenance, score qualité, rattachement | **BL** | **la codification nationale n'existe pas** et les routes communautaires n'ont aucune valeur d'énumération (D-06). Provenance présente sur 259 696 tronçons, absente sur 1 691 |
 | **A22** | Programmation reproductible, justifiée, fiche figée | **AB** | aucun moteur ; barèmes et matrices présents, **lus par aucun code** |
-| **A23** | Interopérabilité ONR : pivot, L²R, sections UEMOA, correspondance éditable | **PA** | **sections fixes livrées** (IO-04), 14 assertions, B11 tenu sauf la note UEMOA. **Les 15 livrables du § B.6 sont écrits** : matrice ONR/BDR (14 domaines, 0 « à vérifier »), registre des sources de vérité (4 contradictions nommées), spécifications d'import, de correspondance et de tests, questionnaire ANASUR. Pivot et importateur **spécifiés, non codés** ; formats L²R non publiés |
+| **A23** | Interopérabilité ONR : pivot, L²R, sections UEMOA, correspondance éditable | **PA** | **sections fixes livrées** (IO-04), 14 assertions, B11 tenu sauf la note UEMOA. **Les 15 livrables du § B.6 sont écrits** : matrice ONR/BDR (14 domaines, 0 « à vérifier »), registre des sources de vérité (4 contradictions nommées), spécifications d'import, de correspondance et de tests, questionnaire ANASUR. Pivot CSV/GeoJSON et tables d'import **codés et testés**, GeoPackage en écart consigné ; orchestration non écrite ; formats L²R non publiés |
 | **A24** | Exploitation : incident hors ligne → main courante immuable, Info Route < 1 min | **AB** | § 7.17 non commencé |
 | **A25** | Sécurité : chaque alerte avec preuve ou blocage ; aucun secret | **PA** | **le volet dépôt est prouvé** : 225 commits analysés, aucun secret, **IP de production jamais committée**. Quatre alertes bloquées faute d'autorisation de production. `bdri_app` toujours superuser |
 | **A26** | Migrations : rollback **exécuté et vérifié** | **TP** | **rollback exécuté le 14/10** sur PostGIS 17-3.5 local, aller-retour vérifié : 20 objets → 0 → 20, états identiques, codes 0. Mais **la chaîne ne se rejoue pas sur base vierge** : 49/51, un défaut de type `uuid`/`text` (D-10), et 50 migrations sur 51 n'ont aucun script de descente |
 | **A27** | Aucune décision non approuvée présentée comme officielle | **TT** | `rci-2026.1` **désapprouvée** le 14/10 ; 9 barèmes en `standard_initial`, **aucun approuvé** ; praticabilité volontairement vide ; 6 573 hors-territoire et 42 doublons **classés, intacts et reproductibles** |
-| **A28** | Import BDR/ANASUR idempotent, 100 % des lignes dans un statut | **AB** | aucun import écrit ; questionnaire ANASUR à produire (§ B.3) |
+| **A28** | Import BDR/ANASUR idempotent, 100 % des lignes dans un statut | **TP** | **les deux propriétés sont tenues par la base** : `lot_compteurs_complets` (somme des statuts = lignes lues) et empreinte SHA-256 unique par source, 9 assertions SQL. Noyau du pivot CSV/GeoJSON, 24 tests. **Aucun import de bout en bout** : aucun export n'existe, et l'orchestration (service, route) n'est pas écrite |
 | **A29** | Tâches internes avec preuves avant/après ; rapprochement en lecture | **TP** | **TI-01 livré** : `taches_internes`, 9 contraintes `CHECK`, 22 assertions SQL. « Une tâche clôturée possède des preuves avant/après » est tenu **par la base**, pas par une consigne. La frontière DigitalRoad est tenue par l'**absence des colonnes**, avec un garde-fou de 17 tests qui échoue si un montant apparaît. **TI-02 bloqué** (aucune donnée DigitalRoad, B-11), TI-03 absent |
 | **A30** | Détection satellitaire → proposition localisée, précision mesurée | **AB** | partie E non commencée |
 
-**Bilan : 9 TT, 5 TP, 5 PA, 3 NT, 2 BL, 6 AB.** Aucune case « à vérifier ».
+**Bilan : 9 TT, 6 TP, 5 PA, 3 NT, 2 BL, 5 AB.** Aucune case « à vérifier ».
 
 ---
 
@@ -87,7 +87,7 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 | 7.4 | Catalogue et métrés | **TP** | 13 types ; le § 7.16 exige **≥ 21 types**, revêtu et non revêtu. Photos de référence par gravité absentes |
 | 7.5 | Workflow de validation | **TT** | — |
 | 7.6 | Moteur de qualité | **TT** | — |
-| 7.7 | Évaluation, prévision, programmation | **EA** | RCI écrit, **désapprouvé** ; risque, traitement, coût, programmation **absents** |
+| 7.7 | Évaluation, prévision, programmation | **EA** | RCI écrit, **désapprouvé** ; **catalogue des traitements créé** depuis les barèmes, attributs normatifs nuls, non approuvé ; lois de vieillissement **identifiées** (`matrices_degradation`, pas de temps non documenté) ; risque, coût, programmation **absents** |
 | 7.8 | Application mobile | **AB** | Capacitor figé (ADR-009), non commencé ; **aucun APK compilable ici** (B-10) |
 | 7.9 | Sécurité | **PA** | RBAC fait, ABAC partiel ; 4 risques ouverts |
 | 7.10 | Intégrations | **BL** | aucun accès |

@@ -346,6 +346,8 @@ model User {
   tachesInternesCreees      TacheInterne[]             @relation("TacheInterneAuteur")
   tachesInternesEnCharge    TacheInterne[]             @relation("TacheInterneResponsable")
   tachesInternesCloturees   TacheInterne[]             @relation("TacheInterneClotureur")
+  traitementsApprouves      CatalogueTraitement[]      @relation("TraitementApprouve")
+  lotsImportes              LotImport[]                @relation("LotImportateur")
 
   @@map("users")
 }
@@ -2900,4 +2902,143 @@ model TacheInterne {
   @@index([responsableId])
   @@index([deletedAt])
   @@map("taches_internes")
+}
+
+/// CATALOGUE DES TRAITEMENTS (§ 7.7, Treatment Engine). Trois codes releves dans
+/// `baremes_intervention`, aucun invente, aucun approuve. `dureeVieAttendueAns`,
+/// `effetSurIndice` et `fenetreRealisation` sont NULS au semis : personne ne les a arretes, et
+/// les deviner entrerait dans la programmation. Non approuve, le catalogue sert a simuler.
+///
+/// Aucune cle etrangere depuis `BaremeIntervention.typeIntervention` : cette table est peuplee
+/// en production, ou ses valeurs ne sont plus verifiables depuis le gel. Un banc d'essai SQL
+/// verifie la correspondance a la place de la contrainte.
+model CatalogueTraitement {
+  code    String @id
+  libelle String
+  famille String
+
+  dureeVieAttendueAns Int?
+  effetSurIndice      Decimal? @db.Decimal(6, 2)
+  fenetreRealisation  String?
+
+  source        String    @default("standard_initial")
+  version       Int       @default(1)
+  approuveLe    DateTime?
+  approuveParId String?
+  approuvePar   User?     @relation("TraitementApprouve", fields: [approuveParId], references: [id], onDelete: SetNull)
+  commentaire   String?
+  actif         Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  conditions ConditionTraitement[]
+
+  @@map("catalogue_traitements")
+}
+
+/// Matrice d'orientation etat x revetement x trafic -> traitement. UNE condition designe UN
+/// traitement : la matrice est une fonction, pas une relation. `classeTrafic` est nulle au semis,
+/// les baremes ne la distinguant pas.
+model ConditionTraitement {
+  id                Int                 @id @default(autoincrement())
+  traitementCode    String
+  traitement        CatalogueTraitement @relation(fields: [traitementCode], references: [code])
+  familleRevetement String
+  etatDepart        String
+  classeTrafic      String?
+  source            String              @default("standard_initial")
+  actif             Boolean             @default(true)
+  createdAt         DateTime            @default(now())
+
+  /// En base, cette contrainte est `UNIQUE NULLS NOT DISTINCT` (PostgreSQL 15+) : deux NULL de
+  /// `classeTrafic` comptent comme egaux, sinon la matrice n'est une fonction que sur le papier.
+  /// Prisma ne sait pas l'exprimer ; la migration SQL fait foi, et un banc d'essai le verifie.
+  @@unique([familleRevetement, etatDepart, classeTrafic])
+  @@index([traitementCode])
+  @@map("conditions_traitement")
+}
+
+enum StatutLotImport {
+  RECU
+  VALIDE_SCHEMA
+  IMPORTE_TEST
+  IMPORTE
+  REJETE
+}
+
+enum StatutLigneImport {
+  IMPORTEE
+  REJETEE
+  EN_CONFLIT
+  IGNOREE
+}
+
+/// LOT D'IMPORT : le contrat d'import unique (ROAD_SURVEY_IMPORT_SPEC.md, § E.3). Idempotence
+/// par empreinte SHA-256 unique par source ; 100 % des lignes dans un statut par la contrainte
+/// `lot_compteurs_complets` (critere A28). L'importateur ne possede AUCUN chemin de suppression.
+model LotImport {
+  id        String @id @default(uuid())
+  reference String @unique
+
+  systemeSource    String
+  format           String
+  empreinteFichier String
+  nomFichier       String
+  tailleOctets     BigInt
+
+  importeParId  String
+  importePar    User      @relation("LotImportateur", fields: [importeParId], references: [id])
+  importeLe     DateTime  @default(now())
+  auteurSource  String?
+  dateSource    DateTime?
+  methodeSource String
+
+  versionMapping  String
+  autorisationRef String
+
+  statut StatutLotImport @default(RECU)
+
+  lignesLues      Int @default(0)
+  lignesImportees Int @default(0)
+  lignesRejetees  Int @default(0)
+  lignesEnConflit Int @default(0)
+  lignesIgnorees  Int @default(0)
+
+  rapport   Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lignes LigneImport[]
+
+  @@unique([systemeSource, empreinteFichier])
+  @@index([statut])
+  @@index([importeParId])
+  @@map("lots_import")
+}
+
+/// Une ligne importee : la charge ORIGINALE est conservee avant toute transformation, pour que
+/// l'import reste contestable. Un rejet porte son motif, un import porte sa cible.
+model LigneImport {
+  id          String    @id @default(uuid())
+  lotId       String
+  lot         LotImport @relation(fields: [lotId], references: [id])
+  numeroLigne Int
+
+  identifiantSource String?
+  chargeOriginale   Json
+  transformations   Json    @default("[]")
+
+  statut     StatutLigneImport
+  motifRejet String?
+
+  correspondanceId String?
+  objetCibleType   String?
+  objetCibleId     String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([lotId, numeroLigne])
+  @@index([lotId, statut])
+  @@index([objetCibleType, objetCibleId])
+  @@map("lignes_import")
 }

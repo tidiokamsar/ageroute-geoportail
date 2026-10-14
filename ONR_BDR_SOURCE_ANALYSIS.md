@@ -15,17 +15,56 @@
 
 **Rédigé le 14/10/2026.**
 
-## 0. Ce que ce document a réellement lu, et ce qu'il n'a pas lu
+## 0. Ce que ce document a réellement lu
 
-**Lu** : la partie B du prompt maître V10, qui cite et résume les sources ; le dépôt et sa base
-(mesures des 13 et 14/10).
+**Première version (14/10, après-midi)** : la partie B du mandat seulement. **Seconde version
+(14/10, soir)** : les pages sources publiques ont été lues, et elles **corrigent trois énoncés**
+de la première version — signalés ci-dessous par ◆.
 
-**Non lu dans cette session** : les pages sources elles-mêmes —
-`onrguinee.org/tdr-bdr-guinee/`, `onrguinee.org/connaitre-lonr/`,
-`onrguinee.org/collecte-de-donnees-geographiques/`, `logiroad.fr/en/`. Tout ce qui est attribué
-ci-dessous à ces pages l'est **par l'intermédiaire du mandat**, et doit être confronté aux pages
-avant toute décision. C'est la première action du § 5. La directive 11/2009/CM/UEMOA n'est
-connue que par des tableaux en images (cf. `RCI_METHOD_DECISION.md`).
+| Page | Lue | Ce qu'elle apporte |
+|---|---|---|
+| `onrguinee.org/tdr-bdr-guinee/` | **oui** | TDR daté du **4 mai 2023**, titre « Termes de référence pour la mise en œuvre d'un système complet de gestion patrimonial des routes et ouvrages d'art », proposition technique et commerciale |
+| `onrguinee.org/collecte-de-donnees-geographiques/` | **oui** | ◆ **L²R Base a remplacé Visage en juillet 2018** ; 7 351 km décrits dans L²R Base entre juillet et décembre 2018 ; 5 446 km relevés en dégradations en 2018 |
+| `onrguinee.org/connaitre-lonr/` | **oui** (au troisième essai) | dix missions « sous l'autorité du Ministre en charge des Infrastructures », dont « constituer et gérer la banque de données routière », « produire et tenir à jour l'annuaire statistique du réseau routier national », « mettre en place et gérer le système d'information géographique routière », comptages, pesée d'essieux, et « informer sur les données statistiques des **prix unitaires** des projets et programmes routiers ». Rang « équivalent à celui d'une Direction de l'Administration Centrale ». **AGEROUTE et le FER absents** de la page |
+| `logiroad.fr/en/` | **oui** | Logiroad Center, modules ROAD et CITY, Miranda Track, « customers in 14 countries » ; **Guinée et ONR absents** ; le chiffre « 21 types de défauts » **n'y figure pas** |
+| `infrastructures.gov.gn` 08/07 et 09/07/2026 | **oui** | ANASUR Collect confirmé, éditeur **absent** des deux pages ; **ONR et AGEROUTE absents** des deux articles |
+
+La directive 11/2009/CM/UEMOA reste connue par des tableaux en images seulement
+(`RCI_METHOD_DECISION.md`).
+
+### ◆ Les trois corrections
+
+1. **« Le déploiement effectif des outils L²R à l'ONR n'est pas établi »** — faux pour 2018. La
+   page de collecte de l'ONR dit que L²R Base a remplacé Visage en juillet 2018 et que 7 351 km y
+   ont été décrits avant la fin de l'année, après une période Viziroad. **L²R a donc été déployé
+   à l'ONR.** Ce qui reste non établi, c'est son **état actuel** : la page ne porte aucune date
+   postérieure à 2018 sur ce sujet.
+2. **Les sections fixes** : le TDR de 2023 les cite (« généralement 100 ou 200 mètres »), mais la
+   page de collecte de l'ONR parle de **sections « homogènes »**. Les deux lectures coexistent
+   donc **chez l'ONR lui-même**, ce qui rend l'arbitrage D6 — portions homogènes vérité, sections
+   fixes dérivées — non seulement défendable mais aligné.
+3. **La nomenclature** : le TDR dit que le référentiel est construit « à partir de la nomenclature
+   des routes **donnée par le gestionnaire** ». Le gestionnaire des routes dont AGEROUTE a la
+   charge, c'est AGEROUTE. L'hypothèse du § B.1 (« ONR dépositaire de la nomenclature ») est
+   donc **à nuancer avant d'être confirmée** : le TDR fait de la nomenclature une **entrée**
+   fournie à l'ONR, pas une production de l'ONR.
+
+### Un quatrième point, qui touche le Cost Engine
+
+La page « Connaître l'ONR » donne à l'office la mission d'« informer sur les données statistiques
+des **prix unitaires** des projets et programmes routiers ». Le millésime et la largeur qui
+manquent aux neuf barèmes (D-07) ont donc **un dépositaire institutionnel désigné** : la question
+n'est pas seulement interne à AGEROUTE, elle a un destinataire. Et le bordereau « versionné par
+année et par région » du § 7.7 trouve là sa source de référence possible.
+
+### Deux faits nouveaux
+
+- **Le TDR se contredit lui-même** sur les routes nationales revêtues : 2 779,68 km (37 %) dans le
+  texte, 4 796,32 km revêtues dans le planning. Toute reprise de ce chiffre doit le dire.
+- **L²R Programme remplace l'outil antérieur GiRR**, et le TDR ne mentionne **ni API ni format
+  d'export** : « c'est ce fichier qui sera ensuite importé dans la base ». L'option A de
+  `BDR_INTEROPERABILITY_OPTIONS.md` — échange de fichiers — est donc celle que le TDR lui-même
+  décrit.
 
 ---
 
@@ -67,9 +106,12 @@ note UEMOA**, faute du texte de la directive.
 | Suite L²R proposée pour la BDR | **mai 2023**, proposition technique | une **proposition**, pas un déploiement constaté |
 | Atelier BDR, 46 agents formés et certifiés, 46 tablettes Android avec SIM, 8 protocoles régionaux, application **ANASUR Collect** | **8–9 juillet 2026**, ministère des Infrastructures | **annoncé**. Confirme l'initiative et l'équipement, ne documente ni éditeur, ni formats, ni API (voir `ANASUR_COLLECT_SOURCE_REVIEW.md`) |
 
-**Le déploiement effectif des outils L²R à l'ONR n'est pas établi.** Le § B.1 le dit lui-même :
-« à vérifier ». Rien dans ce que j'ai lu ne permet d'affirmer qu'une base L²R tourne aujourd'hui
-à l'ONR, ni l'inverse.
+**◆ Corrigé** : le déploiement de L²R à l'ONR **est établi pour 2018** (L²R Base remplace Visage en
+juillet 2018, 7 351 km décrits). Son **état en 2026** ne l'est pas : aucune source lue ne porte de
+date postérieure sur ce point, et l'atelier BDR de juillet 2026 — ANASUR Collect, ministère,
+ANASUR — ne cite ni L²R ni l'ONR. Deux lectures sont possibles, et il faut les poser à l'ONR :
+L²R est toujours la base nationale et ANASUR Collect l'alimente ; ou ANASUR Collect s'y
+substitue. **Aucune des deux n'est à présumer.**
 
 ---
 

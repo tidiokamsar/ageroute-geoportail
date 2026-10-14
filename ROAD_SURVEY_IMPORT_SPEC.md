@@ -4,7 +4,7 @@
 > conserve source, auteur/importateur, date, méthode, format, lot, validations, erreurs et
 > transformations appliquées ». **Rédigé le 14/10/2026.**
 >
-> 🔒 Spécification, étiquetée **proposition**. L'importateur n'existe pas dans le code.
+> 🔒 **État au 14/10 au soir** : les tables lots_import et lignes_import **existent** (migration 20261014230000) et tiennent A28 par contrainte ; le noyau du pivot CSV/GeoJSON **existe** (src/import/pivot.noyau.ts, 24 tests). L'**orchestration** — service transactionnel, route, rapport — reste une proposition. Le GeoPackage est un écart consigné.
 
 ## 1. Un seul contrat pour toutes les sources
 
@@ -19,7 +19,7 @@ répondrait différemment à chaque fois, et c'est là que la provenance se perd
 
 ## 2. Le lot — proposition
 
-Table `lots_import`, non créée.
+Table `lots_import`, **créée le 14/10** (migration `20261014230000`).
 
 | Champ | Rôle | Obligatoire |
 |---|---|---|

@@ -21,8 +21,21 @@ atelier national de renforcement des capacités sur la BDR :
 Pages à conserver : `https://infrastructures.gov.gn/2026/07/08/` et
 `https://infrastructures.gov.gn/cloture-de-latelier-national-de-renforcement-des-capacites-sur-la-banque-de-donnees-routieres-bdr/`.
 
-**Ces pages n'ont pas été lues dans cette session** : les faits ci-dessus sont ceux que le
-§ B.2 rapporte. Les lire est la première vérification à faire.
+**Ces deux pages ont été lues le 14/10 au soir**, et elles confirment le § B.2 sur tous les
+points : 46 agents, 46 tablettes Android avec SIM data, huit régions, application ANASUR
+Collect, huit protocoles régionaux (page du 08/07 ; la page du 09/07 parle d'harmonisation sans
+nommer les protocoles). Le ministre Facinet Sylla a présidé, le directeur général de l'ANASUR,
+Alpha Sekou Bangoura, a pris la parole.
+
+**Et elles établissent deux absences qui comptent** :
+
+- **l'éditeur et le développeur** d'ANASUR Collect sont **absents des deux pages** — la formule
+  du § B.2 reste donc la seule exacte ;
+- **l'ONR et AGEROUTE sont absents des deux articles.** L'atelier BDR de juillet 2026 associe le
+  ministère et l'ANASUR ; ni l'office qui porte la BDR nationale depuis 2018 (L²R Base), ni le
+  gestionnaire opérationnel ne sont cités. Ce silence est une information : il rend la question
+  du **double relevé** (D-08) plus pressante, et il interdit de présumer que la collecte ANASUR
+  alimente L²R Base.
 
 ## 2. Ce que ces sources n'établissent PAS
 
