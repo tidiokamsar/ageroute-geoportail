@@ -13,6 +13,7 @@
     "prisma:seed": "tsx prisma/seed.ts",
     "catalogue:defauts:seed": "tsx scripts/peupler-catalogue-defauts.ts",
     "condition:regle:seed": "tsx scripts/peupler-regle-condition.ts",
+    "condition:regle:approuver": "tsx scripts/approuver-regle-condition.ts",
     "referentiels:seed": "tsx scripts/peupler-referentiels.ts",
     "compte:retrograder": "tsx scripts/retrograder-compte.ts",
     "migrate:legacy": "tsx scripts/migrate-legacy-data.ts",
