@@ -30,9 +30,10 @@ fait en local. Les migrations écrites ne seront plus appliquées à la producti
 
 ---
 
-## ADR-002 — Technologie mobile : à trancher, et la PWA ne suffit plus
+## ADR-002 — Technologie mobile : React Native, la PWA ne suffit plus
 
-**Date** : 14/10/2026. **Statut** : **ouverte**, décision à écrire au lot 0.
+**Date** : 14/10/2026. **Statut** : **actée**. Version complète et motivée :
+[../architecture/ADR-002-TECHNOLOGIE-MOBILE.md](../architecture/ADR-002-TECHNOLOGIE-MOBILE.md).
 
 **Contexte.** Une décision antérieure (`docs/rai-v3/21_TABLEAU_CONFORMITE.md`) retenait
 **PWA renforcée + enveloppe Capacitor**, au motif qu'elle réutilise React/Vite/Leaflet, se
@@ -63,10 +64,19 @@ réalisable en PWA**, et le § 7.8 tranche en conséquence.
    l'exigence est la plus forte.
 3. **Android natif (Kotlin)** — meilleure maîtrise des capteurs, aucune réutilisation.
 
-**Décision provisoire.** Option 1, à confirmer par l'ADR définitif. La PWA **n'est pas
-abandonnée** : elle reste l'outil de saisie au bureau et le portail citoyen, et son noyau de
-règles (appariement, portions, métré, idempotence) est déjà extrait en TypeScript pur, donc
-réutilisable tel quel par React Native.
+**Décision.** Option 1 : **React Native, Expo en *development build***, pas Expo Go — les
+greffons natifs requis n'y tournent pas. Carte par `@maplibre/maplibre-react-native` (paquet
+officiel, 11.4.1), localisation par `expo-location` avec l'option `foregroundService`.
+
+La PWA **n'est pas abandonnée** : elle garde le mode bureau d'enrichissement du § 7.13, le
+portail citoyen et le secours de saisie. Son noyau de règles — appariement, portions, métré,
+idempotence, condition : cinq modules, plus de 170 tests, sans Prisma ni Express — est partagé
+tel quel.
+
+**Contrainte découverte en vérifiant** : un service de premier plan Android ne peut pas
+démarrer si l'application est déjà en arrière-plan. L'opérateur lance donc la collecte
+application ouverte, avant de rouler. Conforme au garde-fou § 2.9, mais cela interdit un
+démarrage automatique au mouvement.
 
 **Blocage connu** : aucun APK ne peut être produit ici — ni `adb`, ni `gradle`, ni `java`.
 Voir [BLOCAGES.md](BLOCAGES.md).

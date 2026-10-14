@@ -17,6 +17,8 @@
 | B-07 | **Codification nationale des tronçons** (§ 7.14.1) | Les codes actuels sont hétérogènes (`RN4-OSM-7`, `GNL-OSM-w…`, `RES-857`, `DI 002`) ; aucun n'est aligné sur un classement officiel du type `GN-RN01-T03` | Fournir la codification officielle | AGEROUTE / Ministère |
 | B-08 | **Migration des modules contractuels vers DigitalRoad** | `chantiers` (496 lignes), `marches`, `ordres_travaux`, `decomptes` vivent dans le dépôt alors que le § 1.2 les exclut. Gelés (ADR-003), mais leur sort reste ouvert | Décider du transfert et du devenir des 496 chantiers | AGEROUTE |
 | B-09 | **Hébergement et résidence des données** (§ 1.1) | Conformité à la loi L/2016/037/AN non établie | Confirmer avec le service juridique | AGEROUTE |
+| B-27 | **Les routes communautaires n'existent pas dans le modèle.** `ClasseRoute` porte RN, RR, RU, PISTE, NON_CLASSEE — **aucune valeur `RC`**. Les ≈ 20 000 km annoncés par le § 1.1 n'ont nulle part où être enregistrés | Près de la moitié du réseau national annoncé est hors du modèle de données ; aucune saisie ne peut l'y mettre | Confirmer la nomenclature officielle, puis ajouter la valeur (`ALTER TYPE ADD VALUE`, irréversible) et décider si `RR` devient `RP` (migration sur 1 029 tronçons) | AGEROUTE / Ministère |
+| B-28 | **Le réseau régional manque d'un sixième** : 13 295,6 km mesurés contre ≈ 16 000 km de préfectorales annoncés | Soit 2 700 km non saisis, soit une différence de définition entre « régionale » et « préfectorale » | Établir laquelle des deux | AGEROUTE |
 
 ## Accès et outillage manquants
 

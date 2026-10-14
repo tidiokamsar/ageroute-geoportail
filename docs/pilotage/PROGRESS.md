@@ -85,7 +85,12 @@ n'entre. C'est le verrou du programme.
 
 ## Prochaine action
 
-Écrire `docs/specs/CDC-CONSOLIDE.md` et l'**ADR de technologie mobile** (ADR-002), qui
-conditionne les lots 6 et 7 : le § 7.13 exige un service de premier plan Android, une trace
-GNSS à 1 Hz en arrière-plan, l'accéléromètre et la photo continue — ce qu'une PWA ne peut pas
-tenir. Cette décision doit être tranchée et motivée avant toute ligne de code mobile.
+Lot 1 — socle : **intégration continue** (B-24), migration du dernier `$queryRawUnsafe` de
+`lib/reseau.ts` vers le fragment composé (B-25, ADR-005), et **jeux de données de test**
+(B-26) : sans eux, les critères A2, A5, A15 et A18 ne sont pas éprouvables, et le § 2.1 a coupé
+l'accès à la production.
+
+Le CDC consolidé et l'ADR mobile sont écrits. Ce dernier a révélé deux écarts de référentiel
+majeurs, consignés en B-27 et B-28 : **les routes communautaires n'existent pas dans
+l'énumération `ClasseRoute`**, soit ≈ 20 000 km annoncés sans place dans le modèle, et le
+réseau régional manque d'un sixième. Le réseau national, lui, concorde à 4 % près.
