@@ -3,6 +3,35 @@
 > Exigé par le § 4 du mandat v2.1. Le § 2.7 impose que toute affirmation de réussite cite la
 > commande lancée et son résultat. Aucune ligne de ce fichier n'est écrite sans l'avoir vue.
 
+## 14/10/2026 — lot 3, map-matching (premier incrément)
+
+| Commande | Résultat |
+|---|---|
+| `npx tsc -p tsconfig.json --noEmit` | aucune erreur |
+| `npx vitest run src/geo/appariement.noyau.test.ts` | **29 passés** |
+| `npx vitest run src/geo/appariement.a2.test.ts` | **11 passés** |
+| `npx vitest run src/geo` | **56 passés** — les 16 tests d''appariement antérieurs tiennent |
+| `npx vitest run` (backend) | **1 145 passés**, 0 échec |
+
+### Critère A2, mesuré
+
+| Volet | Exigence | Résultat |
+|---|---|---|
+| Bon candidat en tête quand la confiance est haute | ≥ 95 % | **100 %** sur les cas présélectionnés |
+| Rattachement automatique sous le seuil | **0** | **0** |
+| Bon candidat en tête sur tous les cas rattachables | — | **100 %** |
+| Bon candidat en tête même quand il faut s''abstenir | — | **100 %** |
+
+Jeu annoté : **23 cas**, couvrant les cinq situations que le § 7.3.5 exige nommément.
+
+**Ce que cette mesure ne prouve pas** : les distances et orientations du jeu sont **données**,
+non calculées. La géométrie est le travail de PostGIS et s''éprouve ailleurs. Le jeu mesure la
+**décision**, qui est ce que le critère A2 nomme — et il est synthétique, donc il ne dit rien
+du comportement du bruit GPS réel.
+
+**Trois échecs au premier lancement**, dont un défaut de conception réel : voir le compte rendu
+de lot. La séquence rouge puis verte du § 9.2 est respectée.
+
 ## 14/10/2026 — lot 2, référentiel linéaire
 
 | Commande | Résultat |
