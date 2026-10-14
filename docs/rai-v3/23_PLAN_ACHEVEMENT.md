@@ -56,11 +56,11 @@ limites découpées pour entrer dans l'index géographique **existant**, la requ
 
 | # | Décision | Ce qu'elle débloque |
 |---|---|---|
-| 1.1 | **Pondérations du RCI** : cahier §13 (signalisation 10) ou votre liste à neuf (environnement 5 + autres 5) | tout l'aval |
-| 1.2 | **Définir « autres critères »**, ou retirer ses 5 points | sans définition, poids mort renormalisé à chaque calcul |
-| 1.3 | **Fraîcheur maximale** (365 jours proposés) | — |
-| 1.4 | **Confiances acceptées** (`HIGH`, `MEDIUM` proposées) | — |
-| 1.5 | **Approuver la règle** | **le seul geste rendant un score publiable** |
+| 1.1 | ~~Pondérations du RCI~~ | **arbitré le 14/10 en faveur du cahier §13**, huit composantes : la signalisation est inventoriable, « autres critères » n'est définissable par rien |
+| 1.2 | ~~Définir « autres critères »~~ | **sans objet** : la composante n'est pas pondérée dans `rci-2026.1`. À reprendre si une version 2 adopte la liste à neuf |
+| 1.3 | ~~Fraîcheur maximale~~ | **365 jours, approuvés avec la règle** le 14/10 |
+| 1.4 | ~~Confiances acceptées~~ | **`HIGH` et `MEDIUM`, approuvées avec la règle** le 14/10 |
+| 1.5 | ~~Approuver la règle~~ | **FAIT le 14/10/2026** — `rci-2026.1`, audité. Les scores sortiront `publiable: true`, mais il n'y en a toujours aucun |
 | 1.6 | **`dateDerniereEvaluation`** : l'alimenter, et depuis quoi — **pas** `valeurs_qualite.observedAt`, qui porte des dates de reprise | la fraîcheur, aujourd'hui inopérante |
 | 1.7 | **Valeurs de praticabilité** | le champ praticabilité de l'écran de terrain, désactivé |
 | 1.8 | **Règle de périmètre hors territoire** : ne rien exclure, exclure les 7 (-0,340 %), ou un seuil | la justesse des 21 156,6 km publiés |

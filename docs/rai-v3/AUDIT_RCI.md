@@ -79,12 +79,22 @@ conclure » n'est pas « il n'y a pas d'évaluation ».
 | Correspondance | BON 90, MOYEN 65, MAUVAIS 35, CRITIQUE 10 | **AGEROUTE** | 13/10/2026 |
 | Classes | six, 0 à 100, bornes inclusives | **AGEROUTE** | 13/10/2026 |
 | Couverture minimale | **0,5** | **AGEROUTE**, après mesure | 13/10/2026 |
-| Fraîcheur | 365 jours | proposée, **non arbitrée** | — |
-| Confiances acceptées | `HIGH`, `MEDIUM` | proposées, **non arbitrées** | — |
-| **Approbation de la règle** | **NON** | — | — |
+| Fraîcheur | 365 jours | **AGEROUTE**, avec la règle | 14/10/2026 |
+| Confiances acceptées | `HIGH`, `MEDIUM` | **AGEROUTE**, avec la règle | 14/10/2026 |
+| **Approbation de la règle** | **OUI** | **AGEROUTE** | **14/10/2026** |
 
-**La règle n'est pas approuvée**, donc tout score qu'elle produirait sort avec
-`publiable: false` et porte « NON APPROUVÉE — ne pas publier » dans son explication.
+**`rci-2026.1` est approuvée depuis le 14/10/2026**, par `tidiane.diallo@ageroute.gov.gn`,
+avec deux lignes d'audit. Les scores produits sous cette règle sortiront donc avec
+`publiable: true`.
+
+**Approuver n'est pas partiel**, et deux paramètres jusque-là non arbitrés le sont devenus
+par ce geste : la fraîcheur à 365 jours et les confiances `HIGH` et `MEDIUM`. Ils font partie
+de la règle, pas de son contexte.
+
+**Mais l'approbation ne produit aucun score**, et `evaluations_condition` compte toujours
+zéro. La couverture maximale atteignable est 0,45 pour un seuil à 0,5 : le moteur refuse
+chaque score avec `COUVERTURE_INSUFFISANTE`. L'interrupteur de publication est levé ; le
+verrou qui reste est la **collecte**.
 
 ### Une divergence de coefficients, vérifiée
 
@@ -268,7 +278,8 @@ l'addendum V4.1.
 1. **Trancher les pondérations** : celles du cahier, ou la liste à neuf composantes. Définir
    « autres critères » si elle est retenue, sinon ses cinq points sont du poids mort.
 2. **Arbitrer la fraîcheur** (365 jours proposés) et les confiances acceptées.
-3. **Approuver la règle**, ce qui est le seul geste rendant un score publiable.
+3. ~~Approuver la règle~~ — **fait le 14/10/2026**. Reste à décider si la version 2 adopte la
+   liste à neuf composantes, ce qui demanderait de définir « autres critères ».
 4. **Faire tourner la collecte terrain.** C'est le vrai verrou : sans portions validées, la
    couverture n'atteindra jamais 0,5, quels que soient les coefficients.
 5. ~~Vérifier la fraîcheur des 6 840 états existants~~ — **fait le 13/10/2026** : aucune date
