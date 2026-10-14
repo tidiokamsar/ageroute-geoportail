@@ -379,6 +379,19 @@ périmètre et ressources du pilote corridor.
 Aucune n'est contournable techniquement, et le § A.5.12 interdit tout accès à un système tiers
 sans autorisation écrite et interface approuvée.
 
+**Ajouts du 14/10 au soir**, issus des livrables du § B.6 — détail et propositions dans
+[INSTITUTIONAL_DATA_GOVERNANCE.md](INSTITUTIONAL_DATA_GOVERNANCE.md), rubriques G-1 à G-10 :
+
+- **L'hypothèse d'architecture du § B.1** — ONR dépositaire de la nomenclature et des
+  statistiques, AGEROUTE gestionnaire opérationnel — est à **faire confirmer**. Si elle l'est,
+  D-06 devient une importation et non une invention.
+- **Le double relevé** : ANASUR Collect pour la BDR nationale et AGEROUTE ROAD pour AGEROUTE
+  relèveraient **les mêmes routes**. La question est institutionnelle et doit être posée **avant**
+  le pilote corridor.
+- **`signalements_citoyens` existe déjà** avec `contactTel` et un chemin `CONVERTI_OT` vers le
+  module gelé : la politique de signalement citoyen (G-4) n'est plus une question d'avenir, elle
+  qualifie une table en production.
+
 ---
 
 ## D-10 🔴 La chaîne de migrations ne reconstruit pas la base : que corriger, et quand

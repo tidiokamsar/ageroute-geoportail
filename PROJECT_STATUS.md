@@ -189,11 +189,27 @@ donc entièrement sur `pg_dump`. C'est **B-16**, et l'arbitrage est **D-10**.
    données** : la base de développement est vide et la production gelée. Il faudrait soit une
    autorisation de lecture, soit un jeu synthétique de 261 387 tronçons, dont la valeur
    probante serait moindre.
-2. **TI-03, registre des sources de vérité** (`DATA_SOURCE_OF_TRUTH.md`) — document, lot 2,
-   ne dépend d'aucun accès.
-3. **Les 15 livrables du § B.6**, dont `ANASUR_COLLECT_TECHNICAL_QUESTIONNAIRE.md` et
-   `ONR_BDR_COMPLIANCE_MATRIX.md` — documents, et le questionnaire ANASUR est précisément ce
-   qui débloquerait plus tard A28.
+2. ~~TI-03~~ — **fait le 14/10** : `DATA_SOURCE_OF_TRUTH.md`, sept rubriques par champ, **quatre
+   contradictions nommées** (objets contractuels en deux copies, documents locaux contre
+   SharePoint, `users` contre « aucun second annuaire », BITUME partout contre 29 chantiers
+   « en terre »). Et une correction : **une intégration sortante existe**, l'API publique étant
+   lue par l'intranet SharePoint depuis le 06/10.
+3. ~~Les 15 livrables du § B.6~~ — **écrits le 14/10**, dans l'ordre du mandat. Tous étiquetés
+   « proposition » là où ils recommandent ; `BDR_FIELD_MAPPING_TEMPLATE.csv` **vide par
+   construction** (§ B.6) ; aucune fonction décrite comme existante sans l'être. Deux faits
+   corrigés en les écrivant : `signalements_citoyens` **existe** avec trois canaux et un chemin
+   `CONVERTI_OT` vers le module gelé ; et `troncons` porte des nombres **orphelins**
+   (`coutRehabEstime`, `criticiteStrategique`) sans méthode ni version.
+
+**Ce qui reste actionnable sans accès ni décision** :
+
+1. **Le pivot ouvert et l'importateur** (`ROAD_SURVEY_IMPORT_SPEC.md`) — ils servent aux trois
+   options d'échange et ne dépendent d'aucune réponse de l'ONR. C'est le premier code du
+   lot 11.
+2. **Lire les pages sources** ONR, Logiroad et ministère, publiques, pour confronter
+   `ONR_BDR_SOURCE_ANALYSIS.md` ligne à ligne.
+3. **Le catalogue des traitements** depuis `matrices_degradation` — étape 2 de
+   `MAINTENANCE_PROGRAMMING_DESIGN.md`, la seule du § 7.7 qui ne dépende pas de D-07.
 
 Le constat du § 2 continue de dominer : rien de tout cela ne produira d'indicateur tant qu'aucune
 donnée de terrain n'entre.
