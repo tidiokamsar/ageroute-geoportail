@@ -35,8 +35,9 @@
  * ETAT AU 14/10/2026 : `portions` porte ZERO ligne. Ce module rend donc une couverture nulle
  * partout, et c'est le resultat juste. Il existe pour que le premier releve se voie.
  */
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { clauseSqlReseauClasse, type PerimetreReseau } from "../lib/reseau";
+import { fragmentPerimetre, type PerimetreReseau } from "../lib/reseau";
 
 /** Tolerance de jointure entre deux portions, en metres. Voir `portions.ts`. */
 const TOLERANCE_M = 0.05;
@@ -63,12 +64,6 @@ export interface CouvertureReseau {
   calculeeA: string;
 }
 
-/** Traduit le perimetre en clause SQL. Meme vocabulaire que `lib/reseau.ts`. */
-function clausePerimetre(p: PerimetreReseau): string {
-  if (p === "tout") return "";
-  if (p === "voirie") return `AND t."sourceReference" LIKE 'voirie_locale:%'`;
-  return `AND ${clauseSqlReseauClasse('t."sourceReference"')}`;
-}
 
 interface LigneBrute {
   regionId: number | null;
@@ -104,14 +99,26 @@ export async function couvertureReseau(
   perimetre: PerimetreReseau,
   regionId?: number | null,
 ): Promise<CouvertureReseau> {
-  const filtreRegion = typeof regionId === "number" ? `AND t."regionId" = ${regionId}` : "";
+  // PARAMETRE, PAS CONCATENE. Le paragraphe 7.1 du mandat v2.1 l'exige : « requetes
+  // spatiales en SQL parametre, jamais de concatenation de chaines ».
+  //
+  // La premiere version de ce module ecrivait `AND t."regionId" = ${regionId}` dans le texte
+  // de la requete, via `$queryRawUnsafe`. La route valide bien `regionId` par un schema Zod,
+  // mais la fonction est appelable d'ailleurs : la validation vivait au mauvais endroit.
+  // `Prisma.sql` lie la valeur, donc la garantie ne depend plus de l'appelant.
+  //
+  // Le PERIMETRE, lui, est une structure et non une valeur : il vient d'un ensemble ferme de
+  // trois fragments definis dans `lib/reseau.ts`, source unique du predicat.
+  const filtreRegion = typeof regionId === "number"
+    ? Prisma.sql`AND t."regionId" = ${regionId}`
+    : Prisma.empty;
 
-  const lignes = await prisma.$queryRawUnsafe<LigneBrute[]>(`
+  const lignes = await prisma.$queryRaw<LigneBrute[]>`
     WITH base AS (
       SELECT t.id, t."regionId", ST_Length(t.geom::geography) AS longueur_m
         FROM troncons t
        WHERE t."deletedAt" IS NULL AND t.geom IS NOT NULL
-         ${clausePerimetre(perimetre)}
+         ${fragmentPerimetre(perimetre, 't."sourceReference"')}
          ${filtreRegion}
     ), bornees AS (
       -- Les portions COURANTES, bornees au troncon. Une portion qui depasse la geometrie
@@ -157,7 +164,7 @@ export async function couvertureReseau(
       FROM par_troncon pt LEFT JOIN regions r ON r.id = pt."regionId"
      GROUP BY pt."regionId", r.nom
      ORDER BY sum(pt.longueur_m) DESC NULLS LAST
-  `);
+  `;
 
   const parRegion = lignes.map((l) => lire(l));
   return {

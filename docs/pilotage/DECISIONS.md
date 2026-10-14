@@ -1,0 +1,165 @@
+# Journal des décisions (ADR)
+
+> Exigé par le § 4 du mandat v2.1. Format court : contexte, options, décision, conséquences.
+> Une entrée par décision structurante, jamais réécrite — une décision révisée fait une
+> nouvelle entrée qui cite l'ancienne.
+
+---
+
+## ADR-001 — Gel des opérations de production
+
+**Date** : 14/10/2026. **Statut** : actée.
+
+**Contexte.** Le mandat v2.1, reçu à 14:20, pose en garde-fou non négociable (§ 2.1) :
+« Aucune opération sur la production : pas de migration, pas d'écriture, pas de déploiement. »
+
+Or un déploiement était en cours à ce moment et s'est achevé à 14:23 : 50 migrations
+appliquées, barèmes paramétrés, règle RCI approuvée. Le commanditaire a précisé « nouveau
+mandat après déploiement », ce qui situe l'entrée en vigueur **après** cette livraison.
+
+**Décision.** Le déploiement du 14/10/2026 à 14:23 est le dernier. Tout travail ultérieur se
+fait en local. Les migrations écrites ne seront plus appliquées à la production par mes soins.
+
+**Conséquences.**
+- La production porte 50 migrations ; une migration locale non appliquée créera un écart
+  croissant, à déployer par une personne autorisée.
+- `docs/rai-v3/PLAN_MIGRATIONS_PRODUCTION.md` reste la procédure de référence.
+- Les mesures en base citées dans les documents datent du 13 et 14/10 et vieilliront.
+- Les tests ne pourront plus se valider contre la base vivante : les jeux de données de test
+  exigés par le § 12 deviennent nécessaires, pas optionnels.
+
+---
+
+## ADR-002 — Technologie mobile : à trancher, et la PWA ne suffit plus
+
+**Date** : 14/10/2026. **Statut** : **ouverte**, décision à écrire au lot 0.
+
+**Contexte.** Une décision antérieure (`docs/rai-v3/21_TABLEAU_CONFORMITE.md`) retenait
+**PWA renforcée + enveloppe Capacitor**, au motif qu'elle réutilise React/Vite/Leaflet, se
+teste localement et s'installe depuis le navigateur. Cette PWA existe, avec service worker et
+file de synchronisation idempotente, et répond en production.
+
+Le mandat v2.1 ajoute le § 7.13 « collecte en roulage », qui exige :
+- trace GNSS à **1 Hz en arrière-plan** pendant des heures ;
+- **service de premier plan Android** avec notification persistante, « pour ne pas être arrêté
+  par le système » ;
+- **accéléromètre et gyroscope** pour l'IRI estimé, téléphone fixé rigidement ;
+- **capture photo continue** tous les 20–50 m, avec dégradation selon température et stockage ;
+- reprise après redémarrage de l'appareil.
+
+Et le § 7.8 : « Une PWA n'est acceptable que si l'audit démontre qu'elle couvre : GPS en
+continu fiable, stockage volumineux de photos, fonctionnement hors ligne prolongé (plusieurs
+jours) et caméra — sinon, application native. »
+
+**Analyse.** Une PWA sur Android ne peut pas tenir un service de premier plan, ni une trace à
+1 Hz quand l'écran s'éteint, ni une reprise après redémarrage. Le § 7.13 n'est donc **pas
+réalisable en PWA**, et le § 7.8 tranche en conséquence.
+
+**Options.**
+1. **React Native (Expo, workflow natif)** — recommandé par le § 7.8. Partage TypeScript et
+   règles métier avec le web, SQLite + index spatial local, MapLibre Native.
+2. **Capacitor autour de la PWA existante** — réutilise le plus de code, mais les capacités de
+   roulage passent par des plugins natifs : le gain de réutilisation s'érode précisément là où
+   l'exigence est la plus forte.
+3. **Android natif (Kotlin)** — meilleure maîtrise des capteurs, aucune réutilisation.
+
+**Décision provisoire.** Option 1, à confirmer par l'ADR définitif. La PWA **n'est pas
+abandonnée** : elle reste l'outil de saisie au bureau et le portail citoyen, et son noyau de
+règles (appariement, portions, métré, idempotence) est déjà extrait en TypeScript pur, donc
+réutilisable tel quel par React Native.
+
+**Blocage connu** : aucun APK ne peut être produit ici — ni `adb`, ni `gradle`, ni `java`.
+Voir [BLOCAGES.md](BLOCAGES.md).
+
+---
+
+## ADR-003 — Gel des objets contractuels présents dans le dépôt
+
+**Date** : 14/10/2026. **Statut** : actée.
+
+**Contexte.** Le § 1.2 exclut marchés, contrats, chantiers, ordres de travaux, décomptes et
+paiements : « aucun nouveau module, écran, table ou API pour ces objets ; le module chantiers
+existant est gelé ».
+
+Le dépôt les contient et la production les porte : `chantiers` (**496 lignes**), `marches`,
+`ordres_travaux`, `decomptes`, `marches_chantiers`, `avancement_marche`, `ot_historique`,
+`ot_photos`, plus les routes `/api/marches`, `/api/ordres-travaux` et les pages `/marches`,
+`/ordres-travaux`.
+
+**Décision.** Ces modules restent en fonctionnement, ne sont pas étendus, et aucune de mes
+tâches ne les prendra pour cible. Leur migration éventuelle vers DigitalRoad est une décision
+institutionnelle, consignée dans [BLOCAGES.md](BLOCAGES.md).
+
+**Conséquences.** Deux plans antérieurs doivent être amendés : `docs/rai-v3/23_PLAN_ACHEVEMENT.md`
+prévoyait un moteur de coûts alimentant des estimations, ce qui **reste dans le périmètre**
+(le § 1.2 arrête le Géoportail à la programmation), mais toute idée de décompte ou
+d'engagement en sort. Le § 7.7 🔒 le redit : aucune estimation ne crée de décompte.
+
+---
+
+## ADR-004 — Pondérations du RCI : le cahier § 13 contre la liste à neuf composantes
+
+**Date** : 14/10/2026. **Statut** : actée, règle approuvée.
+
+**Contexte.** Deux jeux de pondérations circulaient. Le cahier RAI V3.1 § 13 en liste huit
+(chaussée 30, drainage 15, ouvrages 15, **signalisation 10**, sécurité 10, trafic 10,
+historique 5, incidents 5). Le commanditaire a transmis une liste à neuf remplaçant la
+signalisation par **environnement 5 + autres critères 5**. Les deux totalisent 100 et sept
+postes sur neuf concordent.
+
+**Décision.** Le § 13. Motifs : la signalisation est **inventoriable** et constitue depuis le
+13/10 une famille d'actif à part entière, alors qu'« autres critères » n'est définissable par
+rien — ses cinq points seraient du poids mort renormalisé à chaque calcul.
+
+`ENVIRONNEMENT` et `AUTRES` restent dans l'énumération, **non pondérées** : elles servent à
+exprimer la proposition, donc à la comparer, pas à l'appliquer.
+
+**Conséquences.** `rci-2026.1` approuvée le 14/10/2026, motif d'approbation enregistré en base
+avec cet arbitrage. Une version 2 adoptant la liste à neuf exigerait d'abord une définition
+d'« autres critères ». `TRAFIC`, pondéré à 10 %, sera exclu de chaque score faute de donnée :
+le moteur renormalise, une composante absente ne valant pas zéro.
+
+---
+
+## ADR-005 — SQL paramétré : correction d'une violation du § 7.1
+
+**Date** : 14/10/2026. **Statut** : actée, corrigée.
+
+**Contexte.** Le § 7.1 🔒 exige : « requêtes spatiales en SQL paramétré (`$queryRaw` avec
+gabarits, **jamais** de concaténation de chaînes) ».
+
+`reseau/couverture.reseau.ts`, écrit le 14/10 avant réception du mandat, construisait
+`AND t."regionId" = ${regionId}` dans le **texte** de la requête et l'exécutait par
+`$queryRawUnsafe`. La route valide `regionId` par un schéma Zod, mais la fonction est
+appelable d'ailleurs : la validation vivait au mauvais endroit.
+
+**Décision.** Passage à `$queryRaw` avec `Prisma.sql`. La valeur `regionId` devient un
+paramètre lié, donc la garantie ne dépend plus de l'appelant.
+
+Le **périmètre** est une structure et non une valeur : il vient d'un ensemble fermé de trois
+fragments, désormais définis une seule fois dans `lib/reseau.ts` sous la forme
+`fragmentPerimetre()`, qui rend du `Prisma.Sql`.
+
+**Conséquences.** `lib/reseau.ts::longueurReseau` conserve un `$queryRawUnsafe` **antérieur**,
+qui n'interpole aucune valeur d'appelant — seulement trois littéraux d'un ensemble fermé. Il
+n'est donc pas injectable, mais il reste une concaténation : sa migration vers le fragment est
+inscrite au lot 1, avec les tests de non-régression de l'API publique qui en dépend.
+
+---
+
+## ADR-006 — Les documents existants ne sont pas déplacés
+
+**Date** : 14/10/2026. **Statut** : actée.
+
+**Contexte.** Le § 12 attend une arborescence `docs/audit/`, `docs/specs/`, `docs/metier/`,
+`docs/pilotage/`. Vingt-huit documents existent dans `docs/rai-v3/`, cités par des commits et
+par du code.
+
+**Décision.** `docs/pilotage/` est créé et tenu à jour comme exigé. Les documents existants
+restent où ils sont et sont **cités** depuis la nouvelle arborescence. Les nouveaux documents
+suivent le § 12.
+
+**Motif.** Déplacer vingt-huit fichiers casserait les liens de commits et les références
+croisées pour un gain de rangement, alors que le § 4 demande surtout de ne pas refaire ce qui
+est consigné. Un `docs/pilotage/CONFORMITE.md` qui pointe vers la matrice existante répond à
+l'exigence sans détruire la traçabilité.

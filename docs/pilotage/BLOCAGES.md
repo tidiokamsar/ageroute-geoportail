@@ -1,0 +1,54 @@
+# Blocages, dépendances externes et risques
+
+> Exigé par le § 4 du mandat v2.1. Chaque entrée porte : cause, impact, action requise, qui.
+> Le § 3 impose, en cas de blocage, de faire tout le travail préparatoire possible puis de
+> **passer au lot suivant non bloqué**.
+
+## Décisions institutionnelles — elles ne se contournent pas techniquement
+
+| # | Blocage | Impact | Action requise | Qui |
+|---|---|---|---|---|
+| B-01 | **Valeurs de praticabilité** non énoncées par le cahier | `referentiel_praticabilites` est vide ; aucune portion ne peut porter de praticabilité ; T-07 (§ 14.1, priorité M) est bloqué | Arrêter la liste des statuts et leurs critères | AGEROUTE |
+| B-02 | **Barèmes de coût sans millésime ni largeur** | Les 9 coûts (350 M à 3,5 Md GNF/km) ne sont ni comparables ni actualisables ; aucune estimation publiable | Fixer l'année de référence, la largeur de chaussée supposée, et approuver | AGEROUTE / FER |
+| B-03 | **Rattachement des `RES-nnnn` aux axes régionaux** | Aucun PK régional calculable sur 1 029 segments ; 79 % d'entre eux sont dans des sous-réseaux où les axes ne se devinent pas | Fournir le répertoire du réseau classé ou les arrêtés de classement | AGEROUTE |
+| B-04 | **Règle de périmètre hors territoire** | 7 tronçons de RN4 et RN1, 72,0 km, comptent dans les 21 156,6 km publiés | Trancher : ne rien exclure, exclure les 7, ou un seuil de distance | AGEROUTE |
+| B-05 | **Arbitrage des 42 doublons géométriques** | Chaque paire est une route enregistrée deux fois (inventaire de juin / import OSM de septembre) ; 2 paires opposent une RN à une « voie résidentielle » | Dire lequel fait foi, par paire ; les 2 paires RN demandent une vérification de terrain | AGEROUTE |
+| B-06 | **Référentiel administratif officiel** | La table `regions` porte **11 lignes** dont `Siguiri`, `Beyla` et `Non renseigné`, alors que le § 1.1 énonce 8 régions et 33 préfectures. `limites_admin` niveau 1 porte les mêmes 10 entités et couvre bien le pays (244 785 km²), mais ce n'est pas le découpage officiel annoncé | Confirmer le découpage de référence et la clé de rattachement | AGEROUTE |
+| B-07 | **Codification nationale des tronçons** (§ 7.14.1) | Les codes actuels sont hétérogènes (`RN4-OSM-7`, `GNL-OSM-w…`, `RES-857`, `DI 002`) ; aucun n'est aligné sur un classement officiel du type `GN-RN01-T03` | Fournir la codification officielle | AGEROUTE / Ministère |
+| B-08 | **Migration des modules contractuels vers DigitalRoad** | `chantiers` (496 lignes), `marches`, `ordres_travaux`, `decomptes` vivent dans le dépôt alors que le § 1.2 les exclut. Gelés (ADR-003), mais leur sort reste ouvert | Décider du transfert et du devenir des 496 chantiers | AGEROUTE |
+| B-09 | **Hébergement et résidence des données** (§ 1.1) | Conformité à la loi L/2016/037/AN non établie | Confirmer avec le service juridique | AGEROUTE |
+
+## Accès et outillage manquants
+
+| # | Blocage | Impact | Action requise | Qui |
+|---|---|---|---|---|
+| B-10 | **Aucune chaîne Android** sur le poste de travail : ni `adb`, ni `gradle`, ni `java` | Aucun APK compilable ni testable ici. Les livrables mobiles du § 7.8 s'arrêtent au code source et aux instructions | Fournir un poste outillé ou une CI Android | AGEROUTE / DSI |
+| B-11 | **Aucun accès aux API DigitalRoad** | Les contrats du § 7.10 ne peuvent être qu'implémentés avec des bouchons testés, jamais vérifiés | Documentation et accès de recette | AGEROUTE / éditeur |
+| B-12 | **Aucun accès SharePoint / Entra ID** | La fédération OIDC du § 7.10 reste théorique | Accès de recette et confirmation du fournisseur d'identité | AGEROUTE / DSI |
+| B-13 | **Aucun environnement de développement ou de recette** | Le § 2.1 interdit la production, et il n'existe pas d'autre base. Les mesures contre données réelles s'arrêtent au 14/10/2026 | Fournir une base de développement, idéalement restaurée d'une sauvegarde anonymisée | AGEROUTE / DSI |
+| B-14 | **Signature de production et comptes stores** | Pas de distribution possible | Compte Play Console ou MDM | AGEROUTE |
+| B-15 | **Imagerie haute résolution** (§ 1.1) | Les fonds imagerie du § 7.14 se limitent aux sources libres | Dépense à autoriser si l'imagerie commerciale est voulue | AGEROUTE |
+
+## Risques de sécurité ouverts
+
+Mesurés le 13/10/2026, consignés dans `../rai-v3/AUDIT_SECURITE_DEPOT_PUBLIC.md`.
+**Un seul des cinq est traité.**
+
+| # | Risque | État |
+|---|---|---|
+| B-16 | Compte de test détenant `ADMIN` en production | **traité** le 13/10, rétrogradé et audité |
+| B-17 | **Dépôt public** portant une IP de serveur de production et un chemin de clé de sauvegarde | **ouvert** — `AGENTS.md` règle 1 l'interdit |
+| B-18 | **Mot de passe ADMIN** transmis en clair, jamais changé | **ouvert** |
+| B-19 | **`bdri_app` est SUPERUSER PostgreSQL et le seul rôle de connexion** | **ouvert** — réduire ses privilèges sans rôle de secours couperait le service. L'ordre est contraint : créer le rôle de secours d'abord |
+| B-20 | **Quatre comptes `ADMIN` actifs** en production | **ouvert** — à revoir au titre du moindre privilège |
+| B-21 | Clé de chiffrement des sauvegardes sans copie hors serveur | **ouvert** — une sauvegarde dont la clé vit sur la machine sauvegardée n'est pas une sauvegarde |
+
+## Risques techniques
+
+| # | Risque | Nature |
+|---|---|---|
+| B-22 | **Dérive Prisma préexistante** : `limites_admin` et 13 index créés en SQL brut ne figurent pas dans `schema.prisma` | `prisma migrate dev` proposerait de les supprimer. **Ne jamais le lancer contre une base portant des données.** Seul `migrate deploy` est admis |
+| B-23 | **`main` est en retard de 58 commits** sur ce qui tourne en production | La production sert du code absent du tronc. Fusionner est une décision du commanditaire ; le § 2.5 interdit par ailleurs tout commit direct sur `main` |
+| B-24 | **Aucune intégration continue** | Rien ne garantit que les 1 067 tests tournent ailleurs que sur mon poste. Inscrit au lot 1 |
+| B-25 | **`lib/reseau.ts` conserve un `$queryRawUnsafe`** antérieur | Non injectable (littéraux d'un ensemble fermé), mais contraire au § 7.1. Migration inscrite au lot 1 avec tests de non-régression de l'API publique (ADR-005) |
+| B-26 | **Aucun jeu de données de test** | Le § 2.1 coupant l'accès à la production, les points GPS annotés exigés par A2 et A18 deviennent indispensables pour éprouver quoi que ce soit |
