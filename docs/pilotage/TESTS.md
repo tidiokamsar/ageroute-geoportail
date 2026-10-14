@@ -3,6 +3,30 @@
 > Exigé par le § 4 du mandat v2.1. Le § 2.7 impose que toute affirmation de réussite cite la
 > commande lancée et son résultat. Aucune ligne de ce fichier n'est écrite sans l'avoir vue.
 
+## 14/10/2026 — lot 1, socle
+
+| Commande | Résultat |
+|---|---|
+| `npx tsc -p tsconfig.json --noEmit` (backend) | aucune erreur |
+| `npx vitest run` (backend) | **1 073 passés**, 0 échec, 31,7 s |
+| `npx tsc --noEmit` (frontend, via `npm run build`) | aucune erreur |
+| `npx vitest run` (frontend) | **294 passés**, 0 échec, 29,3 s |
+| `python -c "yaml.safe_load(ci.yml)"` | YAML valide, 3 jobs : backend, frontend, migrations |
+| Contrôle « chaque dossier de migration porte un migration.sql » | **50 dossiers, 0 manquant** |
+| Contrôle « aucun secret évident » | **51 fichiers scannés, 0 ligne suspecte** |
+
+Total : **1 367 tests**, soit +18 sur le lot 0 (12 pour le formateur de PK, 6 pour la garde SQL).
+
+**Séquence rouge puis verte, comme l''exige le § 9.2.** Les 12 tests du formateur de PK ont
+d''abord échoué faute de module (`Test Files 1 failed, Tests no tests`), puis sont passés après
+écriture de `lib/pk.ts`.
+
+**La garde SQL a échoué à son premier lancement, et c''était son utilité.** Elle a signalé deux
+fichiers que je n''avais pas examinés : `lib/geo.ts`, légitime et gardé par une liste blanche,
+et `reseau/couverture.reseau.ts`, qui ne faisait que **citer** `$queryRawUnsafe` dans un
+commentaire — un test qui confond une mention et un usage interdirait d''expliquer ses propres
+corrections. Détection corrigée pour ignorer les commentaires.
+
 ## 14/10/2026 — lot 0, après la correction du § 7.1 (ADR-005)
 
 | Commande | Résultat |

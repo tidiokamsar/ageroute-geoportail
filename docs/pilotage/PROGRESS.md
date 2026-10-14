@@ -5,7 +5,21 @@
 
 ## Lot en cours
 
-**Lot 0 — pilotage et mise en conformité au mandat v2.1**, branche `lot/00-pilotage`.
+**Lot 1 — socle**, branche `lot/01-socle`. Lot 0 terminé.
+
+### Lot 1, fait et prouvé
+
+- **Bogue de formatage des PK corrigé**, celui que cite le § 1 du mandat. Il existait en
+  **deux exemplaires** (`DetailPanel.tsx`, `TronconsPage.tsx`) avec deux sorties différentes.
+  `Math.round` pouvait rendre 1000 : `1,9999 km` s''affichait **`PK 1+1000`** au lieu de
+  `PK 2+000`. Unifié dans `lib/pk.ts`, calcul en mètres entiers, **12 tests**.
+- **Quatre familles d''actifs s''affichaient en code brut** (`GLISSIERE`) : j''avais ajouté les
+  valeurs à l''énumération le 13/10 sans compléter la table de libellés du frontend. Corrigé.
+- **CI réparée** : elle existait (mon entrée B-24 était fausse) mais ne se déclenchait pas sur
+  les branches de lot, donc plus du tout sous la discipline du § 2.5. Déclencheurs étendus,
+  plus deux contrôles locaux : dossiers de migration complets, scan de secrets.
+- **Garde de conformité au § 7.1** : `lib/sql-parametre.test.ts`, 6 tests, impose qu''un
+  fichier employant `$queryRawUnsafe` soit justifié et que la garde invoquée existe vraiment.
 
 ## Ce que le mandat v2.1 change par rapport à ce qui a été fait
 
@@ -85,10 +99,22 @@ n'entre. C'est le verrou du programme.
 
 ## Prochaine action
 
-Lot 1 — socle : **intégration continue** (B-24), migration du dernier `$queryRawUnsafe` de
-`lib/reseau.ts` vers le fragment composé (B-25, ADR-005), et **jeux de données de test**
-(B-26) : sans eux, les critères A2, A5, A15 et A18 ne sont pas éprouvables, et le § 2.1 a coupé
-l'accès à la production.
+**Lot 2 — référentiel linéaire.** Deux chantiers indépendants des blocages, dans cet ordre :
+
+1. **Historisation bitemporelle** des portions (§ 7.2) : `valide_du` / `valide_au` comme dates
+   d'effet terrain, distinctes de `enregistre_le`. Le modèle porte déjà `remplaceeLe` et
+   `portions_lignage`, donc clôture et réouverture de version ; il manque la date d'effet.
+   Migration additive, testable en montée et en descente sans base de production.
+2. **Anticipation des fonctions C dans le modèle** (§ 14) : praticabilité saisonnière (T-07),
+   points de calibration du PK (T-09), champs de résultat d'inférence sur `medias_defaut`
+   (T-03). Le § 14 l'exige dès le lot 2 « pour éviter des migrations lourdes ultérieures ».
+
+**Les jeux de données GPS annotés passent au lot 3**, où ils appartiennent : le critère A2 juge
+le map-matching, qui est le contenu de ce lot. Les y forcer au lot 1 aurait produit un jeu de
+test sans le code qu''il doit éprouver.
+
+Codification nationale, topologie routable et gazetier (§ 7.14) restent au lot 2 mais sont
+**bloqués** par B-06, B-07 et B-27 : ils demandent le classement officiel.
 
 Le CDC consolidé et l'ADR mobile sont écrits. Ce dernier a révélé deux écarts de référentiel
 majeurs, consignés en B-27 et B-28 : **les routes communautaires n'existent pas dans

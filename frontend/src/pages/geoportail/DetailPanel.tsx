@@ -20,6 +20,7 @@ import { parseApiError } from "../../lib/errors";
 import { ETAT_COLORS, ETAT_LABELS, CHANTIER_COLORS } from "./types";
 import type { SelectedFeature, TronconGeoFeature } from "./types";
 import type { EtatPatrimoine, StatutChantier, Ouvrage, PointNoir, Poste, Chantier, Inspection, Document } from "../../types";
+import { formaterPk, formaterPlagePk } from "../../lib/pk";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -42,17 +43,16 @@ const STATUT_LABELS: Record<StatutChantier, string> = {
   PLANIFIE: "Planifié", EN_COURS: "En cours", SUSPENDU: "Suspendu", TERMINE: "Terminé",
 };
 
+// Les treize valeurs de `TypeOuvrage`. Les quatre dernieres — fosse, caniveau, signalisation,
+// glissiere — ont ete ajoutees a l'enumeration le 13/10/2026 sans que cette table suive :
+// elles s'affichaient donc en code brut (« GLISSIERE ») dans la fiche.
 const TYPE_OUVRAGE_LABELS: Record<string, string> = {
   PONT: "Pont", DALOT: "Dalot", BUSE: "Buse", RADIER: "Radier", PONCEAU: "Ponceau",
   MUR_SOUTENEMENT: "Mur de soutènement", TUNNEL: "Tunnel", PASSERELLE: "Passerelle", VIADUC: "Viaduc",
+  FOSSE: "Fossé", CANIVEAU: "Caniveau", SIGNALISATION: "Signalisation", GLISSIERE: "Glissière",
 };
 
-function fmtPk(pk: number | null | undefined) {
-  if (pk == null) return "—";
-  const km = Math.floor(pk);
-  const m = Math.round((pk - km) * 1000);
-  return `PK ${km}+${String(m).padStart(3, "0")}`;
-}
+
 
 function fmtDate(iso: string | null | undefined) {
   if (!iso) return "—";
@@ -511,7 +511,7 @@ export function DetailPanel({
       subtitle: feature.kind === "troncon" ? `${CLASSE_LABELS[feature.data.classe] ?? feature.data.classe} — ${feature.data.code}` : "",
       etat: feature.kind === "troncon" ? feature.data.etat : "NON_EVALUE" as EtatPatrimoine,
       meta: feature.kind === "troncon"
-        ? `${fmtPk(feature.data.pkDebut)} → ${fmtPk(feature.data.pkFin)} · ${feature.data.longueurKm.toFixed(2)} km`
+        ? `${formaterPlagePk(feature.data.pkDebut, feature.data.pkFin)} · ${feature.data.longueurKm.toFixed(2)} km`
         : "",
     },
     ouvrage: {
@@ -520,7 +520,7 @@ export function DetailPanel({
       subtitle: feature.kind === "ouvrage" ? `${TYPE_OUVRAGE_LABELS[feature.data.type] ?? feature.data.type}${feature.data.code ? ` · ${feature.data.code}` : ""}` : "",
       etat: feature.kind === "ouvrage" ? feature.data.etat : "NON_EVALUE" as EtatPatrimoine,
       meta: feature.kind === "ouvrage"
-        ? `${feature.data.pk != null ? fmtPk(feature.data.pk) + " · " : ""}position héritée, non vérifiée`
+        ? `${feature.data.pk != null ? formaterPk(feature.data.pk) + " · " : ""}position héritée, non vérifiée`
         : "",
     },
     pointNoir: {
@@ -619,8 +619,8 @@ export function DetailPanel({
             <SectionTitle icon={<MapPin className="h-3.5 w-3.5" />} title="Position géographique" />
             <InfoRow label="Région" value={d.region ?? "—"} />
             {ft && <InfoRow label="Préfecture" value={ft.prefecture} />}
-            <InfoRow label="PK début" value={fmtPk(d.pkDebut)} />
-            <InfoRow label="PK fin" value={fmtPk(d.pkFin)} />
+            <InfoRow label="PK début" value={formaterPk(d.pkDebut)} />
+            <InfoRow label="PK fin" value={formaterPk(d.pkFin)} />
             <InfoRow label="Longueur" value={`${d.longueurKm.toFixed(3)} km`} />
             {firstPt && (
               <div className="flex items-center justify-between py-2 border-b border-gray-50">
@@ -749,7 +749,7 @@ export function DetailPanel({
                     <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: ETAT_COLORS[o.etat] }} />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-navy truncate">{o.nom}</p>
-                      <p className="text-[11px] text-gray-500">{TYPE_OUVRAGE_LABELS[o.type] ?? o.type}{o.pk != null ? ` · ${fmtPk(o.pk)}` : ""}{o.longueurM ? ` · ${o.longueurM} m` : ""}</p>
+                      <p className="text-[11px] text-gray-500">{TYPE_OUVRAGE_LABELS[o.type] ?? o.type}{o.pk != null ? ` · ${formaterPk(o.pk)}` : ""}{o.longueurM ? ` · ${o.longueurM} m` : ""}</p>
                     </div>
                     <EtatBadge etat={o.etat} />
                   </div>
@@ -764,7 +764,7 @@ export function DetailPanel({
                 {postes.map((p) => (
                   <div key={p.id} className="flex items-center justify-between p-2 rounded bg-gray-50 border border-gray-100">
                     <span className="text-sm text-navy">{p.nom}</span>
-                    <span className="text-xs text-gray-500">{p.type}{p.pk != null ? ` · ${fmtPk(p.pk)}` : ""}</span>
+                    <span className="text-xs text-gray-500">{p.type}{p.pk != null ? ` · ${formaterPk(p.pk)}` : ""}</span>
                   </div>
                 ))}
               </div>
@@ -907,7 +907,7 @@ export function DetailPanel({
             <SectionTitle icon={<MapPin className="h-3.5 w-3.5" />} title="Localisation" />
             <InfoRow label="Région" value={d.region ?? "—"} />
             <InfoRow label="Tronçon" value={d.tronconCode ? `${d.tronconCode}` : null} />
-            <InfoRow label="PK" value={d.pk != null ? fmtPk(d.pk) : null} />
+            <InfoRow label="PK" value={d.pk != null ? formaterPk(d.pk) : null} />
             {d.lat != null && d.lon != null && (
               <div className="flex items-center justify-between py-2 border-b border-gray-50">
                 <span className="text-xs text-gray-500">Coordonnées GPS</span>
