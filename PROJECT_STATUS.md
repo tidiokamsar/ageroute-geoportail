@@ -230,16 +230,30 @@ donc entièrement sur `pg_dump`. C'est **B-16**, et l'arbitrage est **D-10**.
    la migration **pendant qu'elle est encore en attente**, pour ne pas avoir à mentir entre
    « importée » et « rejetée ».
 
+5. ~~Le garde-fou de transition~~ — **fait le 14/10 au soir** : `programmation/cycle-vie.noyau.ts`,
+   sans aucun import, 18 tests. Les huit statuts du § 7.7 ; les quatre statuts post-`TRANSMIS`
+   exigent une **origine externe identifiée** — un message DigitalRoad, ou pour `ÉVALUÉ`
+   l'inspection post-travaux d'AGEROUTE — et **aucun chemin n'y mène depuis le Géoportail**. La
+   version figée est exigée à la transmission ; rien ne recule après. Un test balaie tout le code
+   backend : aucun fichier ne pose un statut reçu à la main. Écrit **avant la table**, comme le
+   noyau d'appariement l'a été avant l'écran de roulage : le jour où la programmation existera,
+   la route ne pourra pas inventer un passage en exécution, la fonction ne le lui donnera pas.
+6. ~~Un écran de suivi des lots~~ — **fait le 14/10 au soir** : `/imports` dans la console, rôles
+   ADMIN et GESTIONNAIRE, 10 tests. Réception multipart, liste, détail, erreurs téléchargeables
+   par l'API authentifiée. L'écran dit ce que l'API dit : **recevoir n'est pas importer**, un
+   fichier déjà reçu n'écrit rien, un lot rejeté est un résultat avec son motif. **Non vérifié
+   dans un navigateur** : le backend local exige un `.env` qui n'existe pas sur ce poste.
+
 **Ce qui reste actionnable sans accès ni décision** :
 
-1. **Le garde-fou de transition** du cycle de vie des interventions (`APPROUVÉ → EN_EXÉCUTION`
-   interdit sans message DigitalRoad) — étape 4 de la conception, modèle de
-   `taches-internes.garde.test.ts`.
-2. **Un écran de suivi des lots** dans la console : liste, compteurs, téléchargement des erreurs
-   — l'API existe, l'écran non.
-3. **Poser à l'ONR, par le canal institutionnel**, les deux questions que les pages ont fait
+1. **Poser à l'ONR, par le canal institutionnel**, les deux questions que les pages ont fait
    naître : L²R Base est-il toujours la base nationale, et ANASUR Collect l'alimente-t-il ou s'y
    substitue-t-il ?
+2. **Un `.env` local de développement** (valeurs jetables, jamais commitées) pour vérifier les
+   écrans dans un navigateur contre la base PostGIS isolée — aujourd'hui, tout le frontend n'est
+   éprouvé que par ses 304 tests.
+3. **La fiche d'intervention** (table + route) sur le garde-fou existant — mais elle n'a de sens
+   qu'après D-07, sinon ses coûts estimés n'auraient ni millésime ni largeur.
 
 **Ce qui attend un échantillon approuvé** : l'étape 2 de l'import — le rapprochement des
 identifiants et la création de propositions `A_VALIDER`. Elle ne doit pas être écrite avant :

@@ -120,8 +120,23 @@ BROUILLON → PROPOSÉ → ARBITRÉ → APPROUVÉ → TRANSMIS → EN_EXÉCUTION
 
 Les statuts **à partir de `TRANSMIS` sont reçus**, jamais saisis dans le Géoportail. C'est la
 même frontière que TI-01 tient par l'absence de colonnes : ici, elle se tient par l'absence de
-**transition** — aucun chemin d'écriture ne mène de `APPROUVÉ` à `EN_EXÉCUTION` sans un message
-de DigitalRoad. Le garde-fou de `taches-internes.garde.test.ts` est le modèle du test à écrire.
+**transition**.
+
+**Fait le 14/10 au soir, avant la table** : `programmation/cycle-vie.noyau.ts`, sans aucun
+import, 18 tests. `transiter(de, vers, demande)` refuse tout passage vers `TRANSMIS`,
+`EN_EXÉCUTION` ou `ACHEVÉ` sans l'origine `DIGITALROAD` **et** l'identifiant du message qui le
+porte ; exige la **version figée** à la transmission ; n'autorise aucun recul après. L'origine est
+contrôlée **avant** les pièces, pour qu'un utilisateur lise « ce statut ne se saisit pas ici » et
+jamais « message requis » — ce second motif l'inviterait à en fabriquer un. Un test balaie tout
+le code backend : aucun fichier ne pose un statut reçu à la main.
+
+**Une nuance consignée pour confirmation (D-08).** Le § 7.7 dit « à partir de `TRANSMIS`, reçus de
+DigitalRoad », et dit aussi que l'évaluation après travaux est « une inspection typée
+post-travaux réalisée par AGEROUTE, un constat d'état du patrimoine, pas une réception ».
+`ÉVALUÉ` ne vient donc pas de DigitalRoad. Le noyau exige pour lui une troisième origine,
+`INSPECTION_POST_TRAVAUX`, identifiée par son inspection. Ce qui est commun aux deux, et qui est
+l'esprit de la règle : **aucun statut post-transmission n'est une saisie libre** — chacun
+s'adosse à un fait identifié, jamais à un clic. C'est la lecture la plus stricte des deux.
 
 ### 5.3 La fiche d'intervention
 

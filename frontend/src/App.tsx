@@ -37,6 +37,7 @@ const SecuritePage = lazy(() => import("./pages/SecuritePage").then((m) => ({ de
 const AdministrationPage = lazy(() => import("./pages/AdministrationPage").then((m) => ({ default: m.AdministrationPage })));
 const GouvernancePage = lazy(() => import("./pages/GouvernancePage").then((m) => ({ default: m.GouvernancePage })));
 const OrdresTravauxPage = lazy(() => import("./pages/OrdresTravauxPage").then((m) => ({ default: m.OrdresTravauxPage })));
+const ImportsPage = lazy(() => import("./pages/ImportsPage").then((m) => ({ default: m.ImportsPage })));
 
 function PageFallback() {
   return (
@@ -98,6 +99,7 @@ const router = createBrowserRouter(
         <Route element={<AppLayout />}>
           <Route path="inspections/defauts/validation" element={<LazyPage><DefautsValidationPage /></LazyPage>} handle={{ title: "Validation des relevés terrain" }} />
           <Route path="inspections/defauts/catalogue" element={<LazyPage><CatalogueDefautsPage /></LazyPage>} handle={{ title: "Catalogue des défauts" }} />
+          <Route path="imports" element={<LazyPage><ImportsPage /></LazyPage>} handle={{ title: "Lots d'import" }} />
         </Route>
       </Route>
     </>

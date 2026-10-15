@@ -47,8 +47,13 @@ beforeEach(() => {
 });
 
 describe("Saisie terrain des défauts", () => {
+  // `delay: null` : user-event cède la main au navigateur après CHAQUE frappe par défaut, et ce
+  // parcours en compte une vingtaine sur une page complète. Mesuré le 14/10 : 4,9 à 6,2 s seul,
+  // pour un plafond de 5 s -- un échec sur trois, davantage sous la charge de la suite. Sans ce
+  // délai, le même parcours est exercé, seulement sans les pauses inutiles. La marge de 15 s
+  // couvre les postes lents ; elle n'affaiblit aucune assertion.
   it("enregistre hors-ligne les mesures, le repère et la clé locale", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     render(<MemoryRouter><DefautTerrainPage /></MemoryRouter>);
 
     await screen.findByRole("option", { name: /Nid-de-poule/ });
@@ -79,5 +84,5 @@ describe("Saisie terrain des défauts", () => {
       gravite: 2,
       mesures: { longueurM: 2, largeurM: 1, profondeurM: 0.1 },
     });
-  });
+  }, 15_000);
 });

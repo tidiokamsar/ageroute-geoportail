@@ -36,6 +36,7 @@ const sections = [
       { to: "/inspections/terrain/defauts", label: "Défauts terrain" },
       { to: "/inspections/defauts/validation", label: "Validation des relevés", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/inspections/defauts/catalogue", label: "Catalogue des défauts", roles: ["ADMIN", "GESTIONNAIRE"] },
+      { to: "/imports", label: "Lots d'import", roles: ["ADMIN", "GESTIONNAIRE"] },
     ],
   },
   {

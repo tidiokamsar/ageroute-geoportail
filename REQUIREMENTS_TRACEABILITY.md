@@ -14,7 +14,7 @@
 > test, une migration, une mesure ou un point d'API.
 
 **Dressée le 14/10/2026** contre le prompt maître V10 lu en entier. Tests de référence :
-backend **1 228 passés**, frontend **294 passés**, 0 échec, TypeScript sans erreur.
+backend **1 246 passés**, frontend **304 passés**, 0 échec, TypeScript sans erreur.
 
 ---
 
@@ -45,7 +45,7 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 | **A19** | Roulage, robustesse veille/appel/redémarrage | **AB** | exige les plugins natifs (ADR-009) |
 | **A20** | Géoportail : rendu < 3 s en 3G, recherche < 300 ms, déviation < 2 s, OGC | **NT** | aucune mesure ; tuiles vectorielles, permalien et pgRouting absents |
 | **A21** | Chaque tronçon : code national, provenance, score qualité, rattachement | **BL** | **la codification nationale n'existe pas** et les routes communautaires n'ont aucune valeur d'énumération (D-06). Provenance présente sur 259 696 tronçons, absente sur 1 691 |
-| **A22** | Programmation reproductible, justifiée, fiche figée | **AB** | aucun moteur ; barèmes et matrices présents, **lus par aucun code** |
+| **A22** | Programmation reproductible, justifiée, fiche figée | **PA** | aucun moteur ; mais le **cycle de vie est écrit et gardé** (cycle-vie.noyau.ts, 18 tests) : version figée exigée à la transmission, statuts post-TRANSMIS **impossibles à saisir** depuis le Géoportail, balayage de tout le code ; catalogue des traitements créé, lois de vieillissement identifiées. Risque, coût, optimisation **absents** |
 | **A23** | Interopérabilité ONR : pivot, L²R, sections UEMOA, correspondance éditable | **PA** | **sections fixes livrées** (IO-04), 14 assertions, B11 tenu sauf la note UEMOA. **Les 15 livrables du § B.6 sont écrits** : matrice ONR/BDR (14 domaines, 0 « à vérifier »), registre des sources de vérité (4 contradictions nommées), spécifications d'import, de correspondance et de tests, questionnaire ANASUR. Pivot CSV/GeoJSON et tables d'import **codés et testés**, GeoPackage en écart consigné ; orchestration non écrite ; formats L²R non publiés |
 | **A24** | Exploitation : incident hors ligne → main courante immuable, Info Route < 1 min | **AB** | § 7.17 non commencé |
 | **A25** | Sécurité : chaque alerte avec preuve ou blocage ; aucun secret | **PA** | **le volet dépôt est prouvé** : 225 commits analysés, aucun secret, **IP de production jamais committée**. Quatre alertes bloquées faute d'autorisation de production. `bdri_app` toujours superuser |
