@@ -348,6 +348,7 @@ model User {
   tachesInternesCloturees   TacheInterne[]             @relation("TacheInterneClotureur")
   traitementsApprouves      CatalogueTraitement[]      @relation("TraitementApprouve")
   lotsImportes              LotImport[]                @relation("LotImportateur")
+  entreesMainCourante       EntreeMainCourante[]       @relation("MainCouranteAuteur")
 
   @@map("users")
 }
@@ -484,6 +485,7 @@ model Troncon {
   evaluationsCondition EvaluationCondition[]
   portions             Portion[]
   tachesInternes       TacheInterne[]
+  entreesMainCourante  EntreeMainCourante[]
 
   @@index([regionId])
   @@index([etat])
@@ -3044,4 +3046,102 @@ model LigneImport {
   @@index([lotId, statut])
   @@index([objetCibleType, objetCibleId])
   @@map("lignes_import")
+}
+
+/// Vocabulaire administrable des types d'evenement d'exploitation (§ 7.17), seme du mandat.
+model ReferentielTypeEvenement {
+  code      String   @id
+  libelle   String
+  ordre     Int
+  actif     Boolean  @default(true)
+  source    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entrees EntreeMainCourante[]
+
+  @@map("referentiel_types_evenement")
+}
+
+/// Vocabulaire administrable des sources d'un evenement : patrouille, citoyen, capteur, partenaire.
+model ReferentielSourceEvenement {
+  code      String   @id
+  libelle   String
+  ordre     Int
+  actif     Boolean  @default(true)
+  source    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entrees EntreeMainCourante[]
+
+  @@map("referentiel_sources_evenement")
+}
+
+enum StatutEvenement {
+  OUVERT
+  PRIS_EN_COMPTE
+  EN_COURS
+  CLOS
+}
+
+enum NatureEntreeMainCourante {
+  DECLARATION
+  STATUT
+  COMPLEMENT
+  RECTIFICATION
+}
+
+/// MAIN COURANTE DU RESEAU (§ 7.17, EX-01) : journal d'exploitation EN AJOUT SEUL.
+///
+/// Un evenement est une CHAINE D'ENTREES partageant `evenementId` ; son statut courant est celui
+/// de sa derniere entree de statut, rendu par la vue SQL `evenements_exploitation` (hors Prisma).
+/// Une erreur se corrige par une entree RECTIFICATION qui cite l'entree fautive -- les deux
+/// restent.
+///
+/// IMMUTABILITE TENUE PAR UN DECLENCHEUR (`main_courante_ajout_seul`), le premier de ce depot,
+/// admis une fois pour la table dont la valeur probatoire est de ne jamais changer. Prisma ne le
+/// voit pas : tout `update` ou `delete` echouera en base. N'en ecrivez pas.
+///
+/// `enregistreLe` est l'heure du SERVEUR, posee par le declencheur ; `horodatageClient` est
+/// conserve a part, tel que l'appareil l'a donne.
+model EntreeMainCourante {
+  id          String                   @id @default(uuid())
+  evenementId String
+  nature      NatureEntreeMainCourante
+
+  enregistreLe     DateTime  @default(now())
+  horodatageClient DateTime?
+
+  auteurId   String
+  auteur     User                        @relation("MainCouranteAuteur", fields: [auteurId], references: [id])
+  sourceCode String?
+  sourceRef  ReferentielSourceEvenement? @relation(fields: [sourceCode], references: [code])
+
+  typeCode String?
+  typeRef  ReferentielTypeEvenement? @relation(fields: [typeCode], references: [code])
+  statut   StatutEvenement?
+  texte    String
+
+  tronconId String?
+  troncon   Troncon? @relation(fields: [tronconId], references: [id])
+  debutM    Float?
+  finM      Float?
+  geom      Unsupported("geometry(Point, 4326)")?
+
+  pieces Json @default("[]")
+
+  rectifieId String?
+  rectifie   EntreeMainCourante?  @relation("Rectification", fields: [rectifieId], references: [id])
+  rectifications EntreeMainCourante[] @relation("Rectification")
+
+  signalementId String?
+  missionId     String?
+
+  clientOperationId String? @unique
+
+  @@index([evenementId, enregistreLe])
+  @@index([tronconId])
+  @@index([enregistreLe])
+  @@map("main_courante")
 }

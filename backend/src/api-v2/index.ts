@@ -11,6 +11,7 @@ import { referentielsV2Router } from "./referentiels.routes";
 import { qualiteV2Router } from "./qualite.routes";
 import { reseauV2Router } from "./reseau.routes";
 import { importsV2Router } from "./imports.routes";
+import { exploitationV2Router } from "./exploitation.routes";
 
 /**
  * `/api/v2` — la nouvelle surface d'API.
@@ -69,6 +70,7 @@ apiV2Router.use("/referentiels", referentielsV2Router);
 apiV2Router.use("/qualite", qualiteV2Router);
 apiV2Router.use("/reseau", reseauV2Router);
 apiV2Router.use("/imports", importsV2Router);
+apiV2Router.use("/exploitation", exploitationV2Router);
 
 /**
  * Inventaire de la surface v2, pour qu'un client sache ce qui existe reellement.
@@ -79,7 +81,7 @@ apiV2Router.use("/imports", importsV2Router);
 apiV2Router.get("/", (_req, res) => {
   res.json({
     version: "v2",
-    domaines: ["geo", "sync", "devices", "missions", "observations", "defauts", "field", "portions", "referentiels", "qualite", "reseau", "imports"],
+    domaines: ["geo", "sync", "devices", "missions", "observations", "defauts", "field", "portions", "referentiels", "qualite", "reseau", "imports", "exploitation"],
     aVenir: [
       "auth", "tracks",
       "assets", "offline", "intelligence", "ai", "integrations",

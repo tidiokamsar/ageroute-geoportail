@@ -24,9 +24,9 @@ migrations.**
 
 | Mesure | Valeur |
 |---|---|
-| Dossiers de migration locaux | **56** |
+| Dossiers de migration locaux | **58** |
 | Appliquées en production | **50** |
-| **En attente** | **6** |
+| **En attente** | **8** |
 | Appliquées sans fichier local (orphelines) | **0** |
 | Lignes de `_prisma_migrations` inachevées ou annulées | 1, **expliquée au § 5** |
 
@@ -248,6 +248,26 @@ dire pas encore appliquée**, et la base le tient.
 SQLite dans le paquet, et en ajouter une sans l'avoir choisie serait une décision prise en
 passant. CSV et GeoJSON suffisent à l'option A d'échange de fichiers, celle que le TDR de l'ONR
 décrit lui-même.
+
+---
+
+### `20261015000000_praticabilite_p1_p4_provisoire` — D-02, proposition semée
+
+| Champ du § A.8 | Contenu |
+|---|---|
+| **Objectif** | semer les quatre niveaux **tels que le § 7.17 les énonce**, `source = 'mandat_v10_proposition'`, `approuveeLe` nul. Le mécanisme devient éprouvable — une portion peut porter P4 — sans qu'aucun niveau fasse foi |
+| **Nature** | additive, quatre lignes de référentiel. Critères d'attribution, tonnage de P3, autorité et durée de validité **restent à décider** (D-02) : rien n'est comblé |
+| **Rollback** | **OUI**, ciblé par source et par absence d'approbation : une ligne ajoutée ou approuvée par AGEROUTE depuis n'est pas touchée. **Attention** : `portions.praticabilite` est en `ON DELETE SET NULL` — compter avant |
+
+### `20261015010000_main_courante` — § 7.17, EX-01
+
+| Champ du § A.8 | Contenu |
+|---|---|
+| **Objectif** | la **main courante du réseau**, journal d'exploitation **en ajout seul**, à valeur probatoire : « ce qu'AGEROUTE savait et à quel moment » |
+| **Modèle** | un événement est une **chaîne d'entrées** (déclaration, statut, complément, rectification) ; son statut courant est rendu par la vue `evenements_exploitation`, qui calcule aussi délais de prise en compte et durée (EX-08). Une erreur se corrige par une entrée rectificative qui cite l'entrée fautive — les deux restent |
+| **Le premier déclencheur du dépôt** | l'immutabilité ne se tient ni par une contrainte (une ligne à la fois), ni par une absence de route (protège du code, pas d'un accès direct), ni par un `REVOKE` (le rôle applicatif est superuser en production). Le déclencheur `main_courante_ajout_seul` refuse `UPDATE`, `DELETE` et toute `enregistreLe` fournie par l'appelant : l'heure du serveur se constate. Admis **une fois**, nommé, commenté, éprouvé |
+| **Tests** | `prisma/tests/main_courante.test.sql`, **14 assertions** ; noyau du cycle de vie + service + route, tests TS |
+| **Rollback** | **OUI**, aller-retour vérifié. C'est la descente qui efface le plus : un journal probatoire ne se reconstitue pas — compter avant, et se demander pourquoi on descend une table conçue pour ne rien perdre |
 
 ---
 

@@ -47,12 +47,12 @@ complète — voir L-00). Base de développement : conteneur `bdri-dev-db`, Post
 
 | # | Tâche | Lot | Statut | Critère de fin |
 |---|---|---|---|---|
-| T-1 | Identifier et corriger les 3 échecs frontend de la suite complète | L-00 | `IN_PROGRESS` | 304/304, cause documentée |
-| T-2 | Commit + push du garde-fou, de l'écran des lots, du suivi | 15 | `TODO` | balayage propre, poussé |
-| T-3 | Build frontend (`tsc && vite build`) et backend (`tsc`), artefacts vérifiés | 15 | `TODO` | `dist/` produit, taille notée |
-| T-4 | Estimation de coût qui **refuse** sans ligne de barème (classe de précision affichée, résultat « provisoire ») | 9 | `TODO` | tests ; aucun montant pour BETON/AUTRE |
-| T-5 | Peupler `referentiel_praticabilites` avec P1–P4 **provisoires, non approuvés** (migration) | 12 | `TODO` | rollback testé ; `approuveLe` nul |
-| T-6 | Main courante d'exploitation append-only (table, horodatage serveur, aucune mise à jour ni suppression — par absence de route) | 12 | `TODO` | banc SQL + tests route |
+| T-1 | Échecs frontend de la suite complète | L-00 | `VERIFIED` | un seul test en cause, préexistant : `DefautTerrainPage` prenait 4,9–6,2 s seul pour 5 s de plafond. Cause : pauses `user-event` à chaque frappe → `delay: null` + marge 15 s. 3/3 seul, **304/304** en suite |
+| T-2 | Commit + push garde-fou, écran des lots, suivi | 15 | `DONE` | `16d0b99`, balayage propre, aucun `dist/` |
+| T-3 | Builds | 15 | `VERIFIED` | frontend 94 fichiers / 5,3 Mo en 2 min 27 ; backend 234 fichiers émis ; nouveaux modules présents dans `dist/` |
+| T-4 | Estimation de coût qui **refuse** sans ligne de barème | 9 | `DONE` | `engines/cout.noyau.ts`, sans import, BigInt, 18 tests. Une prémisse fausse de mon test corrigée (7,4 × 10¹³ ne dépasse pas 2⁵³) ; l'exactitude au franc est prouvée là où un double perd |
+| T-5 | P1–P4 **provisoires, non approuvés** | 12 | `VERIFIED` | migration `20261015000000`, source `mandat_v10_proposition`, `approuveeLe` nul, P4 seul non franchissable ; une portion peut porter P4 ; descente ciblée par source, aller-retour vérifié |
+| T-6 | Main courante en ajout seul | 12 | `IN_PROGRESS` | migration `20261015010000` : chaîne d'entrées, **premier déclencheur du dépôt** (UPDATE/DELETE/antidatage refusés — banc SQL 14 assertions), vue `evenements_exploitation` avec délais EX-08, 10 types + 4 sources en tables. Noyau du cycle de vie (`exploitation/main-courante.noyau.ts`) + service + route `/api/v2/exploitation/main-courante` écrits ; **tests TS en cours** |
 | T-7 | Tableau de bord : couverture par portions et qualité, périmètre affiché partout | 10 | `TODO` | tests ; « réseau classé saisi », jamais « national » |
 | T-8 | Catalogue des défauts ≥ 21 types, revêtu / non revêtu, par **table** (migration) | 4 | `TODO` | A11 inchangé |
 | T-9 | Inspection typée post-travaux (rattachée au cycle de vie, origine `INSPECTION_POST_TRAVAUX`) | 4/9 | `TODO` | garde-fou inchangé |
