@@ -1,0 +1,31 @@
+-- AGEROUTE ROAD : droit de designer un validateur.
+--
+-- POURQUOI UNE COLONNE ET NON UN CONTROLE DE ROLE
+--
+-- Le paragraphe 35 du cahier dit qu'un validateur est designe, PAS PAR QUI. AGEROUTE a
+-- tranche le 13/10/2026 : la Direction Technique, dont l'usage au paragraphe 5 est
+-- « validation et arbitrage technique ».
+--
+-- Mais « Direction Technique » est un PROFIL, et les profils ne persistent pas :
+-- appliquer un profil ecrit `role` et `modulesAutorises`, puis disparait. C'etait un choix
+-- delibere — un profil applique puis modifie a la main ne doit pas continuer d'afficher un
+-- nom qui ne correspond plus a ce que le compte peut faire.
+--
+-- Et le role technique ne suffit pas : SIX profils sur onze sont GESTIONNAIRE. Ouvrir la
+-- designation a tout GESTIONNAIRE la donnerait a l'Ingenieur reseau, a l'Entretien, a la
+-- Planification, au Coordonnateur et a l'Administrateur SIG — c'est-a-dire a presque tout
+-- le monde, ce qui vide la designation de son sens.
+--
+-- Le droit est donc un EFFET du profil, au meme titre que le role et les modules :
+-- durable, revocable, audite, et coherent avec l'architecture au lieu de la contredire.
+--
+-- DEFAUT A FALSE, ET AUCUN COMPTE NE LE RECOIT
+--
+-- Cette migration est additive et ne change aucun comportement : personne ne porte le
+-- droit a la sortie, donc seul un ADMIN peut designer — ce qui etait deja le cas puisque
+-- la table des delegations est vide.
+--
+-- Appliquer le profil Direction Technique a un compte le lui accordera, et ce geste sera
+-- audite comme toute modification de compte.
+
+ALTER TABLE "users" ADD COLUMN "peutDeleguerValidation" BOOLEAN NOT NULL DEFAULT false;

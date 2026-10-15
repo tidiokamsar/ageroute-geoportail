@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { getSyncState, subscribeSync, syncPendingInspections } from "../lib/offlineSync";
+import { getSyncState, subscribeSync, syncPendingOfflineData } from "../lib/offlineSync";
 
 export function useOfflineSync() {
   const state = useSyncExternalStore(subscribeSync, getSyncState, getSyncState);
@@ -16,5 +16,5 @@ export function useOfflineSync() {
     };
   }, []);
 
-  return { ...state, online, syncNow: syncPendingInspections };
+  return { ...state, online, syncNow: syncPendingOfflineData };
 }

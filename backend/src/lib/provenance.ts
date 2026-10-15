@@ -64,6 +64,16 @@ export function construireSaisies(
   entityId: string,
   donnees: Record<string, unknown>,
   auteurId: string,
+  /**
+   * Client a utiliser. Par defaut le client de base, pour la forme TABLEAU de
+   * `$transaction` qui execute les promesses qu'on lui passe.
+   *
+   * Les modules migres a la forme INTERACTIVE doivent passer leur `tx` : sans cela, les
+   * ecritures de provenance partiraient sur le client de base et ne feraient PAS partie
+   * de la transaction, alors qu'elles y etaient jusqu'ici. Le piege est silencieux, car
+   * tout continuerait de fonctionner — jusqu'au premier echec.
+   */
+  client?: { valeurQualite: { upsert: (args: unknown) => unknown } },
 ): unknown[] {
   const suivis = CHAMPS_SUIVIS[entityType];
   if (!suivis) return [];
@@ -73,9 +83,9 @@ export function construireSaisies(
   const champs = suivis.filter((c) => Object.prototype.hasOwnProperty.call(donnees, c));
   if (champs.length === 0) return [];
 
-  const client = prisma as unknown as {
+  const cible = client ?? (prisma as unknown as {
     valeurQualite: { upsert: (args: unknown) => unknown };
-  };
+  });
   const observedAt = new Date();
   const ecritures: unknown[] = [];
 
@@ -91,7 +101,7 @@ export function construireSaisies(
       // souvent, mais n'a pas mesure. HIGH reste pour un releve de terrain date.
       note: `Valeur saisie dans l'application le ${observedAt.toISOString().slice(0, 10)}.`,
     };
-    ecritures.push(client.valeurQualite.upsert({
+    ecritures.push(cible.valeurQualite.upsert({
       where: { entityType_entityId_champ: { entityType, entityId, champ } },
       create: { entityType, entityId, champ, ...commun },
       update: commun,

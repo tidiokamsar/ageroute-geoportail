@@ -7,7 +7,14 @@ import { deriveChantierGeom } from "../../lib/geo";
 import { ApiError } from "../../middleware/error.middleware";
 import { chantierCreateSchema } from "./chantiers.schema";
 
-const base = createCrudService(prisma.chantier, "Chantier", { region: true, troncon: true });
+/**
+ * Migre a l'audit transactionnel (ADR 11). La mutation et sa trace reussissent ou sont
+ * annulees ensemble.
+ */
+const base = createCrudService(prisma.chantier, "Chantier", {
+  include: { region: true, troncon: true },
+  delegueTransactionnel: (tx) => (tx as typeof prisma).chantier,
+});
 
 // Si le chantier reference un troncon + un PK debut/fin, sa geometrie est extraite du trace
 // reel du troncon (referencement lineaire) au lieu d'etre dessinee a la main.

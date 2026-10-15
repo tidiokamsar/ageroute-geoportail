@@ -1,5 +1,8 @@
 import { z } from "zod";
 import "dotenv/config";
+import {
+  PLAFOND_PHOTOS_PAR_OBJET_DEFAUT, PLAFOND_DISQUE_MIO_DEFAUT,
+} from "../lib/quota-photos";
 
 const envSchema = z.object({
   DATABASE_URL: z.string().min(1),
@@ -20,6 +23,19 @@ const envSchema = z.object({
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
   SMTP_FROM: z.string().default("BDRI AGEROUTE <no-reply@ageroute.gov.gn>"),
+
+  // Plafonds de stockage des photos. Le middleware n'en avait qu'un, `fileSize` a 8 Mio
+  // PAR FICHIER, et rien ne bornait le total : l'application de terrain synchronise
+  // seule, et une file locale qui se rejoue en boucle televerse sans qu'aucun humain
+  // regarde. Le disque heberge aussi PostgreSQL et le fond de carte public.
+  //
+  // Le cahier des charges ne fixe aucun seuil de media : ces valeurs sont prudentes et
+  // reglables, elles ne valent pas un arbitrage metier. Zero vaut « pas de plafond »,
+  // pour qu'une variable mal saisie n'arrete pas la collecte d'un pays entier.
+  PHOTOS_MAX_PAR_OBJET: z.coerce.number().int().min(0)
+    .default(PLAFOND_PHOTOS_PAR_OBJET_DEFAUT),
+  PHOTOS_PLAFOND_DISQUE_MIO: z.coerce.number().int().min(0)
+    .default(PLAFOND_DISQUE_MIO_DEFAUT),
 });
 
 const parsed = envSchema.safeParse(process.env);

@@ -3,6 +3,8 @@ import { Outlet, useMatches, useLocation } from "react-router-dom";
 import { useEffect } from "react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
+import { useAuth } from "../../lib/auth";
+import { configurerUtilisateurSync, refreshPendingCount, syncPendingOfflineData } from "../../lib/offlineSync";
 
 export function AppLayout() {
   const matches = useMatches();
@@ -10,9 +12,16 @@ export function AppLayout() {
   const title = current?.handle?.title ?? "BDRI";
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
+  const { user } = useAuth();
 
   // Ferme le tiroir mobile a chaque changement de page (l'utilisateur a navigue).
   useEffect(() => setSidebarOpen(false), [location.pathname]);
+
+  useEffect(() => {
+    configurerUtilisateurSync(user?.id ?? null);
+    if (user) void refreshPendingCount().then(() => syncPendingOfflineData());
+    return () => configurerUtilisateurSync(null);
+  }, [user?.id]);
 
   return (
     <div className="flex h-screen overflow-hidden">

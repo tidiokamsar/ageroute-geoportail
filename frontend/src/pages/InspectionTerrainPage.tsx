@@ -5,8 +5,9 @@ import { api } from "../lib/api";
 import { Button } from "../components/ui/Button";
 import { toast } from "../lib/toast";
 import { addPendingInspection, getAllPending, type PendingInspection } from "../lib/offlineDb";
-import { refreshPendingCount, syncPendingInspections } from "../lib/offlineSync";
+import { refreshPendingCount, syncPendingOfflineData } from "../lib/offlineSync";
 import { useOfflineSync } from "../hooks/useOfflineSync";
+import { useAuth } from "../lib/auth";
 
 // ── Cache local des référentiels (troncons/ouvrages) pour usage hors-ligne ────────
 
@@ -50,6 +51,7 @@ function uuid(): string {
 export function InspectionTerrainPage() {
   const navigate = useNavigate();
   const { online } = useOfflineSync();
+  const { user } = useAuth();
 
   const [referentiels, setReferentiels] = useState<Referentiels>({ troncons: [], ouvrages: [], cachedAt: "" });
   const [objetType, setObjetType] = useState<"troncon" | "ouvrage">("troncon");
@@ -67,8 +69,8 @@ export function InspectionTerrainPage() {
 
   useEffect(() => {
     loadReferentiels().then(setReferentiels);
-    getAllPending().then((all) => setRecentSubmissions(all.slice(-5).reverse()));
-  }, []);
+    getAllPending().then((all) => setRecentSubmissions(all.filter((item) => item.ownerUserId === user?.id).slice(-5).reverse()));
+  }, [user?.id]);
 
   function captureGeoloc() {
     if (!navigator.geolocation) { setGeolocError("Géolocalisation non disponible sur cet appareil."); return; }
@@ -118,6 +120,7 @@ export function InspectionTerrainPage() {
     try {
       const pending: PendingInspection = {
         localId: uuid(),
+        ownerUserId: user?.id,
         payload: {
           tronconId: objetType === "troncon" ? tronconId : undefined,
           ouvrageId: objetType === "ouvrage" ? ouvrageId : undefined,
@@ -137,8 +140,8 @@ export function InspectionTerrainPage() {
       await refreshPendingCount();
       toast.success(online ? "Inspection enregistrée — synchronisation en cours…" : "Inspection enregistrée hors-ligne — sera synchronisée au retour du réseau.");
       resetForm();
-      getAllPending().then((all) => setRecentSubmissions(all.slice(-5).reverse()));
-      if (online) syncPendingInspections();
+      getAllPending().then((all) => setRecentSubmissions(all.filter((item) => item.ownerUserId === user?.id).slice(-5).reverse()));
+      if (online) syncPendingOfflineData();
     } finally {
       setSubmitting(false);
     }
@@ -161,6 +164,9 @@ export function InspectionTerrainPage() {
               <p className="text-xs text-white/60">Fonctionne hors-ligne — synchronisation automatique</p>
             </div>
           </div>
+          <Button type="button" variant="secondary" size="sm" onClick={() => navigate("/inspections/terrain/defauts")}>
+            <ClipboardList className="h-3.5 w-3.5" /> Défaut structuré
+          </Button>
           {!online && (
             <span className="inline-flex items-center gap-1 rounded-full bg-amber-400/20 text-amber-200 px-2 py-1 text-[11px] font-medium">
               <CloudOff className="h-3 w-3" /> Hors-ligne

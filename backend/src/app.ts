@@ -19,6 +19,7 @@ import { dashboardRouter } from "./modules/dashboard/dashboard.routes";
 import { voirieLocaleRouter } from "./modules/voirie-locale/voirie-locale.routes";
 import { marchesRouter } from "./modules/marches/marches.routes";
 import { adminSettingsRouter } from "./modules/admin/settings.routes";
+import { gouvernanceRouter } from "./modules/admin/gouvernance.routes";
 import { otRouter } from "./modules/ordres-travaux/ot.routes";
 import { usersRouter } from "./modules/users/users.routes";
 import { auditRouter } from "./modules/audit/audit.routes";
@@ -28,6 +29,7 @@ import { searchRouter } from "./modules/search/search.routes";
 import { documentsRouter } from "./modules/documents/documents.routes";
 import { photosRouter } from "./modules/photos/photos.routes";
 import { publicRouter } from "./modules/public/public.routes";
+import { apiV2Router } from "./api-v2";
 import { healthRouter } from "./modules/health/health.routes";
 import { errorHandler, notFoundHandler } from "./middleware/error.middleware";
 import { requireAuth } from "./middleware/auth.middleware";
@@ -132,6 +134,9 @@ export function createApp() {
   app.use("/api/dashboard", dashboardRouter);
   app.use("/api", marchesRouter);
   app.use("/api/admin", adminSettingsRouter);
+  // Designation des validateurs : hors du routeur d'administration, car la Direction
+  // Technique en porte le droit sans etre administrateur. Voir gouvernance.routes.
+  app.use("/api/gouvernance", gouvernanceRouter);
   app.use("/api/ordres-travaux", otRouter);
   app.use("/api/users", usersRouter);
   app.use("/api/audit", auditRouter);
@@ -141,6 +146,13 @@ export function createApp() {
   app.use("/api/documents", documentsRouter);
   app.use("/api/photos", photosRouter);
   app.use("/api/public", publicRouter);
+
+  /**
+   * API v2. La V1 ci-dessus reste intacte : elle sert la carte publique, la console
+   * interne et la carte embarquee de DigitalRoad, hebergee sur un domaine SharePoint
+   * qu'on ne redeploie pas au meme rythme. Les pages migrent une par une.
+   */
+  app.use("/api/v2", apiV2Router);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

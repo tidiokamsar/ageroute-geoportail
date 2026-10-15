@@ -1,19 +1,63 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { createCrudService, type ListParams } from "../../lib/crud-factory";
+import { logAuditTransactionnelle } from "../../utils/audit";
+import { chevauchements, couverture, repartition } from "../../reseau/portions";
 import { WHERE_RESEAU_CLASSE, clauseSqlReseauClasse } from "../../lib/reseau";
 import { buildExportBuffer, parseImportBuffer, formatImportError, type ImportReport } from "../../lib/excel";
 import { resolveRegionId } from "../../lib/regions";
 import { ApiError } from "../../middleware/error.middleware";
 import { tronconCreateSchema, type TronconCreateInput } from "./troncons.schema";
 
-const base = createCrudService(prisma.troncon, "Troncon", { region: true });
+/**
+ * Troncon est migre a l'audit transactionnel (ADR 11).
+ *
+ * C'est le premier des sept services restants, et celui qui eprouve VRAIMENT le mecanisme :
+ * `CHAMPS_SUIVIS` suit huit de ses champs, donc chaque ecriture entraine des lignes de
+ * provenance qui doivent rejoindre la meme transaction. Inspection, migree avant lui, n'a
+ * aucun champ suivi et ne testait donc pas ce point.
+ */
+const base = createCrudService(prisma.troncon, "Troncon", {
+  include: { region: true },
+  delegueTransactionnel: (tx) => (tx as typeof prisma).troncon,
+});
 
-async function setLineGeom(id: string, geom: { type: string; coordinates: number[][] }): Promise<void> {
-  await prisma.$executeRaw`
+/**
+ * Ecrit le trace. `client` permet de rejoindre une transaction : la geometrie ne passe pas
+ * par Prisma (colonne `Unsupported`) mais son `$executeRaw` fonctionne aussi bien sur un
+ * client de transaction.
+ */
+async function setLineGeom(
+  id: string,
+  geom: { type: string; coordinates: number[][] },
+  client: Pick<typeof prisma, "$executeRaw"> = prisma,
+): Promise<void> {
+  await client.$executeRaw`
     UPDATE troncons SET geom = ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(geom)}), 4326)
     WHERE id = ${id}
   `;
+}
+
+/**
+ * Resume du trace existant, pour que la trace d'audit dise ce qui a ete remplace.
+ *
+ * On ne journalise PAS la geometrie elle-meme : un tronçon porte couramment des milliers
+ * de points, et les recopier dans `audit_logs` a chaque edition gonflerait une table qui
+ * doit rester consultable. Le nombre de points et la longueur suffisent a reperer ce qui
+ * compte — un trace remplace par un trace plus grossier, ou amputé de dizaines de
+ * kilometres, ce qui changerait le lineaire publie sans que rien ne le signale.
+ */
+async function resumeGeom(
+  id: string,
+  client: Pick<typeof prisma, "$queryRaw"> = prisma,
+): Promise<{ points: number; metres: number } | null> {
+  const lignes = await client.$queryRaw<{ points: number | null; metres: number | null }[]>`
+    SELECT ST_NPoints(geom)::int AS points, ST_Length(geom::geography) AS metres
+    FROM troncons WHERE id = ${id}
+  `;
+  const r = lignes[0];
+  if (!r || r.points == null) return null;
+  return { points: Number(r.points), metres: Math.round(Number(r.metres ?? 0)) };
 }
 
 export interface TronconListParams extends ListParams {
@@ -263,21 +307,122 @@ async function importXlsx(buffer: Buffer, userId: string): Promise<ImportReport>
 }
 
 // Fiche consolidee : le troncon + tout ce qui lui est rattache (vue patrimoniale).
+/**
+ * Fiche 360 d'un troncon.
+ *
+ * ETENDUE et non remplacee : la fiche existait avec cinq collections, et le paragraphe 20
+ * du cahier en demande davantage. En construire une seconde aurait laisse deux verites sur
+ * le meme objet, dont une seule serait maintenue.
+ *
+ * CE QUE L'EXTENSION AJOUTE
+ *
+ * Les PORTIONS, leur couverture et les repartitions par revetement et par etat : c'est ce
+ * qui transforme une liste d'objets rattaches en description de l'etat du troncon.
+ *
+ * Les DEFAUTS et les MISSIONS, que la fiche ignorait alors qu'ils sont la matiere du
+ * terrain.
+ *
+ * TROIS HONNETETES QUE CETTE FICHE DOIT PORTER
+ *
+ * `longueurGeometriqueM` est rendue A COTE de `longueurKm`, jamais a sa place. L'une est
+ * declaree par AGEROUTE, l'autre mesuree sur la numerisation. Mesure du 13/10/2026 : elles
+ * s'accordent a moins de 20 % sur tous les troncons comparables, mais 1 028 des 1 029
+ * troncons regionaux n'ont AUCUNE longueur declaree — rendre la seule geometrique les
+ * ferait passer pour documentes.
+ *
+ * `couverture` nomme les TROUS par leurs abscisses. « 60 % qualifie » n'envoie personne
+ * nulle part ; « non qualifie de 8 000 a 13 000 » envoie une equipe au bon endroit.
+ *
+ * `repartitions` distingue `NON_QUALIFIE` de `NON_RENSEIGNE`, et les deux d'une valeur
+ * connue. Les confondre laisserait croire le troncon inventorie.
+ */
 async function fiche(id: string) {
   const troncon = await base.getById(id);
   const notDeleted = { tronconId: id, deletedAt: null };
-  const [ouvrages, pointsNoirs, postes, chantiers, inspections] = await Promise.all([
-    prisma.ouvrage.findMany({ where: notDeleted, orderBy: { nom: "asc" } }),
-    prisma.pointNoir.findMany({ where: notDeleted, orderBy: { createdAt: "desc" } }),
-    prisma.poste.findMany({ where: notDeleted, orderBy: { nom: "asc" } }),
-    prisma.chantier.findMany({ where: notDeleted, orderBy: { createdAt: "desc" } }),
-    prisma.inspection.findMany({
-      where: { tronconId: id, deletedAt: null },
-      include: { inspecteur: { select: { nomComplet: true } } },
-      orderBy: { dateInspection: "desc" },
-    }),
-  ]);
-  return { troncon, ouvrages, pointsNoirs, postes, chantiers, inspections };
+  const [ouvrages, pointsNoirs, postes, chantiers, inspections, portions, defauts, missions, mesure] =
+    await Promise.all([
+      prisma.ouvrage.findMany({ where: notDeleted, orderBy: { nom: "asc" } }),
+      prisma.pointNoir.findMany({ where: notDeleted, orderBy: { createdAt: "desc" } }),
+      prisma.poste.findMany({ where: notDeleted, orderBy: { nom: "asc" } }),
+      prisma.chantier.findMany({ where: notDeleted, orderBy: { createdAt: "desc" } }),
+      prisma.inspection.findMany({
+        where: { tronconId: id, deletedAt: null },
+        include: { inspecteur: { select: { nomComplet: true } } },
+        orderBy: { dateInspection: "desc" },
+      }),
+      // Les COURANTES seulement : melanger l'etat courant et ses versions anterieures
+      // ferait apparaitre plusieurs portions sur les memes metres.
+      prisma.portion.findMany({
+        where: { tronconId: id, remplaceeLe: null, deletedAt: null },
+        orderBy: { debutM: "asc" },
+        include: {
+          revetementRef: { select: { code: true, libelle: true, bitumineux: true } },
+          etatRef: { select: { code: true, libelle: true, critique: true } },
+          praticabiliteRef: { select: { code: true, libelle: true, franchissable: true } },
+          creePar: { select: { id: true, nomComplet: true } },
+        },
+      }),
+      prisma.defaut.findMany({
+        where: notDeleted,
+        orderBy: { createdAt: "desc" },
+        take: 200,
+        include: {
+          catalogue: { select: { code: true, libelle: true, unite: true, famille: true } },
+          constatePar: { select: { nomComplet: true } },
+        },
+      }),
+      prisma.mission.findMany({
+        where: { observations: { some: { tronconId: id } } },
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        select: { id: true, code: true, intitule: true, statut: true, type: true, createdAt: true },
+      }),
+      longueurGeometriqueM(id),
+    ]);
+
+  const longueurM = mesure;
+  const portionsDomaine = portions.map((p) => ({
+    id: p.id, tronconId: p.tronconId, debutM: p.debutM, finM: p.finM,
+    revetement: p.revetement, etat: p.etat, praticabilite: p.praticabilite,
+    largeurM: p.largeurM, source: p.source, observeeLe: p.observeeLe,
+    confiance: p.confiance, statutValidation: p.statutValidation,
+    origine: p.origine, clientOperationId: p.clientOperationId,
+    remplaceeLe: p.remplaceeLe, deletedAt: p.deletedAt,
+  }));
+
+  return {
+    troncon,
+    /**
+     * Longueur MESUREE sur la geometrie, a cote de `troncon.longueurKm` qui est declaree.
+     * NULLE quand le trace n'est pas exploitable, jamais remplacee par la declaree.
+     */
+    longueurGeometriqueM: longueurM,
+    ouvrages, pointsNoirs, postes, chantiers, inspections,
+    portions,
+    defauts,
+    missions,
+    // Nulles quand la longueur geometrique manque : sans denominateur mesure, un
+    // pourcentage serait invente.
+    couverture: longueurM === null ? null : couverture(portionsDomaine, longueurM),
+    repartitions: longueurM === null ? null : {
+      revetement: repartition(portionsDomaine, longueurM, "revetement"),
+      etat: repartition(portionsDomaine, longueurM, "etat"),
+      praticabilite: repartition(portionsDomaine, longueurM, "praticabilite"),
+    },
+    // Les chevauchements sont SIGNALES, jamais corriges : deux portions qui se recouvrent
+    // disent deux choses du meme metre, et trancher appartient a un humain.
+    chevauchements: chevauchements(portionsDomaine),
+  };
+}
+
+/** Longueur geodesique du trace, ou `null` quand il n'y en a pas d'exploitable. */
+async function longueurGeometriqueM(id: string): Promise<number | null> {
+  const r = await prisma.$queryRaw<{ m: number | null }[]>`
+    SELECT ST_Length(geom::geography) AS m
+      FROM troncons WHERE id = ${id}::text AND geom IS NOT NULL
+  `;
+  const v = r[0]?.m ?? null;
+  return v !== null && Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : null;
 }
 
 async function createWithGeom(data: TronconCreateInput & { geom?: { type: string; coordinates: number[][] } }, userId: string) {
@@ -294,8 +439,39 @@ async function updateWithGeom(id: string, data: Partial<TronconCreateInput & { g
   return record;
 }
 
-async function updateGeomOnly(id: string, geom: { type: string; coordinates: number[][] }): Promise<void> {
-  await setLineGeom(id, geom);
+/**
+ * UNE GEOMETRIE NE SE REECRIT PLUS SANS TRACE.
+ *
+ * Constat du 13/10/2026 : cette fonction ecrivait le trace et n'auditait RIEN. Le
+ * controleur ne lui transmettait meme pas l'identifiant de l'utilisateur, pourtant
+ * verifie juste au-dessus. Le trace d'un tronçon — celui qui commande la carte, la
+ * longueur, l'appariement GPS et donc le lineaire publie — pouvait donc etre remplace
+ * sans qu'on puisse dire par qui ni quand.
+ *
+ * C'est la regle 3 d'AGENTS.md, « toute ecriture est auditee », manquee sur le champ le
+ * plus consequent de la base.
+ *
+ * Le resume de l'ancien trace est lu DANS la transaction, avant l'ecriture : le lire
+ * avant l'ouvrir laisserait une fenetre ou une autre edition s'intercale, et l'audit
+ * comparerait alors a un etat qui n'a jamais precede celui-ci.
+ */
+async function updateGeomOnly(
+  id: string,
+  geom: { type: string; coordinates: number[][] },
+  userId: string,
+): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    const avant = await resumeGeom(id, tx);
+    await setLineGeom(id, geom, tx);
+    await logAuditTransactionnelle(tx, {
+      userId,
+      action: "UPDATE",
+      entityType: "Troncon",
+      entityId: id,
+      before: { geom: avant },
+      after: { geom: { points: geom.coordinates.length } },
+    });
+  });
 }
 
 export const tronconsService = { ...base, list, listGeo, exportXlsx, importXlsx, fiche, itineraire, createWithGeom, updateWithGeom, updateGeomOnly };

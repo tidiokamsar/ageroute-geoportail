@@ -1,12 +1,41 @@
-# CI minimale : a chaque push/PR, compiler et tester ce que le deploiement
-# manuel ne verifie pas aujourd'hui. Pas de job de deploy (regle AGENTS.md :
-# aucune mise en production depuis ce depot sans validation humaine).
+# CI : a chaque push sur une branche de travail et a chaque PR, compiler et tester ce que le
+# deploiement manuel ne verifie pas.
+#
+# Pas de job de deploy. Deux regles le veulent : AGENTS.md (« ne pas deployer depuis ce depot
+# sans validation humaine ») et le garde-fou 2.1 du mandat v2.1 (« aucune operation sur la
+# production : pas de migration, pas d'ecriture, pas de deploiement »).
+#
+# POURQUOI LES DECLENCHEURS ONT CHANGE LE 14/10/2026
+#
+# La version precedente ne se declenchait que sur `push: branches: [main]` et sur les PR. Or
+# le garde-fou 2.5 du mandat v2.1 impose une BRANCHE PAR LOT (`lot/NN-nom-court`) et interdit
+# tout commit direct sur `main`. Conséquence : un push sur `lot/01-socle` ne declenchait
+# RIEN, et la CI ne tournait donc jamais avant l'ouverture d'une PR.
+#
+# Le defaut n'etait pas l'absence de CI — elle existait — mais le fait qu'elle ne pouvait plus
+# s'executer sous la nouvelle discipline de branches. Les motifs ci-dessous couvrent les
+# branches reellement utilisees dans ce depot.
+#
+# CE QUE CETTE CI NE FAIT PAS, ET POURQUOI
+#
+# Elle ne lance PAS de lint. Le script `lint` du frontend invoque `eslint`, qui n'est pas une
+# dependance declaree du projet et n'a aucun fichier de configuration : sous eslint 9+, il
+# echoue en reclamant une configuration « plate ». L'ajouter ici ferait echouer chaque build
+# pour un outil que le depot n'installe pas. Consigne en B-29.
+
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - 'lot/**'
+      - 'deploy/**'
+      - 'phase*'
+      - 'audit/**'
+      - ageroute-road-socle
   pull_request:
+  workflow_dispatch:
 
 jobs:
   backend:
@@ -24,6 +53,7 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
       - run: npm run prisma:generate
+      # `build` lance `tsc -p tsconfig.json`, donc le typage est verifie ici.
       - run: npm run build
       - run: npm test
 
@@ -42,4 +72,40 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm test
+      # `build` lance `tsc --noEmit && vite build` : typage puis construction reelle.
       - run: npm run build
+
+  migrations:
+    name: Migrations (coherence des dossiers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Un dossier de migration sans `migration.sql` casse `prisma migrate deploy` en
+      # production, et rien ne le signalait avant la livraison. Le controle est local au
+      # depot : il ne touche aucune base, conformement au garde-fou 2.1.
+      - name: Chaque dossier de migration porte un migration.sql
+        run: |
+          manquants=0
+          for d in backend/prisma/migrations/*/; do
+            if [ ! -f "${d}migration.sql" ]; then
+              echo "::error::${d} n'a pas de migration.sql"
+              manquants=$((manquants + 1))
+            fi
+          done
+          echo "Dossiers de migration : $(ls -d backend/prisma/migrations/*/ | wc -l)"
+          if [ "$manquants" -gt 0 ]; then
+            echo "$manquants dossier(s) incomplet(s)"
+            exit 1
+          fi
+      - name: Aucun secret evident dans les migrations ni les exemples d'environnement
+        run: |
+          # Le garde-fou 2.3 interdit tout secret dans le depot. Ce controle est grossier et
+          # ne remplace pas une revue, mais il attrape la faute la plus courante : une vraie
+          # valeur laissee dans un .env.example ou une chaine de connexion dans une migration.
+          if grep -rInE '(password|passwd|secret|token)\s*=\s*["'"'"']?[A-Za-z0-9+/._-]{12,}' \
+               backend/prisma/migrations backend/.env.example 2>/dev/null \
+             | grep -viE 'changeme|example|placeholder|xxx|<[^>]+>'; then
+            echo "::error::valeur ressemblant a un secret"
+            exit 1
+          fi
+          echo "Aucune valeur suspecte."

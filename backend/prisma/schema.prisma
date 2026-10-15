@@ -119,6 +119,19 @@ enum TypeOuvrage {
   TUNNEL
   PASSERELLE
   VIADUC
+  /// Ajoutes le 13/10/2026 : le cahier les demande au titre des actifs routiers.
+  ///
+  /// LES QUATRE SONT LINEAIRES, contrairement aux neuf precedents. Un fosse, un caniveau
+  /// ou une glissiere s'etendent sur des centaines de metres ; les reduire a l'epingle de
+  /// `geom`, qui est un Point, perdrait precisement ce qui les caracterise. D'ou
+  /// `abscisseDebutM` / `abscisseFinM` et `geomLigne`.
+  ///
+  /// La SIGNALISATION est mixte : un panneau est ponctuel, un marquage axial est lineaire.
+  /// `reseau/actifs.ts` tranche par type et laisse celui-la accepter les deux.
+  FOSSE
+  CANIVEAU
+  SIGNALISATION
+  GLISSIERE
 }
 
 enum Gravite {
@@ -160,6 +173,13 @@ enum AuditAction {
   LOGIN
   LOGIN_FAILED
   SECURITY_EVENT
+  /// Une observation de terrain devient une donnee officielle. C'est l'acte qu'un
+  /// auditeur vient relire ; le noyer dans UPDATE obligerait a comparer les champs
+  /// pour le retrouver.
+  VALIDATE
+  REJECT
+  /// Deux versions divergentes conservees, en attente d'arbitrage humain.
+  SYNC_CONFLICT
 }
 
 enum DeviseMarche {
@@ -252,32 +272,49 @@ enum DecompteStatut {
 // ===================== UTILISATEURS =====================
 
 model User {
-  id                    String                    @id @default(uuid())
-  email                 String                    @unique
-  nomComplet            String
-  passwordHash          String
-  role                  Role                      @default(LECTEUR)
-  actif                 Boolean                   @default(true)
-  derniereConnexion     DateTime?
-  totpSecret            String?
-  totpEnabled           Boolean                   @default(false)
-  failedLoginAttempts   Int                       @default(0)
-  lockedUntil           DateTime?
+  id                  String    @id @default(uuid())
+  email               String    @unique
+  nomComplet          String
+  passwordHash        String
+  role                Role      @default(LECTEUR)
+  actif               Boolean   @default(true)
+  derniereConnexion   DateTime?
+  totpSecret          String?
+  totpEnabled         Boolean   @default(false)
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
   // Tableau vide = pas de restriction (accès à tous les modules autorisés par le rôle,
   // comportement historique). Une fois renseigné, seuls les modules listés sont visibles
   // pour cet utilisateur, quel que soit son rôle — permet de retirer l'accès à un module
   // précis sans changer le rôle global.
-  modulesAutorises      String[]                  @default([])
-  refreshTokens         RefreshToken[]
-  auditLogs             AuditLog[]
-  inspections           Inspection[]
-  otsAssignes           OrdreTravaux[]            @relation("OtAssigne")
-  otsCrees              OrdreTravaux[]            @relation("OtCreateur")
-  otPhotos              OtPhoto[]
-  otHistoriques         OtHistorique[]
-  signalementsQualifies SignalementCitoyen[]
-  valeursConstatees     ValeurQualite[]
-  propositionsDecidees  PropositionLocalisation[]
+  modulesAutorises    String[]  @default([])
+
+  /// Droit de DESIGNER un validateur (paragraphe 35 du cahier).
+  ///
+  /// POURQUOI UN DROIT ET NON UN ROLE
+  ///
+  /// AGEROUTE a confie la designation a la Direction Technique. Mais « Direction
+  /// Technique » est un PROFIL, et les profils ne persistent pas : appliquer un profil
+  /// ecrit `role` et `modulesAutorises`, puis disparait (voir `lib/profils.ts`).
+  ///
+  /// Et le role technique ne suffit pas : six profils sur onze sont GESTIONNAIRE. Ouvrir
+  /// la delegation a tout GESTIONNAIRE la donnerait a presque tout le monde, ce qui vide
+  /// la designation de son sens.
+  ///
+  /// Le droit est donc un EFFET du profil, au meme titre que le role et les modules :
+  /// durable, revocable, audite. Un ADMIN en est dispense — il administre les comptes,
+  /// donc il peut de toute facon se l'accorder.
+  peutDeleguerValidation Boolean                   @default(false)
+  refreshTokens          RefreshToken[]
+  auditLogs              AuditLog[]
+  inspections            Inspection[]
+  otsAssignes            OrdreTravaux[]            @relation("OtAssigne")
+  otsCrees               OrdreTravaux[]            @relation("OtCreateur")
+  otPhotos               OtPhoto[]
+  otHistoriques          OtHistorique[]
+  signalementsQualifies  SignalementCitoyen[]
+  valeursConstatees      ValeurQualite[]
+  propositionsDecidees   PropositionLocalisation[]
 
   // Terrain (AGEROUTE ROAD). Un agent possede des appareils, recoit et cree des
   // missions, enregistre des traces, produit des observations et en valide.
@@ -290,6 +327,28 @@ model User {
   operationsSync       OperationSync[]
   createdAt            DateTime        @default(now())
   updatedAt            DateTime        @updatedAt
+
+  defautsReleves Defaut[] @relation("DefautConstatant")
+
+  validationsRendues Validation[] @relation("ValidationDecideur")
+
+  delegationsRecues    DelegationValidation[] @relation("DelegationValidateur")
+  delegationsAccordees DelegationValidation[] @relation("DelegationDelegant")
+  delegationsRevoquees DelegationValidation[] @relation("DelegationRevocateur")
+
+  reglesConditionCreees     RegleCondition[]           @relation("RegleConditionAuteur")
+  reglesConditionApprouvees RegleCondition[]           @relation("RegleConditionApprobateur")
+  portionsCreees            Portion[]                  @relation("PortionAuteur")
+  praticabilitesApprouvees  ReferentielPraticabilite[] @relation("PraticabiliteApprobateur")
+  baremesApprouves          BaremeIntervention[]       @relation("BaremeApprouve")
+  matricesApprouvees        MatriceDegradation[]        @relation("MatriceApprouvee")
+
+  tachesInternesCreees      TacheInterne[]             @relation("TacheInterneAuteur")
+  tachesInternesEnCharge    TacheInterne[]             @relation("TacheInterneResponsable")
+  tachesInternesCloturees   TacheInterne[]             @relation("TacheInterneClotureur")
+  traitementsApprouves      CatalogueTraitement[]      @relation("TraitementApprouve")
+  lotsImportes              LotImport[]                @relation("LotImportateur")
+  entreesMainCourante       EntreeMainCourante[]       @relation("MainCouranteAuteur")
 
   @@map("users")
 }
@@ -348,6 +407,8 @@ model Region {
   ordresTravaux  OrdreTravaux[]
   voiriesLocales VoirieLocale[]
   Mission        Mission[]
+
+  delegationsValidation DelegationValidation[]
 
   @@map("regions")
 }
@@ -408,21 +469,41 @@ model Troncon {
   updatedAt                DateTime                                  @updatedAt
   Observation              Observation[]
 
+  defauts Defaut[]
+
+  statutValidation StatutValidation?
+
+  /// Perimetre statistique. NUL vaut NATIONAL pour les troncons anterieurs a ce
+  /// champ : ici l'omission est une absence de classement, pas une absence de
+  /// decision, et exclure par defaut effacerait le reseau entier.
+  perimetre        PerimetreReseau?
+  /// Pays ou territoire, quand le troncon sort de Guinee.
+  paysTerritoire   String?
+  motifPerimetre   String?
+  perimetreClasseA DateTime?
+
+  evaluationsCondition EvaluationCondition[]
+  portions             Portion[]
+  tachesInternes       TacheInterne[]
+  entreesMainCourante  EntreeMainCourante[]
+
   @@index([regionId])
   @@index([etat])
   @@index([deletedAt])
+  @@index([statutValidation])
+  @@index([perimetre])
   @@map("troncons")
 }
 
 model Ouvrage {
-  id                     String                               @id @default(uuid())
+  id                     String         @id @default(uuid())
   nom                    String
   type                   TypeOuvrage
-  etat                   EtatPatrimoine                       @default(NON_EVALUE)
+  etat                   EtatPatrimoine @default(NON_EVALUE)
   regionId               Int
-  region                 Region                               @relation(fields: [regionId], references: [id])
+  region                 Region         @relation(fields: [regionId], references: [id])
   tronconId              String?
-  troncon                Troncon?                             @relation(fields: [tronconId], references: [id])
+  troncon                Troncon?       @relation(fields: [tronconId], references: [id])
   pk                     Float?
   longueurM              Float?
   gabaritT               Float?
@@ -441,27 +522,51 @@ model Ouvrage {
   materiauAutre          String?
   remarques              String?
   travauxAPrevoir        String?
-  photos                 String[]                             @default([])
+  photos                 String[]       @default([])
   /// Provenance de l'enregistrement, alignee sur `Troncon`. NULL pour les 126
   /// ouvrages inventories par AGEROUTE — leur origine n'est documentee nulle part et
   /// leur en attribuer une retrospectivement serait inventer.
   /// « ouvrage_osm:<id> » pour un franchissement repris d'une source cartographique :
   /// c'est ce qui permet aux indicateurs de ne pas noyer l'inventaire de reference.
-  sourceType             SourceType?
-  sourceReference        String?
-  sourceConfidence       NiveauConfiance?
-  sourceDetectedAt       DateTime?
-  geom                   Unsupported("geometry(Point,4326)")?
-  inspections            Inspection[]
-  ordresTravaux          OrdreTravaux[]
-  deletedAt              DateTime?
-  createdAt              DateTime                             @default(now())
-  updatedAt              DateTime                             @updatedAt
-  Observation            Observation[]
+  /// Etendue d'un actif LINEAIRE le long de son troncon, en metres depuis le debut de la
+  /// geometrie de reference.
+  ///
+  /// MEME REFERENCE QUE LES PORTIONS, et pour la meme raison : le PK n'est pas calculable
+  /// sur 1 029 troncons regionaux, et faire dependre l'inventaire du PK les rendrait
+  /// inventoriables nulle part. `pk` reste la, complementaire.
+  ///
+  /// NULLES pour un actif ponctuel, qui n'a qu'une position.
+  abscisseDebutM         Float?
+  abscisseFinM           Float?
+
+  /// Geometrie d'un actif lineaire, DERIVEE des abscisses par `ST_LineSubstring`.
+  ///
+  /// `geom` reste le POINT de reperage, celui qu'on epingle sur la carte. Pour un actif
+  /// lineaire, c'est `geomLigne` qui dit l'etendue, et les abscisses qui font autorite sur
+  /// les deux : si le trace de reference est corrige, la ligne se recalcule depuis elles.
+  geomLigne Unsupported("geometry(LineString,4326)")?
+
+  sourceType       SourceType?
+  sourceReference  String?
+  sourceConfidence NiveauConfiance?
+  sourceDetectedAt DateTime?
+  geom             Unsupported("geometry(Point,4326)")?
+  inspections      Inspection[]
+  ordresTravaux    OrdreTravaux[]
+  deletedAt        DateTime?
+  createdAt        DateTime                             @default(now())
+  updatedAt        DateTime                             @updatedAt
+  Observation      Observation[]
+
+  defauts        Defaut[]
+  tachesInternes TacheInterne[]
+
+  statutValidation StatutValidation?
 
   @@index([regionId])
   @@index([etat])
   @@index([deletedAt])
+  @@index([statutValidation])
   @@map("ouvrages")
 }
 
@@ -483,8 +588,11 @@ model PointNoir {
   createdAt          DateTime                             @default(now())
   updatedAt          DateTime                             @updatedAt
 
+  statutValidation StatutValidation?
+
   @@index([regionId])
   @@index([deletedAt])
+  @@index([statutValidation])
   @@map("points_noirs")
 }
 
@@ -517,8 +625,11 @@ model Poste {
   createdAt             DateTime                             @default(now())
   updatedAt             DateTime                             @updatedAt
 
+  statutValidation StatutValidation?
+
   @@index([regionId])
   @@index([deletedAt])
+  @@index([statutValidation])
   @@map("postes")
 }
 
@@ -558,8 +669,11 @@ model Chantier {
   Mission            Mission[]
   Observation        Observation[]
 
+  statutValidation StatutValidation?
+
   @@index([regionId])
   @@index([deletedAt])
+  @@index([statutValidation])
   @@map("chantiers")
 }
 
@@ -831,6 +945,16 @@ model MatriceDegradation {
   version              Int      @default(1)
   updatedAt            DateTime @updatedAt
 
+  /// Une probabilite de transition est une HYPOTHESE DE MODELE, pas une mesure. « Une
+  /// chaussee bitumee a faible trafic passe de BON a MOYEN avec une probabilite de 0,08
+  /// par an » se discute : le meme interrupteur que la regle de condition s'applique donc
+  /// ici. Non approuvee, la matrice peut servir a simuler, pas a programmer officiellement.
+  approuveLe    DateTime?
+  approuveParId String?
+  approuvePar   User?     @relation("MatriceApprouvee", fields: [approuveParId], references: [id], onDelete: SetNull)
+  commentaire   String?
+  actif         Boolean   @default(true)
+
   @@unique([familleRevetement, classeTrafic])
   @@map("matrices_degradation")
 }
@@ -839,12 +963,66 @@ model MatriceDegradation {
 // "coût de report" (entretenir tôt coûte ~10× moins que reconstruire).
 model BaremeIntervention {
   id                Int    @id @default(autoincrement())
+
+  /// Famille de cout, PLUS GROSSIERE que le revetement : `bitume` recouvre
+  /// BETON_BITUMINEUX et ENDUIT_SUPERFICIEL, `terre_laterite` recouvre TERRE et LATERITE.
+  /// Ce n'est donc PAS une cle etrangere vers `ReferentielRevetement` : l'y contraindre
+  /// forcerait a scinder un prix en plusieurs, donc a inventer des distinctions que
+  /// personne n'a decidees. Le lien vit dans l'autre sens, sur
+  /// `ReferentielRevetement.familleCout`.
   familleRevetement String
   etatDepart        String
   typeIntervention  String
   coutKmGnf         BigInt
 
-  @@unique([familleRevetement, etatDepart])
+  /// Identifiant stable, pour qu'une estimation puisse DIRE quelle ligne de bareme elle a
+  /// utilisee. Sans lui, un cout estime ne serait rattachable a aucune decision de prix.
+  code    String?
+  libelle String?
+
+  /// Provenance, sur le modele de `MatriceDegradation`. Les neuf lignes d'origine portent
+  /// `standard_initial` : ce sont des valeurs par defaut, pas des prix arretes.
+  source  String @default("standard_initial")
+  version Int    @default(1)
+
+  /// Le seul geste qui rend une estimation publiable, comme pour la regle de condition.
+  /// Un cout de 3,5 milliards GNF au kilometre doit etre imputable a quelqu'un.
+  approuveLe    DateTime?
+  approuveParId String?
+  approuvePar   User?     @relation("BaremeApprouve", fields: [approuveParId], references: [id], onDelete: SetNull)
+
+  /// CE QUI MANQUAIT POUR QUE LE PRIX SOIT LISIBLE
+  ///
+  /// « 3 500 000 000 GNF/km » ne se compare a rien et ne s'actualise pas. Un millesime, une
+  /// largeur et une devise sont le minimum pour qu'un chiffre de cette taille veuille dire
+  /// quelque chose. Les trois sont NULLES sur les lignes d'origine, volontairement :
+  /// personne ne sait pour quelle annee ni quelle largeur elles ont ete posees, et les
+  /// deviner serait inventer la donnee que l'on cherche a rendre verifiable.
+  anneeReference   Int?
+  devise           String   @default("GNF")
+  largeurChausseeM Decimal? @db.Decimal(6, 2)
+  uniteCout        String   @default("KM")
+
+  actif       Boolean @default(true)
+  ordre       Int     @default(0)
+  commentaire String?
+
+  /// Fenetre de validite. Un prix remplace n'est pas supprime : il cesse d'etre valide.
+  validDe DateTime? @db.Date
+  validA  DateTime? @db.Date
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// LA CLE PORTE LE TYPE ET LA VERSION, ET C'EST UN CHANGEMENT DE FOND
+  ///
+  /// L'ancienne cle `(familleRevetement, etatDepart)` imposait UN SEUL type d'intervention
+  /// par etat : une chaussee bitumee MAUVAIS ne pouvait couter qu'une rehabilitation,
+  /// jamais une reconstruction anticipee. Le paragraphe 11 du cahier demande « une
+  /// comparaison entre scenarios de maintenance » — avec l'ancienne cle, il n'y avait rien
+  /// a comparer.
+  @@unique([familleRevetement, etatDepart, typeIntervention, version], map: "baremes_intervention_famille_etat_type_version_key")
+  @@index([actif, familleRevetement, etatDepart], map: "baremes_intervention_actif_famille_idx")
   @@map("baremes_intervention")
 }
 
@@ -1279,6 +1457,8 @@ model Mission {
   traces       Trace[]
   observations Observation[]
 
+  defauts Defaut[]
+
   @@index([statut])
   @@index([assigneId])
   @@index([regionId])
@@ -1399,6 +1579,9 @@ model Observation {
 
   medias MediaObservation[]
 
+  defauts  Defaut[]
+  portions Portion[]
+
   @@index([missionId])
   @@index([tronconId])
   @@index([statut])
@@ -1425,6 +1608,26 @@ model MediaObservation {
   precisionM Float?
   cap        Float?
   capturedA  DateTime?
+
+  /// ARCHITECTURE PRETE POUR LA VISION PAR ORDINATEUR (T-03). Le point 9 de l''exigence
+  /// « vision nationale » demandait que l''architecture y soit prete, pas la vision.
+  ///
+  /// LA DISTINCTION QUI PORTE TOUT : « non analyse » n''est pas « analyse sans detection ».
+  /// Une seule colonne les confondrait, et un tableau de bord afficherait « aucun defaut
+  /// detecte » sur des photos que rien n''a jamais regardees — le meme mensonge que le
+  /// moteur de condition refuse en distinguant une composante ABSENTE d''un zero.
+  ///
+  ///   analyseeLe nulle                      personne n''a regarde
+  ///   analyseeLe posee, resultat tableau []  analyse, rien trouve
+  ///
+  /// Le modele est VERSIONNE : une detection d''une version ancienne ne vaut pas une
+  /// detection recente, et le paragraphe 14 l''exige. Les resultats sont des PROPOSITIONS
+  /// soumises au workflow de validation, jamais des donnees officielles.
+  analyseeLe       DateTime?
+  analyseModele    String?
+  analyseVersion   String?
+  analyseResultat  Json?
+  analyseConfiance Decimal?  @db.Decimal(4, 3)
 
   createdAt DateTime @default(now())
 
@@ -1482,4 +1685,1467 @@ model ConflitSync {
 
   @@index([entityType, entityId])
   @@map("conflits_sync")
+}
+
+// ===================== GOUVERNANCE (validation et perimetre) =====================
+
+/// Etat de validation d'un objet du patrimoine.
+///
+/// Observation ou import n'est pas donnee officielle. Cette regle valait d'abord pour
+/// les observations de terrain ; elle est generalisee a tout objet du geoportail.
+///
+/// UN SEUL ETAT D'ATTENTE. Un objet importe attend la meme decision, du meme type de
+/// personne, avec les memes consequences qu'un defaut releve sur le terrain. Garder
+/// deux noms obligerait chaque requete a ecrire une liste, et un oubli quelque part
+/// laisserait passer pour officiel ce qui ne l'est pas. L'origine est une information,
+/// elle va dans `Validation.source`.
+enum StatutValidation {
+  A_VALIDER
+  VALIDE
+  REJETE
+  A_CORRIGER
+}
+
+/// Perimetre statistique : un objet compte-t-il dans les chiffres nationaux publies.
+///
+/// TROIS RESEAUX QUI NE SE CONFONDENT PAS. Le fond cartographique charge peut contenir
+/// des troncons hors Guinee, et il le doit : sans eux la carte s'arrete net a la
+/// frontiere. Le reseau national publie ne compte que ce qui est guineen.
+///
+/// Ce que ce champ remplace : l'exclusion reposait sur un PREFIXE dans
+/// `sourceReference` (`hors_territoire:`, `voirie_locale:`). Un prefixe de chaine n'est
+/// pas un statut — il ne porte ni pays, ni motif, ni date, ni validateur, et une faute
+/// de frappe le rend muet sans que rien ne le signale.
+enum PerimetreReseau {
+  NATIONAL
+  HORS_TERRITOIRE_NATIONAL
+  VOIRIE_LOCALE
+}
+
+/// Decisions de validation, conservees en HISTORIQUE et non comme un etat courant.
+///
+/// POURQUOI UNE TABLE ET NON SEULEMENT DES COLONNES
+///
+/// Un objet peut etre renvoye en correction puis represente plusieurs fois. Des colonnes
+/// `validePar` et `valideA` ne retiennent que la DERNIERE decision : la chaine qui dit
+/// comment une donnee est devenue officielle disparait, et c'est precisement ce qu'un
+/// audit demande a voir.
+///
+/// La table est polymorphe (`entityType` + `entityId`), comme `audit_logs` et
+/// `valeurs_qualite` qui suivent deja ce motif ici. Chaque entite porte en plus une
+/// colonne `statutValidation` denormalisee, pour pouvoir filtrer et indexer sans
+/// jointure ; les deux s'ecrivent dans la meme transaction.
+model Validation {
+  id String @id @default(uuid())
+
+  entityType String
+  entityId   String
+
+  /// Etat avant la decision. Nul pour la premiere entree d'un objet importe, qui
+  /// n'avait aucun statut auparavant.
+  statutAvant StatutValidation?
+  statutApres StatutValidation
+
+  decidePar   User?    @relation("ValidationDecideur", fields: [decideParId], references: [id])
+  decideParId String?
+  decideA     DateTime @default(now())
+
+  /// Qui ou quoi a produit l'objet valide. Une personne, ou un document : les 81
+  /// ouvrages DTOAA viennent d'un PDF et non d'un agent.
+  auteurId String?
+  source   String?
+
+  /// Motif obligatoire pour un rejet ou une demande de correction. Un refus sans raison
+  /// est un refus qu'on ne peut pas corriger.
+  commentaire String?
+
+  createdAt DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([statutApres])
+  @@index([decideParId])
+  @@map("validations")
+}
+
+// ===================== DEFAUTS (catalogue et constats) =====================
+
+/// Unite du metre. Portee par le CATALOGUE et non par l'agent : si chacun choisit, deux
+/// releves du meme nid-de-poule arrivent l'un en unites et l'autre en metres carres, et
+/// leur somme ne veut rien dire.
+enum UniteDefaut {
+  UNITE
+  METRE
+  METRE_CARRE
+  METRE_CUBE
+}
+
+/// Mesures qu'un catalogue peut exiger d'un releve.
+///
+/// Cette liste est DISTINCTE de l'unite du metre. Un ornierage exige une profondeur sans
+/// que celle-ci entre dans son metre, qui reste lineaire : la profondeur qualifie la
+/// gravite. Confondre les deux listes produirait des volumes la ou on veut des metres.
+enum MesureDefaut {
+  NOMBRE
+  LONGUEUR
+  LARGEUR
+  PROFONDEUR
+  QUANTITE
+}
+
+/// Famille de rattachement, qui dit quel metier traite le defaut.
+enum FamilleDefaut {
+  CHAUSSEE
+  ACCOTEMENT
+  ASSAINISSEMENT
+  OUVRAGE
+  SIGNALISATION
+  SECURITE
+  ENVIRONNEMENT
+}
+
+/// Par quelle voie la quantite a ete obtenue. Conservee parce qu'un chiffre qui servira
+/// a chiffrer un marche doit dire s'il a ete mesure ou calcule.
+enum MethodeQuantite {
+  SAISIE
+  COMPTAGE
+  LONGUEUR
+  LONGUEUR_LARGEUR
+  LONGUEUR_LARGEUR_PROFONDEUR
+
+  /// Comptage converti par `CatalogueDefaut.coefficientUnitaire`. Ajoutee le 14/10/2026.
+  ///
+  /// DISTINCTE DE `COMPTAGE`, et la distinction porte tout : l'agent a bien compte douze
+  /// occurrences, mais la surface rendue vient d'une convention de catalogue. Le statut
+  /// de qualite est donc DERIVED, la ou `COMPTAGE` est OBSERVED. Les confondre ferait
+  /// passer une moyenne de bureau pour un constat de terrain.
+  COMPTAGE_COEFFICIENT
+}
+
+/// Importance spatiale du defaut sur le troncon, independante de sa gravite.
+///
+/// « Faiencage, gravite forte, etendue generalisee, 2 850 m2 » se traite ; « defaut
+/// important » ne se traite pas. Une gravite forte sur trois metres carres et la meme
+/// gravite sur trois mille ne demandent ni le meme chantier ni le meme budget.
+///
+/// POURQUOI UNE ECHELLE QUALITATIVE ET NON UN TAUX D'OCCUPATION. Un taux serait plus
+/// exploitable, mais il n'est pas calculable : `Troncon` ne porte que `longueurKm`,
+/// aucune largeur ni nombre de voies. La surface d'un troncon est donc inconnue sur la
+/// totalite du reseau, et un taux calcule dessus serait une invention.
+enum EtendueDefaut {
+  PONCTUEL
+  LOCALISE
+  ETENDU
+  GENERALISE
+}
+
+/// Existence physique du defaut, distincte de sa validation administrative.
+///
+/// DISPARU n'est pas TRAITE : un ravinement comble par une crue a disparu sans qu'on ait
+/// depense un franc, et confondre les deux fausserait le suivi des travaux realises.
+enum EtatDefaut {
+  ACTIF
+  TRAITE
+  DISPARU
+}
+
+/// Catalogue des types de defauts : le vocabulaire commun sans lequel rien ne se somme.
+///
+/// CE QU'IL REMPLACE
+///
+/// `Inspection.defautsConstates` est un champ texte. Un inspecteur y ecrit « nids de
+/// poule importants sur 2 km ». Cette phrase est lisible par un humain et inexploitable
+/// par tout le reste : on n'en tire ni surface, ni cout, ni priorite.
+///
+/// IL EST ADMINISTRABLE, PAS CODE DANS L'APPLICATION
+///
+/// Les types, leurs unites et leurs mesures obligatoires evoluent avec le referentiel
+/// metier. Les coder en dur obligerait a livrer une version du logiciel a chaque
+/// evolution.
+///
+/// CE QU'IL NE PORTE PAS
+///
+/// Les SEUILS de gravite, qui sont normatifs. « A partir de quelle profondeur une
+/// orniere est grave » se tranche dans un catalogue officiel, pas ici. `seuils` reste
+/// donc nul et VISIBLE : son absence dit que la gravite saisie est un jugement.
+model CatalogueDefaut {
+  id      Int           @id @default(autoincrement())
+  code    String        @unique
+  libelle String
+  famille FamilleDefaut
+
+  /// Sous-type, quand le referentiel en distingue. Une hierarchie plutot qu'un champ
+  /// libre : un sous-type ecrit a la main ne se regroupe pas.
+  parentId  Int?
+  parent    CatalogueDefaut?  @relation("SousTypeDefaut", fields: [parentId], references: [id])
+  sousTypes CatalogueDefaut[] @relation("SousTypeDefaut")
+
+  /// Unite dans laquelle le metre s'exprime.
+  unite UniteDefaut
+
+  /// Mesures sans lesquelles le releve est incomplet. Le moteur refuse alors le defaut
+  /// en NOMMANT ce qui manque, pendant que l'agent est encore sur place : c'est la seule
+  /// fenetre ou la correction coute une minute plutot qu'un deplacement.
+  mesuresRequises MesureDefaut[]
+
+  /// Nombre de crans de gravite. NUL pour les types qui ne se graduent pas : un panneau
+  /// manquant est absent ou present, le graduer remplirait un champ sans rien mesurer.
+  graviteMax Int? @default(4)
+
+  /// Taille d'UNE occurrence, dans l'unite ci-dessus. Permet de convertir un comptage en
+  /// quantite : douze nids-de-poule a 0,5 m2 font 6 m2.
+  ///
+  /// NULLE PAR DEFAUT, ET C'EST LE CAS NORMAL. Dire qu'un nid-de-poule standard fait
+  /// 0,5 m2 est une convention de metre, donc une decision d'AGEROUTE. Absente, le moteur
+  /// REFUSE de convertir un comptage plutot que de multiplier par un — ce qui
+  /// confondrait « douze occurrences » avec « douze metres carres ».
+  ///
+  /// Le moteur ne s'en sert qu'en DERNIER RECOURS, apres la quantite saisie et apres les
+  /// mesures directes : une convention de bureau ne doit pas primer sur un constat de
+  /// terrain. La methode rendue le dit, `COMPTAGE_COEFFICIENT`.
+  coefficientUnitaire Decimal? @db.Decimal(12, 4)
+
+  /// Seuils normatifs par cran, vides tant qu'aucun referentiel officiel n'est adopte.
+  seuils Json?
+
+  description String?
+
+  /// Sur quel type de chaussee ce defaut a un sens : REVETU, NON_REVETU ou TOUS (§ 7.16).
+  /// Texte contraint en base, pas une enumeration : ALTER TYPE ADD VALUE est irreversible.
+  applicabilite String @default("TOUS")
+
+  /// D'ou vient cette entree. La valeur par defaut dit franchement que le vocabulaire
+  /// est courant et non normatif, pour qu'on ne le prenne pas pour un arrete.
+  source String @default("vocabulaire_courant_a_valider")
+
+  version Int     @default(1)
+  actif   Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  defauts Defaut[]
+
+  @@index([famille])
+  @@index([actif])
+  @@index([parentId])
+  @@map("catalogue_defauts")
+}
+
+/// Un defaut constate : le premier objet de la chaine dont un cout pourra dependre.
+///
+/// LE PK N'EST PAS UNE DEPENDANCE STRUCTURELLE
+///
+/// Un defaut est d'abord un objet geospatial : un point GPS, un troncon apparie, une
+/// abscisse locale sur ce troncon. Le PK de route est DERIVE, affiche quand une
+/// calibration existe, absent sinon, et il ne bloque ni la creation, ni le metre, ni la
+/// validation.
+///
+/// Ce n'est pas une precaution theorique. Mesure du 07/10/2026 : 552 des 1 691 troncons
+/// du reseau classe portent des PK exploitables, et les 1 029 regionales n'ont meme pas
+/// de structure de route a laquelle rapporter un PK (docs/rai-v3/08). Exiger un PK
+/// rendrait le terrain impossible sur les deux tiers du reseau.
+model Defaut {
+  id String @id @default(uuid())
+
+  /// Reference lisible, pour se citer par radio ou dans un courrier.
+  code String? @unique
+
+  /// Cle d'idempotence generee par le CLIENT avant tout envoi, quand le defaut remonte
+  /// du terrain. Nulle pour un defaut saisi au bureau.
+  clientOperationId String? @unique
+
+  catalogueId Int
+  catalogue   CatalogueDefaut @relation(fields: [catalogueId], references: [id])
+
+  /// Observation d'origine. OBLIGATOIRE : le paragraphe 7.1 du cahier RAI V3.1 la marque
+  /// « Oui », et c'est par elle qu'un defaut remonte jusqu'a la photo, au point GPS et a
+  /// l'agent qui l'a releve. Un defaut sans observation serait un constat sans constatant.
+  ///
+  /// `missionId` reste en revanche FACULTATIF, et ce n'est pas une negligence :
+  /// `observations.missionId` est lui-meme nullable. L'exiger ici rendrait le defaut plus
+  /// strict que l'observation dont il derive, et interdirait tout defaut issu d'une
+  /// observation hors mission — cas que le schema autorise explicitement.
+  observationId String
+  observation   Observation @relation(fields: [observationId], references: [id])
+
+  missionId String?
+  mission   Mission? @relation(fields: [missionId], references: [id])
+
+  tronconId String?
+  troncon   Troncon? @relation(fields: [tronconId], references: [id])
+  ouvrageId String?
+  ouvrage   Ouvrage? @relation(fields: [ouvrageId], references: [id])
+
+  /// LOCALISATION. Le GPS et l'abscisse locale sont la reference primaire.
+  lat        Float?
+  lon        Float?
+  precisionM Float?
+  geom       Unsupported("geometry(Point,4326)")?
+
+  /// Abscisse depuis le debut du SEGMENT, en metres. Ce n'est PAS un PK et ne doit
+  /// jamais etre presentee comme tel : elle ne vaut que sur un segment identifie.
+  abscisseM Float?
+
+  /// Confiance de l'appariement, entre 0 et 1. Distincte de la gravite : l'une dit a
+  /// quel point on sait ou, l'autre ce qu'on a vu.
+  confianceAppariement Float?
+
+  /// PK de route, derive. Nul quand le troncon n'en porte pas.
+  pk Float?
+
+  /// Emprise relevee, quand le defaut a ete contourne au GPS plutot que pointe.
+  /// Deliberement `geometry` et non `Polygon` : un defaut lineaire se releve en
+  /// LineString, un defaut surfacique en Polygon, et imposer l'un des deux obligerait a
+  /// migrer la colonne le jour ou l'autre se presente.
+  emprise Unsupported("geometry(Geometry,4326)")?
+
+  /// MESURES BRUTES, conservees meme quand la quantite est calculee.
+  ///
+  /// Une surface de 12 m2 dont on a perdu le 4 par 3 ne se verifie plus et ne se
+  /// corrige plus. On garde les facteurs pour pouvoir rejouer le calcul.
+  nombre         Int?
+  longueurM      Float?
+  largeurM       Float?
+  profondeurM    Float?
+  quantiteSaisie Float?
+
+  /// QUANTITE EXPLOITABLE, avec son unite et sa voie d'obtention.
+  ///
+  /// Nulle quand les mesures ne permettent pas de conclure. Zero serait pire : zero se
+  /// somme, s'affiche, et dirait « pas de degradation » la ou on veut dire « on ne sait
+  /// pas ».
+  quantite        Float?
+  uniteQuantite   UniteDefaut?
+  methodeQuantite MethodeQuantite?
+
+  /// Jugement de l'agent, borne par `CatalogueDefaut.graviteMax`. Jamais une mesure.
+  gravite Int?
+
+  /// Etendue spatiale, axe distinct de la gravite.
+  etendue EtendueDefaut?
+
+  etat EtatDefaut @default(ACTIF)
+
+  /// Tout defaut nait en attente d'une decision : il est une PROPOSITION. Le defaut de
+  /// colonne porte donc la regle, et non la bonne volonte de l'appelant.
+  statutValidation StatutValidation @default(A_VALIDER)
+
+  description String?
+
+  constateA     DateTime
+  constateParId String
+  constatePar   User     @relation("DefautConstatant", fields: [constateParId], references: [id])
+
+  /// Date de passage a TRAITE. Distincte de `updatedAt` : on veut savoir quand les
+  /// travaux ont eu lieu, pas quand la ligne a ete touchee.
+  traiteA DateTime?
+
+  /// Version pour la detection de conflit a la synchronisation.
+  version Int @default(1)
+
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  medias         MediaDefaut[]
+  tachesInternes TacheInterne[]
+
+  @@index([catalogueId])
+  @@index([tronconId])
+  @@index([ouvrageId])
+  @@index([observationId])
+  @@index([missionId])
+  @@index([statutValidation])
+  @@index([etat])
+  @@index([deletedAt])
+  @@map("defauts")
+}
+
+/// Preuve attachee a un defaut : photo, video, document.
+///
+/// Table distincte de `medias_observation` plutot qu'une colonne nullable ajoutee a
+/// celle-ci : les deux rattachements resteraient alors facultatifs et une ligne pourrait
+/// n'etre attachee a rien. Le cout est une structure proche ; le gain est une contrainte
+/// qui tient.
+model MediaDefaut {
+  id       String @id @default(uuid())
+  defautId String
+  defaut   Defaut @relation(fields: [defautId], references: [id], onDelete: Cascade)
+
+  type           String
+  chemin         String
+  cheminVignette String?
+  sha256         String  @unique
+  mimeType       String
+  tailleOctets   Int
+
+  /// Position et cap du cliche. Une photo de preuve sans coordonnees ne prouve pas ou
+  /// elle a ete prise.
+  lat        Float?
+  lon        Float?
+  precisionM Float?
+  cap        Float?
+  capturedA  DateTime?
+
+  /// ARCHITECTURE PRETE POUR LA VISION PAR ORDINATEUR (T-03). Le point 9 de l''exigence
+  /// « vision nationale » demandait que l''architecture y soit prete, pas la vision.
+  ///
+  /// LA DISTINCTION QUI PORTE TOUT : « non analyse » n''est pas « analyse sans detection ».
+  /// Une seule colonne les confondrait, et un tableau de bord afficherait « aucun defaut
+  /// detecte » sur des photos que rien n''a jamais regardees — le meme mensonge que le
+  /// moteur de condition refuse en distinguant une composante ABSENTE d''un zero.
+  ///
+  ///   analyseeLe nulle                      personne n''a regarde
+  ///   analyseeLe posee, resultat tableau []  analyse, rien trouve
+  ///
+  /// Le modele est VERSIONNE : une detection d''une version ancienne ne vaut pas une
+  /// detection recente, et le paragraphe 14 l''exige. Les resultats sont des PROPOSITIONS
+  /// soumises au workflow de validation, jamais des donnees officielles.
+  analyseeLe       DateTime?
+  analyseModele    String?
+  analyseVersion   String?
+  analyseResultat  Json?
+  analyseConfiance Decimal?  @db.Decimal(4, 3)
+
+  createdAt DateTime @default(now())
+
+  @@index([defautId])
+  @@map("medias_defaut")
+}
+
+// ===================== DELEGATION DE VALIDATION =====================
+
+/// Domaines sur lesquels un validateur peut etre designe.
+///
+/// Paragraphe 35 du cahier : « Un validateur est designe pour chaque domaine. » Alignes
+/// sur `ENTITES_VALIDABLES` de `governance/validation.ts` — un domaine qui n'y figurerait
+/// pas designerait un validateur pour quelque chose qui ne se valide pas.
+enum DomaineValidation {
+  TRONCON
+  OUVRAGE
+  DEFAUT
+  OBSERVATION
+  POINT_NOIR
+  POSTE
+  CHANTIER
+  /// Ajoute le 13/10/2026 avec l'ecriture des portions. `ALTER TYPE ADD VALUE`
+  /// est DEFINITIF : PostgreSQL ne sait pas retirer une valeur d'enum.
+  PORTION
+}
+
+/// Designation d'un validateur sur un domaine, eventuellement borne a une region et a une
+/// periode.
+///
+/// CE QU'ELLE REMPLACE
+///
+/// `ROLES_VALIDATEURS` admet ADMIN et GESTIONNAIRE : tout gestionnaire pouvait donc
+/// valider n'importe quel defaut, n'importe quelle observation, partout dans le pays. Il
+/// n'y avait ni domaine, ni perimetre, ni terme, ni delegant. La « validation selon
+/// delegation » du paragraphe 5 n'avait aucun equivalent dans le code.
+///
+/// RIEN N'EST SUPPRIME, JAMAIS
+///
+/// Une delegation expiree ou revoquee reste en base. Elle a existe, des validations ont
+/// ete rendues sous son autorite, et les retirer rendrait ces validations inexplicables.
+/// `revoqueeLe` est donc une date et non une suppression — regle 2 d'AGENTS.md appliquee
+/// a un objet de gouvernance.
+///
+/// AUCUNE CONTRAINTE D'UNICITE, VOLONTAIREMENT
+///
+/// Une meme personne peut etre designee plusieurs fois sur un domaine : une region puis
+/// une autre, ou une periode puis la suivante. Une cle unique sur (domaine, validateur)
+/// interdirait l'historique que ce modele existe pour conserver.
+model DelegationValidation {
+  id String @id @default(uuid())
+
+  domaine DomaineValidation
+
+  validateurId String
+  validateur   User   @relation("DelegationValidateur", fields: [validateurId], references: [id])
+
+  /// Perimetre geographique. NUL = national, c'est-a-dire toutes les regions.
+  ///
+  /// Consequence a connaitre : une delegation REGIONALE ne couvre pas un objet dont la
+  /// region est inconnue — un defaut dont le troncon n'est pas apparie, par exemple.
+  /// L'accepter reviendrait a deduire une localisation de l'absence de localisation.
+  regionId Int?
+  region   Region? @relation(fields: [regionId], references: [id])
+
+  /// Qui delegue. Le paragraphe 35 designe un validateur ; savoir QUI l'a designe est ce
+  /// qui distingue une delegation d'une permission tombee du ciel.
+  delegueParId String
+  deleguePar   User   @relation("DelegationDelegant", fields: [delegueParId], references: [id])
+
+  debutLe DateTime  @default(now())
+  /// Terme. NUL = sans terme. Une delegation sans terme est un choix, pas un oubli.
+  finLe   DateTime?
+
+  revoqueeLe    DateTime?
+  revoqueeParId String?
+  revoqueePar   User?     @relation("DelegationRevocateur", fields: [revoqueeParId], references: [id])
+
+  /// Pourquoi cette designation. Lu lors d'un audit, des annees apres.
+  motif String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([domaine])
+  @@index([validateurId])
+  @@index([regionId])
+  @@map("delegations_validation")
+}
+
+// ===================== CONDITION ENGINE / RCI =====================
+
+/// Composantes du RCI, dans l'ordre du paragraphe 13 du cahier.
+enum ComposanteRci {
+  CHAUSSEE
+  DRAINAGE
+  OUVRAGES
+  SIGNALISATION
+  SECURITE
+  TRAFIC
+  HISTORIQUE
+  INCIDENTS
+  /// Ajoutees le 13/10/2026 pour pouvoir EXPRIMER la liste de coefficients proposee par
+  /// AGEROUTE, qui remplace les 10 points de SIGNALISATION par environnement 5 et autres 5.
+  ///
+  /// Les ajouter ne les approuve pas : elles rendent la proposition enregistrable et donc
+  /// comparable, ce qui etait la demande. `ALTER TYPE ADD VALUE` est definitif.
+  ///
+  /// AUTRES est structurellement particuliere : une composante sans definition ne peut
+  /// JAMAIS etre alimentee, donc son poids est renormalise hors du calcul a chaque score.
+  /// Tant qu'elle n'est pas definie, ses 5 points sont du poids mort.
+  ENVIRONNEMENT
+  AUTRES
+}
+
+/// Pourquoi une composante ne participe pas a un score.
+///
+/// PERIMEE et ABSENTE ne se confondent pas : un etat releve il y a dix ans demande une
+/// REINSPECTION, un etat jamais releve demande un INVENTAIRE. Les deux sortent du calcul,
+/// mais on ne va pas chercher la meme chose.
+enum MotifExclusionRci {
+  ABSENTE
+  PERIMEE
+  CONFIANCE_INSUFFISANTE
+  POIDS_NUL
+}
+
+/// Une version de regle de calcul du RCI.
+///
+/// POURQUOI LES COEFFICIENTS SONT EN BASE ET NON DANS LE CODE
+///
+/// Le paragraphe 13 donne ses pourcentages comme « base indicative A CALIBRER ». Les
+/// ecrire dans le code produirait un score qui a l'air officiel et que personne n'a
+/// valide — ce que la regle imperative du paragraphe 39 interdit.
+///
+/// `approuveeLe` est donc le seul interrupteur qui rend un score publiable. Tant qu'il est
+/// nul, le moteur calcule, l'interne consulte, et rien ne sort.
+///
+/// UNE REGLE EST IMMUABLE
+///
+/// Modifier des coefficients cree une NOUVELLE version. Sans quoi un score rendu l'annee
+/// derniere deviendrait inexplicable : sa regle aurait change sous lui.
+model RegleCondition {
+  id      String @id @default(uuid())
+  /// Identifiant lisible, inscrit dans chaque score. Ex. « rci-2026.1 ».
+  version String @unique
+
+  /// Poids par composante. Leur somme n'a pas besoin de valoir 100 : le moteur
+  /// renormalise sur les composantes effectivement disponibles.
+  poids Json
+
+  /// Age maximal d'un constat, en jours. Au-dela, la composante est PERIMEE.
+  fraicheurMaxJours Int
+
+  /// Confiances acceptees, vocabulaire de `valeurs_qualite`. Une confiance absente est
+  /// traitee comme insuffisante : on ne la suppose pas bonne.
+  confiancesAcceptees String[]
+
+  /// Part minimale du poids total a couvrir pour qu'un score soit rendu (0 a 1).
+  ///
+  /// Renormaliser sur 20 % du modele produirait un nombre entre 0 et 100 qui ne dit
+  /// presque rien. C'est AGEROUTE qui dit a partir de quelle part un score merite d'etre
+  /// regarde.
+  couvertureMinimale Float
+
+  /// `true` si 100 est le meilleur etat. Explicite, pour que le sens ne se perde pas.
+  sensCroissant Boolean @default(true)
+
+  /// Correspondance entre une valeur de source et un nombre de 0 a 100.
+  ///
+  /// POURQUOI ELLE VIT ICI ET NON DANS LE CODE
+  ///
+  /// Le moteur refuse de deviner comment un etat BON devient un nombre : c'est une
+  /// DECISION, pas un calcul. Dire que BON vaut 85 plutot que 90 deplace le score de tout
+  /// le reseau, et personne ne pourrait dire qui l'a decide si c'etait ecrit en dur.
+  ///
+  /// Elle vit donc dans la REGLE VERSIONNEE, au meme titre que les poids, et une regle
+  /// non approuvee produit des scores marques non publiables. Le mecanisme est du code ;
+  /// les nombres sont une decision d'AGEROUTE.
+  ///
+  /// FORME : { "<COMPOSANTE>": { "<valeur source>": <0-100> } }. Une valeur de source
+  /// absente de la table rend la composante ABSENTE, jamais zero : on ne sait pas la lire,
+  /// ce qui n'est pas la meme chose que savoir qu'elle est mauvaise.
+  normalisation Json @default("{}")
+
+  /// Classes de score, de la meilleure a la pire.
+  ///
+  /// L'ADR notait l'absence de `classe` faute de seuils arbitres. AGEROUTE les a donnes le
+  /// 13/10/2026 : 90-100 excellent, 75-89 bon, 60-74 acceptable, 40-59 degrade, 20-39
+  /// mauvais, 0-19 critique.
+  ///
+  /// ELLES VIVENT DANS LA REGLE, comme les poids et la normalisation, parce qu'un seuil
+  /// deplace fait changer de classe une partie du reseau sans que son score bouge. Un
+  /// troncon a 74 est « acceptable » et a 75 « bon » : la frontiere est une decision, et
+  /// elle doit porter la version sous laquelle elle a ete prise.
+  ///
+  /// FORME : [{ "min": 0, "max": 19, "code": "CRITIQUE", "libelle": "Critique" }, ...]
+  /// Un score hors de toute classe ne recoit AUCUNE classe, jamais la plus proche.
+  classes Json @default("[]")
+
+  /// Pourquoi cette version existe, et sur quoi elle a ete calibree.
+  motif String?
+
+  creeParId String
+  creePar   User   @relation("RegleConditionAuteur", fields: [creeParId], references: [id])
+
+  /// NUL = non approuvee. Les scores rendus sous cette regle ne sont pas publiables.
+  approuveeLe    DateTime?
+  approuveeParId String?
+  approuveePar   User?     @relation("RegleConditionApprobateur", fields: [approuveeParId], references: [id])
+
+  /// Retrait d'usage. La regle reste en base : des scores y font reference.
+  retireeLe DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  evaluations EvaluationCondition[]
+
+  @@index([approuveeLe])
+  @@map("regles_condition")
+}
+
+/// Un score RCI rendu a un instant, sous une version de regle.
+///
+/// IMMUABLE : recalculer cree une nouvelle evaluation. Un score qu'on modifierait ne
+/// pourrait plus etre explique, et la comparaison dans le temps perdrait son sens.
+model EvaluationCondition {
+  id String @id @default(uuid())
+
+  tronconId String
+  troncon   Troncon @relation(fields: [tronconId], references: [id])
+
+  regleId      String
+  regle        RegleCondition @relation(fields: [regleId], references: [id])
+  /// Version recopiee, pour que l'evaluation reste lisible meme si la regle est retiree.
+  regleVersion String
+
+  /// NUL quand le moteur a REFUSE de scorer. Le refus est conserve : il dit qu'on a
+  /// regarde et qu'on n'a pas pu conclure, ce qui n'est pas la meme chose que l'absence
+  /// d'evaluation.
+  score      Float?
+  /// Motif du refus, quand il y en a un.
+  motifRefus String?
+
+  /// Part du poids total couverte, entre 0 et 1.
+  couverture Float
+
+  /// NULLE sur un refus. La confiance d'un score qui n'existe pas n'est pas « faible » :
+  /// elle est absente. Ecrire LOW serait porter un jugement de qualite sur rien.
+  confiance NiveauConfiance?
+
+  /// `false` quand la regle n'etait pas approuvee au moment du calcul.
+  publiable Boolean @default(false)
+
+  /// La phrase qui explique le score, telle que le moteur l'a rendue.
+  explication String
+
+  /// Instantane des entrees, pour pouvoir rejouer le calcul apres evolution des sources.
+  /// Sans lui, un score de 2026 serait inexplicable en 2029.
+  entrees Json
+
+  calculeLe DateTime @default(now())
+
+  composantes ComposanteEvaluation[]
+
+  @@index([tronconId, calculeLe])
+  @@index([regleId])
+  @@index([publiable])
+  @@map("evaluations_condition")
+}
+
+/// Une composante d'un score, retenue ou exclue.
+///
+/// Les lignes sont requetables — « combien de troncons manquent de donnee de trafic » est
+/// une question qu'on posera — la ou l'instantane de `EvaluationCondition` sert a rejouer
+/// le calcul. Les deux repondent a des besoins differents.
+model ComposanteEvaluation {
+  id String @id @default(uuid())
+
+  evaluationId String
+  evaluation   EvaluationCondition @relation(fields: [evaluationId], references: [id], onDelete: Cascade)
+
+  composante ComposanteRci
+
+  /// Valeur normalisee 0-100 retenue. NULLE pour une composante exclue.
+  valeur Float?
+
+  poidsDeclare  Float
+  /// Poids APRES renormalisation. Sans lui, le calcul ne se refait pas.
+  poidsEffectif Float
+  contribution  Float
+
+  /// NUL quand la composante a ete retenue.
+  exclue MotifExclusionRci?
+
+  source     String?
+  observeeLe DateTime?
+
+  /// Une composante figure UNE fois par evaluation : deux lignes compteraient son poids
+  /// deux fois. L'index couvre aussi les recherches par evaluation seule.
+  @@unique([evaluationId, composante])
+  @@index([composante, exclue])
+  @@map("composantes_evaluation")
+}
+
+// ===================== PORTIONS HOMOGENES =====================
+
+/// D'ou vient une portion. Sans cela, un decoupage et un releve de terrain se
+/// ressemblent en base, et l'historique devient illisible.
+enum OriginePortion {
+  /// Qualifiee par un agent sur place.
+  SAISIE_TERRAIN
+  /// Nee du decoupage d'une portion existante.
+  DECOUPE
+  /// Nee de la fusion de portions compatibles.
+  FUSION
+  /// Meme emprise, attributs revus.
+  REQUALIFICATION
+  /// Venue d'un lot externe. Jamais officielle sans validation.
+  IMPORT
+}
+
+/// Une partie homogene d'un troncon.
+///
+/// LE PROBLEME QU'ELLE RESOUT
+///
+/// Un troncon porte UN revetement et UN etat pour toute sa longueur. Le terrain ne s'y
+/// plie pas : 8 km de bitume en bon etat, 5 km de bitume degrade, 4 km de laterite, 3 km
+/// critiques, et c'est le meme troncon.
+///
+/// L'ABSCISSE LOCALE FAIT AUTORITE, PAS LE PK, ET PAS LA GEOMETRIE
+///
+/// `debutM` et `finM` sont mesures depuis le debut de la geometrie de reference, ce que
+/// `ST_LineLocatePoint` rend et que `geo/appariement.ts` produit deja. Le PK officiel
+/// n'est pas porte ici : les 1 029 troncons regionaux n'en ont pas de calculable, et
+/// faire dependre la qualification du PK les aurait rendus inqualifiables.
+///
+/// POURQUOI AUCUNE PORTION N'EST DEDUITE D'UN TRONCON
+///
+/// Mesure du 13/10/2026 en production : `revetement` vaut NON_RENSEIGNE sur 258 961
+/// troncons et BITUME sur 2 426, sans une seule laterite sur un reseau ou elle domine ;
+/// `etat` vaut NON_EVALUE sur 254 547 des 261 387. Deduire une portion de ces colonnes
+/// fabriquerait 261 387 observations que personne n'a faites.
+///
+/// Un troncon sans portion est donc NON QUALIFIE. `reseau/portions.ts` le rend comme un
+/// trou nomme par ses abscisses, pas comme un pourcentage.
+///
+/// CETTE TABLE NE TOUCHE JAMAIS LA GEOMETRIE DE REFERENCE
+///
+/// Qualifier le terrain et corriger un trace sont deux operations distinctes, aux droits
+/// distincts. Une portion ne produit que des bornes le long d'une geometrie existante.
+model Portion {
+  id String @id @default(uuid())
+
+  tronconId String
+  troncon   Troncon @relation(fields: [tronconId], references: [id])
+
+  /// Abscisse de debut, en metres depuis le debut de la geometrie de reference.
+  debutM Float
+  /// Abscisse de fin. Toujours strictement superieure a `debutM`.
+  finM   Float
+
+  /// NULS tant que personne ne les a releves. Une portion peut qualifier l'etat sans
+  /// connaitre le revetement, et l'inverse.
+  /// CODES DE REFERENTIEL et non enums : le vocabulaire est administrable, et la cle
+  /// etrangere empeche d'ecrire un code que personne n'a declare.
+  ///
+  /// `troncons.revetement` reste un enum, lui : 261 387 lignes en dependent, et les deux
+  /// migrations ne se ressemblent pas. `portions` est vide, donc son changement de type
+  /// ne coute rien.
+  revetement    String?
+  revetementRef ReferentielRevetement?   @relation(fields: [revetement], references: [code])
+  etat          String?
+  etatRef       ReferentielEtatChaussee? @relation(fields: [etat], references: [code])
+
+  /// Praticabilite, distincte du revetement ET de l'etat : une piste en laterite peut
+  /// etre en bon etat et devenir impraticable apres les pluies.
+  ///
+  /// TEXTE ET NON ENUM, VOLONTAIREMENT. Le cahier demande un referentiel configurable et
+  /// n'en enonce aucune valeur, contrairement au revetement dont il liste les huit. Figer
+  /// ici un vocabulaire que personne n'a arrete en ferait une norme. La colonne recevra
+  /// sa contrainte en meme temps que son referentiel.
+  praticabilite    String?
+  praticabiliteRef ReferentielPraticabilite? @relation(fields: [praticabilite], references: [code])
+
+  largeurM Float?
+
+  /// D'ou vient l'observation, et quand elle a ete CONSTATEE (pas saisie). Nulles quand
+  /// personne ne l'a dit : une date absente n'est pas une date ancienne.
+  source     String?
+  observeeLe DateTime?
+  confiance  NiveauConfiance?
+
+  origine OriginePortion
+
+  /// Cle d'idempotence generee par l'APPAREIL avant tout envoi, comme pour les
+  /// observations et les defauts. Sans elle, une reponse perdue en zone blanche fait
+  /// renvoyer l'operation et cree une portion en double sur la meme emprise.
+  ///
+  /// Optionnelle : une portion creee depuis la console n'en a pas besoin.
+  clientOperationId String? @unique
+
+  /// Conteneur de collecte, quand la portion vient d'une mission de terrain.
+  observationId String?
+  observation   Observation? @relation(fields: [observationId], references: [id])
+
+  /// Une portion de terrain est une PROPOSITION jusqu'a validation par un tiers.
+  statutValidation StatutValidation @default(A_VALIDER)
+
+  /// AXE TERRAIN de l''historisation bitemporelle (paragraphe 7.2 du mandat v2.1).
+  ///
+  /// `valideDu` dit depuis quand le contenu de cette version est VRAI SUR LE TERRAIN,
+  /// `valideAu` jusqu''a quand — EXCLU, l''intervalle etant semi-ouvert. Ferme des deux
+  /// cotes, deux versions successives seraient toutes deux valides a l''instant de la
+  /// bascule et toute requete a cette date rendrait deux reponses.
+  ///
+  /// TROIS DATES, TROIS SENS, ET LES CONFONDRE REND L''HISTOIRE INEXPLICABLE :
+  ///
+  ///   observeeLe   quand on a REGARDE
+  ///   valideDu     depuis quand c''est VRAI
+  ///   createdAt    quand le systeme l''a ENREGISTRE
+  ///
+  /// Une route reprise le 15 mars et relevee le 2 avril : valideDu au 15/03, observeeLe au
+  /// 02/04, createdAt au 02/04. Sans `valideAu`, la base ne pouvait pas dire que l''ancienne
+  /// version avait cesse d''etre vraie le 15 mars — seulement qu''on l''avait close le 2 avril.
+  ///
+  /// Les regles sont dans `reseau/bitemporel.ts`, eprouvees par 32 tests sans base.
+  valideDu DateTime? @db.Date
+  valideAu DateTime? @db.Date
+
+  /// CONTEXTE de la praticabilite (T-07, priorite M). Le statut lui-meme vit dans
+  /// `praticabilite`, rattache a un referentiel volontairement vide (B-01).
+  ///
+  /// Anticipes au lot 2 comme l''exige le paragraphe 14 : ajouter une colonne a une table
+  /// peuplee coute cher, et `portions` ne le restera pas.
+  praticabiliteCause       String?
+  praticabiliteDepuis      DateTime? @db.Date
+  praticabiliteDureeJours  Int?
+  /// Tonnage maximal admis quand la praticabilite est LIMITEE. Nul quand la limite n''est
+  /// pas un tonnage — 4x4 uniquement, par exemple.
+  praticabiliteTonnageMaxT Decimal?  @db.Decimal(6, 2)
+
+  /// Date a laquelle cette version a ete remplacee par un decoupage, une fusion ou une
+  /// requalification. NULLE si elle est courante.
+  ///
+  /// DISTINCT DE `deletedAt`, et la distinction porte : `remplaceeLe` dit « ceci etait
+  /// vrai et ne l'est plus », `deletedAt` dit « ceci n'aurait jamais du etre saisi ». Les
+  /// confondre rendrait l'historique du reseau inexplicable.
+  remplaceeLe DateTime?
+
+  /// Suppression logique seulement (regle 2 d'AGENTS.md). Le patrimoine routier est une
+  /// donnee d'archive.
+  deletedAt DateTime?
+
+  creeParId String
+  creePar   User   @relation("PortionAuteur", fields: [creeParId], references: [id])
+
+  /// Geometrie DERIVEE de `debutM`/`finM` par `ST_LineSubstring`, conservee pour que la
+  /// carte n'ait pas a la recalculer sur 261 387 troncons.
+  ///
+  /// ELLE NE FAIT PAS AUTORITE. Si le trace de reference est corrige, elle devient
+  /// perimee et doit etre recalculee depuis les abscisses, jamais l'inverse.
+  geom Unsupported("geometry(LineString,4326)")?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Lignage : d'ou vient cette portion, et ce qu'elle a produit.
+  parents PortionLignage[] @relation("LignageEnfant")
+  enfants PortionLignage[] @relation("LignageParent")
+
+  @@index([tronconId, debutM])
+  @@index([tronconId, remplaceeLe])
+  @@index([tronconId, valideDu], map: "portions_tronconId_valideDu_idx")
+  @@index([statutValidation])
+  @@index([deletedAt])
+  @@index([observationId])
+  @@map("portions")
+}
+
+/// Lignage entre portions : quelle portion est nee de quelle autre.
+///
+/// POURQUOI UNE TABLE ET NON UNE COLONNE
+///
+/// Un decoupage donne UN parent et DEUX enfants ; une fusion donne DEUX parents et UN
+/// enfant. Une colonne `remplaceeParId` ne sait exprimer ni l'un ni l'autre sans mentir
+/// sur le second. Le lien est donc plusieurs-a-plusieurs, et c'est la seule forme qui
+/// permette de relire un decoupage suivi d'une fusion.
+model PortionLignage {
+  parentId String
+  parent   Portion @relation("LignageParent", fields: [parentId], references: [id])
+  enfantId String
+  enfant   Portion @relation("LignageEnfant", fields: [enfantId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@id([parentId, enfantId])
+  @@index([enfantId])
+  @@map("portions_lignage")
+}
+
+// ===================== REFERENTIELS CONFIGURABLES =====================
+//
+// POURQUOI DES TABLES ET NON DES ENUMS
+//
+// `Revetement` est un enum de cinq valeurs. L'etendre demande une migration, donc un
+// deploiement, pour ajouter un mot. Le cahier en demande huit, et surtout il demande que
+// la liste soit ADMINISTRABLE : les trois revetements que `BITUME` recouvre aujourd'hui
+// (beton bitumineux, enduit superficiel, beton) n'ont pas les memes couts de
+// rehabilitation, et c'est AGEROUTE qui decide du vocabulaire.
+//
+// POURQUOI TROIS TABLES ET NON UNE TABLE GENERIQUE
+//
+// Une table unique avec une colonne `domaine` aurait une cle primaire composite
+// `(domaine, code)`, et une cle etrangere depuis `portions` ne pourrait pas garantir que
+// le code pointe sur le BON domaine sans colonne generee ni declencheur. Trois tables
+// donnent trois cles etrangeres triviales et verifiees par la base.
+//
+// Et surtout, les trois ne portent pas les memes attributs : un revetement est bitumineux
+// ou non, un etat est critique ou non, une praticabilite est franchissable ou non. Une
+// table generique les aurait tous ranges dans un JSON que personne ne peut contraindre.
+//
+// POURQUOI TROIS ET PAS LES SEPT DU CAHIER
+//
+// Le cahier demande aussi des referentiels pour les accotements, l'assainissement, la
+// signalisation et les risques de securite. Rien ne les consomme aujourd'hui : les creer
+// produirait quatre tables vides que rien ne lit, ce qui est le meme defaut qu'une colonne
+// nulle que rien ne remplit. Elles viendront avec ce qui les utilise.
+
+/// Vocabulaire des revetements, administrable.
+model ReferentielRevetement {
+  /// Code stable, cite par les portions. Ne change jamais : des portions validees le
+  /// portent.
+  code        String  @id
+  libelle     String
+  description String?
+
+  /// ORDRE D'AFFICHAGE, du plus structurant au moins structurant. Sert aux listes, pas
+  /// aux calculs.
+  ordre Int
+
+  /// `false` retire la valeur des nouveaux choix SANS invalider les portions qui la
+  /// portent deja. Supprimer la ligne casserait leur cle etrangere, et une portion dont
+  /// on ne sait plus le revetement n'est plus explicable.
+  actif Boolean @default(true)
+
+  /// FAMILLE DE BAREME DE COUT, ou NULLE.
+  ///
+  /// Les baremes connaissent trois familles — bitume, terre_laterite, pave — la ou ce
+  /// referentiel porte huit codes : la famille est plus GROSSIERE que le revetement.
+  /// Chaque revetement declare donc la sienne, et l'administrateur la gere ici.
+  ///
+  /// NULLE SIGNIFIE « AUCUN BAREME NE CHIFFRE CE REVETEMENT », et c'est le cas de BETON,
+  /// AUTRE et NON_RENSEIGNE. `BETON` designe le beton de ciment : revetu mais non
+  /// bitumineux, et aucun bareme ne le couvre. Le rattacher a `bitume` lui donnerait un
+  /// prix qui n'est pas le sien. Un moteur de couts doit donc REFUSER d'estimer plutot que
+  /// deviner — le meme refus que le RCI oppose a une composante sans correspondance.
+  familleCout String?
+
+  /// Ce revetement compte-t-il dans la LONGUEUR BITUMEE ?
+  ///
+  /// Le paragraphe 13 demande « longueur bitumee et non bitumee ». Avec un vocabulaire
+  /// administrable, cela ne se deduit pas du code : un libelle que quelqu'un ajoutera
+  /// demain ne dira pas au programme s'il est bitumineux. C'est donc une propriete
+  /// DECLAREE de la valeur, et celui qui ajoute un revetement doit la trancher.
+  ///
+  /// Le pave et le beton sont revetus sans etre bitumineux. Une distinction plus fine
+  /// (revetu / non revetu) viendra si une statistique la demande ; en inventer une que
+  /// rien ne consomme serait du vide.
+  bitumineux Boolean
+
+  /// D'ou vient la ligne. Les valeurs d'origine citent le cahier ; celles qu'un
+  /// gestionnaire ajoute citent sa decision.
+  source String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  portions Portion[]
+
+  @@index([actif, ordre])
+  @@map("referentiel_revetements")
+}
+
+/// Vocabulaire des etats de chaussee, administrable.
+model ReferentielEtatChaussee {
+  code        String  @id
+  libelle     String
+  description String?
+
+  /// Du MEILLEUR au PIRE. Contrairement a l'ordre d'un revetement, celui-ci a un sens
+  /// metier : il permet de comparer deux etats et de dire lequel est le plus degrade.
+  ordre Int
+
+  actif Boolean @default(true)
+
+  /// Cet etat compte-t-il dans la LONGUEUR CRITIQUE du paragraphe 13 ?
+  ///
+  /// Meme raisonnement que `bitumineux` : avec un vocabulaire administrable, « critique »
+  /// n'est pas devinable depuis le code. Declare, donc tranche par celui qui ajoute.
+  critique Boolean @default(false)
+
+  source String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  portions Portion[]
+
+  @@index([actif, ordre])
+  @@map("referentiel_etats_chaussee")
+}
+
+/// Vocabulaire des praticabilites, administrable.
+///
+/// CETTE TABLE SORT VIDE, ET C'EST DELIBERE.
+///
+/// Le cahier demande un referentiel de praticabilite sans en enoncer AUCUNE valeur, la ou
+/// il liste les huit revetements et ou les etats sont deja en usage en production. Ecrire
+/// ici « PRATICABLE / DIFFICILE / IMPRATICABLE » en ferait la norme d'AGEROUTE par defaut,
+/// alors que personne ne l'a decidee. Meme regle que pour les coefficients du RCI.
+///
+/// Consequence assumee : aucune portion ne peut porter de praticabilite avant qu'AGEROUTE
+/// n'ait rempli cette table. Le mecanisme attend la decision, il ne la devance pas.
+model ReferentielPraticabilite {
+  code        String @id
+  libelle     String
+  /// DEFINITION METIER, OBLIGATOIRE — seule des trois tables de referentiel a l'exiger.
+  ///
+  /// AGEROUTE l'a demandee explicitement pour la praticabilite, et la raison se comprend :
+  /// « difficile » ne veut rien dire sans dire pour qui et dans quelles conditions. Un
+  /// revetement se reconnait a l'oeil ; une praticabilite se JUGE, et deux agents sans
+  /// definition commune jugeront differemment.
+  ///
+  /// La base l'impose aussi, par contrainte : le type et la contrainte doivent dire la
+  /// meme chose, sinon le code croit pouvoir ecrire ce que la base refusera.
+  description String
+
+  /// Du plus praticable au moins praticable.
+  ordre Int
+
+  actif Boolean @default(true)
+
+  /// La route est-elle franchissable dans cet etat ? Declare, pour les memes raisons que
+  /// `bitumineux` et `critique`.
+  franchissable Boolean
+
+  /// Une praticabilite peut etre SAISONNIERE : une piste franchissable en saison seche ne
+  /// l'est plus en saison des pluies. Vrai quand la valeur ne vaut que pour une periode.
+  saisonniere Boolean @default(false)
+
+  /// NULLE = valeur PROPOSEE, pas encore approuvee.
+  ///
+  /// AGEROUTE a demande le 13/10/2026 de « faire approuver les valeurs avant leur
+  /// utilisation officielle ». Officiel, pour une portion, veut dire VALIDE : une valeur
+  /// non approuvee peut donc etre portee par une PROPOSITION de terrain, mais empeche sa
+  /// validation.
+  ///
+  /// C'est le seul sens tenable de la consigne. Interdire la saisie aurait rendu le
+  /// referentiel inutilisable jusqu'a l'approbation, donc impossible a eprouver sur le
+  /// terrain avant de l'approuver — on aurait demande d'approuver a l'aveugle.
+  approuveeLe    DateTime?
+  approuveeParId String?
+  approuveePar   User?     @relation("PraticabiliteApprobateur", fields: [approuveeParId], references: [id])
+
+  source String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  portions Portion[]
+
+  @@index([actif, ordre])
+  @@map("referentiel_praticabilites")
+}
+
+/// Vocabulaire ADMINISTRABLE des natures de tache interne (TI-01).
+///
+/// Table et non enumeration : `ALTER TYPE ... ADD VALUE` est IRREVERSIBLE, et la decision D-06
+/// montre ce que cela coute — `ClasseRoute` n'a aucune valeur pour les routes communautaires et
+/// il n'existe pas de geste propre pour l'ajouter.
+///
+/// `source` dit d'ou vient chaque valeur, pour ne jamais confondre « enonce par le mandat » et
+/// « arrete par AGEROUTE ». Les cinq lignes semees portent `mandat_v10` et ne sont PAS une
+/// nomenclature officielle.
+model ReferentielNatureTache {
+  code    String  @id
+  libelle String
+  ordre   Int
+  actif   Boolean @default(true)
+  source  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  taches TacheInterne[]
+
+  @@map("referentiel_natures_tache")
+}
+
+enum StatutTacheInterne {
+  OUVERTE
+  EN_COURS
+  CLOTUREE
+  ABANDONNEE
+}
+
+/// TACHE D'INTERVENTION INTERNE, NON CONTRACTUELLE (TI-01, arbitrage D1).
+///
+/// Petites interventions en regie, cantonnage, verifications, nettoyage d'ouvrages, inspections
+/// periodiques : le quotidien des equipes AGEROUTE, trace sans dupliquer l'ERP.
+///
+/// LA FRONTIERE DIGITALROAD EST TENUE PAR L'ABSENCE DES COLONNES, et c'est le point a ne pas
+/// defaire. Il n'existe ici aucun montant, aucun prix, aucun marche, aucune entreprise, aucun
+/// decompte, aucun paiement — donc des qu'un prestataire ou un marche intervient, l'objet n'est
+/// tout simplement pas representable et doit vivre dans DigitalRoad.
+///
+/// Une interdiction tenue par l'absence de l'objet vaut mieux qu'une interdiction tenue par une
+/// consigne : `taches-internes.garde.test.ts` balaie ce modele et fait echouer la suite si une
+/// telle colonne apparait un jour par commodite.
+///
+/// Les QUANTITES CONSTATEES sont autorisees, et la nuance est le coeur de TI-01 : « 40 m3 de
+/// laterite reprise » est un constat de terrain, « 12 millions GNF » est un engagement.
+model TacheInterne {
+  id String @id @default(uuid())
+
+  /// Identifiant STABLE exige par TI-01, lisible par un agent au telephone. Il ne change jamais,
+  /// ce qui le distingue de `id`, purement technique.
+  reference String @unique
+
+  nature    String
+  natureRef ReferentielNatureTache @relation(fields: [nature], references: [code])
+
+  intitule    String
+  description String?
+
+  /// Perimetre geographique. Aucun rattachement n'est obligatoire SEUL, mais au moins un est
+  /// exige en base : une tache qui ne designe rien ne se retrouve pas sur le terrain.
+  tronconId String?
+  troncon   Troncon? @relation(fields: [tronconId], references: [id])
+  /// Abscisses sur la geometrie du troncon. Les deux ou aucune, et `tronconId` obligatoire —
+  /// des abscisses sans troncon n'ont aucun systeme de reference.
+  debutM    Float?
+  finM      Float?
+  ouvrageId String?
+  ouvrage   Ouvrage? @relation(fields: [ouvrageId], references: [id])
+  defautId  String?
+  defaut    Defaut?  @relation(fields: [defautId], references: [id])
+  /// Point, pour ce qui ne se rattache ni a un troncon ni a un ouvrage.
+  /// `Unsupported` : les geometries PostGIS ne sont pas gerees nativement par Prisma (§ 7.1).
+  geom      Unsupported("geometry(Point, 4326)")?
+
+  responsableId String
+  responsable   User   @relation("TacheInterneResponsable", fields: [responsableId], references: [id])
+  echeanceLe    DateTime? @db.Date
+
+  statut StatutTacheInterne @default(OUVERTE)
+
+  /// Quantite CONSTATEE, jamais un montant. Nulle ou accompagnee de son unite : « 40 » seul ne
+  /// veut rien dire, et une contrainte en base le refuse.
+  quantiteConstatee Decimal? @db.Decimal(12, 3)
+  quantiteUnite     String?
+
+  /// PREUVES AVANT/APRES, portees par la tache et non par une table de medias.
+  ///
+  /// C'est ce qui rend le critere A29 verifiable PAR LA BASE. « Une tache cloturee possede des
+  /// preuves avant/apres » croise deux tables si les preuves vivent ailleurs, et un tel invariant
+  /// ne s'exprime pas en `CHECK` : il faudrait un declencheur, le premier de ce depot, invisible
+  /// a Prisma et au lecteur. Sur la ligne, l'invariant devient local et declaratif.
+  ///
+  /// Et c'est plus juste metier : avant/apres est une PAIRE, pas un album.
+  preuveAvantChemin  String?
+  preuveAvantPriseLe DateTime?
+  preuveApresChemin  String?
+  preuveApresPriseLe DateTime?
+
+  clotureeLe    DateTime?
+  clotureeParId String?
+  clotureePar   User?     @relation("TacheInterneClotureur", fields: [clotureeParId], references: [id])
+  /// Un abandon est une decision : il se motive. Sans cela, l'abandon deviendrait la sortie
+  /// facile pour toute tache dont on ne veut pas produire les preuves.
+  abandonMotif  String?
+
+  /// Cle d'idempotence generee par l'appareil avant tout envoi, comme pour les portions et les
+  /// observations. Sans elle, une reponse perdue en zone blanche cree une tache en double.
+  clientOperationId String? @unique
+
+  creeParId String
+  creePar   User   @relation("TacheInterneAuteur", fields: [creeParId], references: [id])
+
+  /// Suppression LOGIQUE uniquement.
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([tronconId])
+  @@index([ouvrageId])
+  @@index([defautId])
+  @@index([responsableId])
+  @@index([deletedAt])
+  @@map("taches_internes")
+}
+
+/// CATALOGUE DES TRAITEMENTS (§ 7.7, Treatment Engine). Trois codes releves dans
+/// `baremes_intervention`, aucun invente, aucun approuve. `dureeVieAttendueAns`,
+/// `effetSurIndice` et `fenetreRealisation` sont NULS au semis : personne ne les a arretes, et
+/// les deviner entrerait dans la programmation. Non approuve, le catalogue sert a simuler.
+///
+/// Aucune cle etrangere depuis `BaremeIntervention.typeIntervention` : cette table est peuplee
+/// en production, ou ses valeurs ne sont plus verifiables depuis le gel. Un banc d'essai SQL
+/// verifie la correspondance a la place de la contrainte.
+model CatalogueTraitement {
+  code    String @id
+  libelle String
+  famille String
+
+  dureeVieAttendueAns Int?
+  effetSurIndice      Decimal? @db.Decimal(6, 2)
+  fenetreRealisation  String?
+
+  source        String    @default("standard_initial")
+  version       Int       @default(1)
+  approuveLe    DateTime?
+  approuveParId String?
+  approuvePar   User?     @relation("TraitementApprouve", fields: [approuveParId], references: [id], onDelete: SetNull)
+  commentaire   String?
+  actif         Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  conditions ConditionTraitement[]
+
+  @@map("catalogue_traitements")
+}
+
+/// Matrice d'orientation etat x revetement x trafic -> traitement. UNE condition designe UN
+/// traitement : la matrice est une fonction, pas une relation. `classeTrafic` est nulle au semis,
+/// les baremes ne la distinguant pas.
+model ConditionTraitement {
+  id                Int                 @id @default(autoincrement())
+  traitementCode    String
+  traitement        CatalogueTraitement @relation(fields: [traitementCode], references: [code])
+  familleRevetement String
+  etatDepart        String
+  classeTrafic      String?
+  source            String              @default("standard_initial")
+  actif             Boolean             @default(true)
+  createdAt         DateTime            @default(now())
+
+  /// En base, cette contrainte est `UNIQUE NULLS NOT DISTINCT` (PostgreSQL 15+) : deux NULL de
+  /// `classeTrafic` comptent comme egaux, sinon la matrice n'est une fonction que sur le papier.
+  /// Prisma ne sait pas l'exprimer ; la migration SQL fait foi, et un banc d'essai le verifie.
+  @@unique([familleRevetement, etatDepart, classeTrafic])
+  @@index([traitementCode])
+  @@map("conditions_traitement")
+}
+
+enum StatutLotImport {
+  RECU
+  VALIDE_SCHEMA
+  IMPORTE_TEST
+  IMPORTE
+  REJETE
+}
+
+enum StatutLigneImport {
+  /// Respecte le contrat, attend l'application : ni importee, ni rejetee.
+  VALIDEE
+  IMPORTEE
+  REJETEE
+  EN_CONFLIT
+  IGNOREE
+}
+
+/// LOT D'IMPORT : le contrat d'import unique (ROAD_SURVEY_IMPORT_SPEC.md, § E.3). Idempotence
+/// par empreinte SHA-256 unique par source ; 100 % des lignes dans un statut par la contrainte
+/// `lot_compteurs_complets` (critere A28). L'importateur ne possede AUCUN chemin de suppression.
+model LotImport {
+  id        String @id @default(uuid())
+  reference String @unique
+
+  systemeSource    String
+  format           String
+  empreinteFichier String
+  nomFichier       String
+  tailleOctets     BigInt
+
+  importeParId  String
+  importePar    User      @relation("LotImportateur", fields: [importeParId], references: [id])
+  importeLe     DateTime  @default(now())
+  auteurSource  String?
+  dateSource    DateTime?
+  methodeSource String
+
+  versionMapping  String
+  autorisationRef String
+
+  statut StatutLotImport @default(RECU)
+
+  lignesLues      Int @default(0)
+  lignesValidees  Int @default(0)
+  lignesImportees Int @default(0)
+  lignesRejetees  Int @default(0)
+  lignesEnConflit Int @default(0)
+  lignesIgnorees  Int @default(0)
+
+  rapport   Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lignes LigneImport[]
+
+  @@unique([systemeSource, empreinteFichier])
+  @@index([statut])
+  @@index([importeParId])
+  @@map("lots_import")
+}
+
+/// Une ligne importee : la charge ORIGINALE est conservee avant toute transformation, pour que
+/// l'import reste contestable. Un rejet porte son motif, un import porte sa cible.
+model LigneImport {
+  id          String    @id @default(uuid())
+  lotId       String
+  lot         LotImport @relation(fields: [lotId], references: [id])
+  numeroLigne Int
+
+  identifiantSource String?
+  chargeOriginale   Json
+  transformations   Json    @default("[]")
+
+  statut     StatutLigneImport
+  motifRejet String?
+
+  correspondanceId String?
+  objetCibleType   String?
+  objetCibleId     String?
+
+  createdAt DateTime @default(now())
+
+  @@unique([lotId, numeroLigne])
+  @@index([lotId, statut])
+  @@index([objetCibleType, objetCibleId])
+  @@map("lignes_import")
+}
+
+/// Vocabulaire administrable des types d'evenement d'exploitation (§ 7.17), seme du mandat.
+model ReferentielTypeEvenement {
+  code      String   @id
+  libelle   String
+  ordre     Int
+  actif     Boolean  @default(true)
+  source    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entrees EntreeMainCourante[]
+
+  @@map("referentiel_types_evenement")
+}
+
+/// Vocabulaire administrable des sources d'un evenement : patrouille, citoyen, capteur, partenaire.
+model ReferentielSourceEvenement {
+  code      String   @id
+  libelle   String
+  ordre     Int
+  actif     Boolean  @default(true)
+  source    String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entrees EntreeMainCourante[]
+
+  @@map("referentiel_sources_evenement")
+}
+
+enum StatutEvenement {
+  OUVERT
+  PRIS_EN_COMPTE
+  EN_COURS
+  CLOS
+}
+
+enum NatureEntreeMainCourante {
+  DECLARATION
+  STATUT
+  COMPLEMENT
+  RECTIFICATION
+}
+
+/// MAIN COURANTE DU RESEAU (§ 7.17, EX-01) : journal d'exploitation EN AJOUT SEUL.
+///
+/// Un evenement est une CHAINE D'ENTREES partageant `evenementId` ; son statut courant est celui
+/// de sa derniere entree de statut, rendu par la vue SQL `evenements_exploitation` (hors Prisma).
+/// Une erreur se corrige par une entree RECTIFICATION qui cite l'entree fautive -- les deux
+/// restent.
+///
+/// IMMUTABILITE TENUE PAR UN DECLENCHEUR (`main_courante_ajout_seul`), le premier de ce depot,
+/// admis une fois pour la table dont la valeur probatoire est de ne jamais changer. Prisma ne le
+/// voit pas : tout `update` ou `delete` echouera en base. N'en ecrivez pas.
+///
+/// `enregistreLe` est l'heure du SERVEUR, posee par le declencheur ; `horodatageClient` est
+/// conserve a part, tel que l'appareil l'a donne.
+model EntreeMainCourante {
+  id          String                   @id @default(uuid())
+  evenementId String
+  nature      NatureEntreeMainCourante
+
+  enregistreLe     DateTime  @default(now())
+  horodatageClient DateTime?
+
+  auteurId   String
+  auteur     User                        @relation("MainCouranteAuteur", fields: [auteurId], references: [id])
+  sourceCode String?
+  sourceRef  ReferentielSourceEvenement? @relation(fields: [sourceCode], references: [code])
+
+  typeCode String?
+  typeRef  ReferentielTypeEvenement? @relation(fields: [typeCode], references: [code])
+  statut   StatutEvenement?
+  texte    String
+
+  tronconId String?
+  troncon   Troncon? @relation(fields: [tronconId], references: [id])
+  debutM    Float?
+  finM      Float?
+  geom      Unsupported("geometry(Point, 4326)")?
+
+  pieces Json @default("[]")
+
+  rectifieId String?
+  rectifie   EntreeMainCourante?  @relation("Rectification", fields: [rectifieId], references: [id])
+  rectifications EntreeMainCourante[] @relation("Rectification")
+
+  signalementId String?
+  missionId     String?
+
+  clientOperationId String? @unique
+
+  @@index([evenementId, enregistreLe])
+  @@index([tronconId])
+  @@index([enregistreLe])
+  @@map("main_courante")
 }

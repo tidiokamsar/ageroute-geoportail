@@ -45,7 +45,7 @@ là où la suppression logique existe.
 
 Le brief annonçait 0 inspection et 0 document. La base en contient une de chacun.
 L'inspection unique date du 29 juin 2026, porte l'état `BON`, est rattachée à un
-tronçon, et a été créée par le compte `tidiane.diallo@ageroute.gov.gn`.
+tronçon, et a été créée par un compte administrateur.
 
 Elle a son importance : elle établit que la chaîne inspection fonctionne au moins une
 fois de bout en bout. Elle n'établit rien sur l'usage terrain.

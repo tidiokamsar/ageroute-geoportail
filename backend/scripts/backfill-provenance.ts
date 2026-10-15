@@ -29,7 +29,7 @@
  *   tsx scripts/backfill-provenance.ts --apply    # ecrit
  */
 import { PrismaClient } from "@prisma/client";
-import { planifierProvenance } from "../src/lib/provenance";
+import { planifierProvenance } from "./lib/provenance-backfill";
 
 const prisma = new PrismaClient();
 const APPLIQUER = process.argv.includes("--apply");

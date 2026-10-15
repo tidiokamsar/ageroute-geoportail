@@ -7,7 +7,16 @@ import { ApiError } from "../../middleware/error.middleware";
 import { createPhotoService } from "../../lib/photos";
 import { ouvrageCreateSchema } from "./ouvrages.schema";
 
-const base = createCrudService(prisma.ouvrage, "Ouvrage", { region: true, troncon: true });
+/**
+ * Ouvrage est migre a l'audit transactionnel (ADR 11), avec Troncon.
+ *
+ * Quatre de ses champs sont suivis par `CHAMPS_SUIVIS` : ses ecritures entrainent donc
+ * aussi des lignes de provenance qui doivent rejoindre la transaction.
+ */
+const base = createCrudService(prisma.ouvrage, "Ouvrage", {
+  include: { region: true, troncon: true },
+  delegueTransactionnel: (tx) => (tx as typeof prisma).ouvrage,
+});
 const photos = createPhotoService(prisma.ouvrage, "Ouvrage");
 
 function extractLatLon<T extends { lat?: number; lon?: number }>(data: T) {

@@ -80,7 +80,9 @@ export async function updateGeomHandler(req: Request, res: Response, next: NextF
   try {
     if (!req.user) throw new ApiError(401, "Authentification requise");
     const { geom } = tronconGeomSchema.parse(req.body);
-    await tronconsService.updateGeomOnly(req.params.id, geom);
+    // L'auteur etait verifie et JAMAIS transmis : l'ecriture du trace n'avait donc
+    // personne a inscrire dans son audit.
+    await tronconsService.updateGeomOnly(req.params.id, geom, req.user.id);
     res.json({ ok: true });
   } catch (err) { next(err); }
 }

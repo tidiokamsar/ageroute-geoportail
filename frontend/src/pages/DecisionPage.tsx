@@ -35,9 +35,19 @@ interface DecisionData {
     traficMoyenJma: number | null;
     criticiteStrategique: number | null;
     coutRehabEstime: number | null;
-    /** Valeurs ESTIMÉES, à ne jamais présenter comme relevées. */
-    criticiteEstimee: number;
-    montantRehabEstimeMd: number;
+    /**
+     * Valeurs ESTIMÉES, à ne jamais présenter comme relevées.
+     * `null` quand le moteur de coût refuse (aucune ligne de barème, revêtement non renseigné,
+     * état BON ou NON_EVALUE) : « on ne sait pas » se lit, un chiffre plausible se croit.
+     * La criticité est toujours `null` : aucune source, ni en base ni par un moteur de risque.
+     */
+    criticiteEstimee: number | null;
+    montantRehabEstimeMd: number | null;
+    estimationCout?: {
+      ok: boolean; classePrecision: string | null; margePct: number | null; provisoire: boolean;
+      hypothesesManquantes: string[]; bareme: { code: string | null; typeIntervention: string } | null;
+      refus: { code: string; motif: string } | null;
+    };
     estimations: { criticite: string; cout: string };
     criteresReels: { etat: boolean; trafic: boolean; criticite: boolean; cout: boolean };
   }[];
@@ -361,10 +371,12 @@ function PriorisationTab({ data }: { data: DecisionData }) {
                   <td className="px-3 py-2.5 tabular-nums text-right">
                     {t.coutRehabEstime != null ? (
                       `${t.coutRehabEstime.toFixed(0)} Md GNF`
-                    ) : (
+                    ) : t.montantRehabEstimeMd != null ? (
                       <span className="text-amber-700" title={t.estimations.cout}>
-                        ~{t.montantRehabEstimeMd.toFixed(0)} <span className="text-[10px]">estimé</span>
+                        ~{t.montantRehabEstimeMd.toFixed(1)} <span className="text-[10px]">{t.estimationCout?.provisoire === false ? "estimé" : "estimé, provisoire"}</span>
                       </span>
+                    ) : (
+                      <span className="text-gray-400" title={t.estimations.cout}>non estimé</span>
                     )}
                   </td>
                   <td className="px-3 py-2.5">
@@ -408,7 +420,7 @@ function SimulateurTab({ data }: { data: DecisionData }) {
   // Le simulateur travaille sur le cout ESTIME, faute de cout reel : il est le seul
   // ecran ou un ordre de grandeur reste utile pour degrossir une enveloppe. Mais il
   // doit le dire — voir l'avertissement affiche en tete de l'onglet.
-  const maxCout = Math.max(...troncons.map((t) => t.montantRehabEstimeMd), 1);
+  const maxCout = Math.max(...troncons.map((t) => t.montantRehabEstimeMd ?? 0), 1);
   const total = 100;
 
   const scored = useMemo(() => {
@@ -416,11 +428,16 @@ function SimulateurTab({ data }: { data: DecisionData }) {
       .map((t) => {
         const sEtat = ETAT_SCORE[t.etat] ?? 0;
         const sTrafic = maxTrafic > 0 ? ((t.traficMoyenJma ?? 0) / maxTrafic) * 100 : 0;
-        // Criticite et cout sont ESTIMES ici, et l'onglet l'annonce. Le classement
-        // sert a ordonner une simulation, pas a fonder une decision.
-        const sStrat = t.criticiteEstimee;
-        const sCout = maxCout > 0 ? (t.montantRehabEstimeMd / maxCout) * 100 : 0;
-        const score = (sEtat * weights.etat + sTrafic * weights.trafic + sStrat * weights.strat + sCout * weights.cout) / total;
+        // La criticite n'a AUCUNE source (ni base, ni moteur de risque) : elle pese 0, et son
+        // poids est redistribue par le diviseur ci-dessous. Le cout est l'estimation du moteur
+        // sur les baremes de la base -- provisoire -- et un troncon sans estimation pese 0 ici
+        // mais ne peut pas etre finance plus bas.
+        const sStrat = t.criticiteEstimee ?? 0;
+        const sCout = t.montantRehabEstimeMd != null && maxCout > 0 ? (t.montantRehabEstimeMd / maxCout) * 100 : 0;
+        const poidsEffectif = total - (t.criticiteEstimee == null ? weights.strat : 0) - (t.montantRehabEstimeMd == null ? weights.cout : 0);
+        const score = poidsEffectif > 0
+          ? (sEtat * weights.etat + sTrafic * weights.trafic + sStrat * weights.strat + sCout * weights.cout) / poidsEffectif
+          : 0;
         return { ...t, score };
       })
       .sort((a, b) => b.score - a.score);
@@ -429,8 +446,11 @@ function SimulateurTab({ data }: { data: DecisionData }) {
   const simulation = useMemo(() => {
     let used = 0, km = 0, count = 0, kmCritiqueTraite = 0;
     const rows = scored.map((t) => {
-      const fits = t.montantRehabEstimeMd > 0 && used + t.montantRehabEstimeMd <= budget;
-      if (fits) { used += t.montantRehabEstimeMd; km += t.longueurKm; count++; if (t.etat === "CRITIQUE") kmCritiqueTraite += t.longueurKm; }
+      // Sans estimation, un troncon ne se finance pas dans la simulation : on ne sait pas ce
+      // qu'il coute, et l'inscrire a 0 le ferait passer pour gratuit.
+      const m = t.montantRehabEstimeMd;
+      const fits = m != null && m > 0 && used + m <= budget;
+      if (fits && m != null) { used += m; km += t.longueurKm; count++; if (t.etat === "CRITIQUE") kmCritiqueTraite += t.longueurKm; }
       return { ...t, fits, cumul: fits ? used : null };
     });
     const totalKmCritique = data.kpis.kmCritique + data.kpis.kmMauvais || 1;
@@ -495,7 +515,9 @@ function SimulateurTab({ data }: { data: DecisionData }) {
                   <td className="px-3 py-2 text-gray-600">{t.region}</td>
                   <td className="px-3 py-2"><EtatPill etat={t.etat} /></td>
                   <td className="px-3 py-2 tabular-nums">{t.longueurKm.toFixed(1)} km</td>
-                  <td className="px-3 py-2 tabular-nums text-right">{t.montantRehabEstimeMd.toFixed(0)}</td>
+                  <td className="px-3 py-2 tabular-nums text-right" title={t.estimations.cout}>
+                    {t.montantRehabEstimeMd != null ? t.montantRehabEstimeMd.toFixed(1) : <span className="text-gray-400">non estimé</span>}
+                  </td>
                   <td className="px-3 py-2 tabular-nums">{t.cumul != null ? `${t.cumul.toFixed(0)} Md` : "—"}</td>
                   <td className="px-3 py-2">
                     {t.fits ? (

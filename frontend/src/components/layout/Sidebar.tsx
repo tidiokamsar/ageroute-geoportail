@@ -33,6 +33,10 @@ const sections = [
       { to: "/marches", label: "Marchés" },
       { to: "/programmation", label: "Programmation" },
       { to: "/inspections", label: "Inspections" },
+      { to: "/inspections/terrain/defauts", label: "Défauts terrain" },
+      { to: "/inspections/defauts/validation", label: "Validation des relevés", roles: ["ADMIN", "GESTIONNAIRE"] },
+      { to: "/inspections/defauts/catalogue", label: "Catalogue des défauts", roles: ["ADMIN", "GESTIONNAIRE"] },
+      { to: "/imports", label: "Lots d'import", roles: ["ADMIN", "GESTIONNAIRE"] },
     ],
   },
   {
@@ -48,19 +52,34 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
     .map((section) => ({
       ...section,
       items: section.items.filter((item) => {
+        if ("roles" in item && item.roles && !item.roles.includes(user?.role ?? "LECTEUR")) return false;
         const key = moduleForPath(item.to);
         return !key || hasModuleAccess(user?.modulesAutorises, user?.role, key);
       }),
     }))
     .filter((section) => section.items.length > 0);
 
-  const visibleSections =
-    user?.role === "ADMIN"
-      ? [...filteredSections, { title: "ADMINISTRATION", items: [
-          { to: "/utilisateurs", label: "Utilisateurs" },
-          { to: "/administration", label: "Paramètres" },
-        ] }]
-      : filteredSections;
+  /**
+   * L'ecran de designation n'est PAS reserve a ADMIN.
+   *
+   * AGEROUTE a confie la designation des validateurs a la Direction Technique, qui n'est
+   * pas administrateur de la plateforme. Le gater sur le role reviendrait a refuser cette
+   * decision — c'est pourquoi le droit est porte par le compte (`peutDeleguerValidation`)
+   * et non par le role : six profils sur onze sont GESTIONNAIRE.
+   */
+  const administration = [
+    { to: "/utilisateurs", label: "Utilisateurs" },
+    { to: "/administration", label: "Paramètres" },
+  ];
+  const peutDesigner = user?.role === "ADMIN" || user?.peutDeleguerValidation === true;
+  const itemsAdministration = [
+    ...(user?.role === "ADMIN" ? administration : []),
+    ...(peutDesigner ? [{ to: "/gouvernance", label: "Validateurs" }] : []),
+  ];
+
+  const visibleSections = itemsAdministration.length > 0
+    ? [...filteredSections, { title: "ADMINISTRATION", items: itemsAdministration }]
+    : filteredSections;
 
   return (
     <>

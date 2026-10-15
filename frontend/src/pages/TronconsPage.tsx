@@ -9,6 +9,7 @@ import { EtatBadge } from "../components/ui/Badge";
 import { api } from "../lib/api";
 import { tronconFields } from "../lib/fieldConfigs";
 import type { Troncon, Region, ClasseRoute, EtatPatrimoine } from "../types";
+import { formaterPk } from "../lib/pk";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -87,12 +88,7 @@ function NomCell({ nom, segmentCount }: { nom: string; segmentCount: number }) {
   );
 }
 
-// PK notation métier francophone : 1+400 = km 1, m 400
-function fmtPk(v: number): string {
-  const km = Math.floor(v);
-  const m = Math.round((v - km) * 1000);
-  return `${km}+${String(m).padStart(3, "0")}`;
-}
+
 
 function PkCell({ pkDebut, pkFin, onEdit, canEdit }: {
   pkDebut: number; pkFin: number; onEdit: () => void; canEdit: boolean;
@@ -112,7 +108,7 @@ function PkCell({ pkDebut, pkFin, onEdit, canEdit }: {
   }
   return (
     <span className="text-xs font-mono text-gray-600 whitespace-nowrap tabular-nums">
-      {fmtPk(pkDebut)} → {fmtPk(pkFin)}
+      {formaterPk(pkDebut, { prefixe: false })} → {formaterPk(pkFin, { prefixe: false })}
     </span>
   );
 }
