@@ -367,6 +367,17 @@ complet.
 `NON_RENSEIGNE` n'ont aucune famille de coût. Un moteur de coûts devra **refuser** d'estimer une
 chaussée en béton plutôt que de deviner.
 
+**Fait le 15/10 — et une découverte au passage.** Le moteur de coût existe (`engines/cout.noyau.ts`)
+et refuse comme annoncé. En le branchant sur l'écran d'aide à la décision, j'ai trouvé que cet
+écran portait **deux barèmes codés en dur** — 800 / 500 / 150 M GNF par km selon l'état, et une
+criticité de 90 / 70 / 50 / 30 selon la classe — que personne n'avait arrêtés et qui
+**contredisaient** les neuf barèmes de la base : 800 M/km pour un tronçon critique, là où le
+barème dit 3,5 milliards pour une reconstruction bitume, soit un facteur 4,4. Ils sont retirés.
+L'écran passe par le moteur : un tronçon qu'aucune ligne ne couvre affiche « non estimé » avec
+son motif, et la criticité est nulle faute de toute source. Les montants restants sont étiquetés
+**provisoires** avec les trois hypothèses non faites — approbation, millésime, largeur — qui
+sont précisément l'objet de cette fiche.
+
 ---
 
 ## D-08 Décisions institutionnelles (§ A.6.6)

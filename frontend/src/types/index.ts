@@ -313,6 +313,12 @@ export interface DashboardKpis {
   tronconsParEtat: { etat: EtatPatrimoine; total: number }[];
   ouvragesParEtat: { etat: EtatPatrimoine; total: number }[];
   chantiersParStatut: { statut: StatutChantier; total: number }[];
+  /** Le dénominateur, dit d'abord : réseau classé SAISI, pas le réseau national annoncé. */
+  perimetre?: { code: string; libelle: string; avertissement: string };
+  /** Portions homogènes validées : la vérité de l'état (D6). Zéro = états d'import seulement. */
+  portions?: { validees: number; kmValides: number; avertissement: string | null };
+  /** Ce que l'on sait réellement des valeurs : observé, importé non vérifié, dérivé, en conflit, inconnu. */
+  qualite?: { parStatut: { statut: string; total: number }[]; total: number };
 }
 
 export interface ActivityEntry {

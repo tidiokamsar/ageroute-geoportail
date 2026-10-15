@@ -84,7 +84,7 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 | 7.1 | Conventions géospatiales 🔒 | **PA** | longueurs en `geography` : conforme. **UTM 28N/29N non employé** pour les surfaces. SQL paramétré : corrigé et gardé par un test |
 | 7.2 | Référencement linéaire, ISO 19148, bitemporel | **PA** | portions, lignage, exclusion : faits. Historisation bitemporelle écrite, **et son défaut corrigé** — la contrainte d'exclusion ignorait l'axe terrain, donc aucune donnée ne pouvait l'exercer. Trois migrations non déployées. Codification nationale absente |
 | 7.3 | Map-matching ponctuel et de trace | **TP** | ponctuel **complet** avec les 5 facteurs et les 3 issues ; **trace HMM écrite et mesurée**. Reste : le graphe de réseau, sans lequel le HMM retombe sur la distance seule entre tronçons différents |
-| 7.4 | Catalogue et métrés | **TP** | 13 types ; le § 7.16 exige **≥ 21 types**, revêtu et non revêtu. Photos de référence par gravité absentes |
+| 7.4 | Catalogue et métrés | **TP** | **31 types** en référentiel pur (22 tests), revêtu / non revêtu par colonne `applicabilite`, semés par le script idempotent (31 → 0 au rejeu) ; le plancher ≥ 21 du § 7.16 est tenu. Photos de référence par gravité absentes |
 | 7.5 | Workflow de validation | **TT** | — |
 | 7.6 | Moteur de qualité | **TT** | — |
 | 7.7 | Évaluation, prévision, programmation | **EA** | RCI écrit, **désapprouvé** ; **catalogue des traitements créé** depuis les barèmes, attributs normatifs nuls, non approuvé ; lois de vieillissement **identifiées** (`matrices_degradation`, pas de temps non documenté) ; risque, coût, programmation **absents** |

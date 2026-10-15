@@ -148,6 +148,43 @@ export function DashboardPage() {
         </Link>
       </div>
 
+      {/* ── Périmètre, portions validées, qualité des valeurs ──────────────────
+          Le tableau de bord ignorait les portions homogènes (la vérité de l'état, D6) et la
+          qualité des valeurs : il annonçait un état du réseau fondé sur des imports. Et il ne
+          disait pas son dénominateur. Les deux sont dits ici, avant les graphiques. */}
+      {data.perimetre && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="font-semibold">{data.perimetre.libelle}</p>
+          <p className="text-xs">{data.perimetre.avertissement}</p>
+        </div>
+      )}
+      {(data.portions || data.qualite) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {data.portions && (
+            <Link to="/portions/validation">
+              <KpiCard
+                label="Portions validées (état constaté)"
+                value={data.portions.validees}
+                sub={data.portions.avertissement ?? `${data.portions.kmValides.toLocaleString("fr-FR")} km d'état constaté sur le terrain`}
+                icon={<Route className="h-5 w-5" />}
+                accent={data.portions.validees === 0 ? "#b45309" : "#15803d"}
+              />
+            </Link>
+          )}
+          {data.qualite && (
+            <Link to="/qualite">
+              <KpiCard
+                label="Valeurs observées sur le terrain"
+                value={data.qualite.parStatut.find((q) => q.statut === "OBSERVED")?.total ?? 0}
+                sub={`sur ${data.qualite.total.toLocaleString("fr-FR")} valeurs qualifiées — le reste est importé non vérifié, dérivé, en conflit ou inconnu`}
+                icon={<Gauge className="h-5 w-5" />}
+                accent="#0f766e"
+              />
+            </Link>
+          )}
+        </div>
+      )}
+
       {/* ── Bandeau alerte ────────────────────────────────────────────────── */}
       {data.alertesCount > 0 && (
         <div className="flex items-center gap-3 rounded-xl border-l-4 border-l-red-500 border border-red-200 bg-red-50 px-4 py-3">

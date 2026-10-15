@@ -24,7 +24,7 @@ verts. Base de développement : conteneur `bdri-dev-db`, PostGIS 17-3.5, base `r
 
 | Lot | Contenu | Statut | Preuve |
 |---|---|---|---|
-| **L-00 Vert permanent** | suites backend et frontend vertes, `tsc` propre des deux côtés, bancs SQL verts | `VERIFIED` | backend 1 287 ✓, frontend 304 ✓, cinq bancs SQL ✓ au commit `652d22d` |
+| **L-00 Vert permanent** | suites backend et frontend vertes, `tsc` propre des deux côtés, bancs SQL verts | `VERIFIED` | backend 1 287 ✓, frontend 304 ✓, cinq bancs SQL ✓ au commit `652d22d`. **Règle apprise le 15/10** : ne jamais lancer la suite frontend en même temps qu'une suite ou un `tsc` backend — sur ce poste, 10 tests sur 304 dépassent alors leur plafond (y compris des fichiers non modifiés) ; seuls, ils passent |
 | **S Sécurité et état réel** | `SECURITY_REMEDIATION.md`, migrations réconciliées, matrice, décisions, ADR D1–D15 | `DONE` | commits du 14/10 ; 4 alertes de sécurité `BLOCKED` (production gelée) |
 | **0 Phase 0** | quatre preuves du § F.1 | `VERIFIED` | rollback exécuté en aller-retour ; B-13 clos ; **B-16 ouvert** (chaîne non rejouable, D-10) |
 | **1 Socle, SRID, CI** | CI sur `lot/**`, contrôle des migrations, secret scan | `DONE` | `.github/workflows/ci.yml` |
@@ -53,8 +53,9 @@ verts. Base de développement : conteneur `bdri-dev-db`, PostGIS 17-3.5, base `r
 | T-4 | Estimation de coût qui **refuse** sans ligne de barème | 9 | `DONE` | `engines/cout.noyau.ts`, sans import, BigInt, 18 tests. Une prémisse fausse de mon test corrigée (7,4 × 10¹³ ne dépasse pas 2⁵³) ; l'exactitude au franc est prouvée là où un double perd |
 | T-5 | P1–P4 **provisoires, non approuvés** | 12 | `VERIFIED` | migration `20261015000000`, source `mandat_v10_proposition`, `approuveeLe` nul, P4 seul non franchissable ; une portion peut porter P4 ; descente ciblée par source, aller-retour vérifié |
 | T-6 | Main courante en ajout seul | 12 | `DONE` | migration `20261015010000` : chaîne d'entrées, **premier déclencheur du dépôt** (UPDATE/DELETE/antidatage refusés — banc SQL 14 assertions), vue `evenements_exploitation` avec délais EX-08, 10 types + 4 sources en tables. Noyau du cycle de vie (13 tests) + service transactionnel audité + route `/api/v2/exploitation/main-courante` sans PUT/PATCH/DELETE (10 tests). **Statut `DONE`** au commit `652d22d` |
-| T-7 | Tableau de bord : couverture par portions et qualité, périmètre affiché partout | 10 | `TODO` | tests ; « réseau classé saisi », jamais « national » |
-| T-8 | Catalogue des défauts ≥ 21 types, revêtu / non revêtu | 4 | `IN_PROGRESS` | **par le script idempotent** qui a semé les 13 (la base de dev montre qu'ils ne viennent pas d'une migration) ; liste en module pur testé ; colonne `applicabilite` (REVETU / NON_REVETU / TOUS) par migration additive ; A11 inchangé |
+| T-7a | Écran de décision : **retrait de deux barèmes inventés** (800/500/150 M GNF/km, criticité 90/70/50/30) qui contredisaient la base d'un facteur 4,4 ; estimation par le moteur de coût, `null` + motif quand il refuse ; criticité nulle (aucune source) | 10 | `DONE` | `engines/decision.estimation.ts` 11 tests ; `DecisionPage` adapté (null géré, poids redistribués, tronçon non estimé non finançable) ; frontend 304/304 seule, `tsc` propre des deux côtés |
+| T-7b | Tableau de bord `/kpis` : portions validées (compte, km), répartition qualité par statut, **périmètre dit d'abord** (« réseau classé saisi », jamais « national ») | 10 | `DONE` | route étendue, `DashboardPage` affiche périmètre + deux cartes ; avertissement explicite quand zéro portion validée : « les états affichés sont des valeurs d'import » |
+| T-8 | Catalogue des défauts ≥ 21 types, revêtu / non revêtu | 4 | `VERIFIED` | `c1312d9` : 31 types en module pur (22 tests), script idempotent éprouvé 31 → 0, colonne `applicabilite` avec contrainte vérifiée, descente aller-retour |
 | T-9 | Inspection typée post-travaux (rattachée au cycle de vie, origine `INSPECTION_POST_TRAVAUX`) | 4/9 | `TODO` | garde-fou inchangé |
 | T-10 | Vérification des prérequis de déploiement, puis déploiement si **tous** satisfaits | 15 | `TODO` | § 4 |
 
