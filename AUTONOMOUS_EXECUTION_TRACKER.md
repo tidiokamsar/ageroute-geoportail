@@ -13,10 +13,10 @@
 > données ; aucune opération de production sans prérequis **vérifiés** (sauvegarde restaurable,
 > rollback testé, espace disque, compteurs) — et jamais prétendre avoir déployé sans l'avoir fait.
 
-**Dernière mise à jour : 14/10/2026, 23:45.** Branche `lot/03-map-matching`, dernier commit poussé
-`0f4cce8`. Backend **1 246** tests, frontend **304** (3 échecs en cours d'analyse dans la suite
-complète — voir L-00). Base de développement : conteneur `bdri-dev-db`, PostGIS 17-3.5, base
-`replay`, 56 migrations.
+**Dernière mise à jour : 15/10/2026, 00:50.** Branche `lot/03-map-matching`, dernier commit poussé
+`652d22d`. Backend **1 287** tests, frontend **304**, `tsc` propre des deux côtés, cinq bancs SQL
+verts. Base de développement : conteneur `bdri-dev-db`, PostGIS 17-3.5, base `replay`,
+**58 migrations** (50 appliquées en production, 8 en attente, chacune avec sa descente vérifiée).
 
 ---
 
@@ -24,7 +24,7 @@ complète — voir L-00). Base de développement : conteneur `bdri-dev-db`, Post
 
 | Lot | Contenu | Statut | Preuve |
 |---|---|---|---|
-| **L-00 Vert permanent** | suites backend et frontend vertes, `tsc` propre des deux côtés, bancs SQL verts | `IN_PROGRESS` | backend 1 246 ✓ ; frontend 301/304 dans la suite complète, 10/10 isolé — cause à établir |
+| **L-00 Vert permanent** | suites backend et frontend vertes, `tsc` propre des deux côtés, bancs SQL verts | `VERIFIED` | backend 1 287 ✓, frontend 304 ✓, cinq bancs SQL ✓ au commit `652d22d` |
 | **S Sécurité et état réel** | `SECURITY_REMEDIATION.md`, migrations réconciliées, matrice, décisions, ADR D1–D15 | `DONE` | commits du 14/10 ; 4 alertes de sécurité `BLOCKED` (production gelée) |
 | **0 Phase 0** | quatre preuves du § F.1 | `VERIFIED` | rollback exécuté en aller-retour ; B-13 clos ; **B-16 ouvert** (chaîne non rejouable, D-10) |
 | **1 Socle, SRID, CI** | CI sur `lot/**`, contrôle des migrations, secret scan | `DONE` | `.github/workflows/ci.yml` |
@@ -38,7 +38,7 @@ complète — voir L-00). Base de développement : conteneur `bdri-dev-db`, Post
 | **9 Moteurs de décision** | catalogue traitements `DONE` ; cycle de vie gardé `DONE` ; RCI `EA` ; risque, coût, PPE/PAE | `IN_PROGRESS` | coût et programmation `BLOCKED` par **D-07** (millésime, largeur) ; estimation « refuse sans ligne » réalisable |
 | **10 Tableau de bord, Géoportail d'excellence** | portions et qualité au tableau de bord ; benchmark D3 | `TODO` | benchmark `BLOCKED` : aucune donnée locale, production gelée |
 | **11 Écosystème ONR / BDR / ANASUR** | 15 livrables `DONE` ; pivot CSV/GeoJSON `DONE` ; import étape 1 `DONE` ; écran lots `DONE` | `IN_PROGRESS` | étape 2 (application) `BLOCKED` : échantillon approuvé ; GeoPackage `TODO` (dépendance à choisir) |
-| **12 Exploitation (§ 7.17)** | main courante append-only, patrouilles, P1–P4, Info Route | `TODO` | P1–P4 proposition en D-02 ; peuplement provisoire réalisable |
+| **12 Exploitation (§ 7.17)** | main courante `DONE` ; P1–P4 provisoires `VERIFIED` ; patrouilles, cellule de veille, Info Route, bulletin | `IN_PROGRESS` | EX-01 et EX-02 livrés ; EX-03 à EX-09 `TODO` |
 | **13 Intégrations DigitalRoad, SharePoint** | sortante en service ; entrante | `BLOCKED` | **B-11, B-12** : aucun accès de recette |
 | **14 Observation de la Terre (partie E)** | palier 0 gratuit | `TODO` | aucune dépense ; conception « descendre, jamais téléverser » |
 | **15 Publication** | build des deux applications, commits, push, déploiement | `IN_PROGRESS` | push continu ; **déploiement : prérequis à vérifier avant tout geste** (§ 4) |
@@ -52,9 +52,9 @@ complète — voir L-00). Base de développement : conteneur `bdri-dev-db`, Post
 | T-3 | Builds | 15 | `VERIFIED` | frontend 94 fichiers / 5,3 Mo en 2 min 27 ; backend 234 fichiers émis ; nouveaux modules présents dans `dist/` |
 | T-4 | Estimation de coût qui **refuse** sans ligne de barème | 9 | `DONE` | `engines/cout.noyau.ts`, sans import, BigInt, 18 tests. Une prémisse fausse de mon test corrigée (7,4 × 10¹³ ne dépasse pas 2⁵³) ; l'exactitude au franc est prouvée là où un double perd |
 | T-5 | P1–P4 **provisoires, non approuvés** | 12 | `VERIFIED` | migration `20261015000000`, source `mandat_v10_proposition`, `approuveeLe` nul, P4 seul non franchissable ; une portion peut porter P4 ; descente ciblée par source, aller-retour vérifié |
-| T-6 | Main courante en ajout seul | 12 | `IN_PROGRESS` | migration `20261015010000` : chaîne d'entrées, **premier déclencheur du dépôt** (UPDATE/DELETE/antidatage refusés — banc SQL 14 assertions), vue `evenements_exploitation` avec délais EX-08, 10 types + 4 sources en tables. Noyau du cycle de vie (`exploitation/main-courante.noyau.ts`) + service + route `/api/v2/exploitation/main-courante` écrits ; **tests TS en cours** |
+| T-6 | Main courante en ajout seul | 12 | `DONE` | migration `20261015010000` : chaîne d'entrées, **premier déclencheur du dépôt** (UPDATE/DELETE/antidatage refusés — banc SQL 14 assertions), vue `evenements_exploitation` avec délais EX-08, 10 types + 4 sources en tables. Noyau du cycle de vie (13 tests) + service transactionnel audité + route `/api/v2/exploitation/main-courante` sans PUT/PATCH/DELETE (10 tests). **Statut `DONE`** au commit `652d22d` |
 | T-7 | Tableau de bord : couverture par portions et qualité, périmètre affiché partout | 10 | `TODO` | tests ; « réseau classé saisi », jamais « national » |
-| T-8 | Catalogue des défauts ≥ 21 types, revêtu / non revêtu, par **table** (migration) | 4 | `TODO` | A11 inchangé |
+| T-8 | Catalogue des défauts ≥ 21 types, revêtu / non revêtu | 4 | `IN_PROGRESS` | **par le script idempotent** qui a semé les 13 (la base de dev montre qu'ils ne viennent pas d'une migration) ; liste en module pur testé ; colonne `applicabilite` (REVETU / NON_REVETU / TOUS) par migration additive ; A11 inchangé |
 | T-9 | Inspection typée post-travaux (rattachée au cycle de vie, origine `INSPECTION_POST_TRAVAUX`) | 4/9 | `TODO` | garde-fou inchangé |
 | T-10 | Vérification des prérequis de déploiement, puis déploiement si **tous** satisfaits | 15 | `TODO` | § 4 |
 
@@ -93,8 +93,10 @@ satisfaits.** S'ils ne le sont pas, il n'a pas lieu, et ce fichier dit pourquoi.
 
 ## 5. Prochaine action
 
-**T-1** : lire la sortie de la suite frontend complète, nommer les trois tests en échec, corriger
-la cause (pas le symptôme), relancer jusqu'à 304/304. Puis T-2.
+**T-8** : module pur des types du § 7.4 (≥ 21, revêtu et non revêtu), test, migration additive
+`applicabilite`, script de peuplement étendu sans toucher aux 13 lignes existantes. Puis **T-7**
+(tableau de bord : portions, qualité, périmètre affiché), puis **T-9**, puis **T-10** — les
+prérequis de déploiement, vérifiés un à un, et le déploiement seulement s'ils tiennent tous.
 
 ## 6. Instruction de reprise
 

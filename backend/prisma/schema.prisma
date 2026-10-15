@@ -1909,6 +1909,10 @@ model CatalogueDefaut {
 
   description String?
 
+  /// Sur quel type de chaussee ce defaut a un sens : REVETU, NON_REVETU ou TOUS (§ 7.16).
+  /// Texte contraint en base, pas une enumeration : ALTER TYPE ADD VALUE est irreversible.
+  applicabilite String @default("TOUS")
+
   /// D'ou vient cette entree. La valeur par defaut dit franchement que le vocabulaire
   /// est courant et non normatif, pour qu'on ne le prenne pas pour un arrete.
   source String @default("vocabulaire_courant_a_valider")
