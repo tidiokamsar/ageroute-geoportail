@@ -353,6 +353,12 @@ model User {
   programmesPatrouilleCrees       ProgrammePatrouille[]  @relation("ProgrammeCreateur")
   publicationsInfoRoute           PublicationInfoRoute[] @relation("InfoRoutePublieur")
   bulletinsGeneres                BulletinRoutier[]      @relation("BulletinGenerateur")
+  astreintes                      Astreinte[]            @relation("AstreinteAgent")
+  astreintesCreees                Astreinte[]            @relation("AstreinteCreateur")
+  reglesEscaladeCreees            RegleEscalade[]        @relation("RegleEscaladeCreateur")
+  escaladesRecues                 Escalade[]             @relation("EscaladeDestinataire")
+  escaladesEvaluees               Escalade[]             @relation("EscaladeEvaluateur")
+  modesVeilleDeclares             ModeVeille[]           @relation("ModeVeilleDeclarant")
 
   @@map("users")
 }
@@ -414,6 +420,8 @@ model Region {
 
   delegationsValidation DelegationValidation[]
   programmesPatrouille  ProgrammePatrouille[]
+
+  astreintes Astreinte[]
 
   @@map("regions")
 }
@@ -3094,7 +3102,8 @@ model ReferentielTypeEvenement {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  entrees EntreeMainCourante[]
+  entrees        EntreeMainCourante[]
+  reglesEscalade RegleEscalade[]
 
   @@map("referentiel_types_evenement")
 }
@@ -3175,6 +3184,9 @@ model EntreeMainCourante {
   missionId     String?
 
   clientOperationId String? @unique
+  /// Ordre d'insertion, strictement croissant : a heure serveur egale (meme transaction, meme
+  /// milliseconde), c'est lui qui dit quelle entree suit l'autre. Voir 20261019030000.
+  rang              BigInt  @unique(map: "main_courante_rang_key") @default(autoincrement())
 
   @@index([evenementId, enregistreLe])
   @@index([tronconId])
@@ -3274,4 +3286,85 @@ model BulletinRoutier {
 
   @@index([jour], map: "bulletins_routiers_jour_idx")
   @@map("bulletins_routiers")
+}
+
+/// Astreinte de la cellule de veille (paragraphe 7.17, EX-04) : qui est joignable, quand, a quel
+/// niveau, sur quel perimetre (region, ou national si nul). Saisie par AGEROUTE. L'index de
+/// periode est PARTIEL (`WHERE "deletedAt" IS NULL`) et vit dans la migration : Prisma 5 ne sait
+/// pas l'exprimer, le declarer ici le ferait recreer sans son predicat.
+model Astreinte {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation("AstreinteAgent", fields: [userId], references: [id])
+  niveau    Int
+  regionId  Int?
+  region    Region?   @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  debut     DateTime
+  fin       DateTime
+  creeParId String
+  creePar   User      @relation("AstreinteCreateur", fields: [creeParId], references: [id])
+  deletedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  escalades Escalade[]
+
+  @@map("astreintes")
+}
+
+/// Regle d'escalade : apres `delaiMinutes`, un evenement encore OUVERT monte au `niveau`. Aucune
+/// semee ; une seule active par (type, mode, niveau), tenu par un index unique partiel en base.
+model RegleEscalade {
+  id           String                    @id @default(uuid())
+  typeCode     String?
+  typeRef      ReferentielTypeEvenement? @relation(fields: [typeCode], references: [code], onDelete: Restrict)
+  /// NORMAL, SAISON_PLUIES ou TOUS.
+  mode         String
+  niveau       Int
+  delaiMinutes Int
+  actif        Boolean                   @default(true)
+  creeParId    String
+  creePar      User                      @relation("RegleEscaladeCreateur", fields: [creeParId], references: [id])
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @default(now()) @updatedAt
+
+  escalades Escalade[]
+
+  @@map("regles_escalade")
+}
+
+/// Journal des escalades, en ajout seul (declencheur), une ligne par (evenement, niveau).
+/// Aucune notification n'est envoyee : le canal est une decision d'AGEROUTE.
+model Escalade {
+  id             String        @id @default(uuid())
+  evenementId    String
+  niveau         Int
+  regleId        String
+  regle          RegleEscalade @relation(fields: [regleId], references: [id], onDelete: Restrict)
+  astreinteId    String?
+  astreinte      Astreinte?    @relation(fields: [astreinteId], references: [id], onDelete: Restrict)
+  /// Nul : personne n'etait d'astreinte a ce niveau -- un trou de permanence, montre tel quel.
+  destinataireId String?
+  destinataire   User?         @relation("EscaladeDestinataire", fields: [destinataireId], references: [id], onDelete: Restrict)
+  modeVeille     String
+  declencheeLe   DateTime      @default(now())
+  evalueeParId   String
+  evalueePar     User          @relation("EscaladeEvaluateur", fields: [evalueeParId], references: [id])
+
+  @@unique([evenementId, niveau], map: "escalades_evenement_niveau_key")
+  @@map("escalades")
+}
+
+/// Mode de la cellule, DECLARE et non calcule (les saisons different selon les regions). Ajout
+/// seul : le mode courant est la derniere declaration.
+model ModeVeille {
+  id           String   @id @default(uuid())
+  /// NORMAL ou SAISON_PLUIES.
+  mode         String
+  motif        String
+  declareParId String
+  declarePar   User     @relation("ModeVeilleDeclarant", fields: [declareParId], references: [id])
+  declareLe    DateTime @default(now())
+  rang         BigInt   @default(autoincrement())
+
+  @@map("modes_veille")
 }

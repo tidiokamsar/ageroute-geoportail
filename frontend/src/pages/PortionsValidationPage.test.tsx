@@ -151,7 +151,10 @@ describe("Ce que le validateur doit voir avant de trancher", () => {
 
 describe("Trancher", () => {
   async function ouvrir() {
-    const user = userEvent.setup();
+    // `delay: null` : sans cela, user-event marque une pause a chaque frappe, et la saisie d'un
+    // commentaire de 25 caracteres depassait seule le plafond de 5 s sur un poste charge (19/10).
+    // Meme correctif que DefautTerrainPage (T-1) ; le comportement teste ne change pas.
+    const user = userEvent.setup({ delay: null });
     afficher();
     await user.click(await screen.findByRole("button", { name: /Trancher/ }));
     return user;
@@ -184,7 +187,7 @@ describe("Trancher", () => {
       `/v2/portions/${UUID}/validation`,
       { decision: "A_CORRIGER", commentaire: "Revoir l'abscisse de fin." },
     ));
-  });
+  }, 15_000);
 
   it("affiche le MOTIF du serveur quand la décision est refusée", async () => {
     // AUTO_VALIDATION, HORS_DELEGATION, ROLE_INSUFFISANT : traduire un refus d'autorité en

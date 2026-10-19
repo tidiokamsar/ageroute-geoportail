@@ -10,6 +10,7 @@ const sections = [
       { to: "/", label: "Tableau de bord" },
       { to: "/geoportail", label: "Géoportail" },
       { to: "/alertes", label: "Alertes" },
+      { to: "/veille", label: "Cellule de veille" },
       { to: "/rapports", label: "Rapports" },
       { to: "/rapports/bailleur", label: "Rapport bailleur" },
       { to: "/decision", label: "Aide à la décision" },

@@ -13,10 +13,14 @@
 > données ; aucune opération de production sans prérequis **vérifiés** (sauvegarde restaurable,
 > rollback testé, espace disque, compteurs) — et jamais prétendre avoir déployé sans l'avoir fait.
 
-**Dernière mise à jour : 19/10/2026.** Branche `lot/03-map-matching`. Backend **1 421** tests,
-frontend **304**, `tsc` propre des deux côtés, **huit bancs SQL** verts. Base de développement :
-conteneur `bdri-dev-db`, PostGIS 17-3.5 (GEOS 3.9), base `replay`, **62 migrations** (50 appliquées
-en production, 12 en attente, chacune avec sa descente vérifiée en aller-retour).
+**Dernière mise à jour : 19/10/2026.** Branche `lot/03-map-matching`. Backend **1 443/1 443**, `tsc` propre des deux côtés, **neuf bancs SQL** verts. Frontend :
+**309 tests, suite complète NON confirmée verte le 19/10** : sous la charge d'une autre session
+(moins de 500 Mo libres), 20 dépassements de délai dans 3 fichiers non modifiés ; en reprise ciblée,
+`CelluleVeillePage` 5/5, `ImportsPage` 10/10, `GouvernancePage` 12/12, `PortionsValidationPage`
+15/16 avec un test différent à chaque reprise (5,1 s puis 7,2 s pour 5 s de plafond). À relancer
+seule, poste déchargé, avant tout déploiement. Base de développement :
+conteneur `bdri-dev-db`, PostGIS 17-3.5 (GEOS 3.9), base `replay`, **64 migrations** (50 appliquées
+en production, 14 en attente, chacune avec sa descente vérifiée en aller-retour).
 
 ---
 
@@ -38,7 +42,7 @@ en production, 12 en attente, chacune avec sa descente vérifiée en aller-retou
 | **9 Moteurs de décision** | catalogue traitements `DONE` ; cycle de vie gardé `DONE` ; RCI `EA` ; risque, coût, PPE/PAE | `IN_PROGRESS` | coût et programmation `BLOCKED` par **D-07** (millésime, largeur) ; estimation « refuse sans ligne » réalisable |
 | **10 Tableau de bord, Géoportail d'excellence** | portions et qualité au tableau de bord ; benchmark D3 | `TODO` | benchmark `BLOCKED` : aucune donnée locale, production gelée |
 | **11 Écosystème ONR / BDR / ANASUR** | 15 livrables `DONE` ; pivot CSV/GeoJSON `DONE` ; import étape 1 `DONE` ; écran lots `DONE` | `IN_PROGRESS` | étape 2 (application) `BLOCKED` : échantillon approuvé ; GeoPackage `TODO` (dépendance à choisir) |
-| **12 Exploitation (§ 7.17)** | main courante `DONE` ; P1–P4 provisoires `VERIFIED` ; patrouilles programmées `VERIFIED` ; Info Route et bulletin `VERIFIED` ; cellule de veille | `IN_PROGRESS` | EX-01, EX-02, EX-03, EX-05, EX-06, EX-08 livrés ; EX-04 `TODO` ; EX-07 (Waze/CIFS) et EX-09 (DATEX II) `BLOCKED` (aucun compte partenaire, aucune autorisation) ; diffusion du bulletin (radio, SMS, WhatsApp) `BLOCKED` (aucun canal raccordé ni autorisé) ; alerte capteur `BLOCKED` (aucun capteur raccordé, aucune interface approuvée) |
+| **12 Exploitation (§ 7.17)** | main courante `DONE` ; P1–P4 provisoires `VERIFIED` ; patrouilles programmées `VERIFIED` ; Info Route et bulletin `VERIFIED` ; cellule de veille `VERIFIED` | `DONE` pour tout ce qui est exécutable | EX-01 à EX-06 et EX-08 livrés ; notifications d'escalade `BLOCKED` (canal à choisir par AGEROUTE) ; EX-07 (Waze/CIFS) et EX-09 (DATEX II) `BLOCKED` (aucun compte partenaire, aucune autorisation) ; diffusion du bulletin (radio, SMS, WhatsApp) `BLOCKED` (aucun canal raccordé ni autorisé) ; alerte capteur `BLOCKED` (aucun capteur raccordé, aucune interface approuvée) |
 | **13 Intégrations DigitalRoad, SharePoint** | sortante en service ; entrante | `BLOCKED` | **B-11, B-12** : aucun accès de recette |
 | **14 Observation de la Terre (partie E)** | palier 0 gratuit | `TODO` | aucune dépense ; conception « descendre, jamais téléverser » |
 | **15 Publication** | build des deux applications, commits, push, déploiement | `IN_PROGRESS` | push continu ; **déploiement : prérequis à vérifier avant tout geste** (§ 4) |
@@ -61,6 +65,8 @@ en production, 12 en attente, chacune avec sa descente vérifiée en aller-retou
 | T-11 | Patrouilles programmées (EX-03) | 12 | `VERIFIED` | migration `20261019000000` : `programmes_patrouille` (périodicité 1–366 j et mois actifs **saisis, rien de semé** ; l'exemple du mandat n'est saisi que par le banc), itinéraire ordonné `programme_troncons`, `missions.programmeId` / `signalementId`, fonction `couverture_patrouille(mission, tolérance = 30 m)`. **Défaut trouvé par le banc** : `ST_Intersection` (GEOS 3.9) rendait une ligne vide pour un tronçon suivi exactement par la trace et couvert par le tampon ; remplacé par un échantillonnage géodésique (`ST_DWithin` en geography, pas ≤ 10 m), sans overlay. Banc SQL (A 100 %, B 52 %, C 0 %, écart 527 m mesuré), descente aller-retour. Noyau pur 31 tests (échéance saisonnière sans retard hors saison, saison à cheval sur l'année), routes 14 tests, service éprouvé contre `replay` en transaction annulée. Passages engendrés en BROUILLON : le cycle de vie reste celui des missions |
 | T-12 | Info Route (EX-05) et bulletin quotidien (EX-06) | 12 | `VERIFIED` | migration `20261019010000` : `publications_info_route` **en ajout seul** (déclencheur : UPDATE/DELETE refusés, heure serveur, événement existant, séquence PUBLICATION → MISE_A_JOUR → RETRAIT tenue sous verrou), vue publique `info_route_courante`, `bulletins_routiers` figés avec **empreinte SHA-256 vérifiée par contrainte**. Règle : un événement OUVERT ne se publie pas (« validé par l'exploitant » = pris en compte) ; **un niveau P1–P4 non approuvé ne s'annonce pas au public** (consigne AGEROUTE du 13/10, refus en base). Flux public `/api/public/info-route` sans auteur, texte interne ni identifiant ; dernier bulletin en texte simple. Banc SQL 20 assertions, descente aller-retour, noyau 19 tests, routes 11 tests, épreuve contre `replay`. **Défaut trouvé dans EX-01 (non déployé)** : une déclaration localisée par un point seul ne pouvait pas s'enregistrer (contrainte jugée à l'INSERT, UPDATE refusé par le déclencheur) ; corrigé en une insertion unique, test réécrit. Le bulletin n'est envoyé nulle part |
 | T-13 | Statistiques d'exploitation (EX-08) | 12 | `DONE` | sans migration : `GET /api/v2/exploitation/statistiques?du=&au=` (période **exigée**), noyau pur 10 tests : délai de prise en compte et durée des coupures en médiane / 90e centile **par rang le plus proche** (valeur observée, jamais interpolée), événements jamais pris en compte comptés à part, tronçons **classés** sans étiquette « récurrent » ni cible de délai (aucune fixée par AGEROUTE). Requête exécutée contre la vue réelle ; route 2 tests |
+| T-14 | Cellule de veille (EX-04) | 12 | `VERIFIED` | migration `20261019020000` : `astreintes` (niveau, région ou national, période), `regles_escalade` **aucune semée** (une seule active par type × mode × niveau, index partiel), `escalades` et `modes_veille` **en ajout seul**, une escalade par (événement, niveau). Mode SAISON_PLUIES **déclaré**, jamais calculé d'un calendrier. Noyau 15 tests (règle la plus précise, seul OUVERT monte, astreinte régionale puis nationale, trou de permanence = null), routes 9 tests, page `/veille` murale et mobile (rafraîchie toutes les 30 s, évalue puis lit), 5 tests. Banc SQL 17 assertions, descente aller-retour, épreuve contre `replay`. **Aucune notification envoyée** ; pas d'ordonnanceur serveur : l'évaluation, idempotente, est déclenchée par la vue |
+| T-15 | **Défaut d'EX-01 trouvé par T-14** : ordre du journal à heure égale | 12 | `VERIFIED` | la vue retenait le dernier statut par heure puis **uuid aléatoire** : à heure serveur égale, une déclaration OUVERT pouvait passer pour plus récente que son PRIS_EN_COMPTE (un événement pris en compte a été escaladé). Migration `20261019030000` : `rang BIGSERIAL` sur `main_courante`, vue et service ordonnés par lui. Banc : **7 événements sur 20 faux avant, 20 sur 20 après**. Descente aller-retour. Écarts schéma/base préexistants d'EX-01 relevés (comportement `ON DELETE` de quatre clés, index GiST, un nom d'index) : sans effet sur `migrate deploy`, non corrigés |
 
 ## 3. Blocages actifs
 
@@ -83,8 +89,8 @@ en production, 12 en attente, chacune avec sa descente vérifiée en aller-retou
 2. **sauvegarde du jour** : `pg_dump -Fc` puis `pg_restore -l` — pas seulement l'existence du fichier ;
 3. espace disque > 15 % libre, sinon `docker builder prune` d'abord ;
 4. compteurs de référence relevés (`troncons`, `ouvrages`, `valeurs_qualite`, `audit_logs`, `users`) ;
-5. `prisma migrate status` : 50 appliquées, 12 en attente, 0 orpheline ;
-6. les douze descentes des migrations en attente présentes dans `backend/prisma/descentes/` ;
+5. `prisma migrate status` : 50 appliquées, 14 en attente, 0 orpheline ;
+6. les quatorze descentes des migrations en attente présentes dans `backend/prisma/descentes/` ;
 7. `git diff --name-status main...HEAD | grep ^D` vide ;
 8. empreintes des deux `.env` relevées avant et après.
 
@@ -101,11 +107,17 @@ satisfaits.** S'ils ne le sont pas, il n'a pas lieu, et ce fichier dit pourquoi.
   commande. La PR #2 est ouverte, rouge pour cette seule raison. Le vert local reste la seule preuve.
 - **Volume F:** : bit « dirty » toujours posé ; `chkdsk F: /f` non lancé (accès exclusif, à
   l'utilisateur). Portable sur secteur au 19/10.
-- **Docker** : relancé le 19/10 ; base `replay` intacte, les huit bancs SQL y passent.
+- **Docker** : relancé le 19/10 ; base `replay` intacte, les neuf bancs SQL y passent.
+- **Charge du poste** : une autre session Claude (projet `F:\BTP-project…`) fait tourner ses suites
+  en parallèle ; 730 Mo libres observés, `tsc` backend à 454 s au lieu de moins d'une minute. Ses
+  processus n'ont pas été touchés.
 
 ## 5. Prochaine action
 
-**EX-04 cellule de veille** (astreintes, escalade à seuils saisis, vue temps réel). T-10 reste `BLOCKED` tant
+Le § 7.17 est couvert pour tout ce qui ne dépend pas d'un tiers. Restent exécutables sans accès
+externe : **observation de la Terre palier 0** (partie E, « descendre, jamais téléverser »),
+**GeoPackage** (dépendance à choisir et justifier), écrans de saisie des programmes de patrouille,
+de l'Info Route et des règles d'escalade (les API existent, les écrans non). T-10 reste `BLOCKED` tant
 que la CI n'a jamais tourné et que `chkdsk F: /f` n'a pas été lancé.
 
 ## 6. Instruction de reprise

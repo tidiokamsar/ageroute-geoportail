@@ -38,6 +38,7 @@ const AdministrationPage = lazy(() => import("./pages/AdministrationPage").then(
 const GouvernancePage = lazy(() => import("./pages/GouvernancePage").then((m) => ({ default: m.GouvernancePage })));
 const OrdresTravauxPage = lazy(() => import("./pages/OrdresTravauxPage").then((m) => ({ default: m.OrdresTravauxPage })));
 const ImportsPage = lazy(() => import("./pages/ImportsPage").then((m) => ({ default: m.ImportsPage })));
+const CelluleVeillePage = lazy(() => import("./pages/CelluleVeillePage").then((m) => ({ default: m.CelluleVeillePage })));
 
 function PageFallback() {
   return (
@@ -84,6 +85,7 @@ const router = createBrowserRouter(
           <Route path="documents" element={<LazyPage><DocumentsPage /></LazyPage>} handle={{ title: "Base documentaire" }} />
           <Route path="decision" element={<LazyPage><DecisionPage /></LazyPage>} handle={{ title: "Aide à la décision" }} />
           <Route path="qualite" element={<LazyPage><QualitePage /></LazyPage>} handle={{ title: "Qualité des données" }} />
+          <Route path="veille" element={<LazyPage><CelluleVeillePage /></LazyPage>} handle={{ title: "Cellule de veille" }} />
           <Route path="ordres-travaux" element={<LazyPage><OrdresTravauxPage /></LazyPage>} handle={{ title: "Ordres de travaux" }} />
           <Route path="securite" element={<LazyPage><SecuritePage /></LazyPage>} handle={{ title: "Sécurité du compte" }} />
         </Route>

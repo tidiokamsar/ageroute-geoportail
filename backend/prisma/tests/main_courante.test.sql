@@ -145,6 +145,21 @@ BEGIN
   IF nb <> 4 THEN RAISE EXCEPTION '% sources au lieu de 4', nb; END IF;
   RAISE NOTICE 'Dix types et quatre sources, ceux du paragraphe 7.17, en tables administrables';
 
+  -- ---------- Ordre total a heure egale (correctif 20261019030000) ----------
+  -- Dans CETTE transaction, CURRENT_TIMESTAMP est fige : la declaration et son PRIS_EN_COMPTE
+  -- portent la meme heure serveur. Le statut courant doit etre le second, toujours. On repete
+  -- vingt fois : avec l'ancien ordre (uuid aleatoire), la moitie environ des essais echouait.
+  FOR i IN 1..20 LOOP
+    INSERT INTO main_courante (id, "evenementId", nature, "auteurId", "sourceCode", "typeCode", statut, texte, geom)
+    VALUES (gen_random_uuid()::text, 'ev-ordre-' || i, 'DECLARATION', (SELECT id FROM users LIMIT 1), 'PATROUILLE', 'COUPURE', 'OUVERT', 'x',
+            ST_SetSRID(ST_MakePoint(-13.6, 9.64), 4326));
+    INSERT INTO main_courante (id, "evenementId", nature, "auteurId", statut, texte)
+    VALUES (gen_random_uuid()::text, 'ev-ordre-' || i, 'STATUT', (SELECT id FROM users LIMIT 1), 'PRIS_EN_COMPTE', 'vu');
+  END LOOP;
+  SELECT count(*) INTO nb FROM evenements_exploitation WHERE "evenementId" LIKE 'ev-ordre-%' AND statut <> 'PRIS_EN_COMPTE';
+  IF nb <> 0 THEN RAISE EXCEPTION 'A heure egale, % evenement(s) sur 20 rendus avec un statut anterieur', nb; END IF;
+  RAISE NOTICE 'A heure serveur egale, le statut courant est la derniere entree inseree (20 sur 20)';
+
   RAISE NOTICE '--- TOUTES LES ASSERTIONS PASSENT ---';
 END;
 $t$;

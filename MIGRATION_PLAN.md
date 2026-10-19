@@ -24,9 +24,9 @@ migrations.**
 
 | Mesure | Valeur |
 |---|---|
-| Dossiers de migration locaux | **62** (au 19/10) |
+| Dossiers de migration locaux | **64** (au 19/10) |
 | Appliquées en production | **50** |
-| **En attente** | **12** |
+| **En attente** | **14** |
 | Appliquées sans fichier local (orphelines) | **0** |
 | Lignes de `_prisma_migrations` inachevées ou annulées | 1, **expliquée au § 5** |
 
@@ -308,6 +308,15 @@ des interventions passera en `ÉVALUÉ` (origine `INSPECTION_POST_TRAVAUX`).
 | **Données semées** | aucune |
 | **Tests** | banc `info_route.test.sql`, 20 assertions, chaque refus avec sa contre-épreuve (l'approbation de P4 n'est accordée que dans la transaction annulée ; vérifié ensuite : P1–P4 toujours non approuvés) |
 | **Rollback** | **OUI**, aller-retour vérifié le 19/10. Perd ce qui a été annoncé au public et l'archive des bulletins : valeur probatoire, compter avant |
+
+---
+
+### `20261019020000_cellule_veille` et `20261019030000_main_courante_ordre_total`
+
+| Migration | Nature | Rollback |
+|---|---|---|
+| **cellule de veille** (EX-04) : `astreintes`, `regles_escalade`, `escalades`, `modes_veille` | additive ; **aucune règle ni astreinte semée** ; escalades et modes en ajout seul (déclencheur), une escalade par (événement, niveau) ; une seule règle active par type × mode × niveau | **OUI**, aller-retour ; perd le journal des escalades (qui devait réagir à quoi) : compter avant |
+| **ordre total de la main courante** : `rang BIGSERIAL`, vue `evenements_exploitation` ordonnée par lui | additive, **correctif** : à heure serveur égale, l'ancienne vue tranchait par uuid aléatoire (7 erreurs sur 20 au banc). Doit être déployée **avec** `20261015010000`, jamais sans | **OUI**, aller-retour ; descendre réintroduit le défaut |
 
 ---
 
