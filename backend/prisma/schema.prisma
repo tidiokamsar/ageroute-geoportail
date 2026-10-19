@@ -343,14 +343,16 @@ model User {
   baremesApprouves          BaremeIntervention[]       @relation("BaremeApprouve")
   matricesApprouvees        MatriceDegradation[]       @relation("MatriceApprouvee")
 
-  tachesInternesCreees            TacheInterne[]        @relation("TacheInterneAuteur")
-  tachesInternesEnCharge          TacheInterne[]        @relation("TacheInterneResponsable")
-  tachesInternesCloturees         TacheInterne[]        @relation("TacheInterneClotureur")
-  traitementsApprouves            CatalogueTraitement[] @relation("TraitementApprouve")
-  lotsImportes                    LotImport[]           @relation("LotImportateur")
-  entreesMainCourante             EntreeMainCourante[]  @relation("MainCouranteAuteur")
-  programmesPatrouilleResponsable ProgrammePatrouille[] @relation("ProgrammeResponsable")
-  programmesPatrouilleCrees       ProgrammePatrouille[] @relation("ProgrammeCreateur")
+  tachesInternesCreees            TacheInterne[]         @relation("TacheInterneAuteur")
+  tachesInternesEnCharge          TacheInterne[]         @relation("TacheInterneResponsable")
+  tachesInternesCloturees         TacheInterne[]         @relation("TacheInterneClotureur")
+  traitementsApprouves            CatalogueTraitement[]  @relation("TraitementApprouve")
+  lotsImportes                    LotImport[]            @relation("LotImportateur")
+  entreesMainCourante             EntreeMainCourante[]   @relation("MainCouranteAuteur")
+  programmesPatrouilleResponsable ProgrammePatrouille[]  @relation("ProgrammeResponsable")
+  programmesPatrouilleCrees       ProgrammePatrouille[]  @relation("ProgrammeCreateur")
+  publicationsInfoRoute           PublicationInfoRoute[] @relation("InfoRoutePublieur")
+  bulletinsGeneres                BulletinRoutier[]      @relation("BulletinGenerateur")
 
   @@map("users")
 }
@@ -2806,7 +2808,8 @@ model ReferentielPraticabilite {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  portions Portion[]
+  portions              Portion[]
+  publicationsInfoRoute PublicationInfoRoute[]
 
   @@index([actif, ordre])
   @@map("referentiel_praticabilites")
@@ -3220,4 +3223,55 @@ model ProgrammeTroncon {
   @@id([programmeId, tronconId])
   @@unique([programmeId, ordre], map: "programme_troncons_ordre_key")
   @@map("programme_troncons")
+}
+
+/// Info Route (paragraphe 7.17, EX-05) : declaration PUBLIQUE redigee par l'exploitant sur un
+/// evenement de la main courante. EN AJOUT SEUL (declencheur `info_route_ajout_seul`) : une mise
+/// a jour ou un retrait est une nouvelle ligne. L'etat public courant est la vue SQL
+/// `info_route_courante`, lue en SQL brut. Voir 20261019010000_info_route_bulletin.
+model PublicationInfoRoute {
+  id                   String                    @id @default(uuid())
+  evenementId          String
+  /// PUBLICATION, MISE_A_JOUR ou RETRAIT (texte contraint en base).
+  action               String
+  /// COUPURE, RESTRICTION, DEVIATION ou TRAVAUX. Nul pour un retrait.
+  categorie            String?
+  praticabiliteCode    String?
+  praticabilite        ReferentielPraticabilite? @relation(fields: [praticabiliteCode], references: [code], onDelete: Restrict)
+  titre                String?
+  textePublic          String?
+  localisationPublique String?
+  deviation            String?
+  debutValidite        DateTime?
+  finValidite          DateTime?
+  publieParId          String
+  publiePar            User                      @relation("InfoRoutePublieur", fields: [publieParId], references: [id])
+  /// Heure du serveur, posee par le declencheur.
+  publieLe             DateTime                  @default(now())
+  /// Ordre d'insertion : deux lignes d'une meme transaction ont la meme heure.
+  rang                 BigInt                    @default(autoincrement())
+  clientOperationId    String?                   @unique
+
+  @@index([evenementId, publieLe], map: "publications_info_route_evenement_idx")
+  @@index([publieLe], map: "publications_info_route_publie_idx")
+  @@map("publications_info_route")
+}
+
+/// Bulletin routier quotidien (EX-06), archive et fige. L'empreinte SHA-256 du texte est
+/// verifiee en base. Genere et telechargeable ; envoye nulle part.
+model BulletinRoutier {
+  id              String   @id @default(uuid())
+  numero          String   @unique
+  jour            DateTime @db.Date
+  situationA      DateTime
+  genereLe        DateTime @default(now())
+  genereParId     String
+  generePar       User     @relation("BulletinGenerateur", fields: [genereParId], references: [id])
+  gabarit         String
+  texte           String
+  empreinteSha256 String
+  publicationsIds String[] @default([])
+
+  @@index([jour], map: "bulletins_routiers_jour_idx")
+  @@map("bulletins_routiers")
 }

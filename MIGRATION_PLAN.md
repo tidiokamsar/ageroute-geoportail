@@ -24,9 +24,9 @@ migrations.**
 
 | Mesure | Valeur |
 |---|---|
-| Dossiers de migration locaux | **61** (au 19/10) |
+| Dossiers de migration locaux | **62** (au 19/10) |
 | Appliquées en production | **50** |
-| **En attente** | **11** |
+| **En attente** | **12** |
 | Appliquées sans fichier local (orphelines) | **0** |
 | Lignes de `_prisma_migrations` inachevées ou annulées | 1, **expliquée au § 5** |
 
@@ -295,6 +295,19 @@ des interventions passera en `ÉVALUÉ` (origine `INSPECTION_POST_TRAVAUX`).
 | **Tests** | banc `patrouilles.test.sql` : périodicité 0, mois 13, mois en double et tronçon en double refusés, chacun avec sa contre-épreuve ; couverture mesurée sur une géométrie connue (A 100 %, B 52 %, C 0 %, écart hors itinéraire 527 m) ; tolérance 0 refusée ; mission sans trace rendue à 0 sur ses trois tronçons |
 | **Défaut trouvé** | la première version calculait `ST_Intersection(tronçon, tampon de la trace)`. Sous **GEOS 3.9**, elle a rendu une ligne **vide** pour un tronçon que la trace suivait exactement, alors que `ST_Covers` disait le tronçon couvert. Remplacée par un échantillonnage géodésique (segments ≤ 10 m, `ST_DWithin` en geography) : aucune opération d'overlay. Le banc garde ce cas |
 | **Rollback** | **OUI**, aller-retour vérifié le 19/10. Perd les programmes et le lien mission → programme / signalement ; les missions, traces et observations restent. Compter avant |
+
+---
+
+### `20261019010000_info_route_bulletin`
+
+| Rubrique | Contenu |
+|---|---|
+| **Objectif** | Info Route publique (EX-05) et bulletin routier quotidien (EX-06) du § 7.17 |
+| **Nature** | **additive** : tables `publications_info_route` et `bulletins_routiers`, vue `info_route_courante`, deux déclencheurs. Aucune ligne existante touchée, la main courante n'est pas modifiée |
+| **Invariants en base** | publications en **ajout seul** (UPDATE / DELETE refusés, heure serveur imposée), événement existant dans la main courante, séquence PUBLICATION → MISE_A_JOUR → RETRAIT sous verrou consultatif par événement, **niveau de praticabilité publiable seulement s'il est approuvé** ; bulletins figés, empreinte SHA-256 du texte **vérifiée par contrainte** |
+| **Données semées** | aucune |
+| **Tests** | banc `info_route.test.sql`, 20 assertions, chaque refus avec sa contre-épreuve (l'approbation de P4 n'est accordée que dans la transaction annulée ; vérifié ensuite : P1–P4 toujours non approuvés) |
+| **Rollback** | **OUI**, aller-retour vérifié le 19/10. Perd ce qui a été annoncé au public et l'archive des bulletins : valeur probatoire, compter avant |
 
 ---
 
