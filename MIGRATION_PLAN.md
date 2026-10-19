@@ -24,9 +24,9 @@ migrations.**
 
 | Mesure | Valeur |
 |---|---|
-| Dossiers de migration locaux | **58** |
+| Dossiers de migration locaux | **60** |
 | Appliquées en production | **50** |
-| **En attente** | **8** |
+| **En attente** | **10** |
 | Appliquées sans fichier local (orphelines) | **0** |
 | Lignes de `_prisma_migrations` inachevées ou annulées | 1, **expliquée au § 5** |
 
@@ -268,6 +268,20 @@ décrit lui-même.
 | **Le premier déclencheur du dépôt** | l'immutabilité ne se tient ni par une contrainte (une ligne à la fois), ni par une absence de route (protège du code, pas d'un accès direct), ni par un `REVOKE` (le rôle applicatif est superuser en production). Le déclencheur `main_courante_ajout_seul` refuse `UPDATE`, `DELETE` et toute `enregistreLe` fournie par l'appelant : l'heure du serveur se constate. Admis **une fois**, nommé, commenté, éprouvé |
 | **Tests** | `prisma/tests/main_courante.test.sql`, **14 assertions** ; noyau du cycle de vie + service + route, tests TS |
 | **Rollback** | **OUI**, aller-retour vérifié. C'est la descente qui efface le plus : un journal probatoire ne se reconstitue pas — compter avant, et se demander pourquoi on descend une table conçue pour ne rien perdre |
+
+---
+
+### `20261015020000_catalogue_defauts_applicabilite` et `20261015030000_inspections_typees`
+
+| Migration | Nature | Rollback |
+|---|---|---|
+| **applicabilité** du catalogue des défauts (REVETU / NON_REVETU / TOUS) | une colonne à défaut `TOUS`, texte contraint ; les 18 nouveaux types sont semés par le **script idempotent**, pas par la migration | **OUI**, aller-retour ; perd les valeurs posées par l'administration — compter avant |
+| **inspections typées** : `type`, `interventionRef`, `iriEstime`, `iriMethode` | colonnes nullables ou à défaut `GENERALE` ; la contrainte POST_TRAVAUX ne peut pas échouer sur les lignes existantes, aucune ne porte ce type | **OUI**, aller-retour ; perd des constats de terrain — compter avant |
+
+L'inspection **post-travaux** du § 7.7 est un **constat d'état du patrimoine, pas une réception** :
+la base exige la référence de l'intervention, un état mesuré et au moins une photo, et le modèle
+ne porte aucun champ de réception, de réserve ni de montant. C'est par elle que le cycle de vie
+des interventions passera en `ÉVALUÉ` (origine `INSPECTION_POST_TRAVAUX`).
 
 ---
 

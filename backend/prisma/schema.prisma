@@ -708,8 +708,22 @@ model Inspection {
   deletedAt          DateTime?
   createdAt          DateTime       @default(now())
 
+  /// GENERALE, PERIODIQUE, VERIFICATION ou POST_TRAVAUX -- texte contraint en base, pas une
+  /// enumeration. POST_TRAVAUX (§ 7.7) est un CONSTAT D'ETAT apres travaux, pas une reception :
+  /// la base exige alors `interventionRef`, un etat mesure et au moins une photo.
+  type            String  @default("GENERALE")
+  /// Reference de la fiche d'intervention. Sans cle etrangere : la table n'existe pas encore
+  /// (etape 5 de la programmation, apres D-07). Conservee telle quelle d'ici la.
+  interventionRef String?
+  /// Estimation EXPERIMENTALE de rugosite (arbitrage D8), jamais un IRI normalise ; la base
+  /// exige la methode a cote.
+  iriEstime       Decimal? @db.Decimal(6, 2)
+  iriMethode      String?
+
   @@index([tronconId])
   @@index([ouvrageId])
+  @@index([type])
+  @@index([interventionRef])
   @@map("inspections")
 }
 

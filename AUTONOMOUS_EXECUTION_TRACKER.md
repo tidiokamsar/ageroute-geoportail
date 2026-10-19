@@ -56,7 +56,7 @@ verts. Base de développement : conteneur `bdri-dev-db`, PostGIS 17-3.5, base `r
 | T-7a | Écran de décision : **retrait de deux barèmes inventés** (800/500/150 M GNF/km, criticité 90/70/50/30) qui contredisaient la base d'un facteur 4,4 ; estimation par le moteur de coût, `null` + motif quand il refuse ; criticité nulle (aucune source) | 10 | `DONE` | `engines/decision.estimation.ts` 11 tests ; `DecisionPage` adapté (null géré, poids redistribués, tronçon non estimé non finançable) ; frontend 304/304 seule, `tsc` propre des deux côtés |
 | T-7b | Tableau de bord `/kpis` : portions validées (compte, km), répartition qualité par statut, **périmètre dit d'abord** (« réseau classé saisi », jamais « national ») | 10 | `DONE` | route étendue, `DashboardPage` affiche périmètre + deux cartes ; avertissement explicite quand zéro portion validée : « les états affichés sont des valeurs d'import » |
 | T-8 | Catalogue des défauts ≥ 21 types, revêtu / non revêtu | 4 | `VERIFIED` | `c1312d9` : 31 types en module pur (22 tests), script idempotent éprouvé 31 → 0, colonne `applicabilite` avec contrainte vérifiée, descente aller-retour |
-| T-9 | Inspection typée post-travaux (rattachée au cycle de vie, origine `INSPECTION_POST_TRAVAUX`) | 4/9 | `TODO` | garde-fou inchangé |
+| T-9 | Inspection typée post-travaux | 4/9 | `DONE` | migration `20261015030000` : `type` (GENERALE / PERIODIQUE / VERIFICATION / POST_TRAVAUX, texte contraint), `interventionRef` (sans clé étrangère, la fiche d'intervention n'existe pas), `iriEstime` + `iriMethode` (D8). POST_TRAVAUX exige référence, état mesuré et photo **en base** (banc SQL 9 assertions, descente aller-retour) **et à l'API** avec un message par manque. En édition, les règles se jugent sur la **ligne fusionnée** — un défaut évité : sans cela, la contrainte aurait rendu un 500. Garde-fou : le modèle ne porte aucun champ de réception, réserve ni montant. Module 41 tests |
 | T-10 | Vérification des prérequis de déploiement, puis déploiement si **tous** satisfaits | 15 | `TODO` | § 4 |
 
 ## 3. Blocages actifs
@@ -91,6 +91,15 @@ Puis `docker compose up -d --build`, `prisma:deploy` (**jamais** `prisma:migrate
 
 **Ce déploiement est autorisé par l'instruction du 14/10 sous condition que ces prérequis soient
 satisfaits.** S'ils ne le sont pas, il n'a pas lieu, et ce fichier dit pourquoi.
+
+## 4 bis. État au 19/10/2026
+
+- **CI** : le compte GitHub est **verrouillé pour facturation** ; aucun run n'a jamais exécuté une
+  commande. La PR #2 est ouverte, rouge pour cette seule raison. Le vert local reste la seule preuve.
+- **Volume F:** : bit « dirty » toujours posé ; `chkdsk F: /f` non lancé (accès exclusif, à
+  l'utilisateur). Portable sur secteur au 19/10.
+- **Docker** : arrêté au 19/10 ; non nécessaire pour les contrôles TypeScript, à relancer pour les
+  bancs SQL.
 
 ## 5. Prochaine action
 
