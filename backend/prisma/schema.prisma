@@ -341,14 +341,16 @@ model User {
   portionsCreees            Portion[]                  @relation("PortionAuteur")
   praticabilitesApprouvees  ReferentielPraticabilite[] @relation("PraticabiliteApprobateur")
   baremesApprouves          BaremeIntervention[]       @relation("BaremeApprouve")
-  matricesApprouvees        MatriceDegradation[]        @relation("MatriceApprouvee")
+  matricesApprouvees        MatriceDegradation[]       @relation("MatriceApprouvee")
 
-  tachesInternesCreees      TacheInterne[]             @relation("TacheInterneAuteur")
-  tachesInternesEnCharge    TacheInterne[]             @relation("TacheInterneResponsable")
-  tachesInternesCloturees   TacheInterne[]             @relation("TacheInterneClotureur")
-  traitementsApprouves      CatalogueTraitement[]      @relation("TraitementApprouve")
-  lotsImportes              LotImport[]                @relation("LotImportateur")
-  entreesMainCourante       EntreeMainCourante[]       @relation("MainCouranteAuteur")
+  tachesInternesCreees            TacheInterne[]        @relation("TacheInterneAuteur")
+  tachesInternesEnCharge          TacheInterne[]        @relation("TacheInterneResponsable")
+  tachesInternesCloturees         TacheInterne[]        @relation("TacheInterneClotureur")
+  traitementsApprouves            CatalogueTraitement[] @relation("TraitementApprouve")
+  lotsImportes                    LotImport[]           @relation("LotImportateur")
+  entreesMainCourante             EntreeMainCourante[]  @relation("MainCouranteAuteur")
+  programmesPatrouilleResponsable ProgrammePatrouille[] @relation("ProgrammeResponsable")
+  programmesPatrouilleCrees       ProgrammePatrouille[] @relation("ProgrammeCreateur")
 
   @@map("users")
 }
@@ -409,6 +411,7 @@ model Region {
   Mission        Mission[]
 
   delegationsValidation DelegationValidation[]
+  programmesPatrouille  ProgrammePatrouille[]
 
   @@map("regions")
 }
@@ -486,6 +489,7 @@ model Troncon {
   portions             Portion[]
   tachesInternes       TacheInterne[]
   entreesMainCourante  EntreeMainCourante[]
+  programmesPatrouille ProgrammeTroncon[]
 
   @@index([regionId])
   @@index([etat])
@@ -711,7 +715,7 @@ model Inspection {
   /// GENERALE, PERIODIQUE, VERIFICATION ou POST_TRAVAUX -- texte contraint en base, pas une
   /// enumeration. POST_TRAVAUX (§ 7.7) est un CONSTAT D'ETAT apres travaux, pas une reception :
   /// la base exige alors `interventionRef`, un etat mesure et au moins une photo.
-  type            String  @default("GENERALE")
+  type            String   @default("GENERALE")
   /// Reference de la fiche d'intervention. Sans cle etrangere : la table n'existe pas encore
   /// (etape 5 de la programmation, apres D-07). Conservee telle quelle d'ici la.
   interventionRef String?
@@ -976,7 +980,7 @@ model MatriceDegradation {
 // Barèmes de coût d'intervention par état de départ (M GNF/km) — alimente le ratio
 // "coût de report" (entretenir tôt coûte ~10× moins que reconstruire).
 model BaremeIntervention {
-  id                Int    @id @default(autoincrement())
+  id Int @id @default(autoincrement())
 
   /// Famille de cout, PLUS GROSSIERE que le revetement : `bitume` recouvre
   /// BETON_BITUMINEUX et ENDUIT_SUPERFICIEL, `terre_laterite` recouvre TERRE et LATERITE.
@@ -1043,30 +1047,32 @@ model BaremeIntervention {
 // ===================== SIGNALEMENTS CITOYENS =====================
 
 model SignalementCitoyen {
-  id                  String               @id @default(uuid())
-  numeroPublic        String               @unique
-  canal               CanalSignalement     @default(PWA)
-  typeProbleme        TypeProbleme
-  description         String?
-  lat                 Float?
-  lon                 Float?
-  localisationTexte   String?
-  tronconId           String?
-  troncon             Troncon?             @relation(fields: [tronconId], references: [id])
-  photoFileName       String?
-  statut              StatutSignalement    @default(NOUVEAU)
-  motifRejet          String?
-  signalementParentId String?
-  signalementParent   SignalementCitoyen?  @relation("Doublons", fields: [signalementParentId], references: [id])
-  doublons            SignalementCitoyen[] @relation("Doublons")
-  contactTel          String?
-  qualifieParId       String?
-  qualifiePar         User?                @relation(fields: [qualifieParId], references: [id])
-  ots                 OrdreTravaux[]
-  qualifieLe          DateTime?
-  resoluLe            DateTime?
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
+  id                   String               @id @default(uuid())
+  numeroPublic         String               @unique
+  canal                CanalSignalement     @default(PWA)
+  typeProbleme         TypeProbleme
+  description          String?
+  lat                  Float?
+  lon                  Float?
+  localisationTexte    String?
+  tronconId            String?
+  troncon              Troncon?             @relation(fields: [tronconId], references: [id])
+  photoFileName        String?
+  statut               StatutSignalement    @default(NOUVEAU)
+  motifRejet           String?
+  signalementParentId  String?
+  signalementParent    SignalementCitoyen?  @relation("Doublons", fields: [signalementParentId], references: [id])
+  doublons             SignalementCitoyen[] @relation("Doublons")
+  contactTel           String?
+  qualifieParId        String?
+  qualifiePar          User?                @relation(fields: [qualifieParId], references: [id])
+  ots                  OrdreTravaux[]
+  /// Missions de verification depechees sur ce signalement (paragraphe 7.17).
+  missionsVerification Mission[]
+  qualifieLe           DateTime?
+  resoluLe             DateTime?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
 
   @@index([statut])
   @@index([typeProbleme])
@@ -1473,8 +1479,17 @@ model Mission {
 
   defauts Defaut[]
 
+  /// Programme de patrouille que la mission execute (paragraphe 7.17). Nul pour une mission ponctuelle.
+  programmeId   String?
+  programme     ProgrammePatrouille? @relation(fields: [programmeId], references: [id])
+  /// Signalement que la mission verifie : la prise en compte tracee du paragraphe 7.17.
+  signalementId String?
+  signalement   SignalementCitoyen?  @relation(fields: [signalementId], references: [id])
+
   @@index([statut])
   @@index([assigneId])
+  @@index([programmeId])
+  @@index([signalementId])
   @@index([regionId])
   @@index([deletedAt])
   @@map("missions")
@@ -2860,21 +2875,21 @@ model TacheInterne {
   /// Perimetre geographique. Aucun rattachement n'est obligatoire SEUL, mais au moins un est
   /// exige en base : une tache qui ne designe rien ne se retrouve pas sur le terrain.
   tronconId String?
-  troncon   Troncon? @relation(fields: [tronconId], references: [id])
+  troncon   Troncon?                              @relation(fields: [tronconId], references: [id])
   /// Abscisses sur la geometrie du troncon. Les deux ou aucune, et `tronconId` obligatoire —
   /// des abscisses sans troncon n'ont aucun systeme de reference.
   debutM    Float?
   finM      Float?
   ouvrageId String?
-  ouvrage   Ouvrage? @relation(fields: [ouvrageId], references: [id])
+  ouvrage   Ouvrage?                              @relation(fields: [ouvrageId], references: [id])
   defautId  String?
-  defaut    Defaut?  @relation(fields: [defautId], references: [id])
+  defaut    Defaut?                               @relation(fields: [defautId], references: [id])
   /// Point, pour ce qui ne se rattache ni a un troncon ni a un ouvrage.
   /// `Unsupported` : les geometries PostGIS ne sont pas gerees nativement par Prisma (§ 7.1).
   geom      Unsupported("geometry(Point, 4326)")?
 
   responsableId String
-  responsable   User   @relation("TacheInterneResponsable", fields: [responsableId], references: [id])
+  responsable   User      @relation("TacheInterneResponsable", fields: [responsableId], references: [id])
   echeanceLe    DateTime? @db.Date
 
   statut StatutTacheInterne @default(OUVERTE)
@@ -3142,15 +3157,15 @@ model EntreeMainCourante {
   texte    String
 
   tronconId String?
-  troncon   Troncon? @relation(fields: [tronconId], references: [id])
+  troncon   Troncon?                              @relation(fields: [tronconId], references: [id])
   debutM    Float?
   finM      Float?
   geom      Unsupported("geometry(Point, 4326)")?
 
   pieces Json @default("[]")
 
-  rectifieId String?
-  rectifie   EntreeMainCourante?  @relation("Rectification", fields: [rectifieId], references: [id])
+  rectifieId     String?
+  rectifie       EntreeMainCourante?  @relation("Rectification", fields: [rectifieId], references: [id])
   rectifications EntreeMainCourante[] @relation("Rectification")
 
   signalementId String?
@@ -3162,4 +3177,47 @@ model EntreeMainCourante {
   @@index([tronconId])
   @@index([enregistreLe])
   @@map("main_courante")
+}
+
+/// Programme de patrouille (paragraphe 7.17, EX-03). Un programme ENGENDRE des missions
+/// SURVEILLANCE ordinaires ; il n'en est pas une. Periodicite, mois actifs et itineraire sont
+/// saisis par AGEROUTE : la migration ne seme rien, le mandat ne donne qu'un exemple. Les
+/// contraintes (periodicite 1 a 366, mois 1 a 12 sans doublon) vivent en base. Voir
+/// 20261019000000_patrouilles_programmees.
+model ProgrammePatrouille {
+  id               String       @id @default(uuid())
+  code             String       @unique
+  libelle          String
+  classeAxe        ClasseRoute?
+  regionId         Int?
+  region           Region?      @relation(fields: [regionId], references: [id])
+  periodiciteJours Int
+  /// Mois actifs, 1 = janvier. Vide : toute l'annee.
+  moisActifs       Int[]        @default([])
+  responsableId    String
+  responsable      User         @relation("ProgrammeResponsable", fields: [responsableId], references: [id])
+  creeParId        String
+  creePar          User         @relation("ProgrammeCreateur", fields: [creeParId], references: [id])
+  actif            Boolean      @default(true)
+  deletedAt        DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @default(now()) @updatedAt
+
+  troncons ProgrammeTroncon[]
+  missions Mission[]
+
+  @@map("programmes_patrouille")
+}
+
+/// Itineraire obligatoire d'un programme : une liste ORDONNEE de troncons du referentiel.
+model ProgrammeTroncon {
+  programmeId String
+  programme   ProgrammePatrouille @relation(fields: [programmeId], references: [id], onDelete: Cascade)
+  tronconId   String
+  troncon     Troncon             @relation(fields: [tronconId], references: [id], onDelete: Restrict)
+  ordre       Int
+
+  @@id([programmeId, tronconId])
+  @@unique([programmeId, ordre], map: "programme_troncons_ordre_key")
+  @@map("programme_troncons")
 }

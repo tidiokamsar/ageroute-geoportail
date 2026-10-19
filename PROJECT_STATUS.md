@@ -136,17 +136,17 @@ tournera dans la coque.
 | Audit, conformité, architecture | **fait**, tenu à jour |
 | Socle, SRID, CI | **fait** |
 | Référentiel linéaire | historisation **faite** ; codification, pgRouting, gazetier **bloqués** par D-06 |
-| Map-matching | ponctuel et scoring **faits** ; **trace HMM absente** (critère A18) |
+| Map-matching | ponctuel, scoring et **trace HMM faits** (A18 130/130 sur jeu synthétique) ; graphe réseau absent |
 | Dégradations, métrés, ouvrages | faits ; **fiche d'inspection d'ouvrage T-04 absente** |
 | Validation, audit, qualité | **faits** |
 | Mobile et écran de roulage | **Capacitor figé, non commencé** ; plugins Kotlin à écrire |
 | Hors ligne, packs, roulage complet | sync faite ; **packs, IRI, photo continue absents** |
 | Indices, prévision, programmation | RCI écrit mais **désapprouvé** ; **risque, traitement, coût, programmation absents** — barèmes et matrices présents, lus par aucun code |
 | Tableau de bord, Control Tower, Géoportail d'excellence | partiels |
-| Écosystème ONR / BDR / ANASUR (partie B) | **non commencé** — les 15 livrables du § B.6 restent à produire ; formats L²R non publiés |
-| Exploitation et information routière (§ 7.17) | **non commencé** — main courante, patrouilles, P1–P4, cellule de veille, Info Route |
+| Écosystème ONR / BDR / ANASUR (partie B) | les 15 livrables du § B.6 **produits** ; pivot CSV/GeoJSON et import étape 1 faits ; étape 2 **bloquée** (échantillon approuvé) ; formats L²R non publiés |
+| Exploitation et information routière (§ 7.17) | main courante, P1–P4 provisoires et **patrouilles programmées faits** (19/10) ; cellule de veille, Info Route, bulletin **absents** |
 | Observation de la Terre (partie E) | **non commencé** — palier 0 gratuit, aucune dépense requise |
-| Tâches internes et rapprochement (TI-01 à TI-03) | **non commencé** — entré au périmètre par l'arbitrage D1 |
+| Tâches internes et rapprochement (TI-01 à TI-03) | TI-01 **fait** (table, contraintes, garde-fou de frontière) ; TI-03 **fait** (`DATA_SOURCE_OF_TRUTH.md`) ; TI-02 **bloqué** (B-11) |
 | Intégrations DigitalRoad, SharePoint | **bloquées, aucun accès** |
 | Durcissement, observabilité | partiel |
 

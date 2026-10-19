@@ -24,9 +24,9 @@ migrations.**
 
 | Mesure | Valeur |
 |---|---|
-| Dossiers de migration locaux | **60** |
+| Dossiers de migration locaux | **61** (au 19/10) |
 | Appliquées en production | **50** |
-| **En attente** | **10** |
+| **En attente** | **11** |
 | Appliquées sans fichier local (orphelines) | **0** |
 | Lignes de `_prisma_migrations` inachevées ou annulées | 1, **expliquée au § 5** |
 
@@ -282,6 +282,19 @@ L'inspection **post-travaux** du § 7.7 est un **constat d'état du patrimoine, 
 la base exige la référence de l'intervention, un état mesuré et au moins une photo, et le modèle
 ne porte aucun champ de réception, de réserve ni de montant. C'est par elle que le cycle de vie
 des interventions passera en `ÉVALUÉ` (origine `INSPECTION_POST_TRAVAUX`).
+
+---
+
+### `20261019000000_patrouilles_programmees`
+
+| Rubrique | Contenu |
+|---|---|
+| **Objectif** | patrouilles programmées du § 7.17 (EX-03) : un programme (itinéraire, périodicité, mois actifs) engendre des missions SURVEILLANCE ordinaires ; dispatch de vérification sur un signalement |
+| **Nature** | **additive** : tables `programmes_patrouille` et `programme_troncons`, deux colonnes nullables sur `missions` (`programmeId`, `signalementId`), fonctions `mois_actifs_valides` et `couverture_patrouille`. Aucune ligne existante modifiée ; `classeAxe` réutilise l'enum `ClasseRoute` sans lui ajouter de valeur |
+| **Données semées** | **aucune**. Le mandat donne un exemple (« RN stratégiques hebdomadaires en saison des pluies ») ; périodicité et saisons sont saisies par AGEROUTE, les saisons différant selon les régions |
+| **Tests** | banc `patrouilles.test.sql` : périodicité 0, mois 13, mois en double et tronçon en double refusés, chacun avec sa contre-épreuve ; couverture mesurée sur une géométrie connue (A 100 %, B 52 %, C 0 %, écart hors itinéraire 527 m) ; tolérance 0 refusée ; mission sans trace rendue à 0 sur ses trois tronçons |
+| **Défaut trouvé** | la première version calculait `ST_Intersection(tronçon, tampon de la trace)`. Sous **GEOS 3.9**, elle a rendu une ligne **vide** pour un tronçon que la trace suivait exactement, alors que `ST_Covers` disait le tronçon couvert. Remplacée par un échantillonnage géodésique (segments ≤ 10 m, `ST_DWithin` en geography) : aucune opération d'overlay. Le banc garde ce cas |
+| **Rollback** | **OUI**, aller-retour vérifié le 19/10. Perd les programmes et le lien mission → programme / signalement ; les missions, traces et observations restent. Compter avant |
 
 ---
 

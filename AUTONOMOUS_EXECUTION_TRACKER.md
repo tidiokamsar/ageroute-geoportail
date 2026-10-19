@@ -13,10 +13,10 @@
 > données ; aucune opération de production sans prérequis **vérifiés** (sauvegarde restaurable,
 > rollback testé, espace disque, compteurs) — et jamais prétendre avoir déployé sans l'avoir fait.
 
-**Dernière mise à jour : 15/10/2026, 00:50.** Branche `lot/03-map-matching`, dernier commit poussé
-`652d22d`. Backend **1 287** tests, frontend **304**, `tsc` propre des deux côtés, cinq bancs SQL
-verts. Base de développement : conteneur `bdri-dev-db`, PostGIS 17-3.5, base `replay`,
-**58 migrations** (50 appliquées en production, 8 en attente, chacune avec sa descente vérifiée).
+**Dernière mise à jour : 19/10/2026.** Branche `lot/03-map-matching`. Backend **1 379** tests,
+frontend **304**, `tsc` propre des deux côtés, **sept bancs SQL** verts. Base de développement :
+conteneur `bdri-dev-db`, PostGIS 17-3.5 (GEOS 3.9), base `replay`, **61 migrations** (50 appliquées
+en production, 11 en attente, chacune avec sa descente vérifiée en aller-retour).
 
 ---
 
@@ -38,7 +38,7 @@ verts. Base de développement : conteneur `bdri-dev-db`, PostGIS 17-3.5, base `r
 | **9 Moteurs de décision** | catalogue traitements `DONE` ; cycle de vie gardé `DONE` ; RCI `EA` ; risque, coût, PPE/PAE | `IN_PROGRESS` | coût et programmation `BLOCKED` par **D-07** (millésime, largeur) ; estimation « refuse sans ligne » réalisable |
 | **10 Tableau de bord, Géoportail d'excellence** | portions et qualité au tableau de bord ; benchmark D3 | `TODO` | benchmark `BLOCKED` : aucune donnée locale, production gelée |
 | **11 Écosystème ONR / BDR / ANASUR** | 15 livrables `DONE` ; pivot CSV/GeoJSON `DONE` ; import étape 1 `DONE` ; écran lots `DONE` | `IN_PROGRESS` | étape 2 (application) `BLOCKED` : échantillon approuvé ; GeoPackage `TODO` (dépendance à choisir) |
-| **12 Exploitation (§ 7.17)** | main courante `DONE` ; P1–P4 provisoires `VERIFIED` ; patrouilles, cellule de veille, Info Route, bulletin | `IN_PROGRESS` | EX-01 et EX-02 livrés ; EX-03 à EX-09 `TODO` |
+| **12 Exploitation (§ 7.17)** | main courante `DONE` ; P1–P4 provisoires `VERIFIED` ; patrouilles programmées `VERIFIED` ; cellule de veille, Info Route, bulletin | `IN_PROGRESS` | EX-01, EX-02, EX-03 livrés ; EX-04 à EX-09 `TODO` ; alerte capteur `BLOCKED` (aucun capteur raccordé, aucune interface approuvée) |
 | **13 Intégrations DigitalRoad, SharePoint** | sortante en service ; entrante | `BLOCKED` | **B-11, B-12** : aucun accès de recette |
 | **14 Observation de la Terre (partie E)** | palier 0 gratuit | `TODO` | aucune dépense ; conception « descendre, jamais téléverser » |
 | **15 Publication** | build des deux applications, commits, push, déploiement | `IN_PROGRESS` | push continu ; **déploiement : prérequis à vérifier avant tout geste** (§ 4) |
@@ -57,7 +57,8 @@ verts. Base de développement : conteneur `bdri-dev-db`, PostGIS 17-3.5, base `r
 | T-7b | Tableau de bord `/kpis` : portions validées (compte, km), répartition qualité par statut, **périmètre dit d'abord** (« réseau classé saisi », jamais « national ») | 10 | `DONE` | route étendue, `DashboardPage` affiche périmètre + deux cartes ; avertissement explicite quand zéro portion validée : « les états affichés sont des valeurs d'import » |
 | T-8 | Catalogue des défauts ≥ 21 types, revêtu / non revêtu | 4 | `VERIFIED` | `c1312d9` : 31 types en module pur (22 tests), script idempotent éprouvé 31 → 0, colonne `applicabilite` avec contrainte vérifiée, descente aller-retour |
 | T-9 | Inspection typée post-travaux | 4/9 | `DONE` | migration `20261015030000` : `type` (GENERALE / PERIODIQUE / VERIFICATION / POST_TRAVAUX, texte contraint), `interventionRef` (sans clé étrangère, la fiche d'intervention n'existe pas), `iriEstime` + `iriMethode` (D8). POST_TRAVAUX exige référence, état mesuré et photo **en base** (banc SQL 9 assertions, descente aller-retour) **et à l'API** avec un message par manque. En édition, les règles se jugent sur la **ligne fusionnée** — un défaut évité : sans cela, la contrainte aurait rendu un 500. Garde-fou : le modèle ne porte aucun champ de réception, réserve ni montant. Module 41 tests |
-| T-10 | Vérification des prérequis de déploiement, puis déploiement si **tous** satisfaits | 15 | `TODO` | § 4 |
+| T-10 | Vérification des prérequis de déploiement, puis déploiement si **tous** satisfaits | 15 | `BLOCKED` | § 4 ; CI jamais exécutée (compte GitHub verrouillé) et volume F: « dirty » : pas de déploiement tant que l'un ou l'autre tient |
+| T-11 | Patrouilles programmées (EX-03) | 12 | `VERIFIED` | migration `20261019000000` : `programmes_patrouille` (périodicité 1–366 j et mois actifs **saisis, rien de semé** ; l'exemple du mandat n'est saisi que par le banc), itinéraire ordonné `programme_troncons`, `missions.programmeId` / `signalementId`, fonction `couverture_patrouille(mission, tolérance = 30 m)`. **Défaut trouvé par le banc** : `ST_Intersection` (GEOS 3.9) rendait une ligne vide pour un tronçon suivi exactement par la trace et couvert par le tampon ; remplacé par un échantillonnage géodésique (`ST_DWithin` en geography, pas ≤ 10 m), sans overlay. Banc SQL (A 100 %, B 52 %, C 0 %, écart 527 m mesuré), descente aller-retour. Noyau pur 31 tests (échéance saisonnière sans retard hors saison, saison à cheval sur l'année), routes 14 tests, service éprouvé contre `replay` en transaction annulée. Passages engendrés en BROUILLON : le cycle de vie reste celui des missions |
 
 ## 3. Blocages actifs
 
@@ -80,8 +81,8 @@ verts. Base de développement : conteneur `bdri-dev-db`, PostGIS 17-3.5, base `r
 2. **sauvegarde du jour** : `pg_dump -Fc` puis `pg_restore -l` — pas seulement l'existence du fichier ;
 3. espace disque > 15 % libre, sinon `docker builder prune` d'abord ;
 4. compteurs de référence relevés (`troncons`, `ouvrages`, `valeurs_qualite`, `audit_logs`, `users`) ;
-5. `prisma migrate status` : 50 appliquées, 6 en attente, 0 orpheline ;
-6. les six descentes présentes dans `backend/prisma/descentes/` ;
+5. `prisma migrate status` : 50 appliquées, 11 en attente, 0 orpheline ;
+6. les onze descentes des migrations en attente présentes dans `backend/prisma/descentes/` ;
 7. `git diff --name-status main...HEAD | grep ^D` vide ;
 8. empreintes des deux `.env` relevées avant et après.
 
@@ -98,15 +99,13 @@ satisfaits.** S'ils ne le sont pas, il n'a pas lieu, et ce fichier dit pourquoi.
   commande. La PR #2 est ouverte, rouge pour cette seule raison. Le vert local reste la seule preuve.
 - **Volume F:** : bit « dirty » toujours posé ; `chkdsk F: /f` non lancé (accès exclusif, à
   l'utilisateur). Portable sur secteur au 19/10.
-- **Docker** : arrêté au 19/10 ; non nécessaire pour les contrôles TypeScript, à relancer pour les
-  bancs SQL.
+- **Docker** : relancé le 19/10 ; base `replay` intacte, les sept bancs SQL y passent.
 
 ## 5. Prochaine action
 
-**T-8** : module pur des types du § 7.4 (≥ 21, revêtu et non revêtu), test, migration additive
-`applicabilite`, script de peuplement étendu sans toucher aux 13 lignes existantes. Puis **T-7**
-(tableau de bord : portions, qualité, périmètre affiché), puis **T-9**, puis **T-10** — les
-prérequis de déploiement, vérifiés un à un, et le déploiement seulement s'ils tiennent tous.
+**EX-04 cellule de veille**, puis EX-05 Info Route, EX-06 bulletin quotidien, EX-08 statistiques
+d'exploitation (la vue `evenements_exploitation` porte déjà les délais). T-10 reste `BLOCKED` tant
+que la CI n'a jamais tourné et que `chkdsk F: /f` n'a pas été lancé.
 
 ## 6. Instruction de reprise
 

@@ -12,6 +12,7 @@ import { qualiteV2Router } from "./qualite.routes";
 import { reseauV2Router } from "./reseau.routes";
 import { importsV2Router } from "./imports.routes";
 import { exploitationV2Router } from "./exploitation.routes";
+import { patrouillesV2Router } from "./patrouilles.routes";
 
 /**
  * `/api/v2` — la nouvelle surface d'API.
@@ -70,6 +71,8 @@ apiV2Router.use("/referentiels", referentielsV2Router);
 apiV2Router.use("/qualite", qualiteV2Router);
 apiV2Router.use("/reseau", reseauV2Router);
 apiV2Router.use("/imports", importsV2Router);
+// Le chemin le plus specifique d'abord : `/exploitation` ne connait pas `/patrouilles`.
+apiV2Router.use("/exploitation/patrouilles", patrouillesV2Router);
 apiV2Router.use("/exploitation", exploitationV2Router);
 
 /**
