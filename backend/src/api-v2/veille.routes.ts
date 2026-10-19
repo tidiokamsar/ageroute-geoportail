@@ -42,6 +42,18 @@ veilleV2Router.post("/escalades/evaluer", async (req, res, next) => {
   try { res.json(await evaluerEscalades(prisma, ctx(req))); } catch (err) { refus(err, res, next); }
 });
 
+/**
+ * Les comptes actifs qu'on peut designer (responsable de patrouille, astreinte). Nom et role
+ * seulement : ni courriel, ni telephone. Reserve a qui configure.
+ */
+veilleV2Router.get("/personnes", config, async (_req, res, next) => {
+  try {
+    res.json({
+      personnes: await prisma.user.findMany({ where: { actif: true }, orderBy: { nomComplet: "asc" }, select: { id: true, nomComplet: true, role: true } }),
+    });
+  } catch (err) { next(err); }
+});
+
 veilleV2Router.get("/mode", async (_req, res, next) => {
   try { res.json(await modeCourant(prisma)); } catch (err) { next(err); }
 });

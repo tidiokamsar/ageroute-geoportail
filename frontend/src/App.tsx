@@ -39,6 +39,9 @@ const GouvernancePage = lazy(() => import("./pages/GouvernancePage").then((m) =>
 const OrdresTravauxPage = lazy(() => import("./pages/OrdresTravauxPage").then((m) => ({ default: m.OrdresTravauxPage })));
 const ImportsPage = lazy(() => import("./pages/ImportsPage").then((m) => ({ default: m.ImportsPage })));
 const CelluleVeillePage = lazy(() => import("./pages/CelluleVeillePage").then((m) => ({ default: m.CelluleVeillePage })));
+const PatrouillesPage = lazy(() => import("./pages/PatrouillesPage").then((m) => ({ default: m.PatrouillesPage })));
+const InfoRoutePage = lazy(() => import("./pages/InfoRoutePage").then((m) => ({ default: m.InfoRoutePage })));
+const VeilleConfigurationPage = lazy(() => import("./pages/VeilleConfigurationPage").then((m) => ({ default: m.VeilleConfigurationPage })));
 
 function PageFallback() {
   return (
@@ -86,6 +89,8 @@ const router = createBrowserRouter(
           <Route path="decision" element={<LazyPage><DecisionPage /></LazyPage>} handle={{ title: "Aide à la décision" }} />
           <Route path="qualite" element={<LazyPage><QualitePage /></LazyPage>} handle={{ title: "Qualité des données" }} />
           <Route path="veille" element={<LazyPage><CelluleVeillePage /></LazyPage>} handle={{ title: "Cellule de veille" }} />
+          <Route path="exploitation/patrouilles" element={<LazyPage><PatrouillesPage /></LazyPage>} handle={{ title: "Patrouilles programmées" }} />
+          <Route path="exploitation/info-route" element={<LazyPage><InfoRoutePage /></LazyPage>} handle={{ title: "Info Route et bulletin" }} />
           <Route path="ordres-travaux" element={<LazyPage><OrdresTravauxPage /></LazyPage>} handle={{ title: "Ordres de travaux" }} />
           <Route path="securite" element={<LazyPage><SecuritePage /></LazyPage>} handle={{ title: "Sécurité du compte" }} />
         </Route>
@@ -102,6 +107,7 @@ const router = createBrowserRouter(
           <Route path="inspections/defauts/validation" element={<LazyPage><DefautsValidationPage /></LazyPage>} handle={{ title: "Validation des relevés terrain" }} />
           <Route path="inspections/defauts/catalogue" element={<LazyPage><CatalogueDefautsPage /></LazyPage>} handle={{ title: "Catalogue des défauts" }} />
           <Route path="imports" element={<LazyPage><ImportsPage /></LazyPage>} handle={{ title: "Lots d'import" }} />
+          <Route path="veille/configuration" element={<LazyPage><VeilleConfigurationPage /></LazyPage>} handle={{ title: "Configuration de la veille" }} />
         </Route>
       </Route>
     </>

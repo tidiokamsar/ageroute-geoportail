@@ -10,7 +10,6 @@ const sections = [
       { to: "/", label: "Tableau de bord" },
       { to: "/geoportail", label: "Géoportail" },
       { to: "/alertes", label: "Alertes" },
-      { to: "/veille", label: "Cellule de veille" },
       { to: "/rapports", label: "Rapports" },
       { to: "/rapports/bailleur", label: "Rapport bailleur" },
       { to: "/decision", label: "Aide à la décision" },
@@ -38,6 +37,15 @@ const sections = [
       { to: "/inspections/defauts/validation", label: "Validation des relevés", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/inspections/defauts/catalogue", label: "Catalogue des défauts", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/imports", label: "Lots d'import", roles: ["ADMIN", "GESTIONNAIRE"] },
+    ],
+  },
+  {
+    title: "EXPLOITATION",
+    items: [
+      { to: "/veille", label: "Cellule de veille" },
+      { to: "/exploitation/patrouilles", label: "Patrouilles" },
+      { to: "/exploitation/info-route", label: "Info Route et bulletin" },
+      { to: "/veille/configuration", label: "Configuration de la veille", roles: ["ADMIN", "GESTIONNAIRE"] },
     ],
   },
   {

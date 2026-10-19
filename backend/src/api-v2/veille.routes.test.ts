@@ -41,7 +41,8 @@ vi.mock("../lib/prisma", () => {
     create: async ({ data }: { data: Ligne }) => { const m = { id: `m-${h.modes.length + 1}`, ...data }; h.modes.push(m); return m; },
   };
   const auditLog = { create: async ({ data }: { data: Ligne }) => { h.audits.push(data); return data; } };
-  const tx = { regleEscalade, astreinte, modeVeille, auditLog, escalade: { findMany: async () => [] } };
+  const user = { findMany: async ({ select }: { select: Record<string, boolean> }) => [{ id: "u-1", nomComplet: "Agent", role: "LECTEUR", email: "ne-doit-pas-sortir@local.invalid" }].map((u) => Object.fromEntries(Object.entries(u).filter(([k]) => select[k]))) };
+  const tx = { regleEscalade, astreinte, modeVeille, auditLog, user, escalade: { findMany: async () => [] } };
   return {
     prisma: {
       ...tx,
@@ -117,5 +118,17 @@ describe("Mode et astreintes", () => {
     expect(ret.status).toBe(200);
     expect(h.astreintes[0].deletedAt).toBeInstanceOf(Date);
     expect((await request(app).post(`${base}/astreintes/a-1/retrait`)).status).toBe(404);
+  });
+});
+
+describe("Personnes designables", () => {
+  it("reservees a qui configure ; nom et role seulement, jamais le courriel", async () => {
+    compte.role = "LECTEUR";
+    expect((await request(app).get(`${base}/personnes`)).status).toBe(403);
+    compte.role = "GESTIONNAIRE";
+    const r = await request(app).get(`${base}/personnes`);
+    expect(r.status).toBe(200);
+    expect(r.body.personnes).toEqual([{ id: "u-1", nomComplet: "Agent", role: "LECTEUR" }]);
+    expect(JSON.stringify(r.body)).not.toContain("@");
   });
 });
