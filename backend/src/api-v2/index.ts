@@ -15,6 +15,7 @@ import { exploitationV2Router } from "./exploitation.routes";
 import { patrouillesV2Router } from "./patrouilles.routes";
 import { infoRouteV2Router } from "./info-route.routes";
 import { veilleV2Router } from "./veille.routes";
+import { teledetectionV2Router } from "./teledetection.routes";
 
 /**
  * `/api/v2` — la nouvelle surface d'API.
@@ -78,6 +79,7 @@ apiV2Router.use("/exploitation/patrouilles", patrouillesV2Router);
 apiV2Router.use("/exploitation/info-route", infoRouteV2Router);
 apiV2Router.use("/exploitation/veille", veilleV2Router);
 apiV2Router.use("/exploitation", exploitationV2Router);
+apiV2Router.use("/teledetection", teledetectionV2Router);
 
 /**
  * Inventaire de la surface v2, pour qu'un client sache ce qui existe reellement.
@@ -88,7 +90,7 @@ apiV2Router.use("/exploitation", exploitationV2Router);
 apiV2Router.get("/", (_req, res) => {
   res.json({
     version: "v2",
-    domaines: ["geo", "sync", "devices", "missions", "observations", "defauts", "field", "portions", "referentiels", "qualite", "reseau", "imports", "exploitation"],
+    domaines: ["geo", "sync", "devices", "missions", "observations", "defauts", "field", "portions", "referentiels", "qualite", "reseau", "imports", "exploitation", "teledetection"],
     aVenir: [
       "auth", "tracks",
       "assets", "offline", "intelligence", "ai", "integrations",

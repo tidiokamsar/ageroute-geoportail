@@ -13,14 +13,13 @@
 > données ; aucune opération de production sans prérequis **vérifiés** (sauvegarde restaurable,
 > rollback testé, espace disque, compteurs) — et jamais prétendre avoir déployé sans l'avoir fait.
 
-**Dernière mise à jour : 19/10/2026.** Branche `lot/03-map-matching`. Backend **1 443/1 443**, `tsc` propre des deux côtés, **neuf bancs SQL** verts. Frontend :
-**309 tests, suite complète NON confirmée verte le 19/10** : sous la charge d'une autre session
-(moins de 500 Mo libres), 20 dépassements de délai dans 3 fichiers non modifiés ; en reprise ciblée,
-`CelluleVeillePage` 5/5, `ImportsPage` 10/10, `GouvernancePage` 12/12, `PortionsValidationPage`
-15/16 avec un test différent à chaque reprise (5,1 s puis 7,2 s pour 5 s de plafond). À relancer
-seule, poste déchargé, avant tout déploiement. Base de développement :
-conteneur `bdri-dev-db`, PostGIS 17-3.5 (GEOS 3.9), base `replay`, **64 migrations** (50 appliquées
-en production, 14 en attente, chacune avec sa descente vérifiée en aller-retour).
+**Dernière mise à jour : 19/10/2026.** Branche `lot/03-map-matching`. Backend **1 473/1 473** (20/10), `tsc` propre des deux côtés, **dix bancs SQL** verts. Frontend, **suite complète du 20/10 : 314/316** ; les 2 échecs étaient des dépassements de délai
+(6,4 s et 6,9 s pour 5 s) dans des fichiers non modifiés, sous la charge d'une autre session.
+Corrigés comme T-1 (frappe sans pause ; plafond explicite et motivé pour un parcours de deux pages)
+et **repassés en reprise ciblée**. Les 3 tests de l'écran de télédétection, ajoutés ensuite, passent.
+Une suite complète entièrement verte, poste déchargé, reste à obtenir avant tout déploiement. Base de développement :
+conteneur `bdri-dev-db`, PostGIS 17-3.5 (GEOS 3.9), base `replay`, **65 migrations** (50 appliquées
+en production, 15 en attente, chacune avec sa descente vérifiée en aller-retour).
 
 ---
 
@@ -44,7 +43,7 @@ en production, 14 en attente, chacune avec sa descente vérifiée en aller-retou
 | **11 Écosystème ONR / BDR / ANASUR** | 15 livrables `DONE` ; pivot CSV/GeoJSON `DONE` ; import étape 1 `DONE` ; écran lots `DONE` | `IN_PROGRESS` | étape 2 (application) `BLOCKED` : échantillon approuvé ; GeoPackage `TODO` (dépendance à choisir) |
 | **12 Exploitation (§ 7.17)** | main courante `DONE` ; P1–P4 provisoires `VERIFIED` ; patrouilles programmées `VERIFIED` ; Info Route et bulletin `VERIFIED` ; cellule de veille `VERIFIED` | `DONE` pour tout ce qui est exécutable | EX-01 à EX-06 et EX-08 livrés ; notifications d'escalade `BLOCKED` (canal à choisir par AGEROUTE) ; EX-07 (Waze/CIFS) et EX-09 (DATEX II) `BLOCKED` (aucun compte partenaire, aucune autorisation) ; diffusion du bulletin (radio, SMS, WhatsApp) `BLOCKED` (aucun canal raccordé ni autorisé) ; alerte capteur `BLOCKED` (aucun capteur raccordé, aucune interface approuvée) |
 | **13 Intégrations DigitalRoad, SharePoint** | sortante en service ; entrante | `BLOCKED` | **B-11, B-12** : aucun accès de recette |
-| **14 Observation de la Terre (partie E)** | palier 0 gratuit | `TODO` | aucune dépense ; conception « descendre, jamais téléverser » |
+| **14 Observation de la Terre (partie E)** | registre, propositions, verdict du terrain, précision `VERIFIED` ; moteur de changement absent | `IN_PROGRESS` | aucune dépense, rien téléchargé ; choix des sources et hébergement du traitement : décision AGEROUTE / DSI |
 | **15 Publication** | build des deux applications, commits, push, déploiement | `IN_PROGRESS` | push continu ; **déploiement : prérequis à vérifier avant tout geste** (§ 4) |
 
 ## 2. Tâches en cours et prochaines, dans l'ordre
@@ -67,6 +66,7 @@ en production, 14 en attente, chacune avec sa descente vérifiée en aller-retou
 | T-13 | Statistiques d'exploitation (EX-08) | 12 | `DONE` | sans migration : `GET /api/v2/exploitation/statistiques?du=&au=` (période **exigée**), noyau pur 10 tests : délai de prise en compte et durée des coupures en médiane / 90e centile **par rang le plus proche** (valeur observée, jamais interpolée), événements jamais pris en compte comptés à part, tronçons **classés** sans étiquette « récurrent » ni cible de délai (aucune fixée par AGEROUTE). Requête exécutée contre la vue réelle ; route 2 tests |
 | T-14 | Cellule de veille (EX-04) | 12 | `VERIFIED` | migration `20261019020000` : `astreintes` (niveau, région ou national, période), `regles_escalade` **aucune semée** (une seule active par type × mode × niveau, index partiel), `escalades` et `modes_veille` **en ajout seul**, une escalade par (événement, niveau). Mode SAISON_PLUIES **déclaré**, jamais calculé d'un calendrier. Noyau 15 tests (règle la plus précise, seul OUVERT monte, astreinte régionale puis nationale, trou de permanence = null), routes 9 tests, page `/veille` murale et mobile (rafraîchie toutes les 30 s, évalue puis lit), 5 tests. Banc SQL 17 assertions, descente aller-retour, épreuve contre `replay`. **Aucune notification envoyée** ; pas d'ordonnanceur serveur : l'évaluation, idempotente, est déclenchée par la vue |
 | T-16 | Écrans de saisie de l'exploitation | 12 | `DONE` | `/exploitation/patrouilles` (programmes, échéances, passage engendré en brouillon, itinéraire ordonné par recherche de tronçons), `/exploitation/info-route` (publication, mise à jour, retrait depuis un événement pris en compte, journal, génération et téléchargement des bulletins), `/veille/configuration` (mode motivé, règles d'escalade, astreintes ; ADMIN et GESTIONNAIRE). **Aucune valeur préremplie** : périodicité et délai vides, boutons inactifs tant qu'ils ne sont pas saisis ; aucun champ de niveau P1–P4. Deux routes de lecture ajoutées : `GET /exploitation/referentiels` (types, sources) et `GET /exploitation/veille/personnes` (nom et rôle, jamais le courriel ; ADMIN/GESTIONNAIRE). Tests : 7 écrans + 2 routes, `tsc` propre des deux côtés. Suites complètes **non relancées** sous la charge du poste ; vérification navigateur impossible (pas de `.env` local) |
+| T-17 | Observation de la Terre, palier 0 : registre et propositions (partie E, A30) | 14 | `VERIFIED` | migration `20261020000000` : `earth_observation_products` (licence, provenance, incertitude, version de traitement **obligatoires en base** ; couverture nuageuse pour l'optique ; référence d'autorisation de dépense pour les paliers 1 à 3), `propositions_teledetection` **figées à l'insertion** (déclencheur), verdict du terrain unique citant son constat, vue `precision_teledetection` **nulle sans verdict**. Rattachement au tronçon le plus proche **seulement si une tolérance est donnée**. Banc SQL 15 assertions (un défaut de **mon** banc trouvé : la base de rejeu n'a aucun tronçon, l'essai passait pour une contre-épreuve), descente aller-retour, aucun écart schéma/base. Noyau 19 tests, routes 12 tests, écran `/teledetection` 3 tests, compteur « alertes satellite » sur la vue murale. Épreuve contre `replay` : point à 11,1 m rattaché à 50 m, point à ~555 m non. `EARTH_OBSERVATION_PLAN.md` écrit. **Rien téléchargé, aucun traitement, aucune dépense** ; licences non écrites de mémoire, à relever à la source ; moteur de changement absent |
 | T-15 | **Défaut d'EX-01 trouvé par T-14** : ordre du journal à heure égale | 12 | `VERIFIED` | la vue retenait le dernier statut par heure puis **uuid aléatoire** : à heure serveur égale, une déclaration OUVERT pouvait passer pour plus récente que son PRIS_EN_COMPTE (un événement pris en compte a été escaladé). Migration `20261019030000` : `rang BIGSERIAL` sur `main_courante`, vue et service ordonnés par lui. Banc : **7 événements sur 20 faux avant, 20 sur 20 après**. Descente aller-retour. Écarts schéma/base préexistants d'EX-01 relevés (comportement `ON DELETE` de quatre clés, index GiST, un nom d'index) : sans effet sur `migrate deploy`, non corrigés |
 
 ## 3. Blocages actifs
@@ -90,8 +90,8 @@ en production, 14 en attente, chacune avec sa descente vérifiée en aller-retou
 2. **sauvegarde du jour** : `pg_dump -Fc` puis `pg_restore -l` — pas seulement l'existence du fichier ;
 3. espace disque > 15 % libre, sinon `docker builder prune` d'abord ;
 4. compteurs de référence relevés (`troncons`, `ouvrages`, `valeurs_qualite`, `audit_logs`, `users`) ;
-5. `prisma migrate status` : 50 appliquées, 14 en attente, 0 orpheline ;
-6. les quatorze descentes des migrations en attente présentes dans `backend/prisma/descentes/` ;
+5. `prisma migrate status` : 50 appliquées, 15 en attente, 0 orpheline ;
+6. les quinze descentes des migrations en attente présentes dans `backend/prisma/descentes/` ;
 7. `git diff --name-status main...HEAD | grep ^D` vide ;
 8. empreintes des deux `.env` relevées avant et après.
 

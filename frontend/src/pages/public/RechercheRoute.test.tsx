@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+
+// Sans pause entre les frappes : avec la pause par defaut, la saisie depassait seule le plafond
+// de 5 s sur un poste charge (20/10/2026). Le comportement eprouve ne change pas.
+const utilisateur = () => userEvent.setup({ delay: null });
 import { RechercheRoute, type RouteIndexee } from "./RechercheRoute";
 
 /**
@@ -31,14 +35,14 @@ describe("Recherche de route — carte publique", () => {
 
   it("trouve une route par son numéro", async () => {
     const { champ } = poser();
-    await userEvent.type(champ, "RN31");
+    await utilisateur().type(champ, "RN31");
     expect(screen.getByText("RN31")).toBeInTheDocument();
     expect(screen.queryByText("RES-171")).not.toBeInTheDocument();
   });
 
   it("trouve les routes d'une région", async () => {
     const { champ } = poser();
-    await userEvent.type(champ, "Kankan");
+    await utilisateur().type(champ, "Kankan");
     expect(screen.getByText("RN1")).toBeInTheDocument();
     expect(screen.getByText("RN31")).toBeInTheDocument();
     expect(screen.queryByText("RES-171")).not.toBeInTheDocument();
@@ -46,13 +50,13 @@ describe("Recherche de route — carte publique", () => {
 
   it("ignore les accents — on tape sans, on trouve avec", async () => {
     const { champ } = poser();
-    await userEvent.type(champ, "nzerekore");
+    await utilisateur().type(champ, "nzerekore");
     expect(screen.getByText("RES-171")).toBeInTheDocument();
   });
 
   it("place d'abord les correspondances en début de nom, puis les plus longues", async () => {
     const { champ } = poser();
-    await userEvent.type(champ, "RN");
+    await utilisateur().type(champ, "RN");
     // On restreint a la liste de resultats : le bouton d'effacement du champ est
     // lui aussi un bouton, et viendrait en premier.
     const noms = within(screen.getByRole("list")).getAllByRole("button").map((b) => b.textContent ?? "");
@@ -64,21 +68,21 @@ describe("Recherche de route — carte publique", () => {
 
   it("traduit la classe dans la langue du lecteur", async () => {
     const { champ } = poser();
-    await userEvent.type(champ, "RES-171");
+    await utilisateur().type(champ, "RES-171");
     expect(screen.getByText("Route régionale")).toBeInTheDocument();
     expect(screen.queryByText(/^RR$/)).not.toBeInTheDocument();
   });
 
   it("le dit quand rien ne correspond, plutôt que de rester muette", async () => {
     const { champ } = poser();
-    await userEvent.type(champ, "zzzz");
+    await utilisateur().type(champ, "zzzz");
     expect(screen.getByText(/aucune route ne correspond/i)).toBeInTheDocument();
   });
 
   it("remonte la route choisie et vide le champ", async () => {
     const { champ, onChoisir } = poser();
-    await userEvent.type(champ, "RN31");
-    await userEvent.click(screen.getByText("RN31"));
+    await utilisateur().type(champ, "RN31");
+    await utilisateur().click(screen.getByText("RN31"));
 
     expect(onChoisir).toHaveBeenCalledTimes(1);
     expect(onChoisir.mock.calls[0][0].nom).toBe("RN31");
@@ -87,21 +91,21 @@ describe("Recherche de route — carte publique", () => {
 
   it("Entrée choisit le premier résultat", async () => {
     const { champ, onChoisir } = poser();
-    await userEvent.type(champ, "RN31{Enter}");
+    await utilisateur().type(champ, "RN31{Enter}");
     expect(onChoisir.mock.calls[0][0].nom).toBe("RN31");
   });
 
   it("Échap referme la liste sans rien choisir", async () => {
     const { champ, onChoisir } = poser();
-    await userEvent.type(champ, "RN{Escape}");
+    await utilisateur().type(champ, "RN{Escape}");
     expect(onChoisir).not.toHaveBeenCalled();
     expect(screen.queryByText("Route nationale")).not.toBeInTheDocument();
   });
 
   it("le bouton d'effacement vide la recherche", async () => {
     const { champ } = poser();
-    await userEvent.type(champ, "RN1");
-    await userEvent.click(screen.getByRole("button", { name: /effacer la recherche/i }));
+    await utilisateur().type(champ, "RN1");
+    await utilisateur().click(screen.getByRole("button", { name: /effacer la recherche/i }));
     expect(champ).toHaveValue("");
   });
 });

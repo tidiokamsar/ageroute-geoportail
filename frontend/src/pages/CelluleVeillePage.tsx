@@ -42,6 +42,8 @@ export interface Tableau {
   regles: { actives: number; incoherences: string[]; aucuneRegle: boolean };
   infoRouteEnCours: number;
   signalementsNouveaux: number;
+  /** Propositions de teledetection a verifier : des propositions, jamais des faits. */
+  alertesSatelliteAVerifier?: number;
   patrouilles: { id: string; code: string; libelle: string; echeance: Echeance }[];
 }
 
@@ -131,12 +133,13 @@ export function CelluleVeillePage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
         <Compteur libelle="Non pris en compte" valeur={ouverts.length} alerte />
         <Compteur libelle="Événements actifs" valeur={data.evenements.length} />
         <Compteur libelle="Info Route en cours" valeur={data.infoRouteEnCours} />
         <Compteur libelle="Signalements nouveaux" valeur={data.signalementsNouveaux} alerte />
         <Compteur libelle="Patrouilles à faire" valeur={data.patrouilles.length} alerte />
+        <Compteur libelle="Alertes satellite à vérifier" valeur={data.alertesSatelliteAVerifier ?? 0} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">

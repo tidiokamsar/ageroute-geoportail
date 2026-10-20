@@ -145,7 +145,7 @@ tournera dans la coque.
 | Tableau de bord, Control Tower, Géoportail d'excellence | partiels |
 | Écosystème ONR / BDR / ANASUR (partie B) | les 15 livrables du § B.6 **produits** ; pivot CSV/GeoJSON et import étape 1 faits ; étape 2 **bloquée** (échantillon approuvé) ; formats L²R non publiés |
 | Exploitation et information routière (§ 7.17) | main courante, P1–P4 provisoires, **patrouilles programmées, Info Route et bulletin faits** (19/10) ; statistiques d'exploitation et **cellule de veille faites** ; Waze/CIFS, DATEX II et diffusion du bulletin **bloqués** (aucun partenaire ni canal autorisé) |
-| Observation de la Terre (partie E) | **non commencé** — palier 0 gratuit, aucune dépense requise |
+| Observation de la Terre (partie E) | registre, propositions, verdict du terrain et précision **faits** (20/10) ; aucune image, moteur de changement absent, sources à choisir |
 | Tâches internes et rapprochement (TI-01 à TI-03) | TI-01 **fait** (table, contraintes, garde-fou de frontière) ; TI-03 **fait** (`DATA_SOURCE_OF_TRUTH.md`) ; TI-02 **bloqué** (B-11) |
 | Intégrations DigitalRoad, SharePoint | **bloquées, aucun accès** |
 | Durcissement, observabilité | partiel |

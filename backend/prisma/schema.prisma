@@ -343,22 +343,25 @@ model User {
   baremesApprouves          BaremeIntervention[]       @relation("BaremeApprouve")
   matricesApprouvees        MatriceDegradation[]       @relation("MatriceApprouvee")
 
-  tachesInternesCreees            TacheInterne[]         @relation("TacheInterneAuteur")
-  tachesInternesEnCharge          TacheInterne[]         @relation("TacheInterneResponsable")
-  tachesInternesCloturees         TacheInterne[]         @relation("TacheInterneClotureur")
-  traitementsApprouves            CatalogueTraitement[]  @relation("TraitementApprouve")
-  lotsImportes                    LotImport[]            @relation("LotImportateur")
-  entreesMainCourante             EntreeMainCourante[]   @relation("MainCouranteAuteur")
-  programmesPatrouilleResponsable ProgrammePatrouille[]  @relation("ProgrammeResponsable")
-  programmesPatrouilleCrees       ProgrammePatrouille[]  @relation("ProgrammeCreateur")
-  publicationsInfoRoute           PublicationInfoRoute[] @relation("InfoRoutePublieur")
-  bulletinsGeneres                BulletinRoutier[]      @relation("BulletinGenerateur")
-  astreintes                      Astreinte[]            @relation("AstreinteAgent")
-  astreintesCreees                Astreinte[]            @relation("AstreinteCreateur")
-  reglesEscaladeCreees            RegleEscalade[]        @relation("RegleEscaladeCreateur")
-  escaladesRecues                 Escalade[]             @relation("EscaladeDestinataire")
-  escaladesEvaluees               Escalade[]             @relation("EscaladeEvaluateur")
-  modesVeilleDeclares             ModeVeille[]           @relation("ModeVeilleDeclarant")
+  tachesInternesCreees            TacheInterne[]             @relation("TacheInterneAuteur")
+  tachesInternesEnCharge          TacheInterne[]             @relation("TacheInterneResponsable")
+  tachesInternesCloturees         TacheInterne[]             @relation("TacheInterneClotureur")
+  traitementsApprouves            CatalogueTraitement[]      @relation("TraitementApprouve")
+  lotsImportes                    LotImport[]                @relation("LotImportateur")
+  entreesMainCourante             EntreeMainCourante[]       @relation("MainCouranteAuteur")
+  programmesPatrouilleResponsable ProgrammePatrouille[]      @relation("ProgrammeResponsable")
+  programmesPatrouilleCrees       ProgrammePatrouille[]      @relation("ProgrammeCreateur")
+  publicationsInfoRoute           PublicationInfoRoute[]     @relation("InfoRoutePublieur")
+  bulletinsGeneres                BulletinRoutier[]          @relation("BulletinGenerateur")
+  astreintes                      Astreinte[]                @relation("AstreinteAgent")
+  astreintesCreees                Astreinte[]                @relation("AstreinteCreateur")
+  reglesEscaladeCreees            RegleEscalade[]            @relation("RegleEscaladeCreateur")
+  escaladesRecues                 Escalade[]                 @relation("EscaladeDestinataire")
+  escaladesEvaluees               Escalade[]                 @relation("EscaladeEvaluateur")
+  modesVeilleDeclares             ModeVeille[]               @relation("ModeVeilleDeclarant")
+  produitsObservationTerre        EarthObservationProduct[]  @relation("EoEnregistreur")
+  propositionsTeledetectionCrees  PropositionTeledetection[] @relation("PtCreateur")
+  propositionsTeledetectionJugees PropositionTeledetection[] @relation("PtVerificateur")
 
   @@map("users")
 }
@@ -495,11 +498,12 @@ model Troncon {
   motifPerimetre   String?
   perimetreClasseA DateTime?
 
-  evaluationsCondition EvaluationCondition[]
-  portions             Portion[]
-  tachesInternes       TacheInterne[]
-  entreesMainCourante  EntreeMainCourante[]
-  programmesPatrouille ProgrammeTroncon[]
+  evaluationsCondition      EvaluationCondition[]
+  portions                  Portion[]
+  tachesInternes            TacheInterne[]
+  entreesMainCourante       EntreeMainCourante[]
+  programmesPatrouille      ProgrammeTroncon[]
+  propositionsTeledetection PropositionTeledetection[]
 
   @@index([regionId])
   @@index([etat])
@@ -1490,11 +1494,12 @@ model Mission {
   defauts Defaut[]
 
   /// Programme de patrouille que la mission execute (paragraphe 7.17). Nul pour une mission ponctuelle.
-  programmeId   String?
-  programme     ProgrammePatrouille? @relation(fields: [programmeId], references: [id])
+  programmeId               String?
+  programme                 ProgrammePatrouille?       @relation(fields: [programmeId], references: [id])
   /// Signalement que la mission verifie : la prise en compte tracee du paragraphe 7.17.
-  signalementId String?
-  signalement   SignalementCitoyen?  @relation(fields: [signalementId], references: [id])
+  signalementId             String?
+  signalement               SignalementCitoyen?        @relation(fields: [signalementId], references: [id])
+  propositionsTeledetection PropositionTeledetection[]
 
   @@index([statut])
   @@index([assigneId])
@@ -3367,4 +3372,72 @@ model ModeVeille {
   rang         BigInt   @default(autoincrement())
 
   @@map("modes_veille")
+}
+
+/// Registre des produits d'observation de la Terre (partie E). Licence, provenance, incertitude
+/// et version de traitement obligatoires ; couverture nuageuse pour l'optique ; reference
+/// d'autorisation de depense pour les paliers 1 a 3 -- tenu en base. L'emprise (Polygon 4326)
+/// est geree en SQL brut.
+model EarthObservationProduct {
+  id                     String                                 @id @default(uuid())
+  code                   String                                 @unique
+  palier                 Int
+  source                 String
+  /// OPTIQUE, RADAR, ALTIMETRIE, PRECIPITATIONS, POPULATION, INONDATION, ROUTES_EXTRAITES.
+  nature                 String
+  dateAcquisition        DateTime
+  dateFin                DateTime?
+  resolutionM            Float
+  couvertureNuagesPct    Float?
+  incertitude            String
+  provenance             String
+  licence                String
+  versionTraitement      String
+  autorisationDepenseRef String?
+  emprise                Unsupported("geometry(Polygon, 4326)")
+  enregistreParId        String
+  enregistrePar          User                                   @relation("EoEnregistreur", fields: [enregistreParId], references: [id])
+  createdAt              DateTime                               @default(now())
+  deletedAt              DateTime?
+
+  propositions          PropositionTeledetection[] @relation("PtProduit")
+  propositionsReference PropositionTeledetection[] @relation("PtProduitReference")
+
+  @@index([emprise], map: "earth_observation_products_emprise_gist", type: Gist)
+  @@map("earth_observation_products")
+}
+
+/// Proposition issue de la teledetection : A_VERIFIER jusqu'au verdict du terrain, qui ne se
+/// reprend pas. Figee a l'insertion (declencheur) ; ne modifie jamais le referentiel.
+model PropositionTeledetection {
+  id                 String                                  @id @default(uuid())
+  produitId          String
+  produit            EarthObservationProduct                 @relation("PtProduit", fields: [produitId], references: [id], onDelete: Restrict)
+  produitReferenceId String?
+  produitReference   EarthObservationProduct?                @relation("PtProduitReference", fields: [produitReferenceId], references: [id], onDelete: Restrict)
+  /// NOUVELLE_ROUTE, COUPURE_PROBABLE, VEGETATION, INONDATION.
+  type               String
+  methode            String
+  score              Float?
+  geom               Unsupported("geometry(Geometry, 4326)")
+  tronconId          String?
+  troncon            Troncon?                                @relation(fields: [tronconId], references: [id], onDelete: Restrict)
+  distanceTronconM   Float?
+  /// A_VERIFIER, CONFIRMEE, INFIRMEE.
+  statut             String                                  @default("A_VERIFIER")
+  verifieeParId      String?
+  verifieePar        User?                                   @relation("PtVerificateur", fields: [verifieeParId], references: [id], onDelete: Restrict)
+  verifieeLe         DateTime?
+  motifVerdict       String?
+  constatRef         String?
+  missionId          String?
+  mission            Mission?                                @relation(fields: [missionId], references: [id])
+  creeParId          String
+  creePar            User                                    @relation("PtCreateur", fields: [creeParId], references: [id], onDelete: Restrict)
+  createdAt          DateTime                                @default(now())
+
+  @@index([statut], map: "propositions_teledetection_statut_idx")
+  @@index([tronconId], map: "propositions_teledetection_troncon_idx")
+  @@index([geom], map: "propositions_teledetection_geom_gist", type: Gist)
+  @@map("propositions_teledetection")
 }

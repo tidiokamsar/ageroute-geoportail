@@ -42,6 +42,7 @@ const CelluleVeillePage = lazy(() => import("./pages/CelluleVeillePage").then((m
 const PatrouillesPage = lazy(() => import("./pages/PatrouillesPage").then((m) => ({ default: m.PatrouillesPage })));
 const InfoRoutePage = lazy(() => import("./pages/InfoRoutePage").then((m) => ({ default: m.InfoRoutePage })));
 const VeilleConfigurationPage = lazy(() => import("./pages/VeilleConfigurationPage").then((m) => ({ default: m.VeilleConfigurationPage })));
+const TeledetectionPage = lazy(() => import("./pages/TeledetectionPage").then((m) => ({ default: m.TeledetectionPage })));
 
 function PageFallback() {
   return (
@@ -91,6 +92,7 @@ const router = createBrowserRouter(
           <Route path="veille" element={<LazyPage><CelluleVeillePage /></LazyPage>} handle={{ title: "Cellule de veille" }} />
           <Route path="exploitation/patrouilles" element={<LazyPage><PatrouillesPage /></LazyPage>} handle={{ title: "Patrouilles programmées" }} />
           <Route path="exploitation/info-route" element={<LazyPage><InfoRoutePage /></LazyPage>} handle={{ title: "Info Route et bulletin" }} />
+          <Route path="teledetection" element={<LazyPage><TeledetectionPage /></LazyPage>} handle={{ title: "Observation de la Terre" }} />
           <Route path="ordres-travaux" element={<LazyPage><OrdresTravauxPage /></LazyPage>} handle={{ title: "Ordres de travaux" }} />
           <Route path="securite" element={<LazyPage><SecuritePage /></LazyPage>} handle={{ title: "Sécurité du compte" }} />
         </Route>

@@ -35,7 +35,7 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 | **A9** | Une proposition non validée n'apparaît jamais comme officielle | **TT** | `statutValidation` par défaut `A_VALIDER` ; `governance/validation.ts` 75 tests ; exports et carte filtrent |
 | **A10** | 403 sur appel direct d'API pour un `LECTEUR` ou hors zone | **PA** | RBAC testé (`middleware/rbac`), délégation par domaine testée. **ABAC par territoire partiel** : 5 domaines sur 8 sans route |
 | **A11** | Anomalie détectée, classée, expliquée, donnée intacte | **TT** | `qualite/anomalies.ts` 23 tests, `api-v2/qualite.routes.ts` 14 tests, **9 familles** ; un test vérifie qu'aucune correction ne propose de supprimer |
-| **A12** | Chaque indicateur égal à sa requête de contrôle | **PA** | `reseau/couverture.reseau.ts` est reproductible et documenté (212 ms). Mais le tableau de bord **ne connaît ni portions ni qualité** |
+| **A12** | Chaque indicateur égal à sa requête de contrôle | **PA** | `reseau/couverture.reseau.ts` est reproductible et documenté (212 ms). Le tableau de bord affiche **depuis le 15/10 le périmètre, les portions validées et la qualité par statut** (`/kpis`). Reste : aucune requête de contrôle n'est rapprochée automatiquement de chaque indicateur affiché |
 | **A13** | Intégrations : seules les données validées émises, rejeu sans effet de bord | **BL** | aucun accès DigitalRoad ni SharePoint (B-11, B-12). Aucune outbox transactionnelle écrite |
 | **A14** | Non-régression des fonctions existantes | **TT** | **1 145 + 294 tests**, 0 échec ; les 16 tests d'appariement antérieurs tiennent après extraction du noyau |
 | **A15** | Rattachement < 300 ms p95 ; Géoportail fluide | **NT** | **jamais mesuré**. L'ordre de grandeur connu est indirect : la requête de candidats passe de 2,5 s à quelques millisecondes avec le filtre d'emprise |
@@ -53,9 +53,9 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 | **A27** | Aucune décision non approuvée présentée comme officielle | **TT** | `rci-2026.1` **désapprouvée** le 14/10 ; 9 barèmes en `standard_initial`, **aucun approuvé** ; praticabilité volontairement vide ; 6 573 hors-territoire et 42 doublons **classés, intacts et reproductibles** |
 | **A28** | Import BDR/ANASUR idempotent, 100 % des lignes dans un statut | **TP** | **les deux propriétés sont tenues par la base** (15 assertions SQL) **et par l'orchestration** : `/api/v2/imports` reçoit un fichier, l'empreinte **sur les octets reçus**, le vérifie ligne à ligne, enregistre le lot et toutes ses lignes dans un statut en une transaction auditée ; le même fichier renvoyé rend le lot existant **sans aucune écriture** ; erreurs exportables en CSV avec motif. 14 tests. **Reste l'étape 2, l'application** — aucune proposition n'est encore créée dans le référentiel, faute de rapprochement des identifiants et d'échantillon approuvé |
 | **A29** | Tâches internes avec preuves avant/après ; rapprochement en lecture | **TP** | **TI-01 livré** : `taches_internes`, 9 contraintes `CHECK`, 22 assertions SQL. « Une tâche clôturée possède des preuves avant/après » est tenu **par la base**, pas par une consigne. La frontière DigitalRoad est tenue par l'**absence des colonnes**, avec un garde-fou de 17 tests qui échoue si un montant apparaît. **TI-02 bloqué** (aucune donnée DigitalRoad, B-11), TI-03 fait (`DATA_SOURCE_OF_TRUTH.md`) |
-| **A30** | Détection satellitaire → proposition localisée, précision mesurée | **AB** | partie E non commencée |
+| **A30** | Détection satellitaire → proposition localisée, précision mesurée | **TP** | **la chaîne aval est faite et éprouvée en base** : registre des produits (licence, provenance, incertitude obligatoires), propositions localisées et figées, rattachement au tronçon à tolérance explicite (11,1 m rattaché, ~555 m non, à 50 m), verdict du terrain unique, précision par méthode **nulle sans verdict** (`observation_terre.test.sql`, 15 assertions ; 34 tests). **Manque l'amont** : aucune image, aucun moteur de changement, sources à choisir (`EARTH_OBSERVATION_PLAN.md`) |
 
-**Bilan : 9 TT, 6 TP, 6 PA, 3 NT, 2 BL, 4 AB.** Aucune case « à vérifier ».
+**Bilan : 9 TT, 7 TP, 6 PA, 3 NT, 2 BL, 3 AB.** Aucune case « à vérifier ».
 
 ---
 
@@ -92,7 +92,7 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 | 7.9 | Sécurité | **PA** | RBAC fait, ABAC partiel ; 4 risques ouverts |
 | 7.10 | Intégrations | **BL** | aucun accès |
 | 7.11 | Interface web, WCAG 2.1 AA | **PA** | design system présent ; **accessibilité jamais mesurée**, et le `lint` du dépôt ne fonctionne pas (B-29) |
-| 7.12 | Tableau de bord national | **PA** | ignore portions et qualité |
+| 7.12 | Tableau de bord national | **PA** | périmètre, portions validées et qualité affichés (15/10) ; Control Tower et Fiche 360° absents |
 | 7.13 | Collecte en roulage | **AB** | priorité M, non commencé |
 | 7.14 | Niveau d'excellence | **AB** | tuiles vectorielles, vue de route, curseur temporel, pgRouting, gazetier, métadonnées ISO 19115 |
 | **7.15** | **Interopérabilité BDR / L²R** | **PA** | **IO-04 livré** ; les 8 flux ont chacun leur plan de test (`ONR_BDR_TEST_PLAN.md`) et les 3 options d'échange sont documentées **sans choix** (§ B.4). Un seul flux est testable aujourd'hui ; les autres attendent formats, export approuvé ou décision. **Une intégration sortante existe déjà** vers DigitalRoad/SharePoint — ce que les rapports antérieurs omettaient |

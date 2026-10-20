@@ -45,6 +45,7 @@ const sections = [
       { to: "/veille", label: "Cellule de veille" },
       { to: "/exploitation/patrouilles", label: "Patrouilles" },
       { to: "/exploitation/info-route", label: "Info Route et bulletin" },
+      { to: "/teledetection", label: "Observation de la Terre" },
       { to: "/veille/configuration", label: "Configuration de la veille", roles: ["ADMIN", "GESTIONNAIRE"] },
     ],
   },

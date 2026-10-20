@@ -38,7 +38,7 @@ describe("file de validation terrain", () => {
       return { data: defaut };
     });
     h.post.mockResolvedValue({ data: { ...defaut, statutValidation: "VALIDE" } });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderAvecQuery(<DefautsValidationPage />);
 
     await screen.findByText("Orniérage");
@@ -47,7 +47,9 @@ describe("file de validation terrain", () => {
     await user.click(screen.getByRole("button", { name: /Valider/ }));
 
     await waitFor(() => expect(h.post).toHaveBeenCalledWith("/v2/defauts/defaut-1/decision", { decision: "VALIDE" }));
-  });
+    // Plafond explicite : deux rendus complets de page (file puis revue). Sur un poste charge, le
+    // 20/10/2026, ce parcours prenait 6,9 a 8 s pour 5 s de plafond, sans aucune assertion fausse.
+  }, 15_000);
 });
 
 describe("catalogue des défauts", () => {
@@ -58,7 +60,7 @@ describe("catalogue des défauts", () => {
       source: "Vocabulaire courant à valider", version: 7, actif: true,
     }] } });
     h.patch.mockResolvedValue({ data: {} });
-    const user = userEvent.setup();
+    const user = userEvent.setup({ delay: null });
     renderAvecQuery(<CatalogueDefautsPage />);
 
     await screen.findByText("Nid de poule");
