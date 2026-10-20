@@ -454,3 +454,37 @@ C est à écarter, et pas seulement par préférence : elle contredit le § A.5.
 **Ce que je n'ai pas fait, et volontairement** : corriger le fichier. Cela aurait réparé la
 reconstruction locale en armant une erreur d'empreinte au prochain déploiement, c'est-à-dire
 échangé un défaut mesuré contre un défaut caché.
+
+---
+
+## D-11 Valider le patrimoine existant : qu'est-ce qui soumet une fiche à validation ?
+
+**Constat du 20/10/2026**, en cherchant à combler l'écart du scénario A10 (« ABAC par territoire
+partiel : 5 domaines sur 8 sans route »).
+
+Les routes de validation, et donc les délégations par domaine et par région, existent pour les
+**défauts, observations et portions**. Pour les **tronçons, ouvrages, points noirs et postes**, la
+colonne `statutValidation` existe mais elle est **nulle sur toutes les fiches** : elles viennent
+d'imports ou de la saisie historique, et rien ne les fait jamais passer à `A_VALIDER`. Une route
+de validation ajoutée seule n'aurait donc **aucun effet**. (Les chantiers sont hors périmètre,
+module gelé par ADR-003 : non concernés.)
+
+### Pourquoi je ne le tranche pas
+
+| Option | Effet | Risque |
+|---|---|---|
+| **A. Toute modification par la console (API v1) fait passer la fiche à `A_VALIDER`** | contrôle à deux personnes sur le patrimoine | la carte et les exports **filtrent** sur ce statut (A9) : un tronçon modifié **disparaîtrait de la carte** jusqu'à validation. Régression visible pour les utilisateurs de production |
+| **B. Les modifications deviennent des propositions** (comme les portions) : la fiche officielle reste affichée, la proposition attend sa validation | le bon modèle de fond, conforme au § 7.5 | refonte des écrans de saisie du patrimoine ; plusieurs lots |
+| **C. Soumission explicite** : un gestionnaire soumet une fiche à validation, qui reste visible tant qu'elle n'est pas rejetée | effet immédiat, sans régression | le sens de « valider une fiche existante » est à définir : valide-t-on la géométrie, les attributs, ou les deux ? |
+
+### Et le « hors zone » de A10
+
+Les comptes **ne portent aucune région**. Aujourd'hui, la seule restriction territoriale est celle
+des délégations de validation. Restreindre aussi l'**écriture** par région suppose de rattacher
+chaque compte à un périmètre : c'est une donnée d'organisation, à fournir par AGEROUTE.
+
+### Ce qui est attendu
+
+1. Le choix entre A, B et C (recommandation : **B à terme, C en attendant** ; A est à écarter tant
+   que la carte filtre sur le statut).
+2. Si une restriction d'écriture par région est voulue : la liste des comptes et de leur périmètre.
