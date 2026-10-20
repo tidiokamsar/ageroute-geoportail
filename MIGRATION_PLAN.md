@@ -24,9 +24,9 @@ migrations.**
 
 | Mesure | Valeur |
 |---|---|
-| Dossiers de migration locaux | **65** (au 20/10) |
+| Dossiers de migration locaux | **67** (au 20/10) |
 | Appliquées en production | **50** |
-| **En attente** | **15** |
+| **En attente** | **17** |
 | Appliquées sans fichier local (orphelines) | **0** |
 | Lignes de `_prisma_migrations` inachevées ou annulées | 1, **expliquée au § 5** |
 
@@ -317,6 +317,8 @@ des interventions passera en `ÉVALUÉ` (origine `INSPECTION_POST_TRAVAUX`).
 |---|---|---|
 | **cellule de veille** (EX-04) : `astreintes`, `regles_escalade`, `escalades`, `modes_veille` | additive ; **aucune règle ni astreinte semée** ; escalades et modes en ajout seul (déclencheur), une escalade par (événement, niveau) ; une seule règle active par type × mode × niveau | **OUI**, aller-retour ; perd le journal des escalades (qui devait réagir à quoi) : compter avant |
 | **observation de la Terre** (`20261020000000`) : `earth_observation_products`, `propositions_teledetection`, vue `precision_teledetection` | additive ; **aucun produit semé** ; licence, provenance, incertitude obligatoires en base ; autorisation de dépense pour les paliers payants ; propositions figées, verdict unique | **OUI**, aller-retour le 20/10 ; perd les verdicts du terrain, donc la mesure de précision : compter avant |
+| **métré UTM** (`20261020010000`) : fonctions `epsg_utm`, `metre_utm` | additive, aucune table ; fuseau 28N / 29N selon la longitude du point intérieur (§ 7.1) ; banc à 0,04–0,18 % de l'ellipsoïde | **OUI**, aller-retour ; aucune donnée perdue, `POST /api/v2/geo/metre` cesse de répondre |
+| **index GiST complets** (`20261020020000`) : six index sur `(geom::geography)` | additive ; verrou en écriture le temps de la construction, tables de quelques milliers de lignes ; **vérifier avant** qu'aucun index équivalent n'existe sous un autre nom | **OUI**, aller-retour ; aucune donnée perdue |
 | **ordre total de la main courante** : `rang BIGSERIAL`, vue `evenements_exploitation` ordonnée par lui | additive, **correctif** : à heure serveur égale, l'ancienne vue tranchait par uuid aléatoire (7 erreurs sur 20 au banc). Doit être déployée **avec** `20261015010000`, jamais sans | **OUI**, aller-retour ; descendre réintroduit le défaut |
 
 ---

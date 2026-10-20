@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
 import { apparier, INCERTITUDE_PAR_DEFAUT_M, type Appariement } from "../geo/appariement";
+import { prisma } from "../lib/prisma";
 
 /**
  * `/api/v2/geo` — appariement d'une position GPS sur le reseau.
@@ -131,6 +132,48 @@ geoV2Router.post("/match/batch", requireAuth, requireModuleAccess("geoportail"),
       incertitudeParDefautM: INCERTITUDE_PAR_DEFAUT_M,
       resultats,
     });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * @openapi
+ * /api/v2/geo/metre:
+ *   post:
+ *     summary: Longueur et surface d'une geometrie en projection UTM (paragraphe 7.1, scenario A5)
+ *     tags: [Geo v2]
+ *
+ * La geometrie (GeoJSON, EPSG:4326) est mesuree dans SON fuseau UTM -- 28N a l'ouest de 12 deg O,
+ * 29N au-dela -- jamais en degres. La reponse rend aussi les grandeurs geodesiques et l'ecart
+ * relatif : le scenario A5 le borne a 1 %, et le banc `metre_utm.test.sql` le mesure. Rien n'est
+ * ecrit en base.
+ */
+const corpsMetre = z.object({
+  geometrie: z.object({
+    type: z.enum(["LineString", "MultiLineString", "Polygon", "MultiPolygon"]),
+    coordinates: z.array(z.unknown()).min(1),
+  }),
+});
+
+geoV2Router.post("/metre", requireAuth, requireModuleAccess("geoportail"), async (req, res, next) => {
+  const p = corpsMetre.safeParse(req.body);
+  if (!p.success) return res.status(400).json({ error: "geometrie invalide : LineString, MultiLineString, Polygon ou MultiPolygon en GeoJSON", details: p.error.flatten().fieldErrors });
+  const geojson = JSON.stringify(p.data.geometrie);
+  let valide: { valide: boolean; raison: string }[];
+  try {
+    valide = await prisma.$queryRaw<{ valide: boolean; raison: string }[]>`
+      SELECT ST_IsValid(g) AS "valide", ST_IsValidReason(g) AS "raison" FROM (SELECT ST_SetSRID(ST_GeomFromGeoJSON(${geojson}), 4326) AS g) s`;
+  } catch {
+    // Coordonnees que PostGIS ne sait pas lire : c'est une erreur de l'appelant, pas du serveur.
+    return res.status(400).json({ error: "geometrie illisible : coordonnees GeoJSON non conformes" });
+  }
+  try {
+    // Une geometrie invalide est refusee avec sa raison : la reparer en silence (ST_MakeValid)
+    // changerait la surface mesuree sans le dire (paragraphe 7.1).
+    if (!valide[0]?.valide) return res.status(400).json({ error: `geometrie invalide : ${valide[0]?.raison ?? "inconnue"}` });
+    const [m] = await prisma.$queryRaw<Record<string, number>[]>`SELECT * FROM metre_utm(ST_SetSRID(ST_GeomFromGeoJSON(${geojson}), 4326))`;
+    return res.json({ ...m, methode: "projection UTM du fuseau du point interieur ; controle geodesique (geography)" });
   } catch (err) {
     return next(err);
   }
