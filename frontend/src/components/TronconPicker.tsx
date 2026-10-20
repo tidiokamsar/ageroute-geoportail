@@ -7,10 +7,13 @@ import type { PaginatedResult, Troncon } from "../types";
 // Selecteur de troncon recherchable (le reseau compte ~1580 troncons : pas de <select> brut).
 // Interroge /troncons?search= cote serveur et renvoie l'id du troncon choisi via onChange.
 export function TronconPicker({
+  id,
   value,
   initialLabel,
   onChange,
 }: {
+  /** Relaye au champ de saisie, pour qu'un `<label htmlFor>` s'y associe (accessibilite). */
+  id?: string;
   value: string | null | undefined;
   initialLabel?: string;
   onChange: (id: string | undefined) => void;
@@ -33,6 +36,7 @@ export function TronconPicker({
   return (
     <div className="relative">
       <Input
+        id={id}
         value={open ? query : label}
         placeholder="Rechercher un tronçon (code ou nom)..."
         onFocus={() => {

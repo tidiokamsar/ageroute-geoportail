@@ -47,7 +47,7 @@ export function ModuleAccessModal({ user, onClose }: { user: User; onClose: () =
   });
 
   function toggle(key: string) {
-    setSelected((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+    setSelected((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   }
 
   return (
@@ -472,8 +472,8 @@ export function UsersPage() {
         {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
         <div className="space-y-3">
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Nouveau mot de passe (min. 8 caractères)</label>
-            <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+            <label htmlFor="users-page-champ-1" className="block text-xs font-medium text-gray-600 mb-1">Nouveau mot de passe (min. 8 caractères)</label>
+            <Input id="users-page-champ-1" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
           </div>
           <Button onClick={handleResetPassword} disabled={resetPassword.isPending || newPassword.length < 8} className="w-full">
             {resetPassword.isPending ? "Enregistrement..." : "Réinitialiser"}

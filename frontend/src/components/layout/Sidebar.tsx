@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { NavLink } from "react-router-dom";
 import clsx from "clsx";
 import { useAuth } from "../../lib/auth";
@@ -58,6 +59,15 @@ const sections = [
 export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: () => void }) {
   const { user } = useAuth();
 
+  // Le tiroir mobile se fermait a la souris seulement (clic sur le fond). Echap le ferme aussi :
+  // c'est l'equivalent clavier qu'exige le paragraphe 7.11 (WCAG 2.1.1, clavier).
+  useEffect(() => {
+    if (!open || !onClose) return;
+    const surTouche = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", surTouche);
+    return () => window.removeEventListener("keydown", surTouche);
+  }, [open, onClose]);
+
   const filteredSections = sections
     .map((section) => ({
       ...section,
@@ -93,8 +103,9 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
 
   return (
     <>
-      {/* Fond cliquable pour fermer le tiroir sur mobile */}
-      {open && <div className="fixed inset-0 z-30 bg-black/40 md:hidden" onClick={onClose} />}
+      {/* Fond cliquable pour fermer le tiroir sur mobile. Raccourci souris : l'equivalent
+          clavier est Echap (effet ci-dessus). Le fond est masque aux lecteurs d'ecran. */}
+      {open && <div aria-hidden="true" className="fixed inset-0 z-30 bg-black/40 md:hidden" onClick={onClose} />}
       <aside
         className={clsx(
           "no-print fixed md:static inset-y-0 left-0 z-40 w-64 bg-navy text-white flex flex-col h-screen transform transition-transform md:translate-x-0",

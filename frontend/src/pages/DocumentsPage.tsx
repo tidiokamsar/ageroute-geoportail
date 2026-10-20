@@ -267,8 +267,8 @@ export function DocumentsPage() {
         <form onSubmit={handleSubmit} className="space-y-3">
           {error && <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{error}</div>}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Titre</label>
-            <input
+            <label htmlFor="documents-page-champ-3" className="block text-xs font-medium text-gray-600 mb-1">Titre</label>
+            <input id="documents-page-champ-3"
               value={titre}
               onChange={(e) => setTitre(e.target.value)}
               required
@@ -276,16 +276,16 @@ export function DocumentsPage() {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
-            <Select value={type} onChange={(e) => setType(e.target.value as DocumentType)}>
+            <label htmlFor="documents-page-champ-1" className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+            <Select id="documents-page-champ-1" value={type} onChange={(e) => setType(e.target.value as DocumentType)}>
               {Object.entries(TYPE_LABELS).map(([k, label]) => (
                 <option key={k} value={k}>{label}</option>
               ))}
             </Select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Année</label>
-            <input
+            <label htmlFor="documents-page-champ-4" className="block text-xs font-medium text-gray-600 mb-1">Année</label>
+            <input id="documents-page-champ-4"
               value={annee}
               onChange={(e) => setAnnee(e.target.value)}
               type="number"
@@ -293,12 +293,12 @@ export function DocumentsPage() {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Tronçon concerné</label>
-            <TronconPicker value={tronconId} onChange={setTronconId} />
+            <label htmlFor="documents-page-champ-2" className="block text-xs font-medium text-gray-600 mb-1">Tronçon concerné</label>
+            <TronconPicker id="documents-page-champ-2" value={tronconId} onChange={setTronconId} />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Fichier (pdf, doc, image)</label>
-            <input
+            <label htmlFor="documents-page-champ-5" className="block text-xs font-medium text-gray-600 mb-1">Fichier (pdf, doc, image)</label>
+            <input id="documents-page-champ-5"
               type="file"
               accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}

@@ -412,7 +412,6 @@ export function GeoportailPage() {
       }
       setSelectedFeature({ kind: "chantier", data: c });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectKind, selectId, troncons, ouvrages, pointsNoirs, postes, chantiers]);
 
   const filteredTroncons = useMemo(
@@ -906,12 +905,12 @@ export function GeoportailPage() {
         <div className="absolute z-20 top-16 right-3 w-72 bg-white rounded-lg shadow-lg border border-gray-100 p-3 text-sm space-y-2">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Estimation de distance</p>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Tronçon de départ</label>
-            <TronconPicker value={itinFromId} onChange={setItinFromId} />
+            <label htmlFor="geoportail-page-champ-1" className="block text-xs text-gray-500 mb-1">Tronçon de départ</label>
+            <TronconPicker id="geoportail-page-champ-1" value={itinFromId} onChange={setItinFromId} />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Tronçon d'arrivée</label>
-            <TronconPicker value={itinToId} onChange={setItinToId} />
+            <label htmlFor="geoportail-page-champ-2" className="block text-xs text-gray-500 mb-1">Tronçon d'arrivée</label>
+            <TronconPicker id="geoportail-page-champ-2" value={itinToId} onChange={setItinToId} />
           </div>
           <button
             onClick={calculerItineraire}

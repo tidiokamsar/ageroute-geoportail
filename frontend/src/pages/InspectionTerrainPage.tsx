@@ -223,8 +223,8 @@ export function InspectionTerrainPage() {
       {/* Date + état */}
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">Date</label>
-          <input
+          <label htmlFor="inspection-terrain-page-champ-1" className="block text-sm font-medium text-gray-700 mb-1.5">Date</label>
+          <input id="inspection-terrain-page-champ-1"
             type="date"
             value={dateInspection}
             onChange={(e) => setDateInspection(e.target.value)}
@@ -232,8 +232,8 @@ export function InspectionTerrainPage() {
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1.5">État observé</label>
-          <select
+          <label htmlFor="inspection-terrain-page-champ-2" className="block text-sm font-medium text-gray-700 mb-1.5">État observé</label>
+          <select id="inspection-terrain-page-champ-2"
             value={etatObserve}
             onChange={(e) => setEtatObserve(e.target.value)}
             className="w-full rounded-lg border border-gray-300 px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-navy/30"
@@ -249,8 +249,8 @@ export function InspectionTerrainPage() {
 
       {/* Défauts / recommandations */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Défauts constatés</label>
-        <textarea
+        <label htmlFor="inspection-terrain-page-champ-3" className="block text-sm font-medium text-gray-700 mb-1.5">Défauts constatés</label>
+        <textarea id="inspection-terrain-page-champ-3"
           value={defautsConstates}
           onChange={(e) => setDefautsConstates(e.target.value)}
           rows={3}
@@ -258,8 +258,8 @@ export function InspectionTerrainPage() {
         />
       </div>
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Recommandations</label>
-        <textarea
+        <label htmlFor="inspection-terrain-page-champ-4" className="block text-sm font-medium text-gray-700 mb-1.5">Recommandations</label>
+        <textarea id="inspection-terrain-page-champ-4"
           value={recommandations}
           onChange={(e) => setRecommandations(e.target.value)}
           rows={2}
@@ -278,9 +278,9 @@ export function InspectionTerrainPage() {
 
       {/* Photos */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">Photos</label>
+        <label htmlFor="inspection-terrain-page-champ-5" className="block text-sm font-medium text-gray-700 mb-1.5">Photos</label>
         <label className="flex items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-300 py-4 text-sm text-gray-500 cursor-pointer active:bg-gray-50">
-          <input type="file" accept="image/*" capture="environment" multiple onChange={handlePhotoCapture} className="hidden" />
+          <input id="inspection-terrain-page-champ-5" type="file" accept="image/*" capture="environment" multiple onChange={handlePhotoCapture} className="hidden" />
           <Camera className="h-5 w-5" />
           Prendre une photo
         </label>

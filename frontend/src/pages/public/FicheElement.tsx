@@ -74,10 +74,16 @@ export function FicheElement({ feature, onClose }: { feature: SelectedFeature; o
   }[feature.kind];
 
   return (
+    // Fond cliquable : raccourci souris. L'equivalent clavier est Echap, ecoute sur la fenetre
+    // (effet ci-dessus), et le bouton Fermer recoit le focus a l'ouverture.
+    // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions
     <div
       className="absolute inset-0 z-[1200] flex items-end justify-center bg-navy/30 p-0 sm:items-center sm:p-4"
       onClick={onClose}
     >
+      {/* Le gestionnaire de clic du dialogue n'est pas une interaction : il empeche seulement un
+          clic interieur de remonter au fond et de fermer la fiche. */}
+      {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-noninteractive-element-interactions */}
       <div
         role="dialog"
         aria-modal="true"

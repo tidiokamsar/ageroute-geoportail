@@ -82,8 +82,8 @@ export function SecuritePage() {
         {me.totpEnabled ? (
           showDisableForm ? (
             <div className="space-y-2 pt-2 border-t border-gray-100">
-              <label className="block text-xs font-medium text-gray-600">Confirmez votre mot de passe pour désactiver la 2FA</label>
-              <Input type="password" value={disablePassword} onChange={(e) => setDisablePassword(e.target.value)} />
+              <label htmlFor="securite-page-champ-1" className="block text-xs font-medium text-gray-600">Confirmez votre mot de passe pour désactiver la 2FA</label>
+              <Input id="securite-page-champ-1" type="password" value={disablePassword} onChange={(e) => setDisablePassword(e.target.value)} />
               <div className="flex gap-2">
                 <Button variant="danger" onClick={() => disable.mutate()} disabled={disable.isPending || !disablePassword}>
                   {disable.isPending ? "..." : "Désactiver la 2FA"}

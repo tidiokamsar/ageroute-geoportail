@@ -111,7 +111,7 @@ function PreuvePhoto({ media }: { media: NonNullable<Defaut["medias"]>[number] }
   }, [media.chemin]);
   return (
     <figure className="overflow-hidden rounded-md border border-gray-200">
-      {source ? <a href={source} target="_blank" rel="noreferrer"><img src={source} alt={`Preuve photo ${media.capturedA ? dateFr(media.capturedA) : "sans date"}`} className="h-36 w-full object-cover" /></a>
+      {source ? <a href={source} target="_blank" rel="noreferrer"><img src={source} alt={`Preuve du relevé, ${media.capturedA ? dateFr(media.capturedA) : "sans date"}`} className="h-36 w-full object-cover" /></a>
         : <div className="flex h-36 items-center justify-center bg-gray-50 text-xs text-gray-500">Photo indisponible</div>}
       <figcaption className="space-y-1 p-2 text-[11px] text-gray-500">
         <p>{media.capturedA ? dateFr(media.capturedA) : "Date de prise non renseignée"} · {(media.tailleOctets / 1024).toFixed(0)} Ko</p>

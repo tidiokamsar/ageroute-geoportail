@@ -91,7 +91,7 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 | 7.8 | Application mobile | **AB** | Capacitor figé (ADR-009), non commencé ; **aucun APK compilable ici** (B-10) |
 | 7.9 | Sécurité | **PA** | RBAC fait, ABAC partiel ; 4 risques ouverts |
 | 7.10 | Intégrations | **BL** | aucun accès |
-| 7.11 | Interface web, WCAG 2.1 AA | **PA** | design system présent ; **accessibilité jamais mesurée**, et le `lint` du dépôt ne fonctionne pas (B-29) |
+| 7.11 | Interface web, WCAG 2.1 AA | **PA** | **lint opérationnel** (B-29 levé le 20/10) avec les règles d'accessibilité `jsx-a11y` : 0 erreur sur 139 fichiers après correction de 60 défauts, ajouté à la CI. **Accessibilité mesurée** par axe-core (WCAG 2.1 A et AA) sur 8 écrans, **0 violation**, avec contre-épreuve prouvant que l'instrument détecte (`Accessibilite.test.tsx`). **Non mesurés** : le contraste (jsdom ne le calcule pas), le géoportail et le tableau de bord (cartes et graphiques), l'usage réel au lecteur d'écran |
 | 7.12 | Tableau de bord national | **PA** | périmètre, portions validées et qualité affichés (15/10) ; Control Tower et Fiche 360° absents |
 | 7.13 | Collecte en roulage | **AB** | priorité M, non commencé |
 | 7.14 | Niveau d'excellence | **AB** | tuiles vectorielles, vue de route, curseur temporel, pgRouting, gazetier, métadonnées ISO 19115 |

@@ -650,7 +650,7 @@ export function PublicCartePage() {
             onToggleClasse={(c) =>
               setClassesMasquees((prev) => {
                 const n = new Set(prev);
-                n.has(c) ? n.delete(c) : n.add(c);
+                if (n.has(c)) n.delete(c); else n.add(c);
                 return n;
               })
             }

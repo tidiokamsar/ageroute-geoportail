@@ -58,7 +58,7 @@ jobs:
       - run: npm test
 
   frontend:
-    name: Frontend (tsc + vitest + vite build)
+    name: Frontend (lint + tsc + vitest + vite build)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -71,6 +71,9 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      # Lint (B-29 leve le 20/10) : echoue sur toute ERREUR, dont les regles d'accessibilite
+      # jsx-a11y. Les avertissements (exhaustive-deps) restent signales sans faire echouer.
+      - run: npm run lint
       - run: npm test
       # `build` lance `tsc --noEmit && vite build` : typage puis construction reelle.
       - run: npm run build

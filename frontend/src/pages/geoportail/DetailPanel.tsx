@@ -433,13 +433,13 @@ export function DetailPanel({
     return (
       <div className="p-4 space-y-3">
         <div>
-          <label className="text-xs font-medium text-gray-600 block mb-1">Nom</label>
-          <input type="text" value={String(editDraft.nom ?? "")} onChange={setField("nom")} className={inputCls} />
+          <label htmlFor="detail-panel-champ-2" className="text-xs font-medium text-gray-600 block mb-1">Nom</label>
+          <input id="detail-panel-champ-2" type="text" value={String(editDraft.nom ?? "")} onChange={setField("nom")} className={inputCls} />
         </div>
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">Classe</label>
-            <select value={String(editDraft.classe ?? "")} onChange={setField("classe")} className={inputCls}>
+            <label htmlFor="detail-panel-champ-3" className="text-xs font-medium text-gray-600 block mb-1">Classe</label>
+            <select id="detail-panel-champ-3" value={String(editDraft.classe ?? "")} onChange={setField("classe")} className={inputCls}>
               <option value="RN">Route Nationale</option>
               <option value="RR">Route Préfectorale</option>
               <option value="RU">Voirie Urbaine</option>
@@ -447,8 +447,8 @@ export function DetailPanel({
             </select>
           </div>
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">Revêtement</label>
-            <select value={String(editDraft.revetement ?? "")} onChange={setField("revetement")} className={inputCls}>
+            <label htmlFor="detail-panel-champ-4" className="text-xs font-medium text-gray-600 block mb-1">Revêtement</label>
+            <select id="detail-panel-champ-4" value={String(editDraft.revetement ?? "")} onChange={setField("revetement")} className={inputCls}>
               <option value="BITUME">Bitume</option>
               <option value="TERRE">Terre</option>
               <option value="LATERITE">Latérite</option>
@@ -457,8 +457,8 @@ export function DetailPanel({
           </div>
         </div>
         <div>
-          <label className="text-xs font-medium text-gray-600 block mb-1">État</label>
-          <select value={String(editDraft.etat ?? "")} onChange={setField("etat")} className={inputCls}>
+          <label htmlFor="detail-panel-champ-5" className="text-xs font-medium text-gray-600 block mb-1">État</label>
+          <select id="detail-panel-champ-5" value={String(editDraft.etat ?? "")} onChange={setField("etat")} className={inputCls}>
             <option value="BON">Bon</option>
             <option value="MOYEN">Moyen</option>
             <option value="MAUVAIS">Mauvais</option>
@@ -468,35 +468,35 @@ export function DetailPanel({
         </div>
         <div className="grid grid-cols-3 gap-2">
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">PK début</label>
-            <input type="number" step="0.001" value={String(editDraft.pkDebut ?? "")} onChange={setField("pkDebut")} className={inputCls} />
+            <label htmlFor="detail-panel-champ-6" className="text-xs font-medium text-gray-600 block mb-1">PK début</label>
+            <input id="detail-panel-champ-6" type="number" step="0.001" value={String(editDraft.pkDebut ?? "")} onChange={setField("pkDebut")} className={inputCls} />
           </div>
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">PK fin</label>
-            <input type="number" step="0.001" value={String(editDraft.pkFin ?? "")} onChange={setField("pkFin")} className={inputCls} />
+            <label htmlFor="detail-panel-champ-7" className="text-xs font-medium text-gray-600 block mb-1">PK fin</label>
+            <input id="detail-panel-champ-7" type="number" step="0.001" value={String(editDraft.pkFin ?? "")} onChange={setField("pkFin")} className={inputCls} />
           </div>
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">Longueur (km)</label>
-            <input type="number" step="0.001" value={String(editDraft.longueurKm ?? "")} onChange={setField("longueurKm")} className={inputCls} />
+            <label htmlFor="detail-panel-champ-8" className="text-xs font-medium text-gray-600 block mb-1">Longueur (km)</label>
+            <input id="detail-panel-champ-8" type="number" step="0.001" value={String(editDraft.longueurKm ?? "")} onChange={setField("longueurKm")} className={inputCls} />
           </div>
         </div>
         <div>
-          <label className="text-xs font-medium text-gray-600 block mb-1">Trafic moyen (véh/j)</label>
-          <input type="number" value={String(editDraft.traficMoyenJma ?? "")} onChange={setField("traficMoyenJma")} className={inputCls} />
+          <label htmlFor="detail-panel-champ-9" className="text-xs font-medium text-gray-600 block mb-1">Trafic moyen (véh/j)</label>
+          <input id="detail-panel-champ-9" type="number" value={String(editDraft.traficMoyenJma ?? "")} onChange={setField("traficMoyenJma")} className={inputCls} />
         </div>
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">Préfecture</label>
-            <input type="text" value={String(editDraft.prefecture ?? "")} onChange={setField("prefecture")} className={inputCls} />
+            <label htmlFor="detail-panel-champ-10" className="text-xs font-medium text-gray-600 block mb-1">Préfecture</label>
+            <input id="detail-panel-champ-10" type="text" value={String(editDraft.prefecture ?? "")} onChange={setField("prefecture")} className={inputCls} />
           </div>
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">Commune</label>
-            <input type="text" value={String(editDraft.commune ?? "")} onChange={setField("commune")} className={inputCls} />
+            <label htmlFor="detail-panel-champ-11" className="text-xs font-medium text-gray-600 block mb-1">Commune</label>
+            <input id="detail-panel-champ-11" type="text" value={String(editDraft.commune ?? "")} onChange={setField("commune")} className={inputCls} />
           </div>
         </div>
         <div>
-          <label className="text-xs font-medium text-gray-600 block mb-1">Observations</label>
-          <textarea value={String(editDraft.observations ?? "")} onChange={setField("observations")} rows={3} className={`${inputCls} resize-none`} />
+          <label htmlFor="detail-panel-champ-12" className="text-xs font-medium text-gray-600 block mb-1">Observations</label>
+          <textarea id="detail-panel-champ-12" value={String(editDraft.observations ?? "")} onChange={setField("observations")} rows={3} className={`${inputCls} resize-none`} />
         </div>
       </div>
     );
@@ -733,7 +733,7 @@ export function DetailPanel({
           </div>
         );
 
-      case "patrimoine":
+      case "patrimoine": {
         const ouvrages = fiche?.ouvrages ?? [];
         const postes = fiche?.postes ?? [];
         const pns = fiche?.pointsNoirs ?? [];
@@ -786,7 +786,8 @@ export function DetailPanel({
           </div>
         );
 
-      case "chantiers":
+      }
+      case "chantiers": {
         const chantiers = fiche?.chantiers ?? [];
         return (
           <div>
@@ -834,6 +835,7 @@ export function DetailPanel({
           </div>
         );
 
+      }
       case "photos":
         return <PhotoGallery endpoint="troncons" entityId={d.id} canWrite={!!canEdit} />;
 
@@ -843,7 +845,7 @@ export function DetailPanel({
       case "historique":
         return renderHistorique();
 
-      case "stats":
+      case "stats": {
         const f = fiche;
         return (
           <div>
@@ -882,6 +884,7 @@ export function DetailPanel({
           </div>
         );
 
+      }
       default: return null;
     }
   }
@@ -1194,14 +1197,14 @@ export function DetailPanel({
             {canEdit && (
               <div className="mt-4 pt-4 border-t border-gray-100 space-y-3">
                 <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Statut</label>
-                  <Select value={statutDraft ?? feature.data.statut} onChange={(e) => setStatutDraft(e.target.value as StatutChantier)}>
+                  <label htmlFor="detail-panel-champ-1" className="text-xs font-medium text-gray-600 block mb-1">Statut</label>
+                  <Select id="detail-panel-champ-1" value={statutDraft ?? feature.data.statut} onChange={(e) => setStatutDraft(e.target.value as StatutChantier)}>
                     {Object.entries(STATUT_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                   </Select>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Avancement (%)</label>
-                  <input type="number" min={0} max={100} defaultValue={feature.data.avancementPct} onChange={(e) => setAvancementDraft(Number(e.target.value))} className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+                  <label htmlFor="detail-panel-champ-13" className="text-xs font-medium text-gray-600 block mb-1">Avancement (%)</label>
+                  <input id="detail-panel-champ-13" type="number" min={0} max={100} defaultValue={feature.data.avancementPct} onChange={(e) => setAvancementDraft(Number(e.target.value))} className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
                 </div>
                 <Button size="sm" className="w-full" disabled={(!statutDraft && avancementDraft == null) || chantiersMut.update.isPending} onClick={saveChantierStatut}>
                   Enregistrer
