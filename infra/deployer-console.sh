@@ -179,10 +179,18 @@ Tous les prerequis techniques sont tenus. Avant de continuer, la session GLPI (2
 trois conditions qu'aucun script ne peut verifier :
   (a) le serveur de rebond compromis a ete remedie ;
   (b) la cause de l'arret de sshd est etablie (journalctl -u ssh -u ssh.socket) ;
-  (c) les secrets ont ete renouvelés, et les nouvelles cles deposees pour les sauvegardes.
+  (c) les secrets ont ete renouveles, et les nouvelles cles deposees pour les sauvegardes.
 Tapez DEPLOYER pour confirmer qu'elles sont remplies, ou autre chose pour arreter.
 AVERTISSEMENT
-read -r REPONSE
+# En execution a distance (stdin partage avec docker compose exec -T, qui le vide),
+# la confirmation peut etre portee par DEPLOY_OUI=1 : decision aussi explicite, mais
+# ecrite, de l operateur.
+if [ "${DEPLOY_OUI:-0}" = "1" ]; then
+  REPONSE="DEPLOYER"
+  echo "-- confirmation portee par DEPLOY_OUI=1 (operateur)"
+else
+  read -r REPONSE
+fi
 [ "$REPONSE" = "DEPLOYER" ] || arret "deploiement non confirme"
 
 # Ce qu'il faudra pour revenir en arriere : le code et les images d'avant.
