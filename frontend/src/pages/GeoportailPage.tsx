@@ -659,6 +659,12 @@ export function GeoportailPage() {
     next.set("lat", viewRef.current.center[0].toFixed(5));
     next.set("lng", viewRef.current.center[1].toFixed(5));
     next.set("zoom", String(viewRef.current.zoom));
+    // L'element ouvert fait partie de ce que l'on partage : la page sait deja le relire
+    // (`select` + `id`), le lien ne l'ecrivait pas.
+    if (selectedFeature && "id" in selectedFeature.data && typeof selectedFeature.data.id === "string") {
+      next.set("select", selectedFeature.kind);
+      next.set("id", selectedFeature.data.id);
+    }
     return `${window.location.origin}${window.location.pathname}?${next.toString()}`;
   }
 
