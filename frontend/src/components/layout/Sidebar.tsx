@@ -34,10 +34,18 @@ const sections = [
       { to: "/marches", label: "Marchés" },
       { to: "/programmation", label: "Programmation" },
       { to: "/inspections", label: "Inspections" },
-      { to: "/inspections/terrain/defauts", label: "Défauts terrain" },
       { to: "/inspections/defauts/validation", label: "Validation des relevés", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/inspections/defauts/catalogue", label: "Catalogue des défauts", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/imports", label: "Lots d'import", roles: ["ADMIN", "GESTIONNAIRE"] },
+    ],
+  },
+  {
+    title: "RELEVÉ TERRAIN",
+    items: [
+      { to: "/inspections/releve", label: "Relevé en véhicule" },
+      { to: "/inspections/terrain", label: "Inspection terrain" },
+      { to: "/inspections/terrain/defauts", label: "Défauts terrain" },
+      { to: "/inspections/terrain/portions", label: "Portions terrain" },
     ],
   },
   {
@@ -101,6 +109,8 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
     ? [...filteredSections, { title: "ADMINISTRATION", items: itemsAdministration }]
     : filteredSections;
 
+  const tousLesLiens = visibleSections.flatMap((s) => s.items.map((i) => i.to));
+
   return (
     <>
       {/* Fond cliquable pour fermer le tiroir sur mobile. Raccourci souris : l'equivalent
@@ -127,6 +137,10 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
               <NavLink
                 key={item.to}
                 to={item.to}
+                // Correspondance exacte quand un autre element du menu est SOUS cette adresse :
+                // sans cela, /veille reste surligne sur /veille/configuration, et deux entrees
+                // paraissent actives a la fois.
+                end={tousLesLiens.some((t) => t !== item.to && t.startsWith(`${item.to}/`))}
                 className={({ isActive }) =>
                   clsx(
                     "block px-5 py-2 text-sm transition border-l-2",

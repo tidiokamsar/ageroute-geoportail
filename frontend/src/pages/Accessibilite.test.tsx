@@ -16,6 +16,7 @@ const h = vi.hoisted(() => ({ get: {} as Record<string, unknown> }));
 vi.mock("../lib/auth", () => ({ useAuth: () => ({ user: { id: "u", role: "GESTIONNAIRE", modulesAutorises: [] } }) }));
 vi.mock("../lib/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("../lib/download", () => ({ downloadViaApi: vi.fn() }));
+vi.mock("../components/CarteReleve", () => ({ CarteReleve: () => <div data-testid="carte" /> }));
 vi.mock("../lib/api", () => ({
   api: {
     get: vi.fn(async (url: string) => ({ data: h.get[url] ?? {} })),
@@ -31,6 +32,9 @@ import { TeledetectionPage } from "./TeledetectionPage";
 import { Sidebar } from "../components/layout/Sidebar";
 import { LoginPage } from "./LoginPage";
 import { ImportsPage } from "./ImportsPage";
+import { ReleveVehiculePage } from "./ReleveVehiculePage";
+import { api } from "../lib/api";
+import userEvent from "@testing-library/user-event";
 
 function rendre(el: React.ReactNode) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -100,10 +104,29 @@ describe("Accessibilite des ecrans (axe-core, WCAG 2.1 A et AA, contraste exclu)
     ["Menu lateral", <Sidebar key="s" open />, /Cellule de veille/],
     ["Connexion", <LoginPage key="l" />, /./],
     ["Lots d'import", <ImportsPage key="im" />, /IMP-2026-0001/],
+    ["Releve en vehicule (etat initial)", <ReleveVehiculePage key="rv" />, /État de la fonction/],
   ] as const)("%s : aucune violation", async (_nom, element, attente) => {
     const { container } = rendre(element);
     if (typeof attente === "string") await screen.findByTestId(attente, undefined, { timeout: 10_000 });
     else await screen.findAllByText(attente, undefined, { timeout: 10_000 });
+    expect(await violationsAccessibilite(container)).toEqual([]);
+  }, 30_000);
+});
+
+describe("Accessibilite du releve en vehicule, resultat affiche", () => {
+  it("aucune violation avec un resultat d'analyse (tableaux, avertissements, indicateurs)", async () => {
+    vi.mocked(api.post).mockResolvedValueOnce({ data: {
+      parametres: { reseau: "reference", distanceMaxM: 50, pasMinM: 15, incertitudeParDefautM: 15, pointsMax: 3000 },
+      indicateurs: { pointsLus: 300, pointsIgnores: 0, pointsRetenus: 276, retiresParPas: 24, pointsRattaches: 224, tauxRattachement: 0.812, pointsPrecisionInsuffisante: 0, transitionsNonVerifiees: 1, chaines: 1, distanceParcourueM: 5511, dureeS: 552, vitesseMoyenneKmH: 35.9, longueurSurReseauM: 4392 },
+      passages: [{ tronconId: "t", code: "GN N0001", nom: "Conakry", indexDebut: 0, indexFin: 5, nombrePoints: 6, deM: 0, aM: 100, longueurM: 100, sens: "CROISSANT", court: false, geojson: null }],
+      horsReferentiel: [{ indexDebut: 6, indexFin: 9, nombrePoints: 4, longueurM: 80, coordonnees: [[-13.6, 9.6]] }],
+      trace: [[-13.6, 9.6], [-13.59, 9.6]], rattache: [true, false],
+      avertissements: ["Aucune precision annoncee par le fichier."],
+    } } as never);
+    const { container } = rendre(<ReleveVehiculePage />);
+    await userEvent.upload(screen.getByLabelText(/Fichier de trace/), new File(["<gpx></gpx>"], "sortie.gpx"));
+    await userEvent.click(screen.getByRole("button", { name: /Analyser la trace/ }));
+    await screen.findByRole("table", { name: /Tronçons parcourus/ });
     expect(await violationsAccessibilite(container)).toEqual([]);
   }, 30_000);
 });

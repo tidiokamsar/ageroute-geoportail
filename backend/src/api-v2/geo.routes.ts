@@ -6,6 +6,7 @@ import { apparier, INCERTITUDE_PAR_DEFAUT_M, type Appariement } from "../geo/app
 import { prisma } from "../lib/prisma";
 import { RefusDeviationHttp, calculerDeviation } from "../geo/deviation.service";
 import { EmpriseTropLarge } from "../geo/graphe.depot";
+import { analyserTrace, lireTrace, RefusTrace } from "../geo/trace.service";
 
 /**
  * `/api/v2/geo` — appariement d'une position GPS sur le reseau.
@@ -208,6 +209,38 @@ geoV2Router.post("/deviation", requireAuth, requireModuleAccess("geoportail"), a
   } catch (err) {
     if (err instanceof RefusDeviationHttp) return res.status(err.http).json({ error: err.message, code: err.code });
     if (err instanceof EmpriseTropLarge) return res.status(422).json({ error: err.message, code: "EMPRISE_TROP_LARGE" });
+    return next(err);
+  }
+});
+
+/**
+ * @openapi
+ * /api/v2/geo/trace:
+ *   post:
+ *     summary: Analyse d'une trace GPS de releve en vehicule, GPX ou CSV (paragraphe 7.13)
+ *     tags: [Geo v2]
+ *
+ * La trace est nettoyee, rattachee au reseau par un modele de Markov cache, et rendue sous forme de
+ * passages par troncon, de suites hors referentiel et d'indicateurs de qualite. Rien n'est ecrit :
+ * c'est une analyse. Les changements de troncon non verifies sur le reseau sont comptes dans la
+ * reponse, et le taux de rattachement ne se lit pas sans eux.
+ */
+const corpsTrace = z.object({
+  format: z.enum(["gpx", "csv"]),
+  contenu: z.string().min(1).max(4_500_000),
+  reseau: z.enum(["reference", "tout"]).optional(),
+  distanceMaxM: z.number().positive().max(200).optional(),
+  pasMinM: z.number().min(5).max(500).optional(),
+});
+
+geoV2Router.post("/trace", requireAuth, requireModuleAccess("inspections"), async (req, res, next) => {
+  const p = corpsTrace.safeParse(req.body);
+  if (!p.success) return res.status(400).json({ error: "corps invalide : format (gpx ou csv) et contenu sont exiges", details: p.error.flatten().fieldErrors });
+  try {
+    const lecture = lireTrace(p.data.format, p.data.contenu);
+    return res.json(await analyserTrace(prisma, lecture, { reseau: p.data.reseau, distanceMaxM: p.data.distanceMaxM, pasMinM: p.data.pasMinM }));
+  } catch (err) {
+    if (err instanceof RefusTrace) return res.status(err.http).json({ error: err.message, code: err.code });
     return next(err);
   }
 });
