@@ -28,7 +28,7 @@ set -euo pipefail
 COMMIT="${1:-}"
 SHA_ATTENDU="${2:-}"
 ARCHIVE_LOCALE="${3:-}"
-ATTENDUES_EN_ATTENTE=17
+ATTENDUES_EN_ATTENTE=18
 PREMIERE_EN_ATTENTE="20261014170000_historisation_bitemporelle"
 DEPOT="tidiokamsar/ageroute-geoportail"
 HORODATAGE="$(date +%Y%m%d-%H%M%S)"
