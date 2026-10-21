@@ -4,6 +4,8 @@ import { requireAuth } from "../middleware/auth.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
 import { apparier, INCERTITUDE_PAR_DEFAUT_M, type Appariement } from "../geo/appariement";
 import { prisma } from "../lib/prisma";
+import { RefusDeviationHttp, calculerDeviation } from "../geo/deviation.service";
+import { EmpriseTropLarge } from "../geo/graphe.depot";
 
 /**
  * `/api/v2/geo` — appariement d'une position GPS sur le reseau.
@@ -175,6 +177,37 @@ geoV2Router.post("/metre", requireAuth, requireModuleAccess("geoportail"), async
     const [m] = await prisma.$queryRaw<Record<string, number>[]>`SELECT * FROM metre_utm(ST_SetSRID(ST_GeomFromGeoJSON(${geojson}), 4326))`;
     return res.json({ ...m, methode: "projection UTM du fuseau du point interieur ; controle geodesique (geography)" });
   } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * @openapi
+ * /api/v2/geo/deviation:
+ *   post:
+ *     summary: Deviation routee autour d'une coupure de troncon (paragraphe 7.14, R-01)
+ *     tags: [Geo v2]
+ *
+ * Le plus court chemin d'un bord de la coupure a l'autre sans l'emprunter. La tolerance de fusion
+ * des extremites et la borne de recherche sont EXIGEES : aucune n'est supposee. Rien n'est ecrit.
+ * Reseau non oriente, praticabilite non prise en compte : la reponse le dit.
+ */
+const corpsDeviation = z.object({
+  tronconId: z.string().min(1),
+  debutM: z.number().min(0).nullish(),
+  finM: z.number().min(0).nullish(),
+  distanceMaxM: z.number().positive().max(200_000),
+  toleranceFusionM: z.number().positive().max(50),
+});
+
+geoV2Router.post("/deviation", requireAuth, requireModuleAccess("geoportail"), async (req, res, next) => {
+  const p = corpsDeviation.safeParse(req.body);
+  if (!p.success) return res.status(400).json({ error: "corps invalide : tronconId, distanceMaxM (m, <= 200 000) et toleranceFusionM (m, <= 50) sont exiges", details: p.error.flatten().fieldErrors });
+  try {
+    return res.json(await calculerDeviation(prisma, p.data));
+  } catch (err) {
+    if (err instanceof RefusDeviationHttp) return res.status(err.http).json({ error: err.message, code: err.code });
+    if (err instanceof EmpriseTropLarge) return res.status(422).json({ error: err.message, code: "EMPRISE_TROP_LARGE" });
     return next(err);
   }
 });

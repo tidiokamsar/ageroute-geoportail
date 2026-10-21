@@ -48,7 +48,8 @@ export interface TronconGraphe {
   coordonnees: [number, number][];
 }
 
-interface Arc { vers: number; poidsM: number }
+/** Un arc porte son troncon et ses abscisses, du noeud de depart vers le noeud d'arrivee. */
+interface Arc { vers: number; poidsM: number; tronconId: string; deM: number; aM: number }
 
 /** Sur un troncon : ses noeuds tries par abscisse. */
 interface NoeudsTroncon { longueurM: number; abscisses: number[]; noeuds: number[] }
@@ -163,13 +164,14 @@ export function construireGraphe(troncons: readonly TronconGraphe[], toleranceFu
 
   // 3. Arcs entre noeuds consecutifs de chaque troncon.
   const adjacence: Arc[][] = Array.from({ length: pos.length }, () => []);
-  for (const nt of parTroncon.values()) {
+  for (const [tronconId, nt] of parTroncon) {
     for (let i = 0; i < nt.noeuds.length - 1; i++) {
       const a = nt.noeuds[i], b = nt.noeuds[i + 1];
-      const poids = nt.abscisses[i + 1] - nt.abscisses[i];
+      const s0 = nt.abscisses[i], s1 = nt.abscisses[i + 1];
+      const poids = s1 - s0;
       if (a === b) continue; // boucle degeneree : un troncon ferme sur lui-meme
-      adjacence[a].push({ vers: b, poidsM: poids });
-      adjacence[b].push({ vers: a, poidsM: poids });
+      adjacence[a].push({ vers: b, poidsM: poids, tronconId, deM: s0, aM: s1 });
+      adjacence[b].push({ vers: a, poidsM: poids, tronconId, deM: s1, aM: s0 });
     }
   }
   return { nbNoeuds: pos.length, nbJonctionsInterieures, parTroncon, adjacence };
@@ -263,4 +265,99 @@ export function distanceReseauDepuis(
     }
     return meilleure <= opts.distanceMaxM ? meilleure : null;
   };
+}
+
+// ===================== Deviation (paragraphe 7.14, R-01 ; § 7.16 ligne 13) =====================
+
+/** Une coupure : un intervalle d'abscisses d'un troncon, que la deviation doit eviter. */
+export interface Coupure { tronconId: string; debutM: number; finM: number }
+
+/** Un morceau de troncon emprunte, de `deM` vers `aM` (le sens de parcours). */
+export interface SegmentItineraire { tronconId: string; deM: number; aM: number }
+
+export interface Deviation {
+  /** Longueur de la deviation, en metres, du bord amont au bord aval de la coupure. */
+  longueurM: number;
+  /** Longueur coupee, donc evitee. */
+  longueurCoupeeM: number;
+  /** Ce que la deviation ajoute au trajet direct : longueur - longueur coupee. */
+  allongementM: number;
+  segments: SegmentItineraire[];
+}
+
+export type RefusDeviation = { refus: "TRONCON_HORS_GRAPHE" | "COUPURE_INVALIDE" | "AUCUNE_DEVIATION"; motif: string };
+
+/**
+ * Le plus court chemin d'un bord de la coupure a l'autre, SANS emprunter la portion coupee.
+ *
+ * Depuis le bord amont (`debutM`), on repart vers l'amont du troncon ; on rejoint le bord aval
+ * (`finM`) par l'aval. Les arcs du troncon qui recouvrent la coupure sont exclus. Le reseau est
+ * non oriente : une deviation rendue peut emprunter un sens interdit, que le referentiel ignore.
+ *
+ * AUCUNE DEVIATION n'est une reponse legitime : une route en cul-de-sac, ou dont le detour depasse
+ * `distanceMaxM`, n'en a pas dans le sous-reseau charge. Elle est rendue telle quelle, jamais
+ * remplacee par un trajet approximatif.
+ */
+export function deviation(g: Graphe, c: Coupure, opts: { distanceMaxM: number }): Deviation | RefusDeviation {
+  if (!(opts.distanceMaxM > 0)) throw new Error("deviation : distanceMaxM doit etre strictement positive");
+  const nt = g.parTroncon.get(c.tronconId);
+  if (!nt) return { refus: "TRONCON_HORS_GRAPHE", motif: "Le troncon coupe n'est pas dans le sous-reseau charge." };
+  if (!(c.debutM >= 0 && c.finM <= nt.longueurM && c.finM > c.debutM)) {
+    return { refus: "COUPURE_INVALIDE", motif: `La coupure doit etre un intervalle de [0, ${nt.longueurM.toFixed(1)}] m, debut avant fin.` };
+  }
+
+  // Bord amont : le dernier noeud a l'abscisse <= debutM. Bord aval : le premier >= finM.
+  let ia = 0;
+  while (ia + 1 < nt.abscisses.length && nt.abscisses[ia + 1] <= c.debutM) ia++;
+  let ib = nt.abscisses.length - 1;
+  while (ib - 1 >= 0 && nt.abscisses[ib - 1] >= c.finM) ib--;
+  const depart = nt.noeuds[ia], coutDepart = c.debutM - nt.abscisses[ia];
+  const arrivee = nt.noeuds[ib], coutArrivee = nt.abscisses[ib] - c.finM;
+  const longueurCoupeeM = c.finM - c.debutM;
+
+  // Un arc est interdit s'il recouvre la coupure sur le troncon coupe.
+  const interdit = (a: Arc) => a.tronconId === c.tronconId
+    && Math.min(a.deM, a.aM) < c.finM && Math.max(a.deM, a.aM) > c.debutM;
+
+  const dist = new Map<number, number>([[depart, coutDepart]]);
+  const prec = new Map<number, { de: number; arc: Arc }>();
+  const tas = new Tas();
+  tas.pousser(coutDepart, depart);
+  while (tas.taille > 0) {
+    const [d, n] = tas.extraire();
+    if (d > (dist.get(n) ?? Infinity)) continue;
+    if (n === arrivee) break;
+    for (const a of g.adjacence[n]) {
+      if (interdit(a)) continue;
+      const nd = d + a.poidsM;
+      if (nd + coutArrivee > opts.distanceMaxM) continue;
+      if (nd < (dist.get(a.vers) ?? Infinity)) { dist.set(a.vers, nd); prec.set(a.vers, { de: n, arc: a }); tas.pousser(nd, a.vers); }
+    }
+  }
+  const atteint = dist.get(arrivee);
+  if (atteint === undefined) {
+    return { refus: "AUCUNE_DEVIATION", motif: `Aucun chemin evitant la coupure dans le sous-reseau charge, en moins de ${opts.distanceMaxM} m.` };
+  }
+
+  // Reconstitution : arcs du depart vers l'arrivee, encadres des deux morceaux du troncon coupe.
+  const arcs: Arc[] = [];
+  for (let n = arrivee; n !== depart; ) {
+    const p = prec.get(n);
+    if (!p) break;
+    arcs.unshift(p.arc);
+    n = p.de;
+  }
+  const brut: SegmentItineraire[] = [];
+  if (coutDepart > 0) brut.push({ tronconId: c.tronconId, deM: c.debutM, aM: nt.abscisses[ia] });
+  for (const a of arcs) brut.push({ tronconId: a.tronconId, deM: a.deM, aM: a.aM });
+  if (coutArrivee > 0) brut.push({ tronconId: c.tronconId, deM: nt.abscisses[ib], aM: c.finM });
+  // Fusion des morceaux consecutifs d'un meme troncon, parcourus dans le meme sens.
+  const segments: SegmentItineraire[] = [];
+  for (const s of brut) {
+    const der = segments[segments.length - 1];
+    if (der && der.tronconId === s.tronconId && der.aM === s.deM && Math.sign(der.aM - der.deM) === Math.sign(s.aM - s.deM)) der.aM = s.aM;
+    else segments.push({ ...s });
+  }
+  const longueurM = atteint + coutArrivee;
+  return { longueurM, longueurCoupeeM, allongementM: longueurM - longueurCoupeeM, segments };
 }

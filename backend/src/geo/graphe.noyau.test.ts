@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { construireGraphe, distanceReseauDepuis, type TronconGraphe } from "./graphe.noyau";
+import { construireGraphe, deviation, distanceReseauDepuis, type Deviation, type TronconGraphe } from "./graphe.noyau";
 import { apparierTrace } from "./appariement.trace";
 import { TRACES_ANNOTEES } from "./appariement.trace-annotee";
 
@@ -144,5 +144,68 @@ describe("L'epreuve decisive : la geometrie remplace les distances ecrites a la 
     for (const { trace, resultat } of resultats) {
       expect(resultat.transitionsNonVerifiees, trace.nom).toBe(0);
     }
+  });
+});
+
+describe("Deviation : le plus court chemin qui evite la coupure", () => {
+  const carre = [
+    troncon("sud", [0, 0], [1000, 0]),
+    troncon("est", [1000, 0], [1000, 1000]),
+    troncon("nord", [1000, 1000], [0, 1000]),
+    troncon("ouest", [0, 1000], [0, 0]),
+  ];
+  const g = construireGraphe(carre, 1);
+  const ok = (r: ReturnType<typeof deviation>) => { if ("refus" in r) throw new Error(r.motif); return r as Deviation; };
+
+  it("troncon coupe en entier : le tour par les trois autres cotes", () => {
+    const r = ok(deviation(g, { tronconId: "sud", debutM: 0, finM: 1000 }, { distanceMaxM: 10_000 }));
+    expect(r.longueurM).toBeCloseTo(3000, 3);
+    expect(r.allongementM).toBeCloseTo(2000, 3);
+    expect(r.segments.map((x) => x.tronconId)).toEqual(["ouest", "nord", "est"]);
+    expect(r.segments.some((x) => x.tronconId === "sud")).toBe(false);
+  });
+
+  it("coupure au milieu : on revient au carrefour amont, et on repart du carrefour aval", () => {
+    const r = ok(deviation(g, { tronconId: "sud", debutM: 400, finM: 600 }, { distanceMaxM: 10_000 }));
+    expect(r.longueurM).toBeCloseTo(3800, 3);
+    expect(r.longueurCoupeeM).toBeCloseTo(200, 6);
+    expect(r.allongementM).toBeCloseTo(3600, 3);
+    expect(r.segments[0]).toMatchObject({ tronconId: "sud", deM: 400 });
+    expect(r.segments[0].aM).toBeCloseTo(0, 6);
+    expect(r.segments.at(-1)).toMatchObject({ tronconId: "sud", aM: 600 });
+    // Aucun segment ne traverse la portion coupee.
+    for (const x of r.segments.filter((y) => y.tronconId === "sud")) {
+      expect(Math.min(x.deM, x.aM) >= 600 || Math.max(x.deM, x.aM) <= 400).toBe(true);
+    }
+  });
+
+  it("un contournement qui part de l'interieur de la route coupee est trouve", () => {
+    // Une route de 2 km, coupee entre 1 000 et 1 200 m ; un contournement de 600 m se branche
+    // sur elle a 900 m et a 1 300 m (jonctions en T).
+    const contournement: TronconGraphe = {
+      id: "contournement",
+      coordonnees: [pt(900, 0), pt(900, 100), pt(1300, 100), pt(1300, 0)],
+      longueurM: 600,
+    };
+    const gg = construireGraphe([troncon("rn", [0, 0], [2000, 0]), contournement], 1);
+    expect(gg.nbJonctionsInterieures).toBe(2);
+    const r = ok(deviation(gg, { tronconId: "rn", debutM: 1000, finM: 1200 }, { distanceMaxM: 10_000 }));
+    expect(r.longueurM).toBeCloseTo(800, 2);
+    expect(r.allongementM).toBeCloseTo(600, 2);
+    expect(r.segments.map((x) => x.tronconId)).toEqual(["rn", "contournement", "rn"]);
+  });
+
+  it("cul-de-sac, ou detour au-dela de la borne : aucune deviation, jamais un trajet approximatif", () => {
+    const sansOuest = construireGraphe(carre.filter((t) => t.id !== "ouest"), 1);
+    const r = deviation(sansOuest, { tronconId: "sud", debutM: 0, finM: 1000 }, { distanceMaxM: 10_000 });
+    expect(r).toMatchObject({ refus: "AUCUNE_DEVIATION" });
+    expect(deviation(g, { tronconId: "sud", debutM: 0, finM: 1000 }, { distanceMaxM: 2500 })).toMatchObject({ refus: "AUCUNE_DEVIATION" });
+  });
+
+  it("refuse une coupure invalide ou un troncon hors du lot", () => {
+    expect(deviation(g, { tronconId: "sud", debutM: 600, finM: 400 }, { distanceMaxM: 10_000 })).toMatchObject({ refus: "COUPURE_INVALIDE" });
+    expect(deviation(g, { tronconId: "sud", debutM: 0, finM: 1500 }, { distanceMaxM: 10_000 })).toMatchObject({ refus: "COUPURE_INVALIDE" });
+    expect(deviation(g, { tronconId: "inconnu", debutM: 0, finM: 1 }, { distanceMaxM: 10_000 })).toMatchObject({ refus: "TRONCON_HORS_GRAPHE" });
+    expect(() => deviation(g, { tronconId: "sud", debutM: 0, finM: 1 }, { distanceMaxM: 0 })).toThrow();
   });
 });
