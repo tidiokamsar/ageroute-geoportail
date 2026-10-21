@@ -130,9 +130,17 @@ vert "empreintes relevees pour :${ENVS} (les contenus ne sont pas affiches)"
 # ---------------------------------------------------------------------------------------------
 etape "8c. Migrations ESSAYEES sur une copie restauree (conteneur jetable)"
 docker run -d --name "$ESSAI" -e POSTGRES_PASSWORD=essai-jetable postgis/postgis:17-3.5 > /dev/null
-trap 'docker rm -f "$ESSAI" > /dev/null 2>&1 || true' EXIT
-for _ in $(seq 1 60); do docker exec "$ESSAI" pg_isready -U postgres > /dev/null 2>&1 && break; sleep 2; done
-docker exec "$ESSAI" psql -U postgres -qc "CREATE DATABASE essai" > /dev/null
+trap 'docker rm -f -v "$ESSAI" > /dev/null 2>&1 || true' EXIT
+# Defaut trouve au premier deploiement reel (21/10) : pg_isready repond des le serveur
+# TEMPORAIRE d initdb, qui s arrete juste avant le definitif — la creation de la base
+# tombait dans ce trou (« the database system is shutting down »). On reessaie : la base
+# creee sur le serveur temporaire persiste, le cluster PGDATA est le meme.
+ESSAI_PRET=""
+for _ in $(seq 1 45); do
+  if docker exec "$ESSAI" psql -U postgres -qc "CREATE DATABASE essai" > /dev/null 2>&1; then ESSAI_PRET=1; break; fi
+  sleep 2
+done
+[ -n "$ESSAI_PRET" ] || arret "conteneur d essai jamais pret (initdb n aboutit pas)"
 docker exec -i "$ESSAI" pg_restore -U postgres -d essai --no-owner --no-privileges < "$DUMP" 2> "${SAUVEGARDES}/essai-restauration.log" || true
 COPIE=$(docker exec "$ESSAI" psql -U postgres -d essai -tAc "SELECT (SELECT count(*) FROM troncons) || ' ' || (SELECT count(*) FROM ouvrages) || ' ' || (SELECT count(*) FROM valeurs_qualite) || ' ' || (SELECT count(*) FROM audit_logs) || ' ' || (SELECT count(*) FROM users)")
 [ "$COPIE" = "$AVANT" ] || arret "la copie restauree ne donne pas les memes compteurs (${COPIE} contre ${AVANT}) : sauvegarde douteuse"
@@ -149,7 +157,7 @@ if [ "${SANS_BANCS:-0}" != "1" ]; then
   done
   vert "les bancs SQL passent sur la copie des donnees reelles (transactions annulees)"
 fi
-docker rm -f "$ESSAI" > /dev/null; trap - EXIT
+docker rm -f -v "$ESSAI" > /dev/null; trap - EXIT
 vert "les ${EN_ATTENTE} migrations passent sur la copie, sans changer aucun compteur"
 
 # ---------------------------------------------------------------------------------------------
