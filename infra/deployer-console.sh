@@ -140,16 +140,19 @@ vert "empreintes relevees pour :${ENVS} (les contenus ne sont pas affiches)"
 etape "8c. Migrations ESSAYEES sur une copie restauree (conteneur jetable)"
 docker run -d --name "$ESSAI" -e POSTGRES_PASSWORD=essai-jetable postgis/postgis:17-3.5 > /dev/null
 trap 'docker rm -f -v "$ESSAI" > /dev/null 2>&1 || true' EXIT
-# Defaut trouve au premier deploiement reel (21/10) : pg_isready repond des le serveur
-# TEMPORAIRE d initdb, qui s arrete juste avant le definitif — la creation de la base
-# tombait dans ce trou (« the database system is shutting down »). On reessaie : la base
-# creee sur le serveur temporaire persiste, le cluster PGDATA est le meme.
+# Deux defauts de jeunesse pris au premier deploiement reel (21/10) : pg_isready ET
+# psql repondent des le serveur TEMPORAIRE d initdb, qui s arrete avant le definitif —
+# toute commande peut tomber dans ce trou (« the database system is shutting down »).
+# Le discriminant stable : /proc/1/comm ne vaut « postgres » que lorsque le script
+# d entree a fini l initdb et exec le serveur definitif (avant, c est « bash »).
+# (comm, pas exe : /proc/1/exe est illisible depuis un docker exec, droits ptrace.)
 ESSAI_PRET=""
-for _ in $(seq 1 45); do
-  if docker exec "$ESSAI" psql -U postgres -qc "CREATE DATABASE essai" > /dev/null 2>&1; then ESSAI_PRET=1; break; fi
+for _ in $(seq 1 120); do
+  if docker exec "$ESSAI" sh -c '[ "$(cat /proc/1/comm 2>/dev/null)" = postgres ]' > /dev/null 2>&1; then ESSAI_PRET=1; break; fi
   sleep 2
 done
 [ -n "$ESSAI_PRET" ] || arret "conteneur d essai jamais pret (initdb n aboutit pas)"
+docker exec "$ESSAI" psql -U postgres -qc "CREATE DATABASE essai" > /dev/null
 docker exec -i "$ESSAI" pg_restore -U postgres -d essai --no-owner --no-privileges < "$DUMP" 2> "${SAUVEGARDES}/essai-restauration.log" || true
 COPIE=$(docker exec "$ESSAI" psql -U postgres -d essai -tAc "SELECT (SELECT count(*) FROM troncons) || ' ' || (SELECT count(*) FROM ouvrages) || ' ' || (SELECT count(*) FROM valeurs_qualite) || ' ' || (SELECT count(*) FROM audit_logs) || ' ' || (SELECT count(*) FROM users)")
 [ "$COPIE" = "$AVANT" ] || arret "la copie restauree ne donne pas les memes compteurs (${COPIE} contre ${AVANT}) : sauvegarde douteuse"
