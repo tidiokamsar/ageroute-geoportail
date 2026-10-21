@@ -27,6 +27,7 @@ set -euo pipefail
 
 COMMIT="${1:-}"
 SHA_ATTENDU="${2:-}"
+ARCHIVE_LOCALE="${3:-}"
 ATTENDUES_EN_ATTENTE=17
 PREMIERE_EN_ATTENTE="20261014170000_historisation_bitemporelle"
 DEPOT="tidiokamsar/ageroute-geoportail"
@@ -41,7 +42,7 @@ arret() { rouge "ARRET : $*"; rouge "Rien n'a ete modifie en production si l'arr
 
 psql_prod() { docker compose exec -T db psql -U bdri_app -d console_bdri -v ON_ERROR_STOP=1 -tAc "$1"; }
 
-[ -n "$COMMIT" ] && [ -n "$SHA_ATTENDU" ] || arret "usage : sudo bash deployer-console.sh <commit-complet> <sha256-de-l-archive>"
+[ -n "$COMMIT" ] && [ -n "$SHA_ATTENDU" ] || arret "usage : sudo bash deployer-console.sh <commit-complet> <sha256-de-l-archive> [archive-locale.tar.gz]"
 [[ "$COMMIT" =~ ^[0-9a-f]{40}$ ]] || arret "le commit doit etre l'identifiant complet (40 caracteres hexadecimaux)"
 
 # ---------------------------------------------------------------------------------------------
@@ -84,7 +85,15 @@ etape "8a. Archive du commit ${COMMIT:0:7}, verifiee"
 STAGING="${SAUVEGARDES}/code"
 mkdir -p "$STAGING"
 ARCHIVE="${SAUVEGARDES}/bdri-${COMMIT:0:7}.tar.gz"
-curl -fsSL "https://codeload.github.com/${DEPOT}/tar.gz/${COMMIT}" -o "$ARCHIVE" || arret "telechargement de l'archive impossible"
+# Constate le 21/10 : deux telechargements codeload du MEME commit rendent des gzip
+# differents (contenu identique, compression seule varie) — une empreinte d archive
+# codeload n est pas stable. L operateur peut livrer une archive produite par
+# « git archive » (deterministe) ; l empreinte est exigee dans tous les cas.
+if [ -n "$ARCHIVE_LOCALE" ]; then
+  cp "${ARCHIVE_LOCALE}" "${ARCHIVE}" || arret "archive locale introuvable : ${ARCHIVE_LOCALE}"
+else
+  curl -fsSL "https://codeload.github.com/${DEPOT}/tar.gz/${COMMIT}" -o "$ARCHIVE" || arret "telechargement de l'archive impossible"
+fi
 SHA_RECU=$(sha256sum "$ARCHIVE" | cut -d' ' -f1)
 [ "$SHA_RECU" = "$SHA_ATTENDU" ] || arret "empreinte de l'archive ${SHA_RECU} differente de l'attendue ${SHA_ATTENDU}"
 tar -xzf "$ARCHIVE" -C "$STAGING" --strip-components=1
