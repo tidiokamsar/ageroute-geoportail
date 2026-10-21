@@ -214,7 +214,7 @@ APRES=$(compteurs)
 [ "$APRES" = "$AVANT" ] || { rouge "compteurs CHANGES : ${AVANT} -> ${APRES}"; echec=1; }
 RESTANTES=$(docker compose exec -T backend npx prisma migrate status 2>&1 | grep -c 'have not yet been applied' || true)
 [ "$RESTANTES" = "0" ] || { rouge "des migrations restent non appliquees"; echec=1; }
-ECHECS=$(docker compose exec -T backend node -e "fetch('http://localhost:4000/api/health').then(r=>r.json()).then(j=>console.log(j?.audit?.echecsDepuisDemarrage ?? 'absent'))")
+ECHECS=$(docker compose exec -T backend node -e "fetch('http://localhost:4000/api/health').then(r=>r.json()).then(j=>console.log(j?.checks?.audit?.echecsDepuisDemarrage ?? j?.audit?.echecsDepuisDemarrage ?? 'absent'))")
 [ "$ECHECS" = "0" ] || { rouge "audit.echecsDepuisDemarrage = ${ECHECS}"; echec=1; }
 CODE=$(docker compose exec -T backend node -e "fetch('http://localhost:4000/api/troncons').then(r=>console.log(r.status))")
 [ "$CODE" = "401" ] || { rouge "/api/troncons sans jeton repond ${CODE}, 401 attendu"; echec=1; }
