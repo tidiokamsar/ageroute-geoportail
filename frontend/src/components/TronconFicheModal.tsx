@@ -8,6 +8,7 @@ import { QualiteBadge, qualiteDe, type QualiteChamp } from "./QualiteBadge";
 import { EntityForm } from "./EntityForm";
 import { FicheChildManager } from "./FicheChildManager";
 import { TronconDocumentsTab } from "./TronconDocumentsTab";
+import { VoletPortions, VoletProgrammation } from "./Fiche360Volets";
 import { useEntityMutations } from "../hooks/useEntity";
 import { useAuth, canWrite as canWriteRole } from "../lib/auth";
 import { parseApiError } from "../lib/errors";
@@ -54,7 +55,7 @@ interface Fiche {
   chevauchements: { a: string; b: string; longueurM: number }[];
 }
 
-type TabKey = "infos" | "portions" | "ouvrages" | "pointsNoirs" | "postes" | "chantiers" | "inspections" | "documents";
+type TabKey = "infos" | "portions" | "versions" | "ouvrages" | "pointsNoirs" | "postes" | "chantiers" | "inspections" | "programmation" | "documents";
 
 function metres(v: number): string {
   return v >= 1_000 ? `${(v / 1_000).toFixed(2)} km` : `${Math.round(v)} m`;
@@ -91,11 +92,13 @@ export function TronconFicheModal({ open, onClose, tronconId }: { open: boolean;
   const tabs: { key: TabKey; label: string; count?: number }[] = [
     { key: "infos", label: "Infos" },
     { key: "portions", label: "Portions", count: data?.portions.length },
+    { key: "versions", label: "Historique des portions" },
     { key: "ouvrages", label: "Ouvrages", count: data?.ouvrages.length },
     { key: "pointsNoirs", label: "Points noirs", count: data?.pointsNoirs.length },
     { key: "postes", label: "Péages", count: data?.postes.length },
     { key: "chantiers", label: "Chantiers", count: data?.chantiers.length },
     { key: "inspections", label: "Inspections", count: data?.inspections.length },
+    { key: "programmation", label: "Programmation" },
     { key: "documents", label: "Documents" },
   ];
 
@@ -369,6 +372,10 @@ export function TronconFicheModal({ open, onClose, tronconId }: { open: boolean;
                 )}
               </div>
             )}
+
+            {/* Fiche 360 : volets portion (versions, historique, etat a une date) et programmation. */}
+            {tab === "versions" && <VoletPortions tronconId={tronconId} />}
+            {tab === "programmation" && <VoletProgrammation tronconId={tronconId} />}
 
             {tab === "documents" && <TronconDocumentsTab tronconId={tronconId} canWrite={writable} />}
           </div>

@@ -9,6 +9,7 @@ const sections = [
     title: "PILOTAGE",
     items: [
       { to: "/", label: "Tableau de bord" },
+      { to: "/control-tower", label: "Control Tower" },
       { to: "/geoportail", label: "Géoportail" },
       { to: "/alertes", label: "Alertes" },
       { to: "/rapports", label: "Rapports" },

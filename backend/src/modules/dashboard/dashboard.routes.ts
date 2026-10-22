@@ -6,6 +6,8 @@ import { Prisma } from "@prisma/client";
 import { longueurReseau, WHERE_RESEAU_CLASSE } from "../../lib/reseau";
 import { estimerPourDecision } from "../../engines/decision.estimation";
 import type { LigneBareme } from "../../engines/cout.noyau";
+import { REGISTRE } from "../../tableau-de-bord/indicateurs.registre";
+import { evaluer } from "../../tableau-de-bord/tableau-de-bord.service";
 
 /**
  * Le reseau classe : tout sauf les troncons issus de la promotion de voirie.
@@ -35,24 +37,31 @@ dashboardRouter.get("/kpis", requireAuth, requireModuleAccess("dashboard"), asyn
   try {
     const notDeleted = { deletedAt: null };
 
+    // LES NOMBRES PARTAGES VIENNENT DU REGISTRE (A12). Chacun a son perimetre et sa requete de
+    // controle, rapprochees par le banc d'integration et par GET /api/v2/tableau-de-bord/controle :
+    // le chiffre affiche ici est celui qui est controle, pas une seconde implementation. Cette route
+    // reste NATIONALE (comportement v1 conserve) ; le filtrage par region est celui des routes v2.
+    const registre = await evaluer(prisma, REGISTRE, { regions: null, maintenant: new Date() }, {
+      codes: ["troncons_classes", "ouvrages_inventories", "points_noirs", "postes", "documents", "chantiers_en_cours",
+        "troncons_mauvais_critique", "ouvrages_mauvais_critique", "portions_validees", "portions_validees_km"],
+      // Cette route n'affiche pas « aucune donnee » : inutile d'interroger les tables sources.
+      sansSource: true,
+    });
+    const indicateur = (code: string): number => {
+      const i = registre.find((r) => r.code === code);
+      // Un indicateur en erreur fait echouer la route (500) : un zero fabrique serait lu comme un constat.
+      if (!i || i.statut !== "CALCULE" || typeof i.valeur !== "number") throw new Error(`Indicateur ${code} non calculable`);
+      return i.valeur;
+    };
+
     const [
-      tronconsCount,
-      ouvragesCount,
-      pointsNoirsCount,
-      postesCount,
-      documentsCount,
-      chantiersEnCours,
       tronconsParEtat,
       ouvragesParEtat,
       chantiersParStatut,
       longueurTotale,
-      alertesTroncons,
-      alertesOuvrages,
       reseau,
       voirieRattacheeCount,
       franchissementsRepisCount,
-      portionsValidees,
-      kmPortionsValidees,
       qualiteParStatut,
     ] = await Promise.all([
       // Le RESEAU CLASSE, pas le registre entier. La promotion de la voirie a porte
@@ -60,35 +69,33 @@ dashboardRouter.get("/kpis", requireAuth, requireModuleAccess("dashboard"), asyn
       // reseau routier, c'est-a-dire les sentiers d'OpenStreetMap. Le reseau classe
       // de Guinee fait environ 21 000 km. La voirie rattachee est comptee a part,
       // plus bas, et dite explicitement.
-      prisma.troncon.count({ where: { ...notDeleted, ...RESEAU_REFERENCE } }),
-      prisma.ouvrage.count({ where: { ...notDeleted, ...INVENTAIRE_REFERENCE } }),
-      prisma.pointNoir.count({ where: notDeleted }),
-      prisma.poste.count({ where: notDeleted }),
-      prisma.document.count({ where: notDeleted }),
-      prisma.chantier.count({ where: { ...notDeleted, statut: "EN_COURS" } }),
       prisma.troncon.groupBy({ by: ["etat"], where: { ...notDeleted, ...RESEAU_REFERENCE }, _count: { _all: true } }),
       prisma.ouvrage.groupBy({ by: ["etat"], where: { ...notDeleted, ...INVENTAIRE_REFERENCE }, _count: { _all: true } }),
       prisma.chantier.groupBy({ by: ["statut"], where: notDeleted, _count: { _all: true } }),
       prisma.troncon.aggregate({ where: { ...notDeleted, ...RESEAU_REFERENCE }, _sum: { longueurKm: true } }),
-      prisma.troncon.count({ where: { ...notDeleted, ...RESEAU_REFERENCE, etat: { in: ["MAUVAIS", "CRITIQUE"] } } }),
-      prisma.ouvrage.count({ where: { ...notDeleted, ...INVENTAIRE_REFERENCE, etat: { in: ["MAUVAIS", "CRITIQUE"] } } }),
       longueurReseau("reference"),
       // Compte a part : ces troncons sont au registre et doivent se voir, mais ils ne
       // sont pas le reseau classe et ne peuvent pas se fondre dans ses indicateurs.
       prisma.troncon.count({ where: { ...notDeleted, sourceReference: { startsWith: "voirie_locale:" } } }),
       prisma.ouvrage.count({ where: { ...notDeleted, sourceReference: { startsWith: "ouvrage_osm:" } } }),
-      // PORTIONS HOMOGENES VALIDEES : la verite de l'etat (arbitrage D6). Le tableau de bord les
-      // ignorait, et annoncait donc un etat du reseau fonde sur des valeurs d'import. Le meme
-      // predicat que la contrainte d'exclusion : VALIDE, non remplacee, non supprimee.
-      prisma.portion.count({ where: { statutValidation: "VALIDE", remplaceeLe: null, deletedAt: null } }),
-      prisma.$queryRaw<{ km: number | null }[]>`
-        SELECT COALESCE(SUM("finM" - "debutM"), 0) / 1000.0 AS km
-          FROM "portions"
-         WHERE "statutValidation" = 'VALIDE' AND "remplaceeLe" IS NULL AND "deletedAt" IS NULL`,
       // CE QUE L'ON SAIT REELLEMENT des valeurs : observe, importe non verifie, derive, en
       // conflit, inconnu. C'est la reponse a « ces chiffres sont-ils constates ? ».
       prisma.valeurQualite.groupBy({ by: ["statut"], _count: { _all: true } }),
     ]);
+
+    const tronconsCount = indicateur("troncons_classes");
+    const ouvragesCount = indicateur("ouvrages_inventories");
+    const pointsNoirsCount = indicateur("points_noirs");
+    const postesCount = indicateur("postes");
+    const documentsCount = indicateur("documents");
+    const chantiersEnCours = indicateur("chantiers_en_cours");
+    const alertesTroncons = indicateur("troncons_mauvais_critique");
+    const alertesOuvrages = indicateur("ouvrages_mauvais_critique");
+    // PORTIONS HOMOGENES VALIDEES : la verite de l'etat (arbitrage D6). Le tableau de bord les
+    // ignorait, et annoncait donc un etat du reseau fonde sur des valeurs d'import. Le meme
+    // predicat que la contrainte d'exclusion : VALIDE, non remplacee, non supprimee.
+    const portionsValidees = indicateur("portions_validees");
+    const kmPortionsValidees = [{ km: indicateur("portions_validees_km") }];
 
     res.json({
       // LE PERIMETRE, DIT D'ABORD. Chaque indicateur de cette reponse porte sur le reseau classe

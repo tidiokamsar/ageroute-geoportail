@@ -35,7 +35,7 @@
  * ETAT AU 14/10/2026 : `portions` porte ZERO ligne. Ce module rend donc une couverture nulle
  * partout, et c'est le resultat juste. Il existe pour que le premier releve se voie.
  */
-import { Prisma } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { fragmentPerimetre, type PerimetreReseau } from "../lib/reseau";
 
@@ -98,6 +98,9 @@ interface LigneBrute {
 export async function couvertureReseau(
   perimetre: PerimetreReseau,
   regionId?: number | null,
+  // Le depot par defaut est le client applicatif. Le registre d'indicateurs (tableau-de-bord/) passe
+  // le sien, pour que le banc d'integration lise la base de rejeu et non une autre.
+  depot: Pick<PrismaClient, "$queryRaw"> = prisma,
 ): Promise<CouvertureReseau> {
   // PARAMETRE, PAS CONCATENE. Le paragraphe 7.1 du mandat v2.1 l'exige : « requetes
   // spatiales en SQL parametre, jamais de concatenation de chaines ».
@@ -113,7 +116,7 @@ export async function couvertureReseau(
     ? Prisma.sql`AND t."regionId" = ${regionId}`
     : Prisma.empty;
 
-  const lignes = await prisma.$queryRaw<LigneBrute[]>`
+  const lignes = await depot.$queryRaw<LigneBrute[]>`
     WITH base AS (
       SELECT t.id, t."regionId", ST_Length(t.geom::geography) AS longueur_m
         FROM troncons t
