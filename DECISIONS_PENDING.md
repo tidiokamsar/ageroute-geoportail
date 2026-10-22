@@ -6,6 +6,9 @@
 > Le § A.5.11 est explicite : coefficients RCI, valeurs de praticabilité, barèmes de prix,
 > seuils et nomenclatures officielles restent **provisoires et étiquetés** tant qu'ils ne sont
 > pas approuvés par l'autorité compétente.
+>
+> Vue d'ensemble à grille uniforme (options, impacts, recommandation technique, décision attendue) :
+> [docs/pilotage/DECISIONS-SYNTHESE-ARBITRAGE.md](docs/pilotage/DECISIONS-SYNTHESE-ARBITRAGE.md).
 
 ---
 

@@ -33,6 +33,9 @@ import { Sidebar } from "../components/layout/Sidebar";
 import { LoginPage } from "./LoginPage";
 import { ImportsPage } from "./ImportsPage";
 import { ReleveVehiculePage } from "./ReleveVehiculePage";
+import { CurseurTemporel } from "./geoportail/CurseurTemporel";
+import type { EtatCouchePortions } from "./geoportail/PortionsDateLayer";
+import type { EtatCurseur } from "../lib/curseur";
 import { api } from "../lib/api";
 import userEvent from "@testing-library/user-event";
 
@@ -127,6 +130,36 @@ describe("Accessibilite du releve en vehicule, resultat affiche", () => {
     await userEvent.upload(screen.getByLabelText(/Fichier de trace/), new File(["<gpx></gpx>"], "sortie.gpx"));
     await userEvent.click(screen.getByRole("button", { name: /Analyser la trace/ }));
     await screen.findByRole("table", { name: /Tronçons parcourus/ });
+    expect(await violationsAccessibilite(container)).toEqual([]);
+  }, 30_000);
+});
+
+describe("Accessibilite du curseur temporel", () => {
+  const chrono = { total: 10, avecDateEffet: 6, sansDateEffet: 4, premiere: "2026-01-01", derniere: "2026-08-01", parMois: [] };
+  const reponse = {
+    dateTerrain: "2026-03-15", connuLe: "2026-04-01", inclureAValider: true, tronque: true, plafond: 5000,
+    comptes: { retenues: 1, aValiderEcartees: 2, sansDateEffet: 0, datesIncoherentes: 1, remplaceesSansFin: 1, ambigues: 2 },
+    longueurCouverteM: 500,
+    portions: [{ id: "p", tronconId: "t", tronconCode: "GN N0001", tronconNom: "x", debutM: 0, finM: 500, longueurM: 500, revetement: null, etat: "BON", etatLibelle: "Bon",
+      praticabilite: null, largeurM: null, source: null, confiance: null, observeeLe: null, valideDu: "2026-01-01", valideAu: null,
+      enregistreLe: "2026-01-10T08:00:00Z", statut: "VALIDE" as const, ambigue: false, geometry: null }],
+  };
+  it.each([
+    ["eteint", { actif: false, date: "2026-10-22", connu: null, inclureAValider: false }, null],
+    ["allume, vue vide", { actif: true, date: "2026-03-15", connu: null, inclureAValider: false }, { zoomSuffisant: true, chargement: false, reponse: { ...reponse, portions: [], comptes: { ...reponse.comptes, retenues: 0 } }, erreur: null }],
+    ["allume, avec resultats, avertissements et axe systeme", { actif: true, date: "2026-03-15", connu: "2026-04-01", inclureAValider: true }, { zoomSuffisant: true, chargement: false, reponse, erreur: null }],
+    ["allume, erreur du serveur", { actif: true, date: "2026-03-15", connu: null, inclureAValider: false }, { zoomSuffisant: true, chargement: false, reponse: null, erreur: "Emprise trop large." }],
+  ] as const)("%s : aucune violation", async (_n, etat, couche) => {
+    // `as const` rend le tableau en lecture seule ; le composant attend des types modifiables.
+    const { container } = rendre(
+      <CurseurTemporel
+        etat={etat as unknown as EtatCurseur}
+        onChange={() => {}}
+        chronologie={chrono}
+        couche={couche as unknown as EtatCouchePortions | null}
+        auj="2026-10-22"
+      />,
+    );
     expect(await violationsAccessibilite(container)).toEqual([]);
   }, 30_000);
 });

@@ -81,6 +81,7 @@ export function ReleveVehiculePage() {
   const [reseau, setReseau] = useState<"reference" | "tout">("reference");
   const [distanceMax, setDistanceMax] = useState("50");
   const [pasMin, setPasMin] = useState("15");
+  const [tolerance, setTolerance] = useState("");
   const [erreurLocale, setErreurLocale] = useState<string | null>(null);
 
   const analyser = useMutation({
@@ -94,6 +95,8 @@ export function ReleveVehiculePage() {
         reseau,
         distanceMaxM: Number(distanceMax),
         pasMinM: Number(pasMin),
+        // Vide : pas de verification sur le reseau, et AUCUNE valeur n'est envoyee a la place.
+        ...(tolerance.trim() !== "" ? { toleranceFusionM: Number(tolerance.replace(",", ".")) } : {}),
       })).data;
     },
     onError: (e) => { if ((e as Error).message !== "local") toast.error(messageErreur(e, "L'analyse a échoué.")); },
@@ -107,6 +110,10 @@ export function ReleveVehiculePage() {
     const d = Number(distanceMax), p = Number(pasMin);
     if (!Number.isFinite(d) || d < 1 || d > 200) return setErreurLocale("La distance maximale doit être comprise entre 1 et 200 m.");
     if (!Number.isFinite(p) || p < 5 || p > 500) return setErreurLocale("Le pas minimal doit être compris entre 5 et 500 m.");
+    if (tolerance.trim() !== "") {
+      const t = Number(tolerance.replace(",", "."));
+      if (!Number.isFinite(t) || t <= 0 || t > 50) return setErreurLocale("La tolérance de fusion doit être comprise entre 0 (exclu) et 50 m, ou laissée vide.");
+    }
     analyser.mutate();
   };
 
@@ -178,6 +185,17 @@ export function ReleveVehiculePage() {
             <label className="block">Pas minimal entre deux points (m, 5 à 500)
               <input className="mt-1 w-full rounded border px-2 py-1" inputMode="numeric" value={pasMin} onChange={(e) => setPasMin(e.target.value)} />
             </label>
+            <label className="block md:col-span-2">Vérifier les changements de tronçon sur le réseau : tolérance de fusion des extrémités (m, facultatif)
+              <input
+                className="mt-1 w-full rounded border px-2 py-1" inputMode="decimal" value={tolerance}
+                placeholder="vide : pas de vérification" onChange={(e) => setTolerance(e.target.value)}
+              />
+              <span className="mt-0.5 block text-xs text-gray-600">
+                Distance en dessous de laquelle deux extrémités de tronçons sont tenues pour le même carrefour. Aucune valeur
+                n'est proposée : elle dépend de la qualité de saisie du référentiel et n'a pas été mesurée. Laissée vide, les
+                changements de tronçon sont comptés « non vérifiés ».
+              </span>
+            </label>
           </div>
           <p className="mt-1 text-xs text-gray-600">Ces valeurs sont des choix provisoires, non calibrés sur des traces réelles d'AGEROUTE.</p>
         </details>
@@ -208,7 +226,7 @@ export function ReleveVehiculePage() {
             <Indicateur libelle="Distance parcourue" valeur={libelleKm(a.indicateurs.distanceParcourueM)} />
             <Indicateur libelle="Durée" valeur={libelleDuree(a.indicateurs.dureeS)} note={a.indicateurs.vitesseMoyenneKmH !== null ? `vitesse moyenne ${String(a.indicateurs.vitesseMoyenneKmH).replace(".", ",")} km/h` : undefined} />
             <Indicateur libelle="Longueur sur le réseau" valeur={libelleKm(a.indicateurs.longueurSurReseauM)} />
-            <Indicateur libelle="Changements de tronçon non vérifiés" valeur={String(a.indicateurs.transitionsNonVerifiees)} note="à lire avec le taux de rattachement" />
+            <Indicateur libelle="Changements de tronçon non vérifiés" valeur={String(a.indicateurs.transitionsNonVerifiees)} note={a.parametres.graphe ? `graphe : ${a.parametres.graphe.nbTroncons} tronçons, tolérance ${String(a.parametres.graphe.toleranceFusionM).replace(".", ",")} m` : "graphe non utilisé : à lire avec le taux de rattachement"} />
             <Indicateur libelle="Points lus / retenus" valeur={`${a.indicateurs.pointsLus} / ${a.indicateurs.pointsRetenus}`} note={`${a.indicateurs.retiresParPas} retirés par le pas, ${a.indicateurs.pointsIgnores} ignorés`} />
           </dl>
 

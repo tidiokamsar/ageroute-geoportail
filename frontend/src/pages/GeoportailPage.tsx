@@ -9,7 +9,7 @@ import {
   Search, Ruler, Square, Navigation, Share2, Maximize, Minimize, ChevronDown,
   ChevronLeft, ChevronRight,
   Route, Landmark, ShieldAlert, Construction, AlertTriangle, MapPinned, Layers as LayersIcon,
-  PenLine, Check, X, BarChart2, MapPin,
+  PenLine, Check, X, BarChart2, MapPin, Clock,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useEntityMutations } from "../hooks/useEntity";
@@ -19,6 +19,9 @@ import { useAuth, canDelete, canWrite } from "../lib/auth";
 import { Checkbox } from "../components/ui/checkbox";
 import type { DashboardKpis, EtatPatrimoine, Region } from "../types";
 import { DetailPanel } from "./geoportail/DetailPanel";
+import { CurseurTemporel } from "./geoportail/CurseurTemporel";
+import { PortionsDateLayer, type EtatCouchePortions } from "./geoportail/PortionsDateLayer";
+import { aujourdhui, ecrireCurseur, lireCurseur, SANS_CURSEUR, type Chronologie, type EtatCurseur } from "../lib/curseur";
 import { MoveOuvrageLayer } from "./geoportail/MoveOuvrageLayer";
 import {
   FranchissementsLayer,
@@ -249,6 +252,17 @@ export function GeoportailPage() {
   // Par defaut, seules les voies carrossables — les 175 283 chemins et sentiers font
   // les deux tiers du volume pour l'usage le moins etabli.
   const [showVoirie, setShowVoirie] = useState(false);
+  // Curseur temporel : voir le reseau a une date. Lu depuis le lien (valide, jamais a moitie).
+  const [curseur, setCurseur] = useState<EtatCurseur>(
+    () => lireCurseur(params.toString()) ?? { ...SANS_CURSEUR, date: aujourdhui() },
+  );
+  const [couchePortions, setCouchePortions] = useState<EtatCouchePortions | null>(null);
+  const { data: chronologie, isLoading: chronologieEnCours, error: chronologieErreur } = useQuery({
+    queryKey: ["portions-chronologie"],
+    // Seulement quand le curseur est allume : la page ne paie rien tant qu'on ne s'en sert pas.
+    enabled: curseur.actif,
+    queryFn: async () => (await api.get<Chronologie>("/v2/portions/chronologie")).data,
+  });
   const [categoriesVoirie, setCategoriesVoirie] = useState<Set<CategorieVoirie>>(
     () => new Set<CategorieVoirie>(["VOIE_LOCALE", "RESIDENTIELLE", "ACCES"])
   );
@@ -665,7 +679,9 @@ export function GeoportailPage() {
       next.set("select", selectedFeature.kind);
       next.set("id", selectedFeature.data.id);
     }
-    return `${window.location.origin}${window.location.pathname}?${next.toString()}`;
+    // Le curseur fait partie de ce que l'on partage : la date vue (et l'axe systeme, les
+    // propositions) se retrouvent a l'ouverture du lien.
+    return `${window.location.origin}${window.location.pathname}?${ecrireCurseur(next.toString(), curseur)}`;
   }
 
   async function handleShare() {
@@ -1013,6 +1029,17 @@ export function GeoportailPage() {
             </PanelSection>
           )}
 
+          <PanelSection icon={<Clock className="h-4 w-4" />} title="Temps" defaultOpen={curseur.actif}>
+            <CurseurTemporel
+              etat={curseur}
+              onChange={setCurseur}
+              chronologie={chronologie}
+              couche={curseur.actif ? couchePortions : null}
+              chargementChronologie={chronologieEnCours}
+              erreurChronologie={chronologieErreur ? "Chronologie indisponible." : null}
+            />
+          </PanelSection>
+
           <PanelSection icon={<Route className="h-4 w-4" />} title="Réseau routier">
             <LayerRow checked={layers.troncons} onChange={() => toggleLayer("troncons")} label="Tous les tronçons" bold />
             {layers.troncons && (
@@ -1345,9 +1372,13 @@ export function GeoportailPage() {
 
           {layers.troncons && (
             <GeoJSON
-              key={`troncons-${tronconsFeatureCollection.features.length}-${regionFilter}-${etatFilter}-${Object.values(classeFilter).join("")}-${villeFiltre ? `${villeFiltre.a.nom}-${villeFiltre.b?.nom ?? ""}` : ""}`}
+              key={`troncons-${curseur.actif ? "ref" : "etat"}-${tronconsFeatureCollection.features.length}-${regionFilter}-${etatFilter}-${Object.values(classeFilter).join("")}-${villeFiltre ? `${villeFiltre.a.nom}-${villeFiltre.b?.nom ?? ""}` : ""}`}
               data={tronconsFeatureCollection}
               style={(feature) => {
+                // Curseur temporel allume : le troncon n'est plus qu'un TRACE DE REFERENCE gris.
+                // Sa couleur d'etat est celle d'AUJOURD'HUI ; la poser sous une date passee dirait
+                // faux. Seules les portions de la date choisie portent un etat.
+                if (curseur.actif) return { color: "#9aa0aa", weight: 3, opacity: 0.8 };
                 const t = feature?.properties?.id ? tronconsById.get(feature.properties.id) : undefined;
                 return { color: t ? ETAT_COLORS[t.etat] ?? "#1a2942" : "#1a2942", weight: 4 };
               }}
@@ -1357,6 +1388,16 @@ export function GeoportailPage() {
                 layer.bindTooltip(`${t.code} — ${t.nom}`, { sticky: true });
                 layer.on("click", () => setSelectedFeature({ kind: "troncon", data: t }));
               }}
+            />
+          )}
+
+          {/* Curseur temporel : les portions vraies a la date choisie, AU-DESSUS du trace de reference. */}
+          {curseur.actif && (
+            <PortionsDateLayer
+              date={curseur.date}
+              connu={curseur.connu}
+              inclureAValider={curseur.inclureAValider}
+              onChargement={setCouchePortions}
             />
           )}
 

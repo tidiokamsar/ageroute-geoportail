@@ -47,6 +47,16 @@ describe("POST /api/v2/geo/trace", () => {
     expect(h.appels[0]).toMatchObject({ opts: { reseau: "tout", distanceMaxM: 40, pasMinM: 25 } });
   });
 
+  it("transmet la tolerance de fusion : c'est elle qui demande la verification sur le graphe", async () => {
+    await request(app).post("/api/v2/geo/trace").send({ ...corps, toleranceFusionM: 2.5 });
+    expect(h.appels[0]).toMatchObject({ opts: { toleranceFusionM: 2.5 } });
+  });
+
+  it("SANS tolerance, rien n'est transmis : aucune valeur par defaut n'est inventee", async () => {
+    await request(app).post("/api/v2/geo/trace").send(corps);
+    expect((h.appels[0] as { opts: { toleranceFusionM?: number } }).opts.toleranceFusionM).toBeUndefined();
+  });
+
   it("est protegee par le module inspections", async () => {
     await request(app).post("/api/v2/geo/trace").send(corps);
     expect(h.module).toContain("inspections");
@@ -59,6 +69,9 @@ describe("POST /api/v2/geo/trace", () => {
     ["contenu vide", { format: "gpx", contenu: "" }],
     ["distance demesuree", { ...corps, distanceMaxM: 5000 }],
     ["pas trop petit", { ...corps, pasMinM: 1 }],
+    ["tolerance de fusion nulle : aucune valeur n'est supposee", { ...corps, toleranceFusionM: 0 }],
+    ["tolerance de fusion demesuree", { ...corps, toleranceFusionM: 51 }],
+    ["tolerance de fusion non numerique", { ...corps, toleranceFusionM: "deux" }],
     ["reseau inconnu", { ...corps, reseau: "autre" }],
   ])("refuse %s (400), sans analyser", async (_n, c) => {
     expect((await request(app).post("/api/v2/geo/trace").send(c)).status).toBe(400);

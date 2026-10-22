@@ -45,10 +45,12 @@ export async function calculerDeviation(
   // Fraction = abscisse / longueur mesuree ; ST_LineSubstring raisonne en fraction plane, l'ecart
   // est negligeable a l'echelle d'un troncon.
   const ids = r.segments.map((s) => s.tronconId);
+  // Les nombres partent en TEXTE, convertis cote SQL : pour un tableau de nombres, Prisma devine le type
+  // d'apres le PREMIER element. [0, 19.87] partait en int8[] et 19.87 etait refuse (22P03).
   const de = r.segments.map((s) => s.deM);
   const a = r.segments.map((s) => s.aM);
   const lignes = await depot.$queryRaw<{ ordre: number; code: string; nom: string | null; geojson: string }[]>`
-    WITH s AS (SELECT * FROM unnest(${ids}::text[], ${de}::float8[], ${a}::float8[]) WITH ORDINALITY AS x(id, de, a, ordre)),
+    WITH s AS (SELECT * FROM unnest(${ids}::text[], ${de.map(String)}::text[]::float8[], ${a.map(String)}::text[]::float8[]) WITH ORDINALITY AS x(id, de, a, ordre)),
          m AS (
            SELECT s.ordre, t."code", t."nom", t."geom", ST_Length(t."geom"::geography) AS l, s.de, s.a
              FROM s JOIN "troncons" t ON t."id" = s.id

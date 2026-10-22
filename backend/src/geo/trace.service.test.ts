@@ -64,6 +64,30 @@ describe("analyserTrace", () => {
     expect(appels).toHaveLength(2);
   });
 
+  it("envoie les nombres en TEXTE : Prisma devine le type d'un tableau d'apres son PREMIER element", async () => {
+    // [0, 19.87] partait en int8[] et 19.87 etait refuse (22P03) : defaut constate contre PostGIS
+    // le 22/10/2026, que les tests a depot simule ne pouvaient pas voir. Les coordonnees de la trace
+    // sont concernees aussi : un fichier dont le premier point est (10, -13) declencherait le meme.
+    const n = 60;
+    const longueur = PAS * 111_320 * (n - 1);
+    const lignes: Ligne[] = [];
+    for (let i = 0; i < n; i += 1) {
+      const sur = i < 30 ? "A" : "B";
+      lignes.push({ i, tronconId: `t-${sur}`, code: `RN-${sur}`, nom: null, classe: "RN", distanceM: 3, fraction: (i % 30) / 29 * 0.99 + 0.0089, longueurM: longueur, pkDebut: null, pkFin: null });
+    }
+    const { d, appels } = depot(lignes);
+    await analyserTrace(d, { points: droite(n) });
+    const requeteGeometrie = appels[1] as unknown[];
+    const [, ids, de, a] = requeteGeometrie as [unknown, string[], unknown[], unknown[]];
+    expect(ids.length).toBeGreaterThanOrEqual(2);
+    expect(de.every((x) => typeof x === "string")).toBe(true);
+    expect(a.every((x) => typeof x === "string")).toBe(true);
+    const valeursCandidats = (appels[0] as [{ values: unknown[] }])[0].values;
+    const tableaux = valeursCandidats.filter(Array.isArray) as unknown[][];
+    expect(tableaux.length).toBeGreaterThanOrEqual(2);
+    expect(tableaux.every((t) => t.every((x) => typeof x === "string"))).toBe(true);
+  });
+
   it("detecte le sens decroissant quand le vehicule remonte le troncon", async () => {
     const n = 40;
     const { d } = depot(candidatsSurA(n, [...Array(n).keys()], -1));
@@ -115,7 +139,8 @@ describe("analyserTrace", () => {
     expect(a.indicateurs.transitionsNonVerifiees).toBeGreaterThan(0);
     const texte = a.avertissements.join(" | ");
     expect(texte).toMatch(/Aucune precision annoncee/);
-    expect(texte).toMatch(/n'ont pas pu etre verifies sur le reseau/);
+    expect(texte).toMatch(/ne sont pas verifies sur le reseau \(le graphe n'est pas utilise\)/);
+    expect(texte).toMatch(/fournir la tolerance de fusion/);
   });
 
   it("signale un passage tres court pour verification, sans le supprimer", async () => {

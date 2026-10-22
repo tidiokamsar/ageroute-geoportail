@@ -35,6 +35,7 @@ const CHAMPS = {
   revetement: true, etat: true, praticabilite: true, largeurM: true,
   source: true, observeeLe: true, confiance: true,
   statutValidation: true, origine: true, clientOperationId: true,
+  valideDu: true, valideAu: true,
   remplaceeLe: true, deletedAt: true,
 } as const;
 
@@ -109,6 +110,15 @@ export async function appliquerDans(tx: ClientTx, e: Ecriture): Promise<Portion[
         where: { id: { in: e.remplacer }, remplaceeLe: null },
         data: { remplaceeLe: maintenant },
       });
+      // Cloture TERRAIN, sur un axe distinct : la date d'effet de la nouvelle version, et
+      // seulement pour les versions qui n'en ont pas deja une. Apres `remplaceeLe`, de sorte
+      // que la contrainte d'exclusion ne voie plus l'ancienne version comme courante.
+      if (e.cloreTerrain) {
+        await tx.portion.updateMany({
+          where: { id: { in: e.remplacer }, valideAu: null },
+          data: { valideAu: e.cloreTerrain.valideAu },
+        });
+      }
       for (const p of avant) {
         await logAuditTransactionnelle(tx, {
           userId: e.auteurId,
@@ -116,7 +126,12 @@ export async function appliquerDans(tx: ClientTx, e: Ecriture): Promise<Portion[
           entityType: "Portion",
           entityId: p.id,
           before: p,
-          after: { ...p, remplaceeLe: maintenant, operation: e.operation },
+          after: {
+            ...p,
+            remplaceeLe: maintenant,
+            ...(e.cloreTerrain && p.valideAu == null ? { valideAu: e.cloreTerrain.valideAu } : {}),
+            operation: e.operation,
+          },
         });
       }
     }

@@ -111,6 +111,17 @@ export interface Portion {
    * donc sans bruit jusqu'a l'arbitrage.
    */
   clientOperationId: string | null;
+  /**
+   * DEPUIS QUAND cette version est vraie SUR LE TERRAIN (date d'effet, jour UTC).
+   *
+   * Facultatif : les portions anterieures a la saisie de cette date ne la portent pas, et une
+   * valeur absente vaut INCONNUE, jamais « depuis toujours ». Distincte de `observeeLe` (quand
+   * on a regarde) et de `remplaceeLe` (quand le remplacement a ete ENREGISTRE). Voir
+   * `bitemporel.ts`.
+   */
+  valideDu?: Date | null;
+  /** Jusqu'a quand, EXCLU. Nulle quand la version est encore vraie. */
+  valideAu?: Date | null;
   /** Date a laquelle cette version a ete remplacee. Nulle si elle est courante. */
   remplaceeLe: Date | null;
   /**
@@ -305,6 +316,7 @@ export type RefusFusion =
   | "NON_ADJACENTES"
   | "ATTRIBUTS_DIFFERENTS"
   | "VALIDATIONS_DIFFERENTES"
+  | "PERIODES_DIFFERENTES"
   | "PORTION_REMPLACEE";
 
 /**
@@ -335,7 +347,17 @@ export function refusFusion(a: Portion, b: Portion): RefusFusion | null {
     return "ATTRIBUTS_DIFFERENTS";
   }
   if (a.statutValidation !== b.statutValidation) return "VALIDATIONS_DIFFERENTES";
+  // Deux versions vraies a des PERIODES differentes ne decrivent pas le meme moment : les
+  // fusionner ferait croire que l'etat a dure sur toute la periode des deux.
+  if (jour(a.valideDu) !== jour(b.valideDu) || jour(a.valideAu) !== jour(b.valideAu)) {
+    return "PERIODES_DIFFERENTES";
+  }
   return null;
+}
+
+/** Un jour de date d'effet comme nombre, ou `null` quand elle est inconnue ou absente. */
+function jour(d: Date | null | undefined): number | null {
+  return d instanceof Date ? d.getTime() : null;
 }
 
 /**

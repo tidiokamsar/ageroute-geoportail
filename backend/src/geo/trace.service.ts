@@ -7,8 +7,12 @@
  *
  * CE QUE CETTE ANALYSE NE FAIT PAS, ET DIT
  *
- * - Elle n'utilise pas le graphe du reseau : la distance entre deux troncons differents est
- *   inconnue, donc `transitionsNonVerifiees` compte les transitions que rien n'a confirmees.
+ * - LE GRAPHE DU RESEAU N'EST UTILISE QUE SUR DEMANDE. Il est construit a partir des extremites
+ *   des troncons, fusionnees a une tolerance que l'APPELANT fournit (`toleranceFusionM`) : aucune
+ *   valeur n'est mesuree sur le referentiel reel, donc aucune n'est supposee. Sans elle, la
+ *   distance entre deux troncons differents est inconnue et `transitionsNonVerifiees` compte les
+ *   transitions que rien n'a confirmees. Avec elle, une transition sans chemin sur le reseau
+ *   charge reste « non verifiee » -- jamais jugee impossible, et dite dans les avertissements.
  *   Un taux de rattachement ne se lit pas sans ce nombre.
  * - Elle ne cree aucune portion, aucun troncon, aucune observation. Les passages et les suites
  *   hors referentiel sont des PROPOSITIONS que l'agent valide ensuite par les ecrans existants.
@@ -21,6 +25,8 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import { clauseSqlReseauClasse } from "../lib/reseau";
 import { apparierTrace, type PointTrace, type PointApparie } from "./appariement.trace";
 import { DISTANCE_MAX_PAR_DEFAUT_M, INCERTITUDE_PAR_DEFAUT_M, type CandidatNoyau } from "./appariement.noyau";
+import { distanceReseauDepuis } from "./graphe.noyau";
+import { chargerGraphe, EmpriseTropLarge } from "./graphe.depot";
 import {
   distanceM, emprise, lireCsv, lireGpx, nettoyer, PAS_MIN_PAR_DEFAUT_M, POINTS_MAX,
   type Lecture, type PointBrut,
@@ -38,11 +44,34 @@ const CANDIDATS_PAR_POINT = 5;
 /** Seuil du drapeau `court`. Choix provisoire, non calibre sur des traces reelles d'AGEROUTE. */
 export const PASSAGE_COURT_POINTS = 2;
 
+/**
+ * Marge, en metres, ajoutee a l'emprise de la trace pour charger le graphe. Un chemin entre deux
+ * troncons peut s'ecarter de la trace (un contournement) : sans marge, il serait introuvable et la
+ * transition resterait « non verifiee ». CHOIX PROVISOIRE, non calibre sur le reseau reel.
+ */
+export const MARGE_GRAPHE_M = 2_000;
+
+/**
+ * Plus petite borne de la distance sur le reseau acceptee entre deux positions consecutives, en
+ * metres. La borne reelle est le plus grand ecart entre deux points retenus, multiplie par
+ * `FACTEUR_DETOUR`. CHOIX PROVISOIRE : un detour au-dela est tenu pour « non verifie », jamais
+ * pour impossible.
+ */
+export const PLAFOND_RESEAU_MIN_M = 2_000;
+export const FACTEUR_DETOUR = 3;
+
 export interface OptionsTrace {
   /** `reference` = reseau classe (defaut) ; `tout` = tout le referentiel, plus lent et plus ambigu. */
   reseau?: "reference" | "tout";
   distanceMaxM?: number;
   pasMinM?: number;
+  /**
+   * Tolerance de fusion des extremites des troncons, en metres, pour construire le graphe qui
+   * VERIFIE les changements de troncon. FOURNIE PAR L'APPELANT, JAMAIS SUPPOSEE : comme pour la
+   * deviation, aucune valeur n'est mesuree sur le referentiel reel. Absente, le graphe n'est pas
+   * utilise et les changements de troncon sont comptes « non verifies ».
+   */
+  toleranceFusionM?: number;
 }
 
 interface LigneCandidat {
@@ -81,7 +110,15 @@ export interface SuiteHorsReferentiel {
 }
 
 export interface AnalyseTrace {
-  parametres: { reseau: "reference" | "tout"; distanceMaxM: number; pasMinM: number; incertitudeParDefautM: number; pointsMax: number };
+  parametres: {
+    reseau: "reference" | "tout";
+    distanceMaxM: number;
+    pasMinM: number;
+    incertitudeParDefautM: number;
+    pointsMax: number;
+    /** Le graphe qui a verifie les changements de troncon, ou `null` quand il n'a pas ete demande. */
+    graphe: { toleranceFusionM: number; margeM: number; nbTroncons: number; plafondReseauM: number } | null;
+  };
   indicateurs: {
     pointsLus: number;
     pointsIgnores: number;
@@ -141,7 +178,7 @@ export async function analyserTrace(
   const lignes = await depot.$queryRaw<LigneCandidat[]>(Prisma.sql`
     WITH p AS (
       SELECT x.lat, x.lon, x.i
-        FROM unnest(${pts.map((q) => q.lat)}::float8[], ${pts.map((q) => q.lon)}::float8[]) WITH ORDINALITY AS x(lat, lon, i)
+        FROM unnest(${pts.map((q) => String(q.lat))}::text[]::float8[], ${pts.map((q) => String(q.lon))}::text[]::float8[]) WITH ORDINALITY AS x(lat, lon, i)
     )
     SELECT (p.i - 1)::int AS "i", c."tronconId", c."code", c."nom", c."classe", c."distanceM", c."fraction",
            c."longueurM", c."pkDebut", c."pkFin"
@@ -179,7 +216,28 @@ export async function analyserTrace(
     position: { lat: q.lat, lon: q.lon, precisionM: q.precisionM },
     candidats: parPoint[i],
   }));
-  const r = apparierTrace(trace, { distanceMaxM });
+  // LE GRAPHE : verifie qu'un changement de troncon est un chemin reel sur le reseau. Sans lui, deux
+  // candidats de troncons differents ne sont departages que par leur distance au point.
+  let graphe: AnalyseTrace["parametres"]["graphe"] = null;
+  let distanceReseauM: ReturnType<typeof distanceReseauDepuis> | undefined;
+  if (options.toleranceFusionM !== undefined) {
+    let ecartMaxM = 0;
+    for (let i = 1; i < pts.length; i += 1) ecartMaxM = Math.max(ecartMaxM, distanceM(pts[i - 1], pts[i]));
+    const plafondReseauM = Math.max(PLAFOND_RESEAU_MIN_M, Math.round(FACTEUR_DETOUR * ecartMaxM));
+    let charge: Awaited<ReturnType<typeof chargerGraphe>>;
+    try {
+      charge = await chargerGraphe(depot, emprise(pts, distanceMaxM + MARGE_GRAPHE_M), options.toleranceFusionM);
+    } catch (err) {
+      // Refuser plutot que se degrader en silence : l'appelant a demande la verification.
+      if (err instanceof EmpriseTropLarge) {
+        throw new RefusTrace("GRAPHE_TROP_GRAND", `${err.message}. Retirer la verification sur le reseau, ou decouper la trace.`);
+      }
+      throw err;
+    }
+    distanceReseauM = distanceReseauDepuis(charge.graphe, { distanceMaxM: plafondReseauM });
+    graphe = { toleranceFusionM: options.toleranceFusionM, margeM: MARGE_GRAPHE_M, nbTroncons: charge.nbTroncons, plafondReseauM };
+  }
+  const r = apparierTrace(trace, { distanceMaxM, ...(distanceReseauM ? { distanceReseauM } : {}) });
 
   const passages = await enrichirPassages(depot, r.passages, r.points, noms);
 
@@ -201,7 +259,11 @@ export async function analyserTrace(
     avertissements.push(`Aucune precision annoncee par le fichier : l'incertitude par defaut de ${INCERTITUDE_PAR_DEFAUT_M} m est appliquee a chaque point.`);
   }
   if (r.transitionsNonVerifiees > 0) {
-    avertissements.push(`${r.transitionsNonVerifiees} changement(s) de troncon n'ont pas pu etre verifies sur le reseau (le graphe n'est pas utilise) : lire le taux de rattachement avec cette reserve.`);
+    if (graphe === null) {
+      avertissements.push(`${r.transitionsNonVerifiees} changement(s) de troncon ne sont pas verifies sur le reseau (le graphe n'est pas utilise) : fournir la tolerance de fusion des extremites pour les verifier, et lire le taux de rattachement avec cette reserve.`);
+    } else {
+      avertissements.push(`${r.transitionsNonVerifiees} changement(s) de troncon restent non verifies malgre le graphe (${graphe.nbTroncons} troncons charges, tolerance ${graphe.toleranceFusionM} m) : aucun chemin de moins de ${graphe.plafondReseauM} m n'a ete trouve. Causes possibles : troncon hors de l'emprise chargee, extremites non reliees a cette tolerance, ou detour plus long que le plafond.`);
+    }
   }
   if (taux < 0.5) {
     avertissements.push("Moins de la moitie des points sont expliques par le reseau choisi : verifier le reseau (classe ou complet), la zone et la distance maximale.");
@@ -215,7 +277,7 @@ export async function analyserTrace(
   }
 
   return {
-    parametres: { reseau, distanceMaxM, pasMinM, incertitudeParDefautM: INCERTITUDE_PAR_DEFAUT_M, pointsMax: POINTS_MAX },
+    parametres: { reseau, distanceMaxM, pasMinM, incertitudeParDefautM: INCERTITUDE_PAR_DEFAUT_M, pointsMax: POINTS_MAX, graphe },
     indicateurs: {
       pointsLus: lecture.points.length + (lecture.ignores ?? 0),
       pointsIgnores: lecture.ignores ?? 0,
@@ -259,10 +321,12 @@ async function enrichirPassages(
   if (avecGeom.length === 0) return base;
 
   const ids = avecGeom.map(({ p }) => p.tronconId);
+  // Les nombres partent en TEXTE, convertis cote SQL : pour un tableau de nombres, Prisma devine le type
+  // d'apres le PREMIER element. [0, 19.87] partait en int8[] et 19.87 etait refuse (22P03).
   const de = avecGeom.map(({ p }) => p.deM as number);
   const a = avecGeom.map(({ p }) => p.aM as number);
   const geoms = await depot.$queryRaw<{ ordre: number; geojson: string | null }[]>`
-    WITH s AS (SELECT * FROM unnest(${ids}::text[], ${de}::float8[], ${a}::float8[]) WITH ORDINALITY AS x(id, de, a, ordre)),
+    WITH s AS (SELECT * FROM unnest(${ids}::text[], ${de.map(String)}::text[]::float8[], ${a.map(String)}::text[]::float8[]) WITH ORDINALITY AS x(id, de, a, ordre)),
          m AS (SELECT s.ordre, t."geom", ST_Length(t."geom"::geography) AS l, s.de, s.a FROM s JOIN "troncons" t ON t."id" = s.id)
     SELECT m.ordre::int AS "ordre",
            ST_AsGeoJSON(CASE WHEN m.a >= m.de

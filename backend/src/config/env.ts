@@ -11,6 +11,13 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().default("http://localhost:5173"),
   /** Origines autorisees en LECTURE sur /api/public, sans cookie (liste separee par des virgules). */
   PUBLIC_CORS_ORIGINS: z.string().default("https://ageroutegn.sharepoint.com"),
+  /**
+   * Metadonnees ISO 19115 (/api/public/metadonnees). Les deux sont FACULTATIVES et sans valeur par
+   * defaut : tant qu'elles ne sont pas renseignees, les fiches sortent avec gco:nilReason et la
+   * liste des lacunes, plutot qu'avec une adresse inventee.
+   */
+  METADATA_CONTACT_EMAIL: z.preprocess((v) => (v === "" ? undefined : v), z.string().email().optional()),
+  PUBLIC_BASE_URL: z.preprocess((v) => (v === "" ? undefined : v), z.string().url().optional()),
   JWT_ACCESS_SECRET: z.string().min(32, "JWT_ACCESS_SECRET doit faire au moins 32 caracteres"),
   JWT_REFRESH_SECRET: z.string().min(32, "JWT_REFRESH_SECRET doit faire au moins 32 caracteres"),
   JWT_ACCESS_EXPIRES_IN: z.string().default("15m"),
