@@ -189,8 +189,14 @@ export class SessionRoulage {
       const ecart = e.tMs - d.tMs;
       // Un ecart situe dans une pause voulue n'est pas un trou : l'agent a arrete d'enregistrer.
       const pause = etat.pauses.some((x) => x.debutMs >= d.tMs && x.debutMs <= e.tMs);
-      if (ecart > p.trouMs && !pause) trou = { debutMs: d.tMs, finMs: e.tMs, dureeMs: ecart, coupeSegment: ecart > p.coupureSegmentMs };
-      if (etat.nouveauSegmentAuProchain || ecart > p.coupureSegmentMs) segment = d.segment + 1;
+      // Un redemarrage entre les deux echantillons : on ne sait pas ce qui s'est passe dans l'intervalle.
+      const redemarrage = etat.interruptions.some((x) => x.cause === "REDEMARRAGE" && x.debutMs < e.tMs && (x.finMs ?? Infinity) > d.tMs);
+      // LA COUPURE EST DEDUITE DES INTERVALLES ENREGISTRES, pas d'un drapeau : des echantillons livres de
+      // nouveau apres un redemarrage (et deja contigus au journal) ne coupent donc rien, et le premier
+      // echantillon qui suit un VRAI trou coupe, quel que soit le nombre d'echantillons intermediaires.
+      const coupe = ecart > p.coupureSegmentMs || (ecart > p.trouMs && (pause || redemarrage));
+      if (ecart > p.trouMs && !pause) trou = { debutMs: d.tMs, finMs: e.tMs, dureeMs: ecart, coupeSegment: coupe };
+      if (coupe) segment = d.segment + 1;
     }
     this.ecrire({
       type: "ECHANTILLON", echantillon: e, segment, trou, alertes: v.alertes, ecartHorlogeMs: v.ecartHorlogeMs,

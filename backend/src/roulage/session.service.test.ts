@@ -244,7 +244,7 @@ describe("evenements lineaires", () => {
 
   it("a cheval sur deux troncons : deux passages ; les bornes extremes viennent de la PROJECTION, celles du milieu des points du HMM", async () => {
     h.analyser.mockImplementation(deuxTroncons);
-    const { d, demandesProjection } = depot({ projection: (k, id) => (id === "A" ? { abscisseM: 87.4, distanceM: 2 } : { abscisseM: 41.1, distanceM: 2 }) });
+    const { d, demandesProjection } = depot({ projection: (_k, id) => (id === "A" ? { abscisseM: 87.4, distanceM: 2 } : { abscisseM: 41.1, distanceM: 2 }) });
     const r = await preparerSessionRoulage(charge(40, { evenements: [evenement(10, 25)] }), ctx, {}, d);
     if (!r.ok) throw new Error("prep");
     const ev = r.plan.evenements[0];

@@ -618,6 +618,34 @@ describe("redemarrage : reprise depuis le journal", () => {
     expect(r3.session.etat.statut).toBe("ARRETEE");
   });
 
+  it("redemarrage avec un trou COURT (20 s, sous le seuil de coupure de 30 s) : la trace est coupee quand meme, et des echantillons redonnes AVANT le trou ne coupent rien", () => {
+    const b = demarrerBanc();
+    alimenter(b, 0, 100);
+    const h = horlogeSimulee(T0 + 120_000);
+    const r = SessionRoulage.rejouer(b.journal.tronque(b.journal.entrees.length - 2), { horloge: h, genererId: generateurIds(3) });
+    if (!r.ok) throw new Error("rejeu");
+    const s = r.session;
+    s.reprendreApresRedemarrage();
+    // Le plugin redonne les 5 derniers echantillons : trois sont deja au journal, deux avaient ete perdus.
+    const redonnes = [96, 97, 98, 99, 100].map((i) => s.ajouterEchantillon(echantillon(i), { differe: true }));
+    expect(redonnes.map((x) => x.accepte)).toEqual([false, false, false, true, true]);
+    expect(redonnes.filter((x) => x.accepte).every((x) => x.accepte && x.segment === 0 && !x.trou)).toBe(true);
+    // Puis rien pendant 20 s : le premier echantillon qui suit ouvre un nouveau segment.
+    expect(s.ajouterEchantillon(echantillon(120))).toMatchObject({ accepte: true, segment: 1, trou: true });
+    expect(s.etat.trous.at(-1)).toMatchObject({ dureeMs: 20_000, coupeSegment: true });
+    expect(s.etat.echantillons).toHaveLength(102);
+  });
+
+  it("pause courte (8 s, sous le seuil de coupure) : la trace est coupee, sans trou enregistre", () => {
+    const b = demarrerBanc();
+    alimenter(b, 0, 10);
+    b.session.mettreEnPause();
+    b.horloge.fixer(T0 + 18_000);
+    b.session.reprendre();
+    expect(b.session.ajouterEchantillon(echantillon(18))).toMatchObject({ accepte: true, segment: 1, trou: false });
+    expect(b.session.etat.trous).toHaveLength(0);
+  });
+
   it("horloge en arriere au redemarrage : alerte, et la duree inconnue n'est jamais negative", () => {
     const b = demarrerBanc();
     alimenter(b, 0, 20);

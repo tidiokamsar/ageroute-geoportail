@@ -41,8 +41,6 @@ export interface EtatSession {
   finMs: number | null;
   /** Segment du dernier echantillon retenu. */
   segmentCourant: number;
-  /** Le prochain echantillon ouvrira un nouveau segment (apres une pause ou un redemarrage). */
-  nouveauSegmentAuProchain: boolean;
   echantillons: EchantillonRetenu[];
   rejets: Record<MotifRejet, number>;
   sansPrecision: number;
@@ -73,7 +71,6 @@ export function etatInitial(args: { sessionId: string; parametres: ParametresRou
     debutMs: args.debutMs,
     finMs: null,
     segmentCourant: 0,
-    nouveauSegmentAuProchain: false,
     echantillons: [],
     rejets: compteursRejetsVides(),
     sansPrecision: 0,
@@ -128,7 +125,6 @@ export function appliquerEntree(etat: EtatSession, entree: CorpsEntree & { seq: 
       const e = entree.echantillon;
       etat.echantillons.push({ ...e, segment: entree.segment });
       etat.segmentCourant = entree.segment;
-      etat.nouveauSegmentAuProchain = false;
       etat.sautsConsecutifs = entree.sautsConsecutifs;
       etat.identiquesConsecutifs = entree.identiquesConsecutifs;
       if (entree.trou) etat.trous.push({ ...entree.trou });
@@ -194,7 +190,6 @@ export function appliquerEntree(etat: EtatSession, entree: CorpsEntree & { seq: 
       etat.statut = "EN_COURS";
       const p = etat.pauses[etat.pauses.length - 1];
       if (p && p.finMs === null) p.finMs = entree.tMs;
-      etat.nouveauSegmentAuProchain = true;
       noter(etat, entree.tMs);
       break;
     }
@@ -220,7 +215,6 @@ export function appliquerEntree(etat: EtatSession, entree: CorpsEntree & { seq: 
         if (x.finMs === null) { x.finMs = Math.max(entree.tMs, x.debutMs); x.closePar = "REDEMARRAGE"; }
       }
       etat.interruptions.push({ cause: "REDEMARRAGE", debutMs: Math.min(entree.dernierMs, entree.tMs), finMs: entree.tMs });
-      etat.nouveauSegmentAuProchain = true;
       noter(etat, entree.tMs);
       break;
     }

@@ -56,8 +56,10 @@ Chaque banc nomme ses vérifications, les compte, et sort en **code 1** si une s
 | `teledetection` | transaction annulée | 10 | produits, propositions, tolérance, verdict unique, précision, audit |
 | `veille` | transaction annulée | 10 | astreintes, escalades idempotentes, tableau de veille, audit |
 | `curseur` | **clone `essai_curseur`**, créé puis détruit par le banc | 41 | curseur temporel à deux axes, requalification, découpe, fusion |
+| `roulage` | **clone `essai_roulage`**, créé puis détruit par le banc (il y applique la migration `20261024100000` si `replay` ne l'a pas) | 50 | **simulation** d'une session de 2 h à 1 Hz produite par le vrai noyau de l'appareil : zéro doublon au rejeu, taux de rattachement mesuré, marqueurs et événements linéaires comparés à un **oracle SQL**, territoire, audit, refus |
 
-Soit **122 vérifications**, toutes passantes le 22/10/2026 (`bash tests-integration/run.sh`, code 0).
+Soit **122 vérifications** avant le banc `roulage` (toutes passantes le 22/10/2026), **172** avec lui.
+`roulage` est une **simulation** : voir `docs/roulage/COLLECTE-ROULAGE.md` pour ce qu'il ne prouve pas.
 
 ## Limites
 
