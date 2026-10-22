@@ -328,6 +328,18 @@ syncV2Router.post("/resolve", requireAuth, requireModuleAccess("inspections"), a
           data: donnees as never,
         });
         if (maj.count !== 1) throw new ResolutionConflitConcurrente("L'observation a changé pendant l'arbitrage.");
+        // Toute ecriture est auditee : la version locale appliquee ici est une ecriture sur
+        // l'observation, avec son avant et son apres, pas seulement une ligne sur le conflit.
+        const apres = await tx.observation.findUnique({ where: { id: actuel.id } });
+        await logAuditTransactionnelle(tx, {
+          userId: user.id,
+          action: operation.operation === "DELETE" ? "DELETE" : "UPDATE",
+          entityType: "Observation",
+          entityId: actuel.id,
+          before: actuel,
+          after: apres,
+          ipAddress: req.ip,
+        });
       }
       await tx.operationSync.updateMany({
         where: { operationId: conflit.operationId },

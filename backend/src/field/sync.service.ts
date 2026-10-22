@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { appliquerPortionSync, refusDefinitif } from "./portions.sync";
 import { deriveGeomFromTroncon, deriveGeomFromTronconAbscisse, setPointGeom } from "../lib/geo";
@@ -71,6 +72,73 @@ async function versionEntite(entityType: string, entityId: string): Promise<numb
 }
 
 /**
+ * Un refus enregistre peut-il etre reevalue quand le telephone renvoie la meme operation ?
+ *
+ * OUI pour ce qui peut changer sans que l'operation change : la modification d'une entite qui
+ * n'existe pas ENCORE (elle a pu arriver avant sa creation, ordre inverse d'un lot ou de deux
+ * appareils), et un refus de portion que `refusDefinitif` ne declare pas definitif.
+ *
+ * NON pour tout le reste : un payload invalide, une operation non supportee ou une mission non
+ * autorisee ne changeront pas en reessayant. Les rendre tels quels evite une reevaluation inutile.
+ *
+ * POURQUOI CETTE DISTINCTION EXISTE : sans elle, toute operation refusee etait rendue
+ * `REJOUEE` au second envoi, c'est-a-dire comme un SUCCES. Le telephone la retirait de sa file
+ * et la saisie etait perdue pour de bon, sans erreur nulle part (banc `sync.integration.mts`, A7.4).
+ */
+export function rejetRetentable(entityType: string, motif: string | null): boolean {
+  if (motif === "ENTITE_INTROUVABLE") return true;
+  return entityType === "Portion" && motif !== null && !refusDefinitif(motif);
+}
+
+/**
+ * Ce que l'on rend pour une operation DEJA enregistree, ou null si elle doit etre reevaluee.
+ *
+ * LE RESULTAT PRECEDENT EST RENDU FIDELEMENT. Un succes reste `REJOUEE`. Un conflit reste un
+ * conflit, avec le meme identifiant : le renvoyer comme un succes ferait croire au telephone que
+ * sa version a ete retenue alors qu'un responsable doit encore trancher. Un refus definitif reste
+ * un refus, avec son motif.
+ */
+async function resultatPrecedent(
+  operationId: string,
+  trace: { entityId: string; entityType: string; statut: string; derniereErreur: string | null },
+): Promise<ResultatOperation | null> {
+  switch (trace.statut) {
+    case "CONFLIT": {
+      const conflit = await prisma.conflitSync.findFirst({ where: { operationId }, select: { id: true }, orderBy: { createdAt: "asc" } });
+      return { operationId, statut: "CONFLIT", motif: trace.derniereErreur ?? undefined, conflitId: conflit?.id };
+    }
+    case "REJETE":
+      if (rejetRetentable(trace.entityType, trace.derniereErreur)) return null;
+      return { operationId, statut: "REJETE", motif: trace.derniereErreur ?? "REJET_ANTERIEUR" };
+    default:
+      return { operationId, statut: "REJOUEE", entityId: trace.entityId };
+  }
+}
+
+/**
+ * Applique une operation, en absorbant la course entre deux envois simultanes de la meme operation.
+ *
+ * Deux requetes qui portent la meme operation (reponse perdue puis renvoi, deux appareils du meme
+ * agent) peuvent lire « pas encore traitee » toutes les deux. L'unicite en base, cle d'idempotence
+ * ou identifiant de l'entite, empeche le doublon, mais la perdante echouait en erreur et FAISAIT
+ * ECHOUER TOUT SON LOT. On reessaie donc UNE fois : la seconde lecture voit le travail de la
+ * premiere et rend REJOUEE, ou CONFLIT si deux operations distinctes visaient la meme entite.
+ */
+export async function appliquer(
+  op: OperationEntrante,
+  contexte: { appareilId: string; userId: string },
+): Promise<ResultatOperation> {
+  try {
+    return await appliquerUneFois(op, contexte);
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      return appliquerUneFois(op, contexte);
+    }
+    throw err;
+  }
+}
+
+/**
  * Applique une operation, ou enregistre pourquoi elle ne l'a pas ete.
  *
  * TOUT SE JOUE DANS UNE SEULE TRANSACTION
@@ -81,7 +149,7 @@ async function versionEntite(entityType: string, entityId: string): Promise<numb
  * puisque rien n'aurait ete enregistre. Le doublon reviendrait par la porte que ce
  * protocole est cense fermer.
  */
-export async function appliquer(
+async function appliquerUneFois(
   op: OperationEntrante,
   contexte: { appareilId: string; userId: string },
 ): Promise<ResultatOperation> {
@@ -91,7 +159,7 @@ export async function appliquer(
 
   const dejaTraitee = await prisma.operationSync.findUnique({
     where: { operationId: op.operationId },
-    select: { entityId: true, statut: true, userId: true },
+    select: { entityId: true, entityType: true, statut: true, userId: true, derniereErreur: true },
   });
 
   // Rejeu : on ne touche a rien et on rend ce qui avait ete decide la premiere fois.
@@ -101,7 +169,10 @@ export async function appliquer(
     if (dejaTraitee.userId !== contexte.userId) {
       return { operationId: op.operationId, statut: "REJETE", motif: "OPERATION_NON_AUTORISEE" };
     }
-    return { operationId: op.operationId, statut: "REJOUEE", entityId: dejaTraitee.entityId };
+    const precedent = await resultatPrecedent(op.operationId, dejaTraitee);
+    if (precedent) return precedent;
+    // Sinon : un refus TEMPORAIRE. L'operation est reevaluee ci-dessous, et sa ligne de trace
+    // est mise a jour (voir `trace`) au lieu d'etre recreee.
   }
 
   if (!(OPERATIONS_ACCEPTEES[op.entityType] ?? []).includes(op.operation)) {
@@ -191,13 +262,21 @@ export async function appliquer(
 
   const apresTransaction: { geometrieDefaut?: PreparationDefautSync } = {};
   const resultat = await prisma.$transaction(async (tx) => {
+    /**
+     * UPSERT, et non create : une operation refusee TEMPORAIREMENT (voir `rejetRetentable`) est
+     * reevaluee quand le telephone la renvoie sous la MEME cle. Sa ligne existe deja ; la
+     * recreer violerait l'unicite de `operationId`, et la laisser telle quelle ferait rendre
+     * « deja traitee » a une operation qui n'a jamais ete appliquee.
+     */
     const trace = async (
       statut: string,
       extra: Record<string, unknown> = {},
       payload: Record<string, unknown> = op.payload,
-    ) =>
-      tx.operationSync.create({
-        data: {
+    ) => {
+      const traiteeA = new Date();
+      return tx.operationSync.upsert({
+        where: { operationId: op.operationId },
+        create: {
           operationId: op.operationId,
           appareilId: contexte.appareilId,
           userId: contexte.userId,
@@ -207,10 +286,22 @@ export async function appliquer(
           payload: payload as never,
           baseVersion: op.baseVersion ?? null,
           statut: statut as never,
-          traiteeA: new Date(),
+          traiteeA,
           ...extra,
         },
+        update: {
+          appareilId: contexte.appareilId,
+          entityId: op.entityId,
+          operation: op.operation,
+          payload: payload as never,
+          baseVersion: op.baseVersion ?? null,
+          statut: statut as never,
+          derniereErreur: (extra.derniereErreur as string | undefined) ?? null,
+          traiteeA,
+          tentatives: { increment: 1 },
+        },
       });
+    };
 
     if (decision.action === "REFUSER") {
       await trace("REJETE", { derniereErreur: decision.motif });
