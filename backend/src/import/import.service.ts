@@ -93,19 +93,22 @@ export function empreinteSha256(octets: Buffer): string {
  * entier est irrecevable. Un CRS refuse rejette le fichier, pas ses lignes : aucune d'elles
  * n'est en 4326.
  */
-function lireFichier(format: FormatAdmis, octets: Buffer): { ok: true; lignes: Record<string, unknown>[] } | { ok: false; motif: string } {
+function lireFichier(format: FormatAdmis, octets: Buffer):
+  | { ok: true; lignes: Record<string, unknown>[]; anomalies: Map<number, string> }
+  | { ok: false; motif: string } {
   const texte = octets.toString("utf8");
   if (format === "csv") {
-    const { entete, lignes } = lireCsv(texte, SEPARATEUR_CSV);
+    const { entete, lignes, anomalies } = lireCsv(texte, SEPARATEUR_CSV);
     if (entete.length === 0) return { ok: false, motif: "CSV vide : aucun en-tete" };
     for (const requis of ["systeme_source", "type_objet", "identifiant_source"]) {
       if (!entete.includes(requis)) return { ok: false, motif: `CSV : colonne obligatoire absente de l'en-tete : ${requis}` };
     }
-    return { ok: true, lignes };
+    return { ok: true, lignes, anomalies };
   }
   let doc: unknown;
   try { doc = JSON.parse(texte); } catch { return { ok: false, motif: "GeoJSON : JSON invalide" }; }
-  return lireGeoJson(doc);
+  const g = lireGeoJson(doc);
+  return g.ok ? { ok: true, lignes: g.lignes, anomalies: new Map() } : g;
 }
 
 function verifierDemande(d: DemandeReception): void {
@@ -124,6 +127,20 @@ function verifierDemande(d: DemandeReception): void {
   }
 }
 
+type LotExistant = NonNullable<Awaited<ReturnType<DepotImport["lotImport"]["findUnique"]>>>;
+
+/** Le lot deja enregistre pour ce fichier : rien n'est ecrit, pas meme un audit. */
+function lotDejaRecu(existant: LotExistant): LotRecu {
+  return {
+    id: existant.id, reference: existant.reference, statut: existant.statut, dejaRecu: true,
+    motifRejetLot: (existant.rapport as { motifRejetLot?: string } | null)?.motifRejetLot ?? null,
+    compteurs: {
+      lues: existant.lignesLues, validees: existant.lignesValidees, importees: existant.lignesImportees,
+      rejetees: existant.lignesRejetees, enConflit: existant.lignesEnConflit, ignorees: existant.lignesIgnorees,
+    },
+  };
+}
+
 /**
  * Recoit un lot : empreinte, idempotence, lecture, verification, enregistrement transactionnel.
  */
@@ -135,22 +152,18 @@ export async function recevoirLot(depot: DepotImport, d: DemandeReception): Prom
   const existant = await depot.lotImport.findUnique({
     where: { systemeSource_empreinteFichier: { systemeSource: d.systemeSource, empreinteFichier: empreinte } },
   });
-  if (existant) {
-    return {
-      id: existant.id, reference: existant.reference, statut: existant.statut, dejaRecu: true,
-      motifRejetLot: (existant.rapport as { motifRejetLot?: string } | null)?.motifRejetLot ?? null,
-      compteurs: {
-        lues: existant.lignesLues, validees: existant.lignesValidees, importees: existant.lignesImportees,
-        rejetees: existant.lignesRejetees, enConflit: existant.lignesEnConflit, ignorees: existant.lignesIgnorees,
-      },
-    };
-  }
+  if (existant) return lotDejaRecu(existant);
 
   const lecture = lireFichier(d.format, d.fichier);
 
   // Lignes verifiees une a une, puis doublons internes marques.
   const marquees = lecture.ok
-    ? marquerDoublonsInternes(lecture.lignes.map((brute, i) => ({ numeroLigne: i + 1, verdict: verifierLigne(brute) })))
+    ? marquerDoublonsInternes(lecture.lignes.map((brute, i) => ({
+        numeroLigne: i + 1,
+        // Un enregistrement de forme douteuse (colonnes en trop ou en moins, guillemet ouvert) est
+        // refuse AVANT toute verification de contenu : ses valeurs ne sont pas fiables.
+        verdict: lecture.anomalies.has(i) ? { ok: false as const, motif: lecture.anomalies.get(i)! } : verifierLigne(brute),
+      })))
     : [];
   const compteurs = comptabiliser(marquees.map((m) => m.statut));
   if (!compteursComplets(compteurs)) {
@@ -170,7 +183,7 @@ export async function recevoirLot(depot: DepotImport, d: DemandeReception): Prom
       .map((m) => ({ numeroLigne: m.numeroLigne, statut: m.statut, motif: m.motif })),
   };
 
-  return depot.$transaction(async (tx) => {
+  const enregistrer = () => depot.$transaction(async (tx) => {
     const reference = await nextNumeroLotImport((s) => tx.lotImport.count({ where: { reference: { startsWith: s } } }));
 
     const lot = await tx.lotImport.create({
@@ -225,7 +238,30 @@ export async function recevoirLot(depot: DepotImport, d: DemandeReception): Prom
     });
 
     return { id: lot.id, reference, statut, compteurs, dejaRecu: false, motifRejetLot };
-  });
+    // Le delai par defaut de Prisma (5 s) ne suffit pas a un lot de plusieurs dizaines de milliers de lignes.
+  }, { timeout: 120_000, maxWait: 30_000 });
+
+  /**
+   * DEUX ENVOIS SIMULTANES PEUVENT SE CROISER. Chacun a lu « pas encore recu », chacun enregistre :
+   * l'unicite en base laisse passer le premier et refuse le second (violation d'unicite). Sans
+   * traitement, le second repondait par une erreur, alors que son fichier venait d'etre recu.
+   *   - si le lot du meme fichier existe maintenant, c'est lui qui est rendu (rien n'est ecrit) ;
+   *   - sinon l'unicite violee est celle de la REFERENCE (numero compte pendant que l'autre
+   *     transaction numerotait la sienne) : on recommence avec un numero a jour.
+   */
+  for (let essai = 1; ; essai += 1) {
+    try {
+      return await enregistrer();
+    } catch (err) {
+      const unicite = typeof err === "object" && err !== null && (err as { code?: string }).code === "P2002";
+      if (!unicite) throw err;
+      const recu = await depot.lotImport.findUnique({
+        where: { systemeSource_empreinteFichier: { systemeSource: d.systemeSource, empreinteFichier: empreinte } },
+      });
+      if (recu) return lotDejaRecu(recu);
+      if (essai >= 5) throw err;
+    }
+  }
 }
 
 /**
