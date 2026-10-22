@@ -56,8 +56,15 @@ Chaque banc nomme ses vérifications, les compte, et sort en **code 1** si une s
 | `teledetection` | transaction annulée | 10 | produits, propositions, tolérance, verdict unique, précision, audit |
 | `veille` | transaction annulée | 10 | astreintes, escalades idempotentes, tableau de veille, audit |
 | `curseur` | **clone `essai_curseur`**, créé puis détruit par le banc | 41 | curseur temporel à deux axes, requalification, découpe, fusion |
+| `sync` | **clone `essai_sync`** ; routes réelles (`/api/v2/sync`), jetons signés | 67 | A7 et A8 : 50 observations rejouées, coupures, ordre inversé, concurrence, atomicité, PostGIS ; conflits, deux versions conservées, arbitrage |
+| `import` | **clone `essai_import`** ; route multipart réelle | 39 | A28 : statut par ligne, rejeu sans écriture, lot modifié, CSV hors norme, concurrence, 20 000 lignes |
+| `metre-defaut` | **clone `essai_metre`** ; applique au clone les migrations `20261024300000` et `20261024310000` | 73 | A5 : contour GPS d'un défaut mesuré en UTM, 37 figures contre un oracle écrit sans PostGIS (`lib/geodesie.ts`) |
+| `taches-internes` | **clone `essai_taches`** ; écrit puis retire des photos dans `uploads/photos` | 76 | A29 : preuves avant/après, clôture, abandon, frontière DigitalRoad, rapprochement en lecture seule |
 
-Soit **122 vérifications**, toutes passantes le 22/10/2026 (`bash tests-integration/run.sh`, code 0).
+Soit **377 vérifications** (122 + 255 des quatre bancs de scénarios), toutes passantes le 22/10/2026 (`bash
+tests-integration/run.sh`, code 0). Les quatre derniers bancs fabriquent leurs jetons avec des secrets tirés au
+hasard à chaque lancement (`lib/banc-clone.mts`) : rien n'est écrit dans le dépôt. Ils exigent que `replay` ait
+été préparée, comme les autres, et n'écrivent jamais dedans.
 
 ## Limites
 

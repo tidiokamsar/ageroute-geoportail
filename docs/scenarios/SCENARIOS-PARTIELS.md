@@ -20,8 +20,8 @@ la dernière section).
 |---|---|---|---|---|
 | **A1** ouverture du mode terrain | parcours d'écran : seul le hook GPS était testé | 18 tests d'écran, 2 de hook, **un défaut corrigé** (refus d'autorisation : plus de moyen de réessayer) | `vitest` frontend : 506 passés | tout ce qui exige un appareil |
 | **A5** métré < 1 % | métré géométrique branché sur aucune saisie | contour GPS (`emprise`) accepté à la saisie, en synchronisation et à la resoumission ; méthode `EMPRISE_UTM` ; 2 migrations | banc `metre-defaut` : **73/73**, 37 figures, pire écart **0,142 %** | aucun écran ne produit de contour ; resoumission avec contour non éprouvée en base |
-| **A7** hors ligne, 50 saisies | aucun test contre une base, aucune file de 50 | banc `sync` (A7 : 36 vérifications), 7 tests de file de 50, **4 défauts corrigés** | banc `sync` : **64/64 + 5 portions** (voir §3.3) | appareil réel ; **il n'existe pas de file locale d'« observations »** |
-| **A8** conflit signalé | aucun parcours de bout en bout | banc `sync` (A8 : 28 vérifications), audit de l'écriture arbitrée | idem | **aucun écran ne signale ni ne tranche un conflit** |
+| **A7** hors ligne, 50 saisies | aucun test contre une base, aucune file de 50 | banc `sync` (section A7), 7 tests de file de 50, **5 défauts corrigés** | banc `sync` : **67/67** (A7 et A8) | appareil réel ; **il n'existe pas de file locale d'« observations »** |
+| **A8** conflit signalé | aucun parcours de bout en bout | banc `sync` (section A8), audit de l'écriture arbitrée | idem | **aucun écran ne signale ni ne tranche un conflit** |
 | **A25** aucun secret | mesure faite une fois à la main | balayage automatisé rejoué par `npm test` ; script d'historique | `src/securite` : 21 tests ; injection détectée | **l'historique contient l'adresse d'un serveur** (voir §3.5) |
 | **A28** import idempotent | rejeu, lot modifié, lignes invalides non éprouvés en base | banc `import` : **39/39**, **4 défauts corrigés** | banc `import` | étape 2 (application au référentiel) : n'existe pas |
 | **A29** tâches internes | table seule : ni service, ni route, ni parcours | service, route, 76 vérifications | banc `taches-internes` : **76/76** | rapprochement financier TI-02 : bloqué (B-11) |
@@ -44,6 +44,7 @@ Classés par gravité pour la donnée de terrain.
 | 9 | import : un lot de **20 000 lignes** dépassait le délai de transaction de 5 s | erreur 500, rien d'enregistré | oui |
 | 10 | GPS : après un refus d'autorisation, l'écran gardait « Arrêter le suivi » et n'offrait plus « Me localiser » | l'agent n'avait aucun geste évident pour réessayer | oui |
 | 11 | tâches internes (code neuf, trouvé avant le commit) : course sur la référence | 500 sous six créations simultanées | oui |
+| 12 | `sync` : une **référence inconnue** (revêtement absent du référentiel, tronçon inexistant) faisait répondre **500 à tout le lot** | les opérations suivantes du lot n'étaient pas traitées, le téléphone réessayait à l'identique | oui |
 
 Constatés et **non corrigés** (décision ou périmètre d'autrui) :
 
@@ -56,6 +57,8 @@ Constatés et **non corrigés** (décision ou périmètre d'autrui) :
 - **`observations.geom` n'est jamais alimentée** (ni par la route, ni par la synchronisation) ; aucun lecteur ne
   l'utilise aujourd'hui. Les coordonnées restent dans `lat` et `lon`.
 - **Aucune file locale d'observations, aucun écran de conflit** (voir A7 et A8).
+- **La route en ligne `POST /api/v2/portions` répond encore 500** pour un revêtement, un état ou une praticabilité absents du
+  référentiel (violation de clé étrangère non traduite). La synchronisation, elle, refuse proprement (n° 12).
 
 ## 3. Par scénario
 
@@ -149,7 +152,7 @@ file de 50, aucune coupure au milieu, aucun ordre inversé, aucune vérification
 
 **Ajouté.**
 
-- **Banc `sync.integration.mts`, section A7** (36 vérifications, comparées à un **modèle tenu par le banc** :
+- **Banc `sync.integration.mts`, section A7** (comparée à un **modèle tenu par le banc** :
   les opérations émises, pas seulement les réponses du serveur). 50 observations en un lot, rejouées trois fois
   (dont depuis un autre appareil du même agent et en ordre inverse) : 0 écriture de plus. Lot tronqué après 20
   opérations, réponse « perdue » et renvoi de 35 : 20 `REJOUEE` + 15 `SYNCHRONISE`. **Ordre inversé** : 25
@@ -157,22 +160,24 @@ file de 50, aucune coupure au milieu, aucun ordre inversé, aucune vérification
   passent, 50 réponses. **Quatre envois simultanés** du même lot : 0 doublon, 0 erreur. **Coupure au milieu de la
   transaction** (déclencheur qui échoue à l'écriture de la trace) : ni observation, ni opération, ni audit, et la
   reprise aboutit. 20 défauts hors ligne : 20 points PostGIS non nuls, égaux au point émis à 1e-9 degré. 5
-  portions. Une clé connue d'un autre compte n'est pas un oracle. Bilan : N observations émises, 0 manquante, 0
-  en trop.
-- **Quatre défauts corrigés** dans `field/sync.service.ts` : rejeu fidèle (un refus reste un refus, un conflit
+  portions, dont le cas d'un **revêtement absent du référentiel** : refus retentable, puis les mêmes opérations
+  **appliquées** quand le vocabulaire arrive ; une portion aux bornes inversées reste refusée au renvoi. Une clé connue d'un autre compte n'est pas un oracle. Bilan : 195 observations émises, 0 manquante, 0
+  en trop dans la base.
+- **Cinq défauts corrigés** dans `field/sync.service.ts` : rejeu fidèle (un refus reste un refus, un conflit
   reste un conflit), refus temporaire **réévalué** au renvoi (`rejetRetentable`, la trace passe en `upsert`),
-  course absorbée par un seul réessai, voir §2 n°1 à 3.
+  course absorbée par un seul réessai, référence inconnue rendue en refus (`REFERENCE_INCONNUE:<champ>`), voir §2
+  n°1, 2, 3 et 12.
 - **File locale** : `offlineSync.cinquante.test.ts`, 7 tests. 50 défauts, coupure au milieu, réponses perdues, 30
   défauts + 20 portions sur réseau intermittent : 50 créations exactement, aucune clé nouvelle pendant les
   reprises. **Défaut corrigé** : six coupures d'affilée n'abandonnent plus les saisies (une erreur *sans réponse*
   ne compte pas dans le plafond de tentatives ; une erreur du serveur compte toujours).
 
-**Preuve.** Avant correction : `53/64 verifications reussies` (11 rouges). Après :
+**Preuve.** Avant correction : `53/64 verifications reussies` (11 rouges ; le 12e défaut a été trouvé ensuite par l'ajout des portions). Après :
 
 ```bash
-cd backend && DATABASE_URL=...replay npx tsx tests-integration/sync.integration.mts      # voir le total dans §4
+cd backend && DATABASE_URL=...replay npx tsx tests-integration/sync.integration.mts      # 67/67
 cd frontend && npx vitest run src/lib/offlineSync                                        # 30 tests, dont les 7 de la file de 50
-cd backend && npx vitest run src/field/sync.service.test.ts src/api-v2/sync.routes.test.ts   # 49 tests
+cd backend && npx vitest run src/field/sync.service.test.ts src/api-v2/sync.routes.test.ts   # 27 + 26 tests
 ```
 
 **Non vérifié, et pourquoi.**
@@ -192,7 +197,7 @@ concurrence, atomicité, PostGIS) ; la preuve **appareil** manque, et la file d'
 
 **Manquait.** « Pas de parcours de bout en bout. »
 
-**Ajouté** (banc `sync.integration.mts`, section A8, 28 vérifications) : deux appareils, même objet, versions
+**Ajouté** (banc `sync.integration.mts`, section A8) : deux appareils, même objet, versions
 successives ; le second reçoit un `CONFLIT` avec l'identifiant du conflit ; l'observation garde la version du
 premier **intacte** ; le conflit porte la version locale **et** l'état du serveur ; `/status` compte le conflit à
 part des échecs ; le **renvoi rend le même conflit**, pas un second ; résolution `SERVEUR` (l'opération devient
@@ -344,15 +349,20 @@ autre cible), créent leur clone `essai_<nom>` et le détruisent.
 | Commande | Résultat |
 |---|---|
 | `cd backend && npx tsc --noEmit -p .` | aucune erreur |
-| `cd backend && npx vitest run` | voir le bilan final ci-dessous |
+| `cd backend && npx vitest run` | 130 fichiers, 1 887 tests, 0 échec |
 | `cd frontend && npx tsc --noEmit` | aucune erreur |
 | `cd frontend && npm run lint` | 0 erreur, 4 avertissements préexistants |
 | `cd frontend && npx vitest run` | 39 fichiers, 506 tests, 0 échec |
-| `bash tests-integration/run.sh` | voir le bilan final ci-dessous |
+| `bash tests-integration/run.sh` | 14 bancs, 377 vérifications, code 0 |
 | `verifier.sh --seulement 20261024300000_defaut_methode_emprise_utm` | 4 vérifications, 0 échec |
 | `verifier.sh --seulement 20261024310000_defaut_emprise_coherence` | 2 vérifications, 0 échec |
 
-BILAN_FINAL
+**Bilan du 22/10/2026** (poste de développement, base PostGIS locale) :
+
+- `cd backend && npx vitest run` : **130 fichiers, 1 887 tests, 0 échec**.
+- `cd frontend && npx vitest run` : **39 fichiers, 506 tests, 0 échec**.
+- `bash tests-integration/run.sh` : **14 bancs, 377 vérifications, code 0** (dont `sync` 67, `import` 39, `metre-defaut` 73, `taches-internes` 76).
+- Le banc `sync` a été rejoué deux fois de suite, `taches-internes` trois fois : même résultat (les courses sont absorbées, pas évitées par chance).
 
 ## 5. À savoir avant de fusionner
 
