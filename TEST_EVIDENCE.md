@@ -3,6 +3,28 @@
 > Exigé par le § 4 du mandat v2.1. Le § 2.7 impose que toute affirmation de réussite cite la
 > commande lancée et son résultat. Aucune ligne de ce fichier n'est écrite sans l'avoir vue.
 
+## 22/10/2026 — graphe de trace (T-28), métadonnées ISO 19115 (T-29), compte des géométries invalides, bancs versionnés
+
+Toutes les lignes ci-dessous ont été exécutées et lues le 22/10/2026 sur ce poste (base de rejeu locale
+`replay`, PostGIS 3.5 / PostgreSQL 17, vide). **Rien n'a été exécuté contre la production.**
+
+| Vérification | Commande | Résultat |
+|---|---|---|
+| Suite backend complète | `cd backend && npx vitest run` | **118 fichiers, 1 699 tests, tous passants** |
+| Types backend | `cd backend && npx tsc --noEmit -p .` | 0 erreur |
+| Suite frontend, avant le commit du graphe de trace | `cd frontend && npx vitest run` | 37 fichiers, **479 tests passants** |
+| Types et lint frontend, même moment | `npx tsc --noEmit`, `npm run lint` | 0 erreur ; lint 0 erreur, 4 avertissements |
+| Banc du curseur temporel | `npx tsx tests-integration/curseur.integration.mts` | **41/41 vérifications** ; le clone `essai_curseur` est créé puis détruit (vérifié : aucun `essai_*` restant) |
+| Banc de l'analyse de trace avec graphe | `npx tsx tests-integration/trace.integration.ts` | toutes les vérifications vraies, dont la jonction A vers B vérifiée (0 transition non vérifiée avec le graphe) ; 0 fixture restante |
+| Banc des métadonnées | `npx tsx tests-integration/metadonnees.integration.ts` | 9 vérifications vraies : étendue des tronçons actifs (le supprimé exclu), ouvrage OSM exclu, **date de révision identique avec un fuseau de session en Pacific/Auckland**, tables vides sans étendue de zéros |
+| Banc du compte des invalides | `npx tsx tests-integration/geometries-invalides.integration.ts` | 27 invalides annoncées (20 exemples) ; l'ancienne requête n'aurait pas pu dépasser 20 |
+| Autres bancs | `bash tests-integration/run.sh` | les 10 s'exécutent sans erreur ; **6 d'entre eux (déviation, graphe, Info Route, patrouilles, télédétection, veille) n'affirment rien** : exécutés sans exception, non vérifiés (voir `backend/tests-integration/README.md`) |
+| Contre-épreuve des métadonnées | chemin de service faux dans le catalogue ; ordre des éléments XML inversé | 3 tests échouent comme attendu, fichiers restaurés |
+
+**Non vérifié** : la validité du XML des métadonnées contre les schémas XSD de l'ISO 19139 (schémas non
+téléchargés) ; le comportement des bancs sur le volume de production ; la CI (compte GitHub bloqué pour
+facturation, aucune exécution réussie ou échouée au sens des tests).
+
 ## 14/10/2026 — lot 3, map-matching (premier incrément)
 
 | Commande | Résultat |
@@ -106,6 +128,10 @@ Ces mesures ne seront plus reproductibles : le § 2.1 coupe l'accès à la produ
 | Erreurs au journal backend | `docker logs … | grep -icE "error|unhandled"` | **0** |
 
 ## Ce qui n'est pas testé, et doit l'être
+
+> **Ce tableau date du 14/10/2026 et est en partie périmé.** Depuis : A5 a des géométries de référence (banc
+> `metre_utm.test.sql`), A18 a une trace HMM écrite, et les migrations ont des descentes éprouvées (T-25, 69/69).
+> L'état courant de chaque scénario est dans [REQUIREMENTS_TRACEABILITY.md](REQUIREMENTS_TRACEABILITY.md).
 
 | Exigence | Manque |
 |---|---|
