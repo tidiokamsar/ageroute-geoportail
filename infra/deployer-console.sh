@@ -123,9 +123,17 @@ vert "${EN_ATTENTE} descentes presentes"
 
 # ---------------------------------------------------------------------------------------------
 etape "7. Index GiST deja presents ?"
-DOUBLONS=$(psql_prod "SELECT string_agg(tablename || '.' || indexname, ', ') FROM pg_indexes WHERE schemaname = 'public' AND indexdef ILIKE '%gist%' AND ((tablename IN ('chantiers','ouvrages','points_noirs','postes','propositions_localisation') AND indexdef ~ '\mgeom\M') OR (tablename = 'missions' AND indexdef ~ '\mitineraire\M'))")
-[ -z "$DOUBLONS" ] || arret "index GiST deja presents (${DOUBLONS}) : la migration 20261020020000 creerait un doublon, a examiner avant de deployer"
-vert "aucun : la migration 20261020020000 ne cree pas de doublon"
+# La garde ne concerne QUE la migration qui poserait les index. Depuis le deploiement du
+# 21/10, 20261020020000 est appliquee en production et les six index y vivent : garder la
+# verification inconditionnelle arretait tout deploiement ulterieur (constate le 22/10).
+# Elle ne parle donc que si la migration est VRAIMENT dans la liste des en attente.
+if grep -qx "20261020020000_index_gist_complets" "${SAUVEGARDES}/en-attente.txt"; then
+  DOUBLONS=$(psql_prod "SELECT string_agg(tablename || '.' || indexname, ', ') FROM pg_indexes WHERE schemaname = 'public' AND indexdef ILIKE '%gist%' AND ((tablename IN ('chantiers','ouvrages','points_noirs','postes','propositions_localisation') AND indexdef ~ '\mgeom\M') OR (tablename = 'missions' AND indexdef ~ '\mitineraire\M'))")
+  [ -z "$DOUBLONS" ] || arret "index GiST deja presents (${DOUBLONS}) : la migration 20261020020000 creerait un doublon, a examiner avant de deployer"
+  vert "aucun : la migration 20261020020000 ne cree pas de doublon"
+else
+  vert "20261020020000 n est pas en attente : ses index vivent deja (deploiement precedent), la garde ne la concerne plus"
+fi
 
 # ---------------------------------------------------------------------------------------------
 etape "8b. Empreintes des .env (avant)"
