@@ -176,7 +176,7 @@ pause de 90 s.
 | Marqueurs (25 sur réseau) | tous au bon troncon, erreur d'abscisse contre l'oracle SQL : médiane 1,8 m, max 7,2 m ; un fix périmé de 0,9 s aurait donné 13,4 m |
 | Marqueurs hors référentiel | 3 sur 3 `NON_RATTACHE` |
 | Événements (début, fin) | 0,3 à 4,5 m contre l'oracle SQL ; jonctions entre troncons à 11,7 et 15,2 m des extrémités |
-| Temps | environ 11 à 13 s pour 7 047 points (analyse HMM, base à 24 troncons) |
+| Temps | de 6 à 13 s pour 7 047 points selon la charge du poste, dont environ la moitié pour l'analyse seule (2,9 s sur la mesure la plus rapide), base à 24 troncons |
 
 **Ce que ces chiffres ne disent pas** : l'erreur d'un vrai récepteur n'est pas blanche, ni gaussienne, ni de 4 m ;
 la base de test compte 24 troncons, pas 261 387 ; les temps ne sont pas ceux d'un réseau national (A15 jamais
@@ -206,7 +206,7 @@ version du WebView et de l'OS notées avec chaque mesure.
 | D-13 | A19 | Retrait puis rétablissement de la permission de localisation (arrière-plan, Android 10 et plus), GPS désactivé par l'utilisateur | Manipulation pendant une session ; événements `PERMISSION_*` et `GNSS_*` | NON VÉRIFIÉ sur appareil |
 | D-14 | A19 | Batterie : consommation sur 2 h (GNSS 1 Hz, service, IMU, écran), échauffement | Pourcentage consommé par modèle ; objectif à fixer par AGEROUTE | NON VÉRIFIÉ sur appareil |
 | D-15 | A19 | Stockage : taille du journal sur disque pour 2 h, purge après synchronisation | Mesure sur appareil | NON VÉRIFIÉ sur appareil |
-| D-16 | A19 | Synchronisation en réseau réel : charge d'environ 0,5 Mo en 2G ou 3G coupé, réponse perdue puis rejeu ; **le serveur met environ 11 s à traiter 2 h** sur la base de test, à comparer aux délais d'expiration du client et du proxy (Traefik) | Envoi depuis l'appareil en réseau dégradé, avec coupure de la réponse | NON VÉRIFIÉ sur appareil |
+| D-16 | A19 | Synchronisation en réseau réel : charge d'environ 0,5 Mo en 2G ou 3G coupé, réponse perdue puis rejeu ; **le serveur met de 6 à 13 s à traiter 2 h** sur la base de test, à comparer aux délais d'expiration du client et du proxy (Traefik) | Envoi depuis l'appareil en réseau dégradé, avec coupure de la réponse | NON VÉRIFIÉ sur appareil |
 | D-17 | A19 | Intégration à la file hors ligne : la session survit au redémarrage de l'application et ne produit aucun doublon | Après écriture de l'adaptateur de file | NON VÉRIFIÉ sur appareil |
 | D-18 | A16, A17 | Utilisabilité en conduite : taille des boutons, retour sonore ou vibratoire, rôle du passager ; **décision de sécurité routière à prendre par AGEROUTE** (usage par le conducteur) | Essai sur route avec un opérateur | NON VÉRIFIÉ sur appareil |
 | D-19 | A17 | Un événement Début/Fin posé par un agent réel aboutit à la bonne section de route | Relevé contradictoire par PK sur des sections connues | NON VÉRIFIÉ sur appareil |
