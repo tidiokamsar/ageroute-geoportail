@@ -332,9 +332,11 @@ model User {
 
   validationsRendues Validation[] @relation("ValidationDecideur")
 
-  delegationsRecues    DelegationValidation[] @relation("DelegationValidateur")
-  delegationsAccordees DelegationValidation[] @relation("DelegationDelegant")
-  delegationsRevoquees DelegationValidation[] @relation("DelegationRevocateur")
+  delegationsRecues      DelegationValidation[] @relation("DelegationValidateur")
+  delegationsAccordees   DelegationValidation[] @relation("DelegationDelegant")
+  perimetresTerritoriaux PerimetreTerritorial[] @relation("PerimetreTitulaire")
+  perimetresAttribues    PerimetreTerritorial[] @relation("PerimetreAttributeur")
+  delegationsRevoquees   DelegationValidation[] @relation("DelegationRevocateur")
 
   reglesConditionCreees     RegleCondition[]           @relation("RegleConditionAuteur")
   reglesConditionApprouvees RegleCondition[]           @relation("RegleConditionApprobateur")
@@ -421,8 +423,9 @@ model Region {
   voiriesLocales VoirieLocale[]
   Mission        Mission[]
 
-  delegationsValidation DelegationValidation[]
-  programmesPatrouille  ProgrammePatrouille[]
+  delegationsValidation  DelegationValidation[]
+  perimetresTerritoriaux PerimetreTerritorial[]
+  programmesPatrouille   ProgrammePatrouille[]
 
   astreintes Astreinte[]
 
@@ -2243,6 +2246,36 @@ model DelegationValidation {
   @@index([validateurId])
   @@index([regionId])
   @@map("delegations_validation")
+}
+
+/// Region ou un compte peut ECRIRE (scenario A10, « hors zone »). Migration
+/// `20261022010000_perimetres_territoriaux`.
+///
+/// Regle provisoire, la meme que celle des delegations : un compte SANS perimetre en vigueur
+/// ecrit partout (comportement d'avant) ; des qu'il en a un, il n'ecrit que dans ses regions, et
+/// un objet de region inconnue lui est refuse. AGEROUTE n'a pas fourni les perimetres (D-11) :
+/// aucune ligne n'est semee. Voir `governance/perimetre.ts`.
+model PerimetreTerritorial {
+  id String @id @default(uuid())
+
+  userId String
+  user   User   @relation("PerimetreTitulaire", fields: [userId], references: [id])
+
+  regionId Int
+  region   Region @relation(fields: [regionId], references: [id])
+
+  debutLe   DateTime  @default(now())
+  finLe     DateTime?
+  revoqueLe DateTime?
+  motif     String
+
+  attribueParId String
+  attribuePar   User   @relation("PerimetreAttributeur", fields: [attribueParId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("perimetres_territoriaux")
 }
 
 // ===================== CONDITION ENGINE / RCI =====================
