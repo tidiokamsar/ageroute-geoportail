@@ -82,6 +82,19 @@ export function verifierDepecheVerification(p: { statut: StatutProposition; miss
   return { ok: true };
 }
 
+/**
+ * Comparaison de deux dates : le produit de reference est acquis STRICTEMENT avant le produit
+ * analyse, et c'est un autre produit. La base le tient aussi (`propositions_teledetection_coherence`).
+ */
+export function verifierDeuxDates(produit: { id: string; dateAcquisition: Date }, reference: { id: string; dateAcquisition: Date } | null): Verdict {
+  if (!reference) return { ok: true };
+  if (reference.id === produit.id) return { ok: false, code: "REFERENCE_IDENTIQUE", motif: "La reference d'une comparaison de deux dates est un autre produit." };
+  if (reference.dateAcquisition.getTime() >= produit.dateAcquisition.getTime()) {
+    return { ok: false, code: "REFERENCE_NON_ANTERIEURE", motif: "Le produit de reference doit etre acquis avant le produit analyse." };
+  }
+  return { ok: true };
+}
+
 /** Code d'une mission de verification de teledetection : VER-TD-<8 premiers caracteres>. */
 export function codeMissionTeledetection(propositionId: string): string {
   return `VER-TD-${propositionId.replace(/-/g, "").slice(0, 8).toUpperCase()}`;

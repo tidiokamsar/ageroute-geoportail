@@ -21,7 +21,7 @@ vi.mock("../middleware/auth.middleware", () => ({
 }));
 
 type Ligne = Record<string, unknown>;
-const h = vi.hoisted(() => ({ produits: [] as Ligne[], propositions: [] as Ligne[], missions: [] as Ligne[], audits: [] as Ligne[], raw: [] as unknown[][] }));
+const h = vi.hoisted(() => ({ produits: [] as Ligne[], propositions: [] as Ligne[], missions: [] as Ligne[], audits: [] as Ligne[], raw: [] as unknown[][], erreurBase: null as string | null }));
 
 vi.mock("../lib/prisma", () => {
   const earthObservationProduct = {
@@ -49,7 +49,7 @@ vi.mock("../lib/prisma", () => {
   const auditLog = { create: async ({ data }: { data: Ligne }) => { h.audits.push(data); return data; } };
   const tx = {
     earthObservationProduct, propositionTeledetection, mission, auditLog,
-    $executeRaw: async (...a: unknown[]) => { h.raw.push(a); return 1; },
+    $executeRaw: async (...a: unknown[]) => { if (h.erreurBase) throw new Error(h.erreurBase); h.raw.push(a); return 1; },
     $queryRaw: async () => [],
   };
   return { prisma: { ...tx, $transaction: async (fn: (t: unknown) => Promise<unknown>) => fn(tx) } };
@@ -70,7 +70,7 @@ const produit = {
 };
 
 beforeEach(() => {
-  h.produits.length = 0; h.propositions.length = 0; h.missions.length = 0; h.audits.length = 0; h.raw.length = 0;
+  h.produits.length = 0; h.propositions.length = 0; h.missions.length = 0; h.audits.length = 0; h.raw.length = 0; h.erreurBase = null;
   compte.role = "GESTIONNAIRE";
 });
 
@@ -123,6 +123,21 @@ describe("Depot de propositions", () => {
     expect((await request(app).post(`${base}/propositions`).send({ ...lot, methode: " " })).body.code).toBe("METHODE_REQUISE");
     expect((await request(app).post(`${base}/propositions`).send({ ...lot, propositions: [] })).body.code).toBe("LOT_VIDE");
     expect((await request(app).post(`${base}/propositions`).send({ ...lot, propositions: [{ ...lot.propositions[0], type: "GLISSEMENT" }] })).status).toBe(400);
+  });
+  it("deux dates : la reference est anterieure ; posterieure ou egale refusee (400), inconnue 404", async () => {
+    h.produits.length = 0;
+    h.produits.push({ id: "p-new", code: "S2-1001", dateAcquisition: new Date("2026-10-01") }, { id: "p-ref", code: "S2-0901", dateAcquisition: new Date("2026-09-01") });
+    const ok = await request(app).post(`${base}/propositions`).send({ ...lot, produitId: "p-new", produitReferenceId: "p-ref" });
+    expect(ok.status).toBe(201);
+    const inverse = await request(app).post(`${base}/propositions`).send({ ...lot, produitId: "p-ref", produitReferenceId: "p-new" });
+    expect(inverse.status).toBe(400); expect(inverse.body.code).toBe("REFERENCE_NON_ANTERIEURE");
+    const inconnue = await request(app).post(`${base}/propositions`).send({ ...lot, produitId: "p-new", produitReferenceId: "p-9" });
+    expect(inconnue.status).toBe(404); expect(inconnue.body.code).toBe("REFERENCE_INEXISTANTE");
+  });
+  it("une detection hors de l'emprise (refus de la base) refuse tout le lot en 400, pas en 500", async () => {
+    h.erreurBase = "propositions_teledetection : la detection est hors de l'emprise du produit p-1";
+    const r = await request(app).post(`${base}/propositions`).send(lot);
+    expect(r.status).toBe(400); expect(r.body.code).toBe("HORS_EMPRISE");
   });
 });
 

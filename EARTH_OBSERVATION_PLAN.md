@@ -17,6 +17,8 @@
 | Mesure de la précision contre les constats terrain | **fait** | vue `precision_teledetection`, par type et par méthode ; **nulle sans verdict**, pas zéro |
 | Export des zones à vérifier comme missions de patrouille (EX-03) | **fait** | `POST /api/v2/teledetection/propositions/:id/verification` : mission SURVEILLANCE en brouillon |
 | Couche « alertes satellite » dans la cellule de veille | **fait** (compteur) | `alertesSatelliteAVerifier` sur la vue murale ; l'affichage cartographique des emprises reste à faire |
+| Cohérence registre / propositions / verdicts | **fait** (T-27) | déclencheur `propositions_teledetection_coherence` : détection hors de l'emprise de son produit ou du produit de référence refusée, référence non antérieure refusée (refus `HORS_EMPRISE`, `REFERENCE_NON_ANTERIEURE` en 400) ; vue `coherence_teledetection`, une ligne par anomalie, **doit rester vide** (`teledetection_coherence.test.sql`, 7 assertions) |
+| Performance du dépôt et des lectures | **mesurée sur données synthétiques** (T-27) | `observation_terre.bench.sql` : 261 387 segments synthétiques (le nombre de tronçons de production), rattachement par l'index GiST sur geography, 3,5 ms par proposition dont 0,4 ms de contrôle de cohérence ; précision 28,6 ms, compteur 1,6 ms, cohérence 79,9 ms sur 2 000 propositions. **Pas une mesure de production** |
 | **Moteur de changement** (comparaison de deux dates) | **absent** | demande Python (rasterio, xarray) et des images : hors de ce dépôt tant que les sources ne sont pas choisies |
 | Procédure d'activation du Copernicus EMS | **absente** | décision institutionnelle (§ E.1) |
 

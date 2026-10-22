@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { codeMissionTeledetection, verifierDepecheVerification, verifierProduit, verifierVerdict, type ProduitSaisi } from "./teledetection.noyau";
+import { codeMissionTeledetection, verifierDepecheVerification, verifierProduit, verifierVerdict, type ProduitSaisi, verifierDeuxDates } from "./teledetection.noyau";
 
 /**
  * Observation de la Terre (partie E) : ce que ces tests defendent.
@@ -71,4 +71,15 @@ describe("Depeche d'une verification", () => {
   it("code de mission stable", () => {
     expect(codeMissionTeledetection("3f2a9c1e-77aa-4b2c-9d10-000000000000")).toBe("VER-TD-3F2A9C1E");
   });
+});
+
+describe("Comparaison de deux dates", () => {
+  const produit = { id: "p-new", dateAcquisition: new Date("2026-10-01") };
+  it("sans reference : rien a verifier", () => expect(verifierDeuxDates(produit, null)).toEqual({ ok: true }));
+  it("reference anterieure : acceptee", () => expect(verifierDeuxDates(produit, { id: "p-ref", dateAcquisition: new Date("2026-09-01") })).toEqual({ ok: true }));
+  it("reference du meme jour ou posterieure : refusee", () => {
+    expect(verifierDeuxDates(produit, { id: "p-ref", dateAcquisition: new Date("2026-10-01") })).toMatchObject({ ok: false, code: "REFERENCE_NON_ANTERIEURE" });
+    expect(verifierDeuxDates(produit, { id: "p-ref", dateAcquisition: new Date("2026-11-01") })).toMatchObject({ ok: false, code: "REFERENCE_NON_ANTERIEURE" });
+  });
+  it("le produit lui-meme comme reference : refuse", () => expect(verifierDeuxDates(produit, { ...produit })).toMatchObject({ ok: false, code: "REFERENCE_IDENTIQUE" }));
 });
