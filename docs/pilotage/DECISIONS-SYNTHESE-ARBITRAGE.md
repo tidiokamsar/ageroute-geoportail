@@ -7,6 +7,11 @@ sources restent dans [DECISIONS_PENDING.md](../../DECISIONS_PENDING.md) et dans
 [RCI_METHOD_DECISION.md](../../RCI_METHOD_DECISION.md) ; en cas de divergence, ces deux fichiers
 font foi et celui-ci doit être corrigé.
 
+**Origine des options.** Celles de D-10 et de D-11 sont reprises de `DECISIONS_PENDING.md` ; A et B de D-01
+viennent de `RCI_METHOD_DECISION.md` (É-1). Toutes les autres (C de D-01, A et B de D-02, A à C de D-06,
+A à C de D-07, A à C de D-09) sont **formulées ici par moi** à partir des constats de ces dossiers :
+elles n'ont été soumises à personne à l'AGEROUTE et peuvent être corrigées ou complétées.
+
 Règle appliquée partout (V10, § A.5.11) : tant qu'une valeur n'est pas approuvée par l'autorité
 compétente, elle reste **provisoire et étiquetée**. Rien de ce qui suit n'a été décidé à la place
 de l'AGEROUTE.
