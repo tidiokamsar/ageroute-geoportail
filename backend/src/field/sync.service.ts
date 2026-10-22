@@ -5,6 +5,7 @@ import { logAuditTransactionnelle } from "../utils/audit";
 import { preparerDefautSync, type PreparationDefautSync } from "./defauts.sync";
 import { preparerPayloadObservationSync } from "./observation-sync-payload";
 import { decider, delaiAvantReessai, type Decision, type OperationEntrante } from "./sync";
+import { ecrireSessionRoulage, preparerSessionRoulage, type PreparationSession } from "../roulage/session.service";
 
 /**
  * Application des operations remontees du terrain.
@@ -22,7 +23,7 @@ import { decider, delaiAvantReessai, type Decision, type OperationEntrante } fro
  */
 
 /** Types que `push` sait appliquer. La liste grandira avec les services. */
-export const TYPES_ACCEPTES = new Set(["Observation", "Defaut", "Portion"]);
+export const TYPES_ACCEPTES = new Set(["Observation", "Defaut", "Portion", "SessionRoulage"]);
 
 /** Operations actuellement prises en charge par type, exposees aux clients terrain. */
 export const OPERATIONS_ACCEPTEES: Record<string, readonly string[]> = {
@@ -32,6 +33,9 @@ export const OPERATIONS_ACCEPTEES: Record<string, readonly string[]> = {
   // les routes metier : ce sont des arbitrages sur l'etat du reseau, et les faire arriver
   // d'une file hors ligne demanderait de resoudre les conflits de bornes a l'aveugle.
   Portion: ["CREATE"],
+  // Une session de roulage (paragraphe 7.13) arrive EN UNE OPERATION : trace, marqueurs, evenements
+  // lineaires. CREATE seul : une session terminee ne se modifie pas, elle se rejoue a l'identique.
+  SessionRoulage: ["CREATE"],
 };
 
 export interface ResultatOperation {
@@ -65,6 +69,9 @@ async function versionEntite(entityType: string, entityId: string): Promise<numb
    * `clientOperationId`, unique en base, et ses transitions passent par les routes metier.
    */
   if (entityType === "Portion") return null;
+  // Meme raison : une session n'a pas de version, son idempotence vient de `clientOperationId` (unique
+  // en base) et de l'identifiant de session, controle avant `decider` dans `appliquer`.
+  if (entityType === "SessionRoulage") return null;
 
   const defaut = await prisma.defaut.findUnique({ where: { id: entityId }, select: { version: true } });
   return defaut?.version ?? null;
@@ -183,10 +190,45 @@ export async function appliquer(
     }
   }
 
+  if (op.entityType === "SessionRoulage") {
+    // Le meme identifiant de session sous un operationId NEUF n'est pas un rejeu (le rejeu est traite
+    // plus haut, par l'operationId) : c'est un client qui a regenere sa cle, ou une collision. Dans les
+    // deux cas rien n'est reecrit, et le refus est definitif.
+    const existante = await prisma.$queryRaw<{ id: string }[]>`SELECT "id" FROM "sessions_roulage" WHERE "id" = ${op.entityId}`;
+    if (existante.length > 0) {
+      const motif = "SESSION_DEJA_ENREGISTREE";
+      await prisma.operationSync.create({
+        data: {
+          operationId: op.operationId,
+          appareilId: contexte.appareilId,
+          userId: contexte.userId,
+          entityType: op.entityType,
+          entityId: op.entityId,
+          operation: op.operation,
+          payload: { redacted: true } as never,
+          baseVersion: null,
+          statut: "REJETE",
+          derniereErreur: motif,
+          traiteeA: new Date(),
+        },
+      });
+      return { operationId: op.operationId, statut: "REJETE", motif };
+    }
+  }
+
   const versionActuelle = await versionEntite(op.entityType, op.entityId);
   const decision = decider(op, { versionActuelle });
   if (decision.action === "REJOUEE") {
     return { operationId: op.operationId, statut: "REJOUEE", entityId: decision.entityId };
+  }
+
+  // Session de roulage : l'analyse (HMM, projections) est de la LECTURE et dure ; elle se fait avant
+  // la transaction d'ecriture pour ne pas la tenir ouverte pendant ce temps.
+  let preparationSession: PreparationSession | null = null;
+  if (op.entityType === "SessionRoulage" && decision.action === "CREER") {
+    preparationSession = await preparerSessionRoulage(op.payload, {
+      userId: contexte.userId, appareilId: contexte.appareilId, operationId: op.operationId, entityId: op.entityId,
+    });
   }
 
   const apresTransaction: { geometrieDefaut?: PreparationDefautSync } = {};
@@ -279,6 +321,23 @@ export async function appliquer(
           entityId: cree.id, after: cree,
         });
         return { operationId: op.operationId, statut: "SYNCHRONISE" as const, entityId: cree.id, version: cree.version };
+      }
+
+      if (op.entityType === "SessionRoulage") {
+        // La charge est validee et analysee avant la transaction ; un refus est DEFINITIF (pas de
+        // `reessayerDansMs`) : rejouer la meme charge donnerait le meme verdict.
+        if (!preparationSession || !preparationSession.ok) {
+          const motif = preparationSession && !preparationSession.ok ? preparationSession.motif : "PREPARATION_ABSENTE";
+          await trace("REJETE", { derniereErreur: motif }, { redacted: true });
+          return { operationId: op.operationId, statut: "REJETE" as const, motif };
+        }
+        const plan = preparationSession.plan;
+        const r = await ecrireSessionRoulage(tx, plan, {
+          userId: contexte.userId, appareilId: contexte.appareilId, operationId: op.operationId, entityId: op.entityId,
+        });
+        // La trace brute est dans `sessions_roulage` : operations_sync n'en garde que l'effectif.
+        await trace("SYNCHRONISE", {}, { redacted: true, sessionId: r.sessionId, points: plan.payload.points.length, marqueurs: r.marqueurs, evenements: r.evenements });
+        return { operationId: op.operationId, statut: "SYNCHRONISE" as const, entityId: r.sessionId };
       }
 
       if (op.entityType === "Portion") {
