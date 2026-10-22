@@ -1903,6 +1903,11 @@ enum MethodeQuantite {
   /// de qualite est donc DERIVED, la ou `COMPTAGE` est OBSERVED. Les confondre ferait
   /// passer une moyenne de bureau pour un constat de terrain.
   COMPTAGE_COEFFICIENT
+
+  /// Longueur ou surface MESUREE sur le contour GPS du defaut (`Defaut.emprise`), en projection UTM
+  /// du fuseau du defaut (`metre_utm`), jamais en degres. Ajoutee le 24/10/2026. La base tient
+  /// « cette methode => une emprise existe » (contrainte `defaut_methode_emprise_exige_emprise`).
+  EMPRISE_UTM
 }
 
 /// Importance spatiale du defaut sur le troncon, independante de sa gravite.

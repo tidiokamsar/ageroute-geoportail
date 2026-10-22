@@ -22,6 +22,7 @@ for b in "${BANCS[@]}"; do lancer "$b.integration.ts"; done
 lancer "curseur.integration.mts"
 lancer "sync.integration.mts"
 lancer "import.integration.mts"
+lancer "metre-defaut.integration.mts"
 
 printf '\n%s\n' "Resultat des bancs d'integration"
 printf '%s\n' "${lignes[@]}"

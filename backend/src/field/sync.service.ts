@@ -5,6 +5,7 @@ import { deriveGeomFromTroncon, deriveGeomFromTronconAbscisse, setPointGeom } fr
 import { logAuditTransactionnelle } from "../utils/audit";
 import { preparerDefautSync, type PreparationDefautSync } from "./defauts.sync";
 import { preparerPayloadObservationSync } from "./observation-sync-payload";
+import { ecrireEmprise } from "./defauts.emprise";
 import { decider, delaiAvantReessai, type Decision, type OperationEntrante } from "./sync";
 
 /**
@@ -414,6 +415,8 @@ async function appliquerUneFois(
       const cree = await tx.defaut.create({ data: preparation.preparation.data });
       const p = preparation.preparation;
       apresTransaction.geometrieDefaut = p;
+      // Contour GPS (A5) : ecrit avec la quantite qu'il a fournie, dans la meme transaction.
+      if (p.emprise) await ecrireEmprise(tx, cree.id, p.emprise.geojson, p.emprise.quantite);
 
       if (p.quantite !== null && p.methode !== null) {
         const statutQualite = p.methode === "SAISIE" || p.methode === "COMPTAGE" ? "OBSERVED" : "DERIVED";

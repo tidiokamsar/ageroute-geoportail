@@ -137,3 +137,51 @@ describe("préparation d'un défaut hors ligne", () => {
     expect(r).toEqual({ ok: false, motif: "MISSION_INTROUVABLE_OU_NON_ASSIGNEE" });
   });
 });
+
+describe("contour GPS d'un defaut hors ligne (A5)", () => {
+  const trait = { type: "LineString" as const, coordinates: [[-13.7, 9.5], [-13.69, 9.5]] };
+  const valide = [{ valide: true, raison: "Valid Geometry" }];
+  const base = { catalogueCode: "ORNIERAGE", lat: 9.5, lon: -13.7, gravite: 2, mesures: { profondeurM: 0.04 } };
+  const avecRaw = (reponses: unknown[][]) => ({ ...tx, $queryRaw: vi.fn(async () => reponses.shift() ?? []) }) as unknown as Prisma.TransactionClient;
+
+  it("tire la quantite du contour, la laisse a null pour Prisma et la porte a part pour l'ecriture SQL", async () => {
+    const t = avecRaw([valide, [{ epsg: 32628, longueurM: 1093.456, surfaceM2: 0, ecartLongueur: 0.0004, ecartSurface: null }]]);
+    const r = await preparerDefautSync(t, contexte, { ...base, emprise: trait });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.preparation.data).toMatchObject({ quantite: null, uniteQuantite: null, methodeQuantite: null, longueurM: null });
+    expect(r.preparation.quantite).toBe(1093.456);
+    expect(r.preparation.methode).toBe("EMPRISE_UTM");
+    expect(r.preparation.emprise).toEqual({ geojson: trait, quantite: { valeur: 1093.456, unite: "METRE", methode: "EMPRISE_UTM" } });
+  });
+
+  it("refuse un contour invalide avec son motif, sans creer de conteneur", async () => {
+    const t = avecRaw([[{ valide: false, raison: "Too few points in geometry component" }]]);
+    const r = await preparerDefautSync(t, contexte, { ...base, emprise: trait });
+    expect(r).toEqual({ ok: false, motif: "EMPRISE_INVALIDE" });
+    expect(h.observationCreee).toBeNull();
+  });
+
+  it("refuse un contour hors de l'etendue WGS 84 sans interroger la base", async () => {
+    const t = avecRaw([]);
+    const r = await preparerDefautSync(t, contexte, { ...base, emprise: { type: "LineString", coordinates: [[653632, 1061500], [653700, 1061500]] } });
+    expect(r).toEqual({ ok: false, motif: "EMPRISE_ILLISIBLE" });
+    expect((t as unknown as { $queryRaw: ReturnType<typeof vi.fn> }).$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it("le contour est un champ DECLARE du payload : zod n'ecarte pas en silence ce que le telephone envoie", async () => {
+    const t = avecRaw([valide, [{ epsg: 32628, longueurM: 10, surfaceM2: 0, ecartLongueur: 0.0004, ecartSurface: null }]]);
+    const r = await preparerDefautSync(t, contexte, { ...base, emprise: trait });
+    expect(r.ok && r.preparation.emprise).not.toBeNull();
+    // ... et un champ voisin non declare est toujours refuse.
+    const inconnu = await preparerDefautSync(avecRaw([]), contexte, { ...base, empriseM2: 12 });
+    expect(inconnu).toMatchObject({ ok: false, motif: expect.stringContaining("PAYLOAD_INVALIDE") });
+  });
+
+  it("sans contour, aucune lecture SQL brute et emprise nulle", async () => {
+    const t = avecRaw([]);
+    const r = await preparerDefautSync(t, contexte, { ...base, mesures: { longueurM: 50, profondeurM: 0.04 } });
+    expect(r.ok && r.preparation.emprise).toBeNull();
+    expect((t as unknown as { $queryRaw: ReturnType<typeof vi.fn> }).$queryRaw).not.toHaveBeenCalled();
+  });
+});

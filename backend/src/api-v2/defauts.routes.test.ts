@@ -49,6 +49,9 @@ const h = vi.hoisted(() => {
     observationCreee: null as Record<string, unknown> | null,
     /** Delegations du domaine DEFAUT presentes en base. */
     delegations: [] as Record<string, unknown>[],
+    /** SQL brut recu (lectures et ecritures de l'emprise, scenario A5) et reponses des lectures, dans l'ordre. */
+    raw: [] as unknown[][],
+    rawReponses: [] as unknown[][],
     setPointGeom: vi.fn(async () => {}),
     match: { tronconId: "t1", code: "RN1-001", nom: "RN1", classe: "RN", distanceM: 3, abscisseM: 120, pk: 4.2, pkMotif: "CALCULE", confiance: 0.9, ambigu: false },
     apparier: vi.fn(async () => h.match),
@@ -188,7 +191,9 @@ vi.mock("../lib/prisma", () => ({
       findUnique: vi.fn(async () => h.media),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: "media-1", ...data })),
     },
+    $queryRaw: vi.fn(async (...a: unknown[]) => { h.raw.push(a); return h.rawReponses.shift() ?? []; }),
     $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn({
+      $executeRaw: vi.fn(async (...a: unknown[]) => { h.raw.push(a); return 1; }),
       // Le serveur materialise l'observation conteneur DANS cette transaction depuis que
       // `defauts.observationId` est NOT NULL. Un mock sans ce delegue ferait rendre 500
       // a la creation, sans dire pourquoi.
@@ -289,6 +294,8 @@ beforeEach(() => {
   h.photosDuDefaut = 0;
   h.observationCreee = null;
   h.delegations = [];
+  h.raw = [];
+  h.rawReponses = [];
   h.apparier.mockClear();
   vi.clearAllMocks();
 });
@@ -318,6 +325,106 @@ describe("POST /api/v2/defauts — création", () => {
     expect(r.body.quantite).toBe(50);
     expect(r.body.methodeQuantite).toBe("LONGUEUR");
     expect(r.body.constateParId).toBe("agent-1");
+  });
+
+  describe("contour GPS (A5) : la quantite se mesure en UTM, jamais en degres", () => {
+    const polygone = { type: "Polygon", coordinates: [[[-13.7, 9.5], [-13.699, 9.5], [-13.699, 9.501], [-13.7, 9.501], [-13.7, 9.5]]] };
+    const trait = { type: "LineString", coordinates: [[-13.7, 9.5], [-13.69, 9.5]] };
+    const valide = [{ valide: true, raison: "Valid Geometry" }];
+    const metre = (extra: Record<string, unknown>) => [{ epsg: 32628, longueurM: 0, surfaceM2: 0, ecartLongueur: 0.0004, ecartSurface: 0.0009, ...extra }];
+
+    it("un orniérage contourne en ligne : la longueur MESUREE remplace la longueur saisie, la profondeur reste exigee", async () => {
+      h.rawReponses = [valide, metre({ longueurM: 1093.456 })];
+      const r = await request(app).post("/api/v2/defauts").send({
+        catalogueCode: "ORNIERAGE", ...gps, emprise: trait, mesures: { profondeurM: 0.04 }, gravite: 2,
+      });
+      expect(r.status).toBe(201);
+      expect(r.body).toMatchObject({ quantite: 1093.456, uniteQuantite: "METRE", methodeQuantite: "EMPRISE_UTM" });
+      expect(r.body.metreEmprise).toMatchObject({ epsg: 32628, longueurM: 1093.456, surfaceM2: null, ecartLongueur: 0.0004 });
+      // La ligne creee par Prisma ne porte PAS la methode (enumeration ecrite en SQL avec l'emprise).
+      expect(h.defautCree).toMatchObject({ quantite: null, uniteQuantite: null, methodeQuantite: null });
+      const ecritures = h.raw.slice(2).map((a) => (a[0] as string[]).join("?"));
+      expect(ecritures[0]).toMatch(/SET "emprise" = ST_SetSRID/);
+      expect(ecritures[1]).toMatch(/"methodeQuantite"/);
+      expect(h.raw[3].slice(1)).toEqual([1093.456, "METRE", "EMPRISE_UTM", "d1"]);
+      // La provenance de la quantite est DERIVED : un contour mesure n'est pas un constat saisi.
+      expect(h.qualites[0]).toMatchObject({ champ: "quantite", statut: "DERIVED", methode: "EMPRISE_UTM" });
+    });
+
+    it("un nid-de-poule contourne en polygone : la surface remplace longueur et largeur, la profondeur reste exigee", async () => {
+      h.rawReponses = [valide, metre({ longueurM: 4.2, surfaceM2: 1.1 })];
+      const sans = await request(app).post("/api/v2/defauts").send({ catalogueCode: "NID_POULE", ...gps, emprise: polygone, gravite: 1 });
+      expect(sans.status).toBe(422);
+      expect(sans.body.manquantes).toEqual(["PROFONDEUR"]);
+
+      h.rawReponses = [valide, metre({ longueurM: 4.2, surfaceM2: 1.1 })];
+      const r = await request(app).post("/api/v2/defauts").send({ catalogueCode: "NID_POULE", ...gps, emprise: polygone, mesures: { profondeurM: 0.06 }, gravite: 1 });
+      expect(r.status).toBe(201);
+      expect(r.body).toMatchObject({ quantite: 1.1, uniteQuantite: "METRE_CARRE", methodeQuantite: "EMPRISE_UTM" });
+      expect(r.body.metreEmprise).toMatchObject({ longueurM: 4.2, surfaceM2: 1.1 });
+    });
+
+    it("un contour invalide est refuse avec la raison de PostGIS, sans rien ecrire", async () => {
+      h.rawReponses = [[{ valide: false, raison: "Self-intersection[-13.7 9.5]" }]];
+      const r = await request(app).post("/api/v2/defauts").send({
+        catalogueCode: "ORNIERAGE", ...gps, emprise: polygone, mesures: { longueurM: 5, profondeurM: 0.04 }, gravite: 2,
+      });
+      expect(r.status).toBe(422);
+      expect(r.body).toMatchObject({ motif: "EMPRISE_INVALIDE" });
+      expect(r.body.message).toContain("Self-intersection");
+      expect(h.defautCree).toBeNull();
+      expect(h.observationCreee).toBeNull();
+      expect(h.raw).toHaveLength(1);
+    });
+
+    it("un contour qui n'est pas en degres est refuse avant d'interroger la base", async () => {
+      const r = await request(app).post("/api/v2/defauts").send({
+        catalogueCode: "ORNIERAGE", ...gps, emprise: { type: "LineString", coordinates: [[653632, 1061500], [653700, 1061500]] },
+        mesures: { longueurM: 5, profondeurM: 0.04 }, gravite: 2,
+      });
+      expect(r.status).toBe(422);
+      expect(r.body.motif).toBe("EMPRISE_ILLISIBLE");
+      expect(h.raw).toHaveLength(0);
+      expect(h.defautCree).toBeNull();
+    });
+
+    it("un type de geometrie qui n'est ni ligne ni surface est refuse par le schema (400)", async () => {
+      const r = await request(app).post("/api/v2/defauts").send({
+        catalogueCode: "ORNIERAGE", ...gps, emprise: { type: "Point", coordinates: [-13.7, 9.5] }, mesures: { longueurM: 5, profondeurM: 0.04 },
+      });
+      expect(r.status).toBe(400);
+    });
+
+    it("la quantite SAISIE l'emporte sur le contour, qui est tout de meme conserve", async () => {
+      h.rawReponses = [valide, metre({ longueurM: 4.2, surfaceM2: 1.1 })];
+      const r = await request(app).post("/api/v2/defauts").send({
+        catalogueCode: "NID_POULE", ...gps, emprise: polygone, mesures: { profondeurM: 0.06, quantiteSaisie: 2 }, gravite: 1,
+      });
+      expect(r.status).toBe(201);
+      expect(r.body).toMatchObject({ quantite: 2, methodeQuantite: "SAISIE" });
+      expect(h.defautCree).toMatchObject({ quantite: 2, methodeQuantite: "SAISIE" });
+      const ecritures = h.raw.slice(2).map((a) => (a[0] as string[]).join("?"));
+      expect(ecritures).toHaveLength(1);                                   // l'emprise seule : la quantite n'est pas reecrite
+      expect(ecritures[0]).toMatch(/SET "emprise"/);
+    });
+
+    it("une ligne plus longue que le troncon qui la porte est refusee", async () => {
+      h.tronconTrouve = { id: "t1", longueurKm: 0.5 };
+      h.rawReponses = [valide, metre({ longueurM: 800 })];
+      const r = await request(app).post("/api/v2/defauts").send({
+        catalogueCode: "ORNIERAGE", tronconId: "t1", pk: 1, emprise: trait, mesures: { profondeurM: 0.04 }, gravite: 2,
+      });
+      h.tronconTrouve = { id: "t1", longueurKm: 2.0 };
+      expect(r.status).toBe(422);
+      expect(r.body.motif).toBe("DEPASSE_LE_TRONCON");
+    });
+
+    it("sans contour, le comportement est inchange : aucune requete SQL brute", async () => {
+      const r = await request(app).post("/api/v2/defauts").send({ catalogueCode: "ORNIERAGE", ...gps, mesures: { longueurM: 50, profondeurM: 0.04 }, gravite: 2 });
+      expect(r.status).toBe(201);
+      expect(h.raw).toHaveLength(0);
+      expect(r.body).not.toHaveProperty("metreEmprise");
+    });
   });
 
   describe("Tout défaut a son observation", () => {
@@ -843,6 +950,24 @@ describe("POST /:id/resoumettre — retour de correction", () => {
     expect(r.body.profondeurM).toBe(0.05);
     expect(r.body.quantite).toBe(50);
     expect(h.validations[0]).toMatchObject({ statutAvant: "A_CORRIGER", statutApres: "A_VALIDER", source: "resoumission" });
+  });
+
+  it("le contour deja releve entre dans le recalcul : il ne se perd pas a la resoumission", async () => {
+    h.compte.id = "agent-1";
+    const polygone = { type: "Polygon", coordinates: [[[-13.7, 9.5], [-13.699, 9.5], [-13.699, 9.501], [-13.7, 9.501], [-13.7, 9.5]]] };
+    h.defautExistant = defautEnBase({ statutValidation: "A_CORRIGER", catalogue: h.catalogue.NID_POULE, gravite: 2 });
+    h.rawReponses = [
+      [{ g: JSON.stringify(polygone) }],                                                   // contour stocke
+      [{ valide: true, raison: "Valid Geometry" }],
+      [{ epsg: 32628, longueurM: 7, surfaceM2: 3.3, ecartLongueur: 0.0004, ecartSurface: 0.0009 }],
+    ];
+    const r = await request(app).post("/api/v2/defauts/d1/resoumettre").send({ mesures: { profondeurM: 0.05 } });
+    expect(r.status).toBe(200);
+    // La quantite tiree du contour est ecrite en SQL, apres l'update Prisma qui la laisse a null.
+    const ecritures = h.raw.slice(3).map((a) => (a[0] as string[]).join("?"));
+    expect(ecritures).toHaveLength(1);
+    expect(ecritures[0]).toMatch(/"methodeQuantite"/);
+    expect(h.raw[3].slice(1)).toEqual([3.3, "METRE_CARRE", "EMPRISE_UTM", "d1"]);
   });
 
   it("refuse la resoumission d'un tiers non administrateur", async () => {

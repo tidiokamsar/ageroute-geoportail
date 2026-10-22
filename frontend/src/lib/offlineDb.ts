@@ -117,6 +117,12 @@ export interface PendingDefaut {
       profondeurM?: number;
       quantiteSaisie?: number;
     };
+    /**
+     * Contour GPS du defaut (GeoJSON, longitude puis latitude en degres, SRID 4326). Le serveur le mesure en
+     * UTM (scenario A5) et en tire la quantite. AUCUN ECRAN NE LE PRODUIT ENCORE : le contrat est pret
+     * (`POST /v2/defauts`, `/v2/sync/push`), l'outil de trace GPS reste a ecrire et ne s'eprouve que sur appareil.
+     */
+    emprise?: { type: "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon"; coordinates: unknown[] };
   };
   /** Photos conservées comme Blob; chaque envoi réussi est retiré avant la reprise suivante. */
   photos?: {
