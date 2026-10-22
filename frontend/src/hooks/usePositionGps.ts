@@ -130,14 +130,21 @@ export function usePositionGps(): EtatGps {
         setEnAttente(false);
         // `PERMISSION_DENIED` vaut 1 dans la specification. Le distinguer est le seul
         // moyen de dire a l'agent d'aller dans les reglages plutot que de sortir.
-        setErreur(e.code === 1 ? "REFUSEE" : "INDETERMINEE");
+        const refusee = e.code === 1;
+        setErreur(refusee ? "REFUSEE" : "INDETERMINEE");
+        // UN REFUS TERMINE LA VEILLE. Le navigateur n'enverra plus de point : laisser le suivi « actif »
+        // gardait le bouton « Arreter le suivi » a l'ecran, sans « Me localiser », et `demarrer` refusait de
+        // relancer tant qu'une veille etait ouverte. L'agent, une fois l'autorisation rendue, n'avait aucun
+        // geste evident pour reessayer. Un signal INDETERMINE, lui, peut revenir : la veille reste ouverte.
+        // `arreter` ne touche pas a l'erreur : le message reste lisible.
+        if (refusee) arreter();
       },
       // `enableHighAccuracy` est indispensable en terrain : sans lui, Android rend une
       // position reseau a plusieurs centaines de metres, qu'aucun appariement ne peut
       // exploiter.
       { enableHighAccuracy: true, timeout: 15_000, maximumAge: 0 },
     );
-  }, []);
+  }, [arreter]);
 
   // Arret au demontage : une veille oubliee continue de consommer le GPS apres que l'agent
   // a quitte l'ecran.
