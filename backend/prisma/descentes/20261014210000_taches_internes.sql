@@ -1,5 +1,8 @@
 -- RETOUR ARRIERE de `20261014210000_taches_internes`.
 --
+-- REJOUEE ET VERIFIEE le 22/10/2026 par le banc `verifier.sh` : le schema apres descente differe de
+-- celui d'avant par la seule table de vocabulaire conservee, declaree plus bas (RESIDU-ACCEPTE).
+--
 -- EXECUTE ET VERIFIE le 14/10/2026 en aller-retour sur la base de developpement
 -- `postgis/postgis:17-3.5`. Voir `MIGRATION_PLAN.md`.
 --
@@ -35,6 +38,12 @@ DROP TYPE IF EXISTS "StatutTacheInterne";
 --
 --   DROP TABLE IF EXISTS "referentiel_natures_tache";
 
+-- RESIDU-ACCEPTE: (col|con|idx)[|]referentiel_natures_tache[.]|rel[|]referentiel_natures_tache[|]
+--
+-- (La ligne ci-dessus est lue par le banc `verifier.sh` : elle declare que la table de vocabulaire
+-- est LAISSEE EN PLACE, et c'est la seule difference acceptee entre le schema d'avant la migration
+-- et celui d'apres cette descente.)
+--
 -- Et retirer la ligne de `_prisma_migrations` :
 --
 --   DELETE FROM _prisma_migrations WHERE migration_name = '20261014210000_taches_internes';

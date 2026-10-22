@@ -30,5 +30,11 @@ DROP TYPE IF EXISTS "StatutEvenement";
 -- Pour retirer sciemment les referentiels :
 --   DROP TABLE IF EXISTS "referentiel_types_evenement";
 --   DROP TABLE IF EXISTS "referentiel_sources_evenement";
+-- Verifiee le 22/10/2026 par le banc `verifier.sh`, au residu declare pres.
+-- RESIDU-ACCEPTE: (col|con|idx)[|]referentiel_(types|sources)_evenement[.]|rel[|]referentiel_(types|sources)_evenement[|]
+--
+-- (La ligne ci-dessus est lue par le banc `verifier.sh` : elle declare que les deux tables de
+-- vocabulaire sont LAISSEES EN PLACE, seule difference acceptee apres cette descente.)
+--
 -- Et la ligne de `_prisma_migrations` :
 --   DELETE FROM _prisma_migrations WHERE migration_name = '20261015010000_main_courante';

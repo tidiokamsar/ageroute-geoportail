@@ -119,3 +119,19 @@ L'échec survient à `20260702140000_decomptes`.
 En attendant un arbitrage, `infra/verifier-en-local.sh` contourne le problème en
 construisant le schéma avec `prisma db push`, qui part de `schema.prisma` et
 produit la même forme que la production.
+
+---
+
+## Mesure complementaire du 22/10/2026
+
+En construisant le banc des descentes (`backend/prisma/descentes/verifier.sh`), la chaine a ete
+rejouee de bout en bout avec **un seul correctif de forme**, applique hors historique : convertir
+`marches.id`, `marches_chantiers."marcheId"` et `avancement_marche."marcheId"` en `uuid`, comme en
+production (`backend/prisma/descentes/ponts/20260702110000_marches_bailleurs_avancement.sql`).
+
+**Resultat : les 69 migrations s'appliquent.** Le defaut decrit plus haut est donc localise sur
+`marches` ; aucun autre objet n'empeche le rejeu depuis une base vierge.
+
+Cette mesure **ne tranche pas le remede** et ne contredit pas l'analyse de `DECISIONS_PENDING.md`
+(D-10) : une migration de reparation placee apres `decomptes` reste impossible, puisque l'echec survient
+avant elle. Le pont n'est utilise que par le banc ; **aucun fichier de migration n'a ete modifie**.

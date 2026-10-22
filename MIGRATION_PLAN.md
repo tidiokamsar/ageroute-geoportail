@@ -105,6 +105,15 @@ de descente : `backend/prisma/descentes/` ne contient qu'un fichier. Les cinquan
 appliquées en production et n'ont **aucun retour arrière écrit**. L'exigence du § A.8 est donc
 tenue pour la migration en attente, et non pour l'historique.
 
+> **Mise à jour du 22/10/2026 : ce constat n'est plus vrai.** `backend/prisma/descentes/` contient
+> désormais **69 descentes pour 69 migrations** (67 réversibles, 2 irréversibles par principe : `init`
+> et la suppression des jetons en clair), toutes exécutées par le banc `verifier.sh` : **238
+> vérifications, 0 échec**, schéma comparé objet par objet avant et après, migration réappliquée à
+> l'identique, gardes éprouvées avec des lignes fabriquées. Le banc a été éprouvé par contre-épreuve
+> (quatre défauts volontaires, quatre détections). **Limites** : base vide, schéma rejoué par la chaîne
+> et non celui de la production, aucun essai sur des données ni des volumes réels. Détail et usage :
+> [`backend/prisma/descentes/README.md`](backend/prisma/descentes/README.md).
+
 ---
 
 ## 2 bis. Les deux autres migrations en attente, écrites le 14/10 au soir

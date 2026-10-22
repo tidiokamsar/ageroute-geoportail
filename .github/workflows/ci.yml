@@ -112,3 +112,33 @@ jobs:
             exit 1
           fi
           echo "Aucune valeur suspecte."
+
+  descentes:
+    name: Descentes (banc aller-retour sur base jetable)
+    runs-on: ubuntu-latest
+    # Une base PostGIS JETABLE, creee et detruite avec le job : aucune base reelle n'est touchee,
+    # conformement au garde-fou 2.1. Pas de mot de passe (`trust`) : rien a mettre dans le depot.
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_USER: bdri_dev
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bdri_dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: bdri_dev
+    steps:
+      - uses: actions/checkout@v4
+      # Pour chaque migration : la descente rend le schema d'avant, la migration se reapplique a
+      # l'identique, les gardes refusent puis passent avec l'autorisation explicite. Echoue si une
+      # migration est ajoutee SANS descente verifiee. Voir backend/prisma/descentes/README.md.
+      - name: Banc des descentes
+        run: bash backend/prisma/descentes/verifier.sh --strict

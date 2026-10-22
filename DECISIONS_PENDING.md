@@ -419,6 +419,15 @@ créée depuis le schéma Prisma, donc en `uuid`, et le corps a été sauté.
 monté par `migrate deploy`, et le plan de reprise après sinistre repose entièrement sur
 `pg_dump`. Détail et mesures au § 3 bis de [MIGRATION_PLAN.md](MIGRATION_PLAN.md).
 
+> **Mesure complémentaire du 22/10/2026, qui éclaire l'arbitrage.** En ajoutant au banc des descentes
+> un seul « pont » (convertir `marches.id` et ses colonnes filles en `uuid`, comme en production), les
+> **69 migrations s'appliquent de bout en bout** sur une base vierge. Le défaut est donc **localisé sur
+> `marches`** : aucun autre objet n'empêche le rejeu, ce qui précise la portée de ce qu'il faudrait
+> réparer. Cette mesure **ne change pas les trois options ci-dessous** : une migration de réparation
+> placée après `decomptes` reste impossible, puisque l'échec survient avant. Le pont
+> (`backend/prisma/descentes/ponts/20260702110000_marches_bailleurs_avancement.sql`) ne sert qu'au banc :
+> **rien n'a été corrigé dans l'historique**, et le choix reste le vôtre.
+
 ### Pourquoi ce n'est pas une simple correction de fichier
 
 Prisma enregistre une **empreinte de chaque fichier de migration** dans `_prisma_migrations`.
