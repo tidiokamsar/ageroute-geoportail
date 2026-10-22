@@ -27,6 +27,7 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:integration": "bash tests-integration/run.sh",
+    "securite:balayer": "tsx scripts/balayer-secrets.ts",
     "typecheck:scripts": "tsc -p tsconfig.scripts.json",
     "backfill:provenance": "tsx scripts/backfill-provenance.ts",
     "backfill:qualite": "tsx scripts/backfill-qualite.ts",
