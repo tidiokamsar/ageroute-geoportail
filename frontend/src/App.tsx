@@ -43,6 +43,7 @@ const CelluleVeillePage = lazy(() => import("./pages/CelluleVeillePage").then((m
 const PatrouillesPage = lazy(() => import("./pages/PatrouillesPage").then((m) => ({ default: m.PatrouillesPage })));
 const InfoRoutePage = lazy(() => import("./pages/InfoRoutePage").then((m) => ({ default: m.InfoRoutePage })));
 const VeilleConfigurationPage = lazy(() => import("./pages/VeilleConfigurationPage").then((m) => ({ default: m.VeilleConfigurationPage })));
+const BaremesPage = lazy(() => import("./pages/BaremesPage").then((m) => ({ default: m.BaremesPage })));
 const TeledetectionPage = lazy(() => import("./pages/TeledetectionPage").then((m) => ({ default: m.TeledetectionPage })));
 
 function PageFallback() {
@@ -112,6 +113,7 @@ const router = createBrowserRouter(
           <Route path="inspections/defauts/catalogue" element={<LazyPage><CatalogueDefautsPage /></LazyPage>} handle={{ title: "Catalogue des défauts" }} />
           <Route path="imports" element={<LazyPage><ImportsPage /></LazyPage>} handle={{ title: "Lots d'import" }} />
           <Route path="veille/configuration" element={<LazyPage><VeilleConfigurationPage /></LazyPage>} handle={{ title: "Configuration de la veille" }} />
+          <Route path="administration/baremes" element={<LazyPage><BaremesPage /></LazyPage>} handle={{ title: "Barèmes de coût" }} />
         </Route>
       </Route>
     </>

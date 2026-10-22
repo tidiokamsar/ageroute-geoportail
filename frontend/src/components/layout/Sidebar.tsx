@@ -14,6 +14,7 @@ const sections = [
       { to: "/rapports", label: "Rapports" },
       { to: "/rapports/bailleur", label: "Rapport bailleur" },
       { to: "/decision", label: "Aide à la décision" },
+      { to: "/administration/baremes", label: "Barèmes de coût", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/qualite", label: "Qualité des données" },
     ],
   },

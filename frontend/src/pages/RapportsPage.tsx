@@ -111,6 +111,87 @@ function CustomBarTooltip({ active, payload, label }: { active?: boolean; payloa
 
 // ── Page principale ───────────────────────────────────────────────────────────
 
+interface PrevisionsParAnnee {
+  parAnnee: Array<{
+    annee: number; nb: number; montantGnf: string;
+    parStatut: Record<string, { nb: number; montantGnf: string }>;
+  }>;
+}
+
+/**
+ * Les prévisions saisies (module Programmation) appartiennent au rapport : l'état du
+ * réseau et ce qui est programmé pour le corriger se lisent sur la même page. Le
+ * montant vient en chaîne de l'API (bigint) et se formate ici, jamais en nombre.
+ */
+function PrevisionsParAnnee() {
+  const navigate = useNavigate();
+  const { data } = useQuery({
+    queryKey: ["v2", "programmation", "totaux"],
+    queryFn: async () => (await api.get<PrevisionsParAnnee>("/v2/programmation/totaux")).data,
+  });
+  const lignes = data?.parAnnee ?? [];
+  if (lignes.length === 0) {
+    return (
+      <Card>
+        <h3 className="text-sm font-semibold text-navy mb-1">Prévisions budgétaires saisies</h3>
+        <p className="text-sm text-gray-400">
+          Aucune prévision saisie. Elles se posent dans le module Programmation, ligne par
+          ligne : année, intitulé, montant, bailleur — rien n'est prérempli.
+        </p>
+      </Card>
+    );
+  }
+  const fmt = (m: string) => {
+    const n = Number(m);
+    return n >= 1e9 ? `${(n / 1e9).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} Md GNF`
+      : `${(n / 1e6).toLocaleString("fr-FR", { maximumFractionDigits: 0 })} M GNF`;
+  };
+  return (
+    <Card>
+      <h3 className="text-sm font-semibold text-navy mb-1">Prévisions budgétaires saisies</h3>
+      <p className="text-[11px] text-gray-400 mb-3">
+        Saisies manuelles (hors chantiers) — montant hors prévisions annulées
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="text-xs text-gray-500 uppercase">
+            <tr className="border-b border-gray-100">
+              <th className="text-left py-2 pr-3">Année</th>
+              <th className="text-right py-2 pr-3">Prévisions</th>
+              <th className="text-right py-2 pr-3">Montant prévu</th>
+              <th className="text-right py-2 pr-3">dont retenues</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lignes.map((l) => {
+              const retenues = l.parStatut["RETENU"];
+              const annulees = l.parStatut["ANNULE"];
+              const nbHorsAnnulees = l.nb - (annulees?.nb ?? 0);
+              const montantHorsAnnulees = (BigInt(l.montantGnf) - BigInt(annulees?.montantGnf ?? "0")).toString();
+              return (
+                <tr key={l.annee} className="border-b border-gray-50">
+                  <td className="py-2 pr-3 font-semibold text-navy tabular-nums">{l.annee}</td>
+                  <td className="py-2 pr-3 text-right text-gray-600 tabular-nums">{nbHorsAnnulees}</td>
+                  <td className="py-2 pr-3 text-right text-gray-700 tabular-nums whitespace-nowrap">{fmt(montantHorsAnnulees)}</td>
+                  <td className="py-2 pr-3 text-right text-gray-500 tabular-nums whitespace-nowrap">
+                    {retenues ? `${retenues.nb} · ${fmt(retenues.montantGnf)}` : "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <button
+        type="button" onClick={() => navigate("/programmation")}
+        className="mt-3 text-xs text-navy underline hover:text-navy/70 no-print"
+      >
+        Voir et saisir dans Programmation →
+      </button>
+    </Card>
+  );
+}
+
 export function RapportsPage() {
   const navigate = useNavigate();
   const { data, isLoading } = useQuery({
@@ -214,6 +295,9 @@ export function RapportsPage() {
         <KpiCard label="Ouvrages d'art" value={totaux.ouvrages} icon="🌉" accent="#7c3aed" />
         <KpiCard label="Réseau critique" value={`${pctCritique}%`} sub={`${km(totaux.kmCritique)} km`} icon="⚠" accent="#dc2626" />
       </div>
+
+      {/* Prévisions budgétaires saisies : ce qui est programmé, à côté de l'état du réseau */}
+      <PrevisionsParAnnee />
 
       {/* Graphiques */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 no-print">

@@ -362,6 +362,7 @@ model User {
   produitsObservationTerre        EarthObservationProduct[]  @relation("EoEnregistreur")
   propositionsTeledetectionCrees  PropositionTeledetection[] @relation("PtCreateur")
   propositionsTeledetectionJugees PropositionTeledetection[] @relation("PtVerificateur")
+  programmesBudgetairesCrees      ProgrammeBudgetaire[]      @relation("ProgrammationAuteur")
 
   @@map("users")
 }
@@ -504,6 +505,7 @@ model Troncon {
   entreesMainCourante       EntreeMainCourante[]
   programmesPatrouille      ProgrammeTroncon[]
   propositionsTeledetection PropositionTeledetection[]
+  programmesBudgetaires     ProgrammeBudgetaire[]
 
   @@index([regionId])
   @@index([etat])
@@ -778,6 +780,41 @@ model Bailleur {
   marches   Marche[]
 
   @@map("bailleurs")
+}
+
+/// Prévision budgétaire saisie (§ 7.9) — ce qui est PROGRAMMÉ, distinct des chantiers
+/// (un fait : entreprise, dates réelles, avancement). Une intention révisable : UPDATE
+/// audité, suppression logique seule, aucun montant semé. `source` distingue la saisie
+/// manuelle de ce qu'un futur moteur de coûts produira (après D-07) : un chiffre calculé
+/// devra citer sa ligne de barème, un chiffre posé cite son auteur.
+model ProgrammeBudgetaire {
+  id               String    @id @default(uuid()) @db.Uuid
+  annee            Int
+  intitule         String
+  tronconId        String?
+  troncon          Troncon?  @relation(fields: [tronconId], references: [id])
+  /// Texte libre, comme sur les chantiers : lier ici et pas là empêcherait de comparer
+  /// prévisions et chantiers dans les mêmes agrégats. Le jour où les chantiers migrent
+  /// vers la référence bailleurs, les deux migreront.
+  bailleur         String?
+  typeIntervention String?
+  montantPrevuGnf  BigInt
+  priorite         Int?
+  /// PROPOSE à la saisie ; RETENU, REPORTE, ANNULE, REALISE par arbitrage. Texte
+  /// contraint par CHECK en base, pas une énumération figée (leçon D-06).
+  statut           String    @default("PROPOSE")
+  source           String    @default("SAISIE")
+  commentaire      String?
+  createdById      String
+  creePar          User      @relation("ProgrammationAuteur", fields: [createdById], references: [id])
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  @@index([annee, deletedAt])
+  @@index([statut, deletedAt])
+  @@index([tronconId])
+  @@map("programmes_budgetaires")
 }
 
 model Marche {
