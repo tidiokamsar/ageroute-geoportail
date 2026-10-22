@@ -130,18 +130,19 @@ CREATE TABLE IF NOT EXISTS "scenarios_programmation" (
   CONSTRAINT "sp_empreinte_entrees_exacte" CHECK ("empreinteEntrees" = encode(sha256(convert_to("entreesCanoniques", 'UTF8')), 'hex')),
   CONSTRAINT "sp_empreinte_resultat_exacte" CHECK ("empreinteResultat" = encode(sha256(convert_to("resultatCanonique", 'UTF8')), 'hex')),
   -- Les colonnes denormalisees disent la meme chose que le texte : budget, annee, parametres, engage.
-  CONSTRAINT "sp_coherence_entrees" CHECK (
+  -- coalesce(..., false) : un CHECK qui vaut NULL PASSE en SQL ; une cle absente du texte ne doit pas passer.
+  CONSTRAINT "sp_coherence_entrees" CHECK (coalesce(
     ("entreesCanoniques"::jsonb ->> 'budgetGnf')::bigint = "budgetGnf"
     AND ("entreesCanoniques"::jsonb ->> 'annee')::integer = "annee"
-    AND ("entreesCanoniques"::jsonb -> 'parametres' ->> 'version') = "parametresVersion"
+    AND ("entreesCanoniques"::jsonb -> 'parametres' ->> 'version') = "parametresVersion", false)
   ),
-  CONSTRAINT "sp_coherence_resultat" CHECK (
+  CONSTRAINT "sp_coherence_resultat" CHECK (coalesce(
     ("resultatCanonique"::jsonb ->> 'annee')::integer = "annee"
     AND ("resultatCanonique"::jsonb -> 'parametres' ->> 'version') = "parametresVersion"
     AND ("resultatCanonique"::jsonb -> 'totaux' ->> 'engageGnf')::bigint = "montantEngageGnf"
     AND ("resultatCanonique"::jsonb -> 'totaux' ->> 'retenues')::integer = "nbRetenues"
     AND ("resultatCanonique"::jsonb -> 'totaux' ->> 'ecartees')::integer = "nbEcartees"
-    AND ("resultatCanonique"::jsonb ->> 'provisoire')::boolean = "provisoire"
+    AND ("resultatCanonique"::jsonb ->> 'provisoire')::boolean = "provisoire", false)
   )
 );
 CREATE INDEX IF NOT EXISTS "scenarios_programmation_annee_idx" ON "scenarios_programmation" ("annee", "creeLe" DESC) WHERE "deletedAt" IS NULL;
@@ -189,12 +190,12 @@ CREATE TABLE IF NOT EXISTS "fiches_intervention" (
   CONSTRAINT "fi_annee_plausible" CHECK ("annee" BETWEEN 2000 AND 2100),
   CONSTRAINT "fi_empreinte_hex" CHECK ("empreinteSha256" ~ '^[0-9a-f]{64}$'),
   CONSTRAINT "fi_empreinte_exacte" CHECK ("empreinteSha256" = encode(sha256(convert_to("contenuCanonique", 'UTF8')), 'hex')),
-  CONSTRAINT "fi_schema_connu" CHECK (("contenuCanonique"::jsonb ->> 'schema') = 'fiche-intervention/1'),
-  CONSTRAINT "fi_coherence_contenu" CHECK (
+  CONSTRAINT "fi_schema_connu" CHECK (coalesce(("contenuCanonique"::jsonb ->> 'schema') = 'fiche-intervention/1', false)),
+  CONSTRAINT "fi_coherence_contenu" CHECK (coalesce(
     ("contenuCanonique"::jsonb -> 'patrimoine' ->> 'tronconId') = "tronconId"
     AND ("contenuCanonique"::jsonb ->> 'annee')::integer = "annee"
     AND ("contenuCanonique"::jsonb -> 'parametres' ->> 'version') = "parametresVersion"
-    AND ("contenuCanonique"::jsonb -> 'scenario' ->> 'id') = "scenarioId"
+    AND ("contenuCanonique"::jsonb -> 'scenario' ->> 'id') = "scenarioId", false)
   )
 );
 CREATE UNIQUE INDEX IF NOT EXISTS "fiches_intervention_reference_key" ON "fiches_intervention" ("reference");
@@ -258,7 +259,8 @@ CREATE TABLE IF NOT EXISTS "fiches_intervention_statuts" (
     OR ("origine" = 'INSPECTION_POST_TRAVAUX' AND length(btrim(coalesce("inspectionId", ''))) > 0)
   ),
   -- Entrer en TRANSMIS exige l'empreinte de la fiche telle que transmise.
-  CONSTRAINT "fis_version_figee_a_la_transmission" CHECK ("vers" <> 'TRANSMIS' OR "versionFigee" ~ '^[0-9a-f]{64}$')
+  -- coalesce : « NULL ~ motif » vaut NULL, et un CHECK qui vaut NULL PASSE. Trouve par le banc d'integration.
+  CONSTRAINT "fis_version_figee_a_la_transmission" CHECK ("vers" <> 'TRANSMIS' OR coalesce("versionFigee" ~ '^[0-9a-f]{64}$', false))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS "fiches_intervention_statuts_fiche_rang_key" ON "fiches_intervention_statuts" ("ficheId", "rang");
 

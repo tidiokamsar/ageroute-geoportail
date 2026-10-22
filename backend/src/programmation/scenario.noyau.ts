@@ -67,6 +67,8 @@ export interface CandidatTroncon extends EntreesRisque {
   revetement: string | null;
   /** Longueur a traiter, en metres (le troncon entier : aucune portion n'est saisie). */
   longueurM: number | null;
+  /** D'ou vient la longueur : la colonne `longueurKm`, ou la geometrie quand la colonne est vide. `null` = non precise. */
+  longueurOrigine?: "LONGUEUR_KM" | "GEOMETRIE" | null;
 }
 
 export interface EntreesScenario {
@@ -112,7 +114,7 @@ export type CoutLigne =
   | { ok: false; code: string; motif: string };
 
 export interface LigneScenario {
-  troncon: { id: string; code: string; nom: string | null; regionId: number | null; classe: string | null; revetement: string | null; etat: string | null; longueurM: number | null };
+  troncon: { id: string; code: string; nom: string | null; regionId: number | null; classe: string | null; revetement: string | null; etat: string | null; longueurM: number | null; longueurOrigine: string | null };
   decision: "RETENUE" | "ECARTEE";
   /** Position dans l'ordre de priorite, parmi les troncons chiffrables. `null` si ecarte avant classement. */
   rangPriorite: number | null;
@@ -304,7 +306,7 @@ export function ratioPointsParMilliard(scoreMicro: number, coutGnf: bigint): str
 
 function ligneDe(ev: Evalue, extra: Partial<LigneScenario> & Pick<LigneScenario, "decision" | "justification">, etiquette: string): LigneScenario {
   return {
-    troncon: { id: ev.c.id, code: ev.c.code, nom: ev.c.nom, regionId: ev.c.regionId, classe: ev.c.classe, revetement: ev.c.revetement, etat: ev.c.etat, longueurM: ev.c.longueurM },
+    troncon: { id: ev.c.id, code: ev.c.code, nom: ev.c.nom, regionId: ev.c.regionId, classe: ev.c.classe, revetement: ev.c.revetement, etat: ev.c.etat, longueurM: ev.c.longueurM, longueurOrigine: ev.c.longueurOrigine ?? null },
     rangPriorite: null, rangRetenu: null, motifExclusion: null,
     risque: ev.risque, projection: ev.projection, risqueAttendu: ev.attendu, traitement: ev.traitement, cout: ev.cout,
     priorite: null, budget: null, etiquette,
@@ -350,7 +352,8 @@ export function construireScenario(entrees: EntreesScenario): ResultatConstructi
     const ratio = ratioPointsParMilliard(att.scoreMicro, cout);
     const rangPriorite = i + 1;
     const risque = (ev.risqueCalc as { score: number }).score;
-    const resume = `risque ${risque} (attendu ${att.score}), traitement ${(ev.traitement as { ok: true; traitement: { code: string } }).traitement.code}, coût ${formaterMontant(cout, "GNF")} (${(ev.cout as { classePrecision: string }).classePrecision}${ev.provisoireCout ? ", provisoire" : ""}), ${ratio} point(s) de risque par milliard de GNF`;
+    const longueurNote = ev.c.longueurOrigine === "GEOMETRIE" ? ` sur ${ev.c.longueurM} m calculés sur la géométrie` : ev.c.longueurM !== null ? ` sur ${ev.c.longueurM} m` : "";
+    const resume = `risque ${risque} (attendu ${att.score}), traitement ${(ev.traitement as { ok: true; traitement: { code: string } }).traitement.code}, coût ${formaterMontant(cout, "GNF")}${longueurNote} (${(ev.cout as { classePrecision: string }).classePrecision}${ev.provisoireCout ? ", provisoire" : ""}), ${ratio} point(s) de risque par milliard de GNF`;
     const budgetAvant = reste;
 
     let motif: { code: CodeExclusion; detail: string } | null = null;
@@ -406,6 +409,8 @@ export function construireScenario(entrees: EntreesScenario): ResultatConstructi
   }
   const traitNonAppr = [...new Set(retenues.filter((l) => l.traitement && l.traitement.ok && !l.traitement.traitement.approuve).map((l) => (l.traitement as { ok: true; traitement: { code: string } }).traitement.code))].sort();
   if (traitNonAppr.length > 0) motifsProvisoire.push(`traitement(s) du catalogue non approuvé(s) : ${traitNonAppr.join(", ")}`);
+  const longueursCalculees = retenues.filter((l) => l.troncon.longueurOrigine === "GEOMETRIE").length;
+  if (longueursCalculees > 0) motifsProvisoire.push(`${longueursCalculees} ligne(s) retenue(s) chiffrée(s) sur une longueur calculée sur la géométrie, non saisie`);
   const matNonAppr = retenues.filter((l) => l.projection && l.projection.ok && !l.projection.matrice.approuvee).length;
   if (matNonAppr > 0) motifsProvisoire.push(`${matNonAppr} ligne(s) retenue(s) projetée(s) par une matrice de dégradation non approuvée`);
 
@@ -468,7 +473,7 @@ export function entreesVersJson(e: EntreesScenario): Json {
       valeurs: e.parametres.valeurs as unknown as Json,
     },
     candidats: [...e.candidats].sort(cmp<CandidatTroncon>((c) => c.id)).map((c) => ({
-      id: c.id, code: c.code, nom: c.nom, regionId: c.regionId, classe: c.classe, revetement: c.revetement, longueurM: c.longueurM,
+      id: c.id, code: c.code, nom: c.nom, regionId: c.regionId, classe: c.classe, revetement: c.revetement, longueurM: c.longueurM, longueurOrigine: c.longueurOrigine ?? null,
       etat: c.etat, traficMoyenJma: c.traficMoyenJma, criticiteStrategique: c.criticiteStrategique, nbPointsNoirs: c.nbPointsNoirs,
       vulnerabiliteClimatique: c.vulnerabiliteClimatique, populationDesservie: c.populationDesservie,
     })),
@@ -520,6 +525,7 @@ export function entreesDepuisJson(j: unknown): { ok: true; entrees: EntreesScena
     candidats: tab(o.candidats).map((c) => ({
       id: c.id as string, code: c.code as string, nom: chaineOuNul(c.nom), regionId: nombreOuNull(c.regionId), classe: chaineOuNul(c.classe),
       revetement: chaineOuNul(c.revetement), longueurM: nombreOuNull(c.longueurM), etat: chaineOuNul(c.etat),
+      longueurOrigine: c.longueurOrigine === "LONGUEUR_KM" || c.longueurOrigine === "GEOMETRIE" ? c.longueurOrigine : null,
       traficMoyenJma: nombreOuNull(c.traficMoyenJma), criticiteStrategique: nombreOuNull(c.criticiteStrategique), nbPointsNoirs: nombreOuNull(c.nbPointsNoirs),
       vulnerabiliteClimatique: nombreOuNull(c.vulnerabiliteClimatique), populationDesservie: nombreOuNull(c.populationDesservie),
     })),

@@ -267,6 +267,19 @@ describe("construireScenario : justification et etiquette", () => {
     expect(construire(e).provisoire).toBe(true);
   });
 
+  it("une longueur calculee sur la geometrie est dite dans la ligne, et rend le scenario provisoire", () => {
+    const e = entreesDeBase({ candidats: [candidat("g", { code: "RN-G2", etat: "MAUVAIS", traficMoyenJma: 2500, nbPointsNoirs: 2, longueurM: 2000, longueurOrigine: "GEOMETRIE" })] });
+    const s = construire(e);
+    const l = ligne(s, "RN-G2");
+    expect(l.decision).toBe("RETENUE");
+    expect(l.troncon.longueurOrigine).toBe("GEOMETRIE");
+    expect(l.justification).toMatch(/sur 2000 m calculés sur la géométrie/);
+    expect(s.motifsProvisoire.join()).toMatch(/1 ligne\(s\) retenue\(s\) chiffrée\(s\) sur une longueur calculée sur la géométrie, non saisie/);
+    const saisie = construire(entreesDeBase({ candidats: [candidat("g", { code: "RN-G2", etat: "MAUVAIS", traficMoyenJma: 2500, nbPointsNoirs: 2, longueurM: 2000, longueurOrigine: "LONGUEUR_KM" })] }));
+    expect(saisie.motifsProvisoire.join()).not.toMatch(/géométrie/);
+    expect(ligne(saisie, "RN-G2").justification).toMatch(/sur 2000 m \(/);
+  });
+
   it("la version des parametres est dans le scenario", () => {
     expect(construire(entreesDeBase()).parametres).toMatchObject({ version: "prog-provisoire-1", source: "amorcage_provisoire", approuveeLe: null });
   });

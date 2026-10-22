@@ -19,6 +19,7 @@ import { teledetectionV2Router } from "./teledetection.routes";
 import { programmationV2Router } from "./programmation.routes";
 import { baremesV2Router } from "./baremes.routes";
 import { perimetresV2Router } from "./perimetres.routes";
+import { moteurProgrammationV2Router } from "./programmation.moteur.routes";
 
 /**
  * `/api/v2` — la nouvelle surface d'API.
@@ -83,6 +84,8 @@ apiV2Router.use("/exploitation/info-route", infoRouteV2Router);
 apiV2Router.use("/exploitation/veille", veilleV2Router);
 apiV2Router.use("/exploitation", exploitationV2Router);
 apiV2Router.use("/teledetection", teledetectionV2Router);
+// Le moteur d'abord : `/programmation` (saisie manuelle) ne connait pas `/moteur`.
+apiV2Router.use("/programmation/moteur", moteurProgrammationV2Router);
 apiV2Router.use("/programmation", programmationV2Router);
 apiV2Router.use("/baremes", baremesV2Router);
 apiV2Router.use("/perimetres", perimetresV2Router);

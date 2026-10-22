@@ -128,7 +128,7 @@ function evaluerFacteurs(e: EntreesRisque, v: ValeursParametres): FacteurEvalue[
       case "SECURITE": {
         if (e.nbPointsNoirs !== null && Number.isFinite(e.nbPointsNoirs) && e.nbPointsNoirs >= 0) {
           const val = arrondi4(borne100((e.nbPointsNoirs / v.pointsNoirsPlafond) * 100));
-          sortie.push({ facteur: f, poids, pondere: poids > 0, disponible: true, valeur: val, brut: e.nbPointsNoirs, origine: "points_noirs.tronconId", note: `${e.nbPointsNoirs} point(s) noir(s) sur un plafond de ${v.pointsNoirsPlafond}, borne a 100` });
+          sortie.push({ facteur: f, poids, pondere: poids > 0, disponible: true, valeur: val, brut: e.nbPointsNoirs, origine: "points_noirs.tronconId", note: `${e.nbPointsNoirs} point(s) noir(s) enregistre(s) sur un plafond de ${v.pointsNoirsPlafond}, borne a 100 (le registre n'est pas prouve exhaustif : 0 signifie aucun point noir enregistre)` });
         } else sortie.push(base("source des points noirs non exploitable"));
         break;
       }
