@@ -12,6 +12,8 @@ import { ImportExportBar } from "../components/ImportExportBar";
 import { AuditHistoryModal } from "../components/AuditHistoryModal";
 import { EntityDetailModal } from "../components/EntityDetailModal";
 import { useAuth, canWrite, canDelete } from "../lib/auth";
+import { api } from "../lib/api";
+import { toast } from "../lib/toast";
 import { parseApiError } from "../lib/errors";
 import { useConfirm } from "../hooks/useConfirm";
 
@@ -42,6 +44,8 @@ interface Props<T extends { id: string }> {
   importExport?: boolean;
   /** Nom de l'entite cote audit_logs (ex "Troncon") pour afficher l'historique. */
   auditEntityType?: string;
+  /** Table (liste blanche serveur) pour exporter LA SÉLECTION en CSV / GeoJSON. */
+  exportTable?: string;
   /** Boutons d'action supplementaires par ligne (ex "Fiche" pour les troncons, "Photos" pour les ouvrages). */
   rowExtraActions?: { label: string; onClick: (row: T) => void }[];
   /** JSX de filtres horizontaux à afficher en ligne 2 sous la barre de recherche.
@@ -70,7 +74,46 @@ interface Props<T extends { id: string }> {
   onRowsLoaded?: (rows: T[]) => void;
 }
 
-export function EntityListPage<T extends { id: string }>({ endpoint, title, columns, fields, searchPlaceholder, importExport, auditEntityType, rowExtraActions, filters, extraParams, rowFilter, pageIcon, subtitle, defaultSortBy, headerExtra, children, aboveList, onRowsLoaded }: Props<T>) {
+/**
+ * Exporter LA sélection — le geste métier : « ces 40 ouvrages critiques de Kindia »,
+ * en CSV pour le tableur (point-virgule, BOM : Excel francophone l'ouvre proprement),
+ * en GeoJSON pour le SIG. Ce qui est coché est ce qui part : les identifiants voyagent,
+ * jamais des filtres recréés.
+ */
+function ExportSelection({ table, ids, onDone }: { table: string; ids: string[]; onDone: () => void }) {
+  const [enCours, setEnCours] = useState<string | null>(null);
+
+  async function exporter(format: "csv" | "geojson") {
+    setEnCours(format);
+    try {
+      const res = await api.post(`/v2/export/selection`, { table, format, ids }, { responseType: "blob" });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `selection-${table}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      onDone();
+    } catch (err) {
+      toast.error(parseApiError(err).message);
+    } finally {
+      setEnCours(null);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <Button variant="secondary" size="sm" disabled={enCours !== null} onClick={() => { void exporter("csv"); }}>
+        ⬇ CSV ({ids.length})
+      </Button>
+      <Button variant="secondary" size="sm" disabled={enCours !== null} onClick={() => { void exporter("geojson"); }}>
+        ⬇ GeoJSON
+      </Button>
+    </div>
+  );
+}
+
+export function EntityListPage<T extends { id: string }>({ endpoint, title, columns, fields, searchPlaceholder, importExport, auditEntityType, exportTable, rowExtraActions, filters, extraParams, rowFilter, pageIcon, subtitle, defaultSortBy, headerExtra, children, aboveList, onRowsLoaded }: Props<T>) {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [page, setPage] = useState(1);
@@ -318,6 +361,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
       {selected.size > 0 && (
         <div className="flex items-center justify-between rounded-lg bg-navy/5 border border-navy/10 px-4 py-2">
           <span className="text-sm text-navy font-medium">{selected.size} élément(s) sélectionné(s)</span>
+          {exportTable && <ExportSelection table={exportTable} ids={Array.from(selected)} onDone={() => setSelected(new Set())} />}
           {archived ? (
             <Button variant="secondary" size="sm" onClick={handleBulkRestore} disabled={bulkRestore.isPending}>
               <RotateCcw className="h-3.5 w-3.5 mr-1" /> Restaurer
