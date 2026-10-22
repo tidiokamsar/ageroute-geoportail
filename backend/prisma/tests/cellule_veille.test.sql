@@ -1,8 +1,18 @@
 -- BANC D'ESSAI de la cellule de veille (paragraphe 7.17, EX-04).
 --
--- Ce qu'il prouve : rien n'est seme ; les bornes des astreintes et des regles ; une seule regle
--- active par cas ; le journal des escalades et celui des modes sont en ajout seul, a l'heure du
+-- Ce qu'il prouve : les bornes des astreintes et des regles ; une seule regle active par
+-- cas ; le journal des escalades et celui des modes sont en ajout seul, a l'heure du
 -- serveur, une escalade par (evenement, niveau).
+--
+-- CE QUE CE BANC N'ASSERT PLUS, ET POURQUOI (22/10) : « aucune regle ni astreinte semee ».
+-- Cette assertion etait vraie tant qu'aucun ecran ne savait creer de regle ; le
+-- deploiement du 21/10 a livre l'ecran de configuration, et une regle saisie par un
+-- gestionnaire d'AGEROUTE a fait echouer le banc sur la copie de PRODUCTION — des
+-- donnees legitimes ne doivent pas bloquer un deploiement. La non-semination par les
+-- migrations reste etablie ailleurs : aucune migration ne contient d'INSERT vers ces
+-- tables (verifiable par grep, et le banc sur base de rejeu vierge les trouve vides).
+-- Sur une base vivante, l'invariant VERIFIABLE est celui que l'index partiel impose :
+-- au plus UNE regle ACTIVE par (type, mode, niveau).
 --
 --   docker exec -i bdri-dev-db psql -U bdri_dev -d <base> -v ON_ERROR_STOP=1 -f - < backend/prisma/tests/cellule_veille.test.sql
 --
@@ -13,11 +23,12 @@ BEGIN;
 DO $t$
 DECLARE nb integer; ts timestamp;
 BEGIN
-  SELECT count(*) INTO nb FROM regles_escalade;
-  IF nb <> 0 THEN RAISE EXCEPTION 'Des regles d''escalade ont ete semees (%)', nb; END IF;
-  SELECT count(*) INTO nb FROM astreintes;
-  IF nb <> 0 THEN RAISE EXCEPTION 'Des astreintes ont ete semees (%)', nb; END IF;
-  RAISE NOTICE 'Aucune regle ni astreinte semee';
+  SELECT count(*) INTO nb FROM (
+    SELECT "typeCode", mode, niveau FROM regles_escalade WHERE actif
+    GROUP BY 1, 2, 3 HAVING count(*) > 1
+  ) d;
+  IF nb <> 0 THEN RAISE EXCEPTION '% regle(s) active(s) en doublon par (type, mode, niveau)', nb; END IF;
+  RAISE NOTICE 'Aucune regle active dupliquee ; astreintes et regles existantes respectent l''invariant';
 END;
 $t$;
 

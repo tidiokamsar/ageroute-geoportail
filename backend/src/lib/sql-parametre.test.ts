@@ -63,6 +63,14 @@ const AUTORISES: Readonly<Record<string, { raison: string; garde?: string }>> = 
       + "positionnels.",
     garde: "ALLOWED_TABLES",
   },
+  "api-v2/export.routes.ts": {
+    raison:
+      "le nom de TABLE est interpole parce qu'un identifiant SQL ne peut pas etre lie comme "
+      + "parametre — meme technique que lib/geo.ts. La table vient d'une liste blanche fermee "
+      + "(TABLES, refusee sinon avec TABLE_REFUSEE) ; les identifiants de la selection passent "
+      + "en parametre positionnel ($1::text[]).",
+    garde: "TABLES",
+  },
 };
 
 const RACINE = join(__dirname, "..");

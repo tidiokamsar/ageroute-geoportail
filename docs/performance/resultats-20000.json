@@ -1,0 +1,2543 @@
+{
+  "meta": {
+    "date": "2026-10-22T11:33:18.658Z",
+    "systeme": "Windows_NT 10.0.26300 x64",
+    "cpu": "Intel(R) Core(TM) i7-8650U CPU @ 1.90GHz x8",
+    "memoireGo": 15.8,
+    "node": "v24.18.1",
+    "docker": null,
+    "reglagesBase": {
+      "version": "PostgreSQL 17.5 (Debian 17.5-1.pgdg110+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 10.2.1-6) 10.2.1 20210110, 64-bit",
+      "postgis": "3.5.2"
+    },
+    "nombre": 20000,
+    "iterations": 200,
+    "echauffement": 20,
+    "graine": 20261023,
+    "empreinte": "4599f9ca01c01b4a232271244f710363494e304ac1bab711a1847bd036cb20d2",
+    "description": {
+      "classe": {
+        "troncons": 1772,
+        "kmTotal": 19415.1,
+        "longueurMoyenneM": 10957,
+        "longueurMaxM": 44811,
+        "pointsParTroncon": 25.2,
+        "pointsParKm": 2.3
+      },
+      "voirie": {
+        "troncons": 18228,
+        "kmTotal": 1831.9,
+        "longueurMoyenneM": 101,
+        "longueurMaxM": 211,
+        "pointsParTroncon": 2.5,
+        "pointsParKm": 24.8
+      }
+    },
+    "chargement": {
+      "regions": 8,
+      "troncons": 20000,
+      "ouvrages": 126,
+      "dureeChargementMs": 13506,
+      "dureeIndexAnalyseMs": 6155
+    },
+    "parametresDeviation": {
+      "distanceMaxM": 50000,
+      "toleranceFusionM": 5
+    },
+    "profils3G": {
+      "optimiste (Lighthouse mobileSlow4G, ex 'Fast 3G') : 1,6 Mbit/s, RTT 150 ms": {
+        "kbps": 1600,
+        "rttMs": 150
+      },
+      "pessimiste (Chrome DevTools '3G') : 400 kbit/s, RTT 400 ms": {
+        "kbps": 400,
+        "rttMs": 400
+      }
+    },
+    "rttAvantDonnees": 3
+  },
+  "phases": [
+    {
+      "libelle": "avant",
+      "chargeCpuPct": 100,
+      "mesures": [
+        {
+          "id": "rattachement.apparier.classe-5m.reference.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "apparier() seul, points classe-5m, reseau reference, sans emprise",
+          "resume": {
+            "n": 200,
+            "minMs": 24.93,
+            "p50Ms": 91.86,
+            "p95Ms": 182.98,
+            "p99Ms": 256.65,
+            "maxMs": 313.42,
+            "moyenneMs": 93.8
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "apparie": 194,
+              "non-apparie": 6
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 21
+            }
+          }
+        },
+        {
+          "id": "rattachement.terrain.classe-5m.reference.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "contexteTerrain() complet (rattachement + longueur + portions + actifs), points classe-5m",
+          "resume": {
+            "n": 200,
+            "minMs": 40.08,
+            "p50Ms": 83.97,
+            "p95Ms": 233.53,
+            "p99Ms": 303.75,
+            "maxMs": 454.91,
+            "moyenneMs": 105.18
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "apparie": 194,
+              "non-apparie": 6
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 23
+            }
+          }
+        },
+        {
+          "id": "rattachement.terrain.classe-5m.reference.http",
+          "famille": "rattachement",
+          "niveau": "http",
+          "description": "GET /api/v2/field/current-context, points classe-5m (chemin du terrain)",
+          "resume": {
+            "n": 200,
+            "minMs": 53.64,
+            "p50Ms": 122.28,
+            "p95Ms": 263.56,
+            "p99Ms": 470.72,
+            "maxMs": 485.59,
+            "moyenneMs": 142.1
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 31
+            }
+          }
+        },
+        {
+          "id": "rattachement.apparier.classe-15m.reference.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "apparier() seul, points classe-15m, reseau reference, sans emprise",
+          "resume": {
+            "n": 200,
+            "minMs": 26.2,
+            "p50Ms": 69.45,
+            "p95Ms": 216.48,
+            "p99Ms": 284.66,
+            "maxMs": 300.87,
+            "moyenneMs": 90.73
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "apparie": 193,
+              "non-apparie": 7
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 19
+            }
+          }
+        },
+        {
+          "id": "rattachement.terrain.classe-15m.reference.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "contexteTerrain() complet (rattachement + longueur + portions + actifs), points classe-15m",
+          "resume": {
+            "n": 200,
+            "minMs": 35.32,
+            "p50Ms": 98.15,
+            "p95Ms": 229.19,
+            "p99Ms": 319.86,
+            "maxMs": 348.89,
+            "moyenneMs": 113.27
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "apparie": 193,
+              "non-apparie": 7
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 25
+            }
+          }
+        },
+        {
+          "id": "rattachement.terrain.classe-15m.reference.http",
+          "famille": "rattachement",
+          "niveau": "http",
+          "description": "GET /api/v2/field/current-context, points classe-15m (chemin du terrain)",
+          "resume": {
+            "n": 200,
+            "minMs": 38.1,
+            "p50Ms": 127.39,
+            "p95Ms": 260.8,
+            "p99Ms": 377.25,
+            "maxMs": 387.17,
+            "moyenneMs": 144.68
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 32
+            }
+          }
+        },
+        {
+          "id": "rattachement.apparier.hors-route.reference.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "apparier() seul, points hors-route, reseau reference, sans emprise",
+          "resume": {
+            "n": 200,
+            "minMs": 27.59,
+            "p50Ms": 57.33,
+            "p95Ms": 128.21,
+            "p99Ms": 171.49,
+            "maxMs": 215.09,
+            "moyenneMs": 66.64
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "non-apparie": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 14
+            }
+          }
+        },
+        {
+          "id": "rattachement.terrain.hors-route.reference.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "contexteTerrain() complet (rattachement + longueur + portions + actifs), points hors-route",
+          "resume": {
+            "n": 200,
+            "minMs": 20.41,
+            "p50Ms": 46.45,
+            "p95Ms": 95.28,
+            "p99Ms": 128.85,
+            "maxMs": 197.71,
+            "moyenneMs": 51.88
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "non-apparie": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 11
+            }
+          }
+        },
+        {
+          "id": "rattachement.terrain.hors-route.reference.http",
+          "famille": "rattachement",
+          "niveau": "http",
+          "description": "GET /api/v2/field/current-context, points hors-route (chemin du terrain)",
+          "resume": {
+            "n": 200,
+            "minMs": 30.19,
+            "p50Ms": 86.55,
+            "p95Ms": 209.18,
+            "p99Ms": 265.11,
+            "maxMs": 319.97,
+            "moyenneMs": 99.83
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 21
+            }
+          }
+        },
+        {
+          "id": "rattachement.apparier.urbain-5m.tout.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "apparier() seul, points urbain-5m, reseau tout, sans emprise",
+          "resume": {
+            "n": 200,
+            "minMs": 110.05,
+            "p50Ms": 212.22,
+            "p95Ms": 400.85,
+            "p99Ms": 535.24,
+            "maxMs": 710.65,
+            "moyenneMs": 227.14
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "apparie": 180,
+              "non-apparie": 20
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 49
+            }
+          }
+        },
+        {
+          "id": "rattachement.terrain.urbain-5m.tout.http",
+          "famille": "rattachement",
+          "niveau": "http",
+          "description": "GET /api/v2/field/current-context, points urbain-5m, reseau=tout (chemin du terrain)",
+          "resume": {
+            "n": 200,
+            "minMs": 126.11,
+            "p50Ms": 318.85,
+            "p95Ms": 772.64,
+            "p99Ms": 1399.4,
+            "maxMs": 3910.86,
+            "moyenneMs": 385.7
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 83
+            }
+          }
+        },
+        {
+          "id": "rattachement.apparier.urbain-15m.tout.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "apparier() seul, points urbain-15m, reseau tout, sans emprise",
+          "resume": {
+            "n": 200,
+            "minMs": 114.79,
+            "p50Ms": 204.49,
+            "p95Ms": 346.82,
+            "p99Ms": 414.26,
+            "maxMs": 433.49,
+            "moyenneMs": 218.36
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "apparie": 162,
+              "non-apparie": 38
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 46
+            }
+          }
+        },
+        {
+          "id": "rattachement.terrain.urbain-15m.tout.http",
+          "famille": "rattachement",
+          "niveau": "http",
+          "description": "GET /api/v2/field/current-context, points urbain-15m, reseau=tout (chemin du terrain)",
+          "resume": {
+            "n": 200,
+            "minMs": 118.39,
+            "p50Ms": 320.32,
+            "p95Ms": 554.35,
+            "p99Ms": 645.55,
+            "maxMs": 1100.63,
+            "moyenneMs": 339.61
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 74
+            }
+          }
+        },
+        {
+          "id": "rattachement.apparier.classe-5m.reference.emprise10km.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "apparier() avec emprise de mission 10 km x 10 km, reseau reference",
+          "resume": {
+            "n": 200,
+            "minMs": 10.92,
+            "p50Ms": 37.9,
+            "p95Ms": 91.33,
+            "p99Ms": 136.4,
+            "maxMs": 171.56,
+            "moyenneMs": 44.01
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "apparie": 194,
+              "non-apparie": 6
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 9
+            }
+          }
+        },
+        {
+          "id": "rattachement.apparier.urbain-5m.tout.emprise4km.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "apparier() avec emprise de mission 4 km x 4 km, reseau tout",
+          "resume": {
+            "n": 200,
+            "minMs": 37.89,
+            "p50Ms": 95.78,
+            "p95Ms": 178.65,
+            "p99Ms": 213.23,
+            "maxMs": 246.08,
+            "moyenneMs": 102.98
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "apparie": 180,
+              "non-apparie": 20
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 21
+            }
+          }
+        },
+        {
+          "id": "rattachement.match.classe-5m.reference.http",
+          "famille": "rattachement",
+          "niveau": "http",
+          "description": "POST /api/v2/geo/match, points classe-5m",
+          "resume": {
+            "n": 200,
+            "minMs": 47.38,
+            "p50Ms": 128.46,
+            "p95Ms": 292.38,
+            "p99Ms": 543.66,
+            "maxMs": 647.39,
+            "moyenneMs": 144.29
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 31
+            }
+          }
+        },
+        {
+          "id": "rattachement.terrain.classe-5m.reference.http.concurrence10",
+          "famille": "rattachement",
+          "niveau": "http",
+          "description": "GET current-context, 10 clients simultanes, 400 requetes",
+          "resume": {
+            "n": 400,
+            "minMs": 68.29,
+            "p50Ms": 195.68,
+            "p95Ms": 767.84,
+            "p99Ms": 997.41,
+            "maxMs": 1211.82,
+            "moyenneMs": 281.85
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 400
+            },
+            "debitReqParS": 33.8,
+            "clients": 10
+          }
+        },
+        {
+          "id": "recherche.code-exact.http",
+          "famille": "recherche",
+          "niveau": "http",
+          "description": "GET /api/search?q=... (classe de requete code-exact), 5 types d entites",
+          "resume": {
+            "n": 200,
+            "minMs": 198.7,
+            "p50Ms": 464.56,
+            "p95Ms": 1050.36,
+            "p99Ms": 1350.65,
+            "maxMs": 5122.58,
+            "moyenneMs": 535.6
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 199,
+              "HTTP 500": 1
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 113
+            }
+          }
+        },
+        {
+          "id": "recherche.mot-de-nom.http",
+          "famille": "recherche",
+          "niveau": "http",
+          "description": "GET /api/search?q=... (classe de requete mot-de-nom), 5 types d entites",
+          "resume": {
+            "n": 200,
+            "minMs": 17.69,
+            "p50Ms": 289.17,
+            "p95Ms": 584.87,
+            "p99Ms": 983.21,
+            "maxMs": 1016.91,
+            "moyenneMs": 316.95
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 67
+            }
+          }
+        },
+        {
+          "id": "recherche.mot-frequent.http",
+          "famille": "recherche",
+          "niveau": "http",
+          "description": "GET /api/search?q=... (classe de requete mot-frequent), 5 types d entites",
+          "resume": {
+            "n": 200,
+            "minMs": 17.27,
+            "p50Ms": 104.74,
+            "p95Ms": 815.63,
+            "p99Ms": 1029.36,
+            "maxMs": 1550.09,
+            "moyenneMs": 227.4
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 49
+            }
+          }
+        },
+        {
+          "id": "recherche.absent.http",
+          "famille": "recherche",
+          "niveau": "http",
+          "description": "GET /api/search?q=... (classe de requete absent), 5 types d entites",
+          "resume": {
+            "n": 200,
+            "minMs": 199.77,
+            "p50Ms": 453.76,
+            "p95Ms": 858,
+            "p99Ms": 1308.11,
+            "maxMs": 1351.02,
+            "moyenneMs": 504.12
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 111
+            }
+          }
+        },
+        {
+          "id": "recherche.court-absent-2car.http",
+          "famille": "recherche",
+          "niveau": "http",
+          "description": "GET /api/search?q=... (classe de requete court-absent-2car), 5 types d entites -- INFORMATIF : motif de 2 caracteres sans resultat, hors de portee d un index trigramme",
+          "resume": {
+            "n": 200,
+            "minMs": 183.88,
+            "p50Ms": 377.76,
+            "p95Ms": 605.69,
+            "p99Ms": 845.73,
+            "maxMs": 1369.72,
+            "moyenneMs": 386.7
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "HTTP 200": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 85
+            }
+          }
+        },
+        {
+          "id": "recherche.absent.service",
+          "famille": "recherche",
+          "niveau": "service",
+          "description": "prisma.troncon.findMany (code ou nom contient, insensible a la casse, take 5), classe absent",
+          "resume": {
+            "n": 200,
+            "minMs": 164.14,
+            "p50Ms": 234.85,
+            "p95Ms": 366.67,
+            "p99Ms": 498.67,
+            "maxMs": 769.42,
+            "moyenneMs": 253.58
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "sans-resultat": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 54
+            }
+          }
+        },
+        {
+          "id": "recherche.mot-de-nom.service",
+          "famille": "recherche",
+          "niveau": "service",
+          "description": "prisma.troncon.findMany (code ou nom contient, insensible a la casse, take 5), classe mot-de-nom",
+          "resume": {
+            "n": 200,
+            "minMs": 10.13,
+            "p50Ms": 115.33,
+            "p95Ms": 359.74,
+            "p99Ms": 408.67,
+            "maxMs": 472.02,
+            "moyenneMs": 141.49
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "avec-resultat": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 31
+            }
+          }
+        },
+        {
+          "id": "trace.analyse.reference.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "analyserTrace() 60 points, reseau classe, sans graphe (informatif)",
+          "resume": {
+            "n": 200,
+            "minMs": 442.82,
+            "p50Ms": 1618.89,
+            "p95Ms": 2514.98,
+            "p99Ms": 2685.52,
+            "maxMs": 2854.28,
+            "moyenneMs": 1753.73
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "taux>=80%": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 364
+            }
+          }
+        },
+        {
+          "id": "trace.analyse.reference-graphe.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "analyserTrace() 60 points, reseau classe, avec graphe (tolerance 5 m, emprise de la trace + 2 km) (informatif)",
+          "resume": {
+            "n": 200,
+            "minMs": 454.57,
+            "p50Ms": 1796.58,
+            "p95Ms": 2778.93,
+            "p99Ms": 3021.08,
+            "maxMs": 4260.27,
+            "moyenneMs": 1939.83
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "taux>=80%": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 405
+            }
+          }
+        },
+        {
+          "id": "graphe.construction.indexee.service",
+          "famille": "graphe",
+          "niveau": "service",
+          "description": "construireGraphe() actuel (index spatial des extremites), 12 emprises de 50 km (informatif)",
+          "resume": {
+            "n": 12,
+            "minMs": 1.84,
+            "p50Ms": 6.66,
+            "p95Ms": 35.87,
+            "p99Ms": 35.87,
+            "maxMs": 35.87,
+            "moyenneMs": 10.68
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "tronconsParEmpriseMedian": 65,
+            "tronconsParEmpriseMax": 216
+          }
+        },
+        {
+          "id": "graphe.construction.origine.service",
+          "famille": "graphe",
+          "niveau": "service",
+          "description": "construction d'ORIGINE (commit 2943e22), memes entrees, 12 emprises de 50 km (informatif)",
+          "resume": {
+            "n": 12,
+            "minMs": 1.76,
+            "p50Ms": 6.74,
+            "p95Ms": 71.74,
+            "p99Ms": 71.74,
+            "maxMs": 71.74,
+            "moyenneMs": 16.45
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "tronconsParEmpriseMedian": 65,
+            "tronconsParEmpriseMax": 216
+          }
+        },
+        {
+          "id": "graphe.requete-sql.service",
+          "famille": "graphe",
+          "niveau": "service",
+          "description": "requete SQL de chargement du graphe seule (troncons de l'emprise, ST_AsGeoJSON), sans construction",
+          "resume": {
+            "n": 200,
+            "minMs": 32.22,
+            "p50Ms": 114.92,
+            "p95Ms": 239.95,
+            "p99Ms": 754.82,
+            "maxMs": 925,
+            "moyenneMs": 134.83
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "sous-plafond": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 27
+            },
+            "tronconsChargesMedian": 164,
+            "tronconsChargesMax": 6347
+          }
+        },
+        {
+          "id": "graphe.chargement.service",
+          "famille": "graphe",
+          "niveau": "service",
+          "description": "chargerGraphe() complet : requete + JSON.parse + construction du graphe (tolerance 5 m), emprise distanceMax/2 = 25 km",
+          "resume": {
+            "n": 200,
+            "minMs": 36.61,
+            "p50Ms": 111.5,
+            "p95Ms": 294.83,
+            "p99Ms": 859.31,
+            "maxMs": 1761.48,
+            "moyenneMs": 148.71
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "charge": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 28
+            },
+            "noeudsMedian": 125
+          }
+        },
+        {
+          "id": "deviation.calcul.service",
+          "famille": "deviation",
+          "niveau": "service",
+          "description": "calculerDeviation() : coupure de 500 m au milieu d'un troncon classe, distanceMax 50 km, tolerance 5 m (charge + Dijkstra + geometrie)",
+          "resume": {
+            "n": 200,
+            "minMs": 50.9,
+            "p50Ms": 140.47,
+            "p95Ms": 330.42,
+            "p99Ms": 760.17,
+            "maxMs": 1756.71,
+            "moyenneMs": 174.97
+          },
+          "seuilP95Ms": 2000,
+          "extra": {
+            "notes": {
+              "deviation-trouvee": 34,
+              "refus AUCUNE_DEVIATION": 166
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 34
+            }
+          }
+        },
+        {
+          "id": "deviation.calcul.http",
+          "famille": "deviation",
+          "niveau": "http",
+          "description": "POST /api/v2/geo/deviation, memes parametres (authentification + module geoportail + JSON + gzip)",
+          "resume": {
+            "n": 200,
+            "minMs": 66.14,
+            "p50Ms": 144.87,
+            "p95Ms": 358.54,
+            "p99Ms": 803.63,
+            "maxMs": 1724.24,
+            "moyenneMs": 178.69
+          },
+          "seuilP95Ms": 2000,
+          "extra": {
+            "notes": {
+              "HTTP 200": 34,
+              "HTTP 422 AUCUNE_DEVIATION": 166
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 35
+            }
+          }
+        },
+        {
+          "id": "deviation.calcul-100km.service",
+          "famille": "deviation",
+          "niveau": "service",
+          "description": "calculerDeviation(), meme coupure, distanceMax 100 km (informatif)",
+          "resume": {
+            "n": 20,
+            "minMs": 63.58,
+            "p50Ms": 208.58,
+            "p95Ms": 358.46,
+            "p99Ms": 388.54,
+            "maxMs": 388.54,
+            "moyenneMs": 225.27
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "deviation-trouvee": 15,
+              "refus AUCUNE_DEVIATION": 5
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 4
+            }
+          }
+        },
+        {
+          "id": "carte-publique.zoom7.http",
+          "famille": "carte",
+          "niveau": "http",
+          "description": "GET /api/public/carte/geo?zoom=7 (temps serveur + JSON + gzip, sans rendu)",
+          "resume": {
+            "n": 200,
+            "minMs": 452.23,
+            "p50Ms": 726.05,
+            "p95Ms": 911.38,
+            "p99Ms": 993.99,
+            "maxMs": 1342.1,
+            "moyenneMs": 704.42
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "HTTP 200 gzip": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 147
+            },
+            "octets": {
+              "zoom": 7,
+              "octetsGzip": 88635,
+              "octetsBruts": 559209,
+              "troncons": 1772
+            }
+          }
+        },
+        {
+          "id": "carte-publique.zoom11.http",
+          "famille": "carte",
+          "niveau": "http",
+          "description": "GET /api/public/carte/geo?zoom=11 (temps serveur + JSON + gzip, sans rendu)",
+          "resume": {
+            "n": 200,
+            "minMs": 540.01,
+            "p50Ms": 868.8,
+            "p95Ms": 1168.37,
+            "p99Ms": 1252.62,
+            "maxMs": 2134.03,
+            "moyenneMs": 884.23
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "HTTP 200 gzip": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 185
+            },
+            "octets": {
+              "zoom": 11,
+              "octetsGzip": 151181,
+              "octetsBruts": 731168,
+              "troncons": 1772
+            }
+          }
+        },
+        {
+          "id": "carte-publique.zoom14.http",
+          "famille": "carte",
+          "niveau": "http",
+          "description": "GET /api/public/carte/geo?zoom=14 (temps serveur + JSON + gzip, sans rendu)",
+          "resume": {
+            "n": 200,
+            "minMs": 618.47,
+            "p50Ms": 932.33,
+            "p95Ms": 1325.87,
+            "p99Ms": 1473.96,
+            "maxMs": 1488.45,
+            "moyenneMs": 973.34
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "HTTP 200 gzip": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 100,
+              "maxPct": 100,
+              "echantillons": 203
+            },
+            "octets": {
+              "zoom": 14,
+              "octetsGzip": 292754,
+              "octetsBruts": 1115014,
+              "troncons": 1772
+            }
+          }
+        },
+        {
+          "id": "carte-publique.zoom16.http",
+          "famille": "carte",
+          "niveau": "http",
+          "description": "GET /api/public/carte/geo?zoom=16 (temps serveur + JSON + gzip, sans rendu)",
+          "resume": {
+            "n": 200,
+            "minMs": 231.22,
+            "p50Ms": 365.34,
+            "p95Ms": 570.65,
+            "p99Ms": 698.45,
+            "maxMs": 1140.69,
+            "moyenneMs": 387.94
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "HTTP 200 gzip": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 98,
+              "maxPct": 100,
+              "echantillons": 81
+            },
+            "octets": {
+              "zoom": 16,
+              "octetsGzip": 392801,
+              "octetsBruts": 1405478,
+              "troncons": 1772
+            }
+          }
+        },
+        {
+          "id": "carte-publique.zoom7.service",
+          "famille": "carte",
+          "niveau": "service",
+          "description": "carteGeoHandler (zoom 7) : 5 requetes SQL + assemblage, sans serialisation ni compression",
+          "resume": {
+            "n": 200,
+            "minMs": 179.41,
+            "p50Ms": 345.88,
+            "p95Ms": 661.75,
+            "p99Ms": 777.38,
+            "maxMs": 842.2,
+            "moyenneMs": 376.82
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "ok": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 93,
+              "maxPct": 100,
+              "echantillons": 78
+            }
+          }
+        },
+        {
+          "id": "geoportail.troncons-geo.http",
+          "famille": "carte",
+          "niveau": "http",
+          "description": "GET /api/troncons/geo (couche reseau du geoportail connecte, non simplifiee)",
+          "resume": {
+            "n": 200,
+            "minMs": 199.35,
+            "p50Ms": 289.23,
+            "p95Ms": 459.11,
+            "p99Ms": 505.01,
+            "maxMs": 540.96,
+            "moyenneMs": 309.44
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "HTTP 200 gzip": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 88,
+              "maxPct": 100,
+              "echantillons": 64
+            },
+            "octets": {
+              "octetsGzip": 390886,
+              "octetsBruts": 1496088,
+              "troncons": 1772
+            }
+          }
+        }
+      ],
+      "octetsCarte": [
+        {
+          "zoom": 7,
+          "octetsGzip": 88635,
+          "octetsBruts": 559209,
+          "troncons": 1772
+        },
+        {
+          "zoom": 11,
+          "octetsGzip": 151181,
+          "octetsBruts": 731168,
+          "troncons": 1772
+        },
+        {
+          "zoom": 14,
+          "octetsGzip": 292754,
+          "octetsBruts": 1115014,
+          "troncons": 1772
+        },
+        {
+          "zoom": 16,
+          "octetsGzip": 392801,
+          "octetsBruts": 1405478,
+          "troncons": 1772
+        }
+      ],
+      "geoportail": {
+        "octetsGzip": 390886,
+        "octetsBruts": 1496088,
+        "troncons": 1772
+      },
+      "froid": [
+        {
+          "connexionMs": 168.8431,
+          "appels": {
+            "rattachement.terrain.http": 1021.7693,
+            "rattachement.terrain.http.2e-appel": 1582.3694,
+            "recherche.code-exact.http": 1652.9708,
+            "carte-publique.zoom7.http": 1279.6769,
+            "deviation.http": 4499.0008
+          }
+        },
+        {
+          "connexionMs": 311.7781,
+          "appels": {
+            "rattachement.terrain.http": 1166.933,
+            "rattachement.terrain.http.2e-appel": 178.7388,
+            "recherche.code-exact.http": 920.6937,
+            "carte-publique.zoom7.http": 1053.1463,
+            "deviation.http": 2110.5965
+          }
+        },
+        {
+          "connexionMs": 1154.0132,
+          "appels": {
+            "rattachement.terrain.http": 2696.3531,
+            "rattachement.terrain.http.2e-appel": 178.7584,
+            "recherche.code-exact.http": 5129.5733,
+            "carte-publique.zoom7.http": 4284.5774,
+            "deviation.http": 1563.2133
+          }
+        },
+        {
+          "connexionMs": 276.9004,
+          "appels": {
+            "rattachement.terrain.http": 1507.1387,
+            "rattachement.terrain.http.2e-appel": 551.7255,
+            "recherche.code-exact.http": 1305.938,
+            "carte-publique.zoom7.http": 1264.0728,
+            "deviation.http": 1295.5229
+          }
+        },
+        {
+          "connexionMs": 644.2188,
+          "appels": {
+            "rattachement.terrain.http": 1631.9719,
+            "rattachement.terrain.http.2e-appel": 697.4931,
+            "recherche.code-exact.http": 1191.0448,
+            "carte-publique.zoom7.http": 2212.7643,
+            "deviation.http": 1791.0866
+          }
+        },
+        {
+          "connexionMs": 266.5443,
+          "appels": {
+            "rattachement.terrain.http": 777.5085,
+            "rattachement.terrain.http.2e-appel": 228.558,
+            "recherche.code-exact.http": 1523.0068,
+            "carte-publique.zoom7.http": 1101.8541,
+            "deviation.http": 1543.5405
+          }
+        },
+        {
+          "connexionMs": 485.2794,
+          "appels": {
+            "rattachement.terrain.http": 952.8427,
+            "rattachement.terrain.http.2e-appel": 429.6299,
+            "recherche.code-exact.http": 814.6909,
+            "carte-publique.zoom7.http": 1233.9264,
+            "deviation.http": 1251.7857
+          }
+        },
+        {
+          "connexionMs": 264.7201,
+          "appels": {
+            "rattachement.terrain.http": 566.8734,
+            "rattachement.terrain.http.2e-appel": 269.9268,
+            "recherche.code-exact.http": 679.9541,
+            "carte-publique.zoom7.http": 761.3906,
+            "deviation.http": 816.216
+          }
+        }
+      ],
+      "plans": {
+        "candidats.reference.sans-emprise": "Limit  (cost=740.86..812.85 rows=5 width=127) (actual time=19.891..20.858 rows=5 loops=1)\n  Buffers: shared hit=133\n  ->  Result  (cost=740.86..870.44 rows=9 width=127) (actual time=19.888..20.851 rows=5 loops=1)\n        Buffers: shared hit=133\n        ->  Sort  (cost=740.86..740.88 rows=9 width=199) (actual time=19.660..19.664 rows=5 loops=1)\n              Sort Key: ((geom <-> '0101000020E61000001F65C405A05926C06D904946CEDA2440'::geometry))\n              Sort Method: top-N heapsort  Memory: 32kB\n              Buffers: shared hit=133\n              ->  Bitmap Heap Scan on troncons t  (cost=37.57..740.72 rows=9 width=199) (actual time=0.282..15.676 rows=1772 loops=1)\n                    Recheck Cond: ((\"deletedAt\" IS NULL) AND ((\"sourceReference\" IS NULL) OR (\"sourceReference\" !~~ 'voirie_locale:%'::text)))\n                    Filter: ((geom IS NOT NULL) AND ((\"sourceReference\" IS NULL) OR ((\"sourceReference\" !~~ 'voirie_locale:%'::text) AND (\"sourceReference\" !~~ 'hors_territoire:%'::text))) AND (st_geometrytype(geom) = 'ST_LineString'::text))\n                    Heap Blocks: exact=129\n                    Buffers: shared hit=133\n                    ->  Bitmap Index Scan on troncons_reseau_reference_idx  (cost=0.00..37.57 rows=1774 width=0) (actual time=0.202..0.203 rows=1812 loops=1)\n                          Index Cond: (\"deletedAt\" IS NULL)\n                          Buffers: shared hit=4\nPlanning:\n  Buffers: shared hit=1\nPlanning Time: 0.825 ms\nExecution Time: 20.959 ms",
+        "candidats.tout.sans-emprise": "Limit  (cost=1026.66..1098.65 rows=5 width=127) (actual time=158.478..158.568 rows=5 loops=1)\n  Buffers: shared hit=662\n  ->  Result  (cost=1026.66..2466.41 rows=100 width=127) (actual time=158.476..158.564 rows=5 loops=1)\n        Buffers: shared hit=662\n        ->  Sort  (cost=1026.66..1026.91 rows=100 width=199) (actual time=158.423..158.426 rows=5 loops=1)\n              Sort Key: ((geom <-> '0101000020E61000001E335019FF9629C07369FCC22B112340'::geometry))\n              Sort Method: top-N heapsort  Memory: 28kB\n              Buffers: shared hit=662\n              ->  Seq Scan on troncons t  (cost=0.00..1025.00 rows=100 width=199) (actual time=0.028..106.064 rows=20000 loops=1)\n                    Filter: ((\"deletedAt\" IS NULL) AND (geom IS NOT NULL) AND (st_geometrytype(geom) = 'ST_LineString'::text))\n                    Buffers: shared hit=662\nPlanning:\n  Buffers: shared hit=1\nPlanning Time: 0.301 ms\nExecution Time: 158.628 ms",
+        "candidats.tout.emprise-4km": "Limit  (cost=1012.64..1027.04 rows=1 width=127) (actual time=21.664..21.847 rows=5 loops=1)\n  Buffers: shared hit=662\n  ->  Result  (cost=1012.64..1027.04 rows=1 width=127) (actual time=21.661..21.842 rows=5 loops=1)\n        Buffers: shared hit=662\n        ->  Sort  (cost=1012.64..1012.64 rows=1 width=199) (actual time=21.606..21.609 rows=5 loops=1)\n              Sort Key: ((geom <-> '0101000020E61000001E335019FF9629C07369FCC22B112340'::geometry))\n              Sort Method: top-N heapsort  Memory: 28kB\n              Buffers: shared hit=662\n              ->  Seq Scan on troncons t  (cost=0.00..1012.63 rows=1 width=199) (actual time=0.108..21.554 rows=32 loops=1)\n                    Filter: ((\"deletedAt\" IS NULL) AND (geom IS NOT NULL) AND (geom && '0103000020E61000000100000005000000FFCA4A9352A029C0F29881CAF80723403D9B559FAB8D29C0F29881CAF80723403D9B559FAB8D29C0EE7C3F355E1A2340FFCA4A9352A029C0EE7C3F355E1A2340FFCA4A9352A029C0F29881CAF8072340'::geometry) AND (st_geometrytype(geom) = 'ST_LineString'::text))\n                    Rows Removed by Filter: 19968\n                    Buffers: shared hit=662\nPlanning:\n  Buffers: shared hit=1\nPlanning Time: 0.564 ms\nExecution Time: 21.925 ms",
+        "graphe.chargement-emprise-50km": "Limit  (cost=0.00..1008.44 rows=77 width=50) (actual time=0.303..24.746 rows=84 loops=1)\n  Buffers: shared hit=662\n  ->  Seq Scan on troncons t  (cost=0.00..1008.44 rows=77 width=50) (actual time=0.300..24.712 rows=84 loops=1)\n        Filter: ((\"deletedAt\" IS NULL) AND (geom IS NOT NULL) AND (geom && '0103000020E6100000010000000500000050D95A828B7927C026EDA24C9C71244050D95A828B7927C06EF4FA030589254039E7C2F5588B26C06EF4FA030589254039E7C2F5588B26C026EDA24C9C71244050D95A828B7927C026EDA24C9C712440'::geometry))\n        Rows Removed by Filter: 19916\n        Buffers: shared hit=662\nPlanning:\n  Buffers: shared hit=1\nPlanning Time: 1.041 ms\nExecution Time: 24.809 ms",
+        "recherche.absent": "Limit  (cost=0.00..962.00 rows=4 width=47) (actual time=150.433..150.437 rows=0 loops=1)\n  Buffers: shared hit=662\n  ->  Seq Scan on troncons t  (cost=0.00..962.00 rows=4 width=47) (actual time=150.431..150.432 rows=0 loops=1)\n        Filter: ((\"deletedAt\" IS NULL) AND ((code ~~* '%zqplmk%'::text) OR (nom ~~* '%zqplmk%'::text)))\n        Rows Removed by Filter: 20000\n        Buffers: shared hit=662\nPlanning:\n  Buffers: shared hit=1\nPlanning Time: 1.203 ms\nExecution Time: 150.475 ms",
+        "recherche.mot-de-nom": "Limit  (cost=0.00..962.00 rows=4 width=47) (actual time=0.638..5.685 rows=5 loops=1)\n  Buffers: shared hit=88\n  ->  Seq Scan on troncons t  (cost=0.00..962.00 rows=4 width=47) (actual time=0.636..5.679 rows=5 loops=1)\n        Filter: ((\"deletedAt\" IS NULL) AND ((code ~~* '%dikewa%'::text) OR (nom ~~* '%dikewa%'::text)))\n        Rows Removed by Filter: 1214\n        Buffers: shared hit=88\nPlanning:\n  Buffers: shared hit=1\nPlanning Time: 0.531 ms\nExecution Time: 5.715 ms"
+      },
+      "migrationsAppliquees": [],
+      "froidResume": {
+        "connexionMs": {
+          "n": 8,
+          "minMs": 168.84,
+          "p50Ms": 276.9,
+          "p95Ms": 1154.01,
+          "p99Ms": 1154.01,
+          "maxMs": 1154.01,
+          "moyenneMs": 446.54
+        },
+        "rattachement.terrain.http": {
+          "n": 8,
+          "minMs": 566.87,
+          "p50Ms": 1021.77,
+          "p95Ms": 2696.35,
+          "p99Ms": 2696.35,
+          "maxMs": 2696.35,
+          "moyenneMs": 1290.17
+        },
+        "rattachement.terrain.http.2e-appel": {
+          "n": 8,
+          "minMs": 178.74,
+          "p50Ms": 269.93,
+          "p95Ms": 1582.37,
+          "p99Ms": 1582.37,
+          "maxMs": 1582.37,
+          "moyenneMs": 514.65
+        },
+        "recherche.code-exact.http": {
+          "n": 8,
+          "minMs": 679.95,
+          "p50Ms": 1191.04,
+          "p95Ms": 5129.57,
+          "p99Ms": 5129.57,
+          "maxMs": 5129.57,
+          "moyenneMs": 1652.23
+        },
+        "carte-publique.zoom7.http": {
+          "n": 8,
+          "minMs": 761.39,
+          "p50Ms": 1233.93,
+          "p95Ms": 4284.58,
+          "p99Ms": 4284.58,
+          "maxMs": 4284.58,
+          "moyenneMs": 1648.93
+        },
+        "deviation.http": {
+          "n": 8,
+          "minMs": 816.22,
+          "p50Ms": 1543.54,
+          "p95Ms": 4499,
+          "p99Ms": 4499,
+          "maxMs": 4499,
+          "moyenneMs": 1858.87
+        }
+      }
+    },
+    {
+      "libelle": "apres",
+      "chargeCpuPct": 68,
+      "mesures": [
+        {
+          "id": "rattachement.apparier.classe-5m.reference.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "apparier() seul, points classe-5m, reseau reference, sans emprise",
+          "resume": {
+            "n": 200,
+            "minMs": 7.74,
+            "p50Ms": 17.08,
+            "p95Ms": 57.15,
+            "p99Ms": 77.83,
+            "maxMs": 84.27,
+            "moyenneMs": 23.85
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "apparie": 194,
+              "non-apparie": 6
+            },
+            "chargeMachine": {
+              "moyennePct": 90,
+              "maxPct": 100,
+              "echantillons": 5
+            }
+          }
+        },
+        {
+          "id": "rattachement.terrain.classe-5m.reference.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "contexteTerrain() complet (rattachement + longueur + portions + actifs), points classe-5m",
+          "resume": {
+            "n": 200,
+            "minMs": 9.13,
+            "p50Ms": 18.13,
+            "p95Ms": 44.21,
+            "p99Ms": 62.61,
+            "maxMs": 97.65,
+            "moyenneMs": 22.12
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "apparie": 194,
+              "non-apparie": 6
+            },
+            "chargeMachine": {
+              "moyennePct": 83,
+              "maxPct": 100,
+              "echantillons": 5
+            }
+          }
+        },
+        {
+          "id": "rattachement.terrain.classe-5m.reference.http",
+          "famille": "rattachement",
+          "niveau": "http",
+          "description": "GET /api/v2/field/current-context, points classe-5m (chemin du terrain)",
+          "resume": {
+            "n": 200,
+            "minMs": 14.78,
+            "p50Ms": 27.72,
+            "p95Ms": 64.01,
+            "p99Ms": 136.57,
+            "maxMs": 155.59,
+            "moyenneMs": 33.24
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 89,
+              "maxPct": 100,
+              "echantillons": 8
+            }
+          }
+        },
+        {
+          "id": "rattachement.apparier.classe-15m.reference.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "apparier() seul, points classe-15m, reseau reference, sans emprise",
+          "resume": {
+            "n": 200,
+            "minMs": 7.79,
+            "p50Ms": 14.42,
+            "p95Ms": 41.92,
+            "p99Ms": 47.94,
+            "maxMs": 61.23,
+            "moyenneMs": 19.54
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "apparie": 193,
+              "non-apparie": 7
+            },
+            "chargeMachine": {
+              "moyennePct": 85,
+              "maxPct": 100,
+              "echantillons": 4
+            }
+          }
+        },
+        {
+          "id": "rattachement.terrain.classe-15m.reference.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "contexteTerrain() complet (rattachement + longueur + portions + actifs), points classe-15m",
+          "resume": {
+            "n": 200,
+            "minMs": 8.46,
+            "p50Ms": 14.52,
+            "p95Ms": 23.59,
+            "p99Ms": 33.81,
+            "maxMs": 37.35,
+            "moyenneMs": 15.87
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "apparie": 193,
+              "non-apparie": 7
+            },
+            "chargeMachine": {
+              "moyennePct": 68,
+              "maxPct": 79,
+              "echantillons": 3
+            }
+          }
+        },
+        {
+          "id": "rattachement.terrain.classe-15m.reference.http",
+          "famille": "rattachement",
+          "niveau": "http",
+          "description": "GET /api/v2/field/current-context, points classe-15m (chemin du terrain)",
+          "resume": {
+            "n": 200,
+            "minMs": 15.21,
+            "p50Ms": 26.82,
+            "p95Ms": 89.86,
+            "p99Ms": 149.07,
+            "maxMs": 172.38,
+            "moyenneMs": 36.83
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 85,
+              "maxPct": 100,
+              "echantillons": 7
+            }
+          }
+        },
+        {
+          "id": "rattachement.apparier.hors-route.reference.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "apparier() seul, points hors-route, reseau reference, sans emprise",
+          "resume": {
+            "n": 200,
+            "minMs": 7.99,
+            "p50Ms": 10.59,
+            "p95Ms": 21,
+            "p99Ms": 24,
+            "maxMs": 29.28,
+            "moyenneMs": 12.44
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "non-apparie": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 59,
+              "maxPct": 60,
+              "echantillons": 2
+            }
+          }
+        },
+        {
+          "id": "rattachement.terrain.hors-route.reference.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "contexteTerrain() complet (rattachement + longueur + portions + actifs), points hors-route",
+          "resume": {
+            "n": 200,
+            "minMs": 7.68,
+            "p50Ms": 9.9,
+            "p95Ms": 17.15,
+            "p99Ms": 22.39,
+            "maxMs": 28.19,
+            "moyenneMs": 11.1
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "non-apparie": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 55,
+              "maxPct": 64,
+              "echantillons": 2
+            }
+          }
+        },
+        {
+          "id": "rattachement.terrain.hors-route.reference.http",
+          "famille": "rattachement",
+          "niveau": "http",
+          "description": "GET /api/v2/field/current-context, points hors-route (chemin du terrain)",
+          "resume": {
+            "n": 200,
+            "minMs": 13.82,
+            "p50Ms": 18.48,
+            "p95Ms": 53.76,
+            "p99Ms": 82.39,
+            "maxMs": 107.95,
+            "moyenneMs": 24.05
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 74,
+              "maxPct": 85,
+              "echantillons": 5
+            }
+          }
+        },
+        {
+          "id": "rattachement.apparier.urbain-5m.tout.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "apparier() seul, points urbain-5m, reseau tout, sans emprise",
+          "resume": {
+            "n": 200,
+            "minMs": 2.67,
+            "p50Ms": 3.4,
+            "p95Ms": 5.21,
+            "p99Ms": 6.17,
+            "maxMs": 6.84,
+            "moyenneMs": 3.6
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "apparie": 180,
+              "non-apparie": 20
+            },
+            "chargeMachine": {
+              "moyennePct": -1,
+              "maxPct": -1,
+              "echantillons": 0
+            }
+          }
+        },
+        {
+          "id": "rattachement.terrain.urbain-5m.tout.http",
+          "famille": "rattachement",
+          "niveau": "http",
+          "description": "GET /api/v2/field/current-context, points urbain-5m, reseau=tout (chemin du terrain)",
+          "resume": {
+            "n": 200,
+            "minMs": 7.9,
+            "p50Ms": 13.25,
+            "p95Ms": 17.14,
+            "p99Ms": 20.24,
+            "maxMs": 29.74,
+            "moyenneMs": 13.5
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 65,
+              "maxPct": 72,
+              "echantillons": 2
+            }
+          }
+        },
+        {
+          "id": "rattachement.apparier.urbain-15m.tout.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "apparier() seul, points urbain-15m, reseau tout, sans emprise",
+          "resume": {
+            "n": 200,
+            "minMs": 2.38,
+            "p50Ms": 3.68,
+            "p95Ms": 4.67,
+            "p99Ms": 5.52,
+            "maxMs": 7.12,
+            "moyenneMs": 3.71
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "apparie": 162,
+              "non-apparie": 38
+            },
+            "chargeMachine": {
+              "moyennePct": -1,
+              "maxPct": -1,
+              "echantillons": 0
+            }
+          }
+        },
+        {
+          "id": "rattachement.terrain.urbain-15m.tout.http",
+          "famille": "rattachement",
+          "niveau": "http",
+          "description": "GET /api/v2/field/current-context, points urbain-15m, reseau=tout (chemin du terrain)",
+          "resume": {
+            "n": 200,
+            "minMs": 8.63,
+            "p50Ms": 19.03,
+            "p95Ms": 38.54,
+            "p99Ms": 61.27,
+            "maxMs": 97.84,
+            "moyenneMs": 21.51
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 90,
+              "maxPct": 99,
+              "echantillons": 4
+            }
+          }
+        },
+        {
+          "id": "rattachement.apparier.classe-5m.reference.emprise10km.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "apparier() avec emprise de mission 10 km x 10 km, reseau reference",
+          "resume": {
+            "n": 200,
+            "minMs": 2.67,
+            "p50Ms": 4.53,
+            "p95Ms": 10.16,
+            "p99Ms": 14.25,
+            "maxMs": 17.08,
+            "moyenneMs": 5.11
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "apparie": 194,
+              "non-apparie": 6
+            },
+            "chargeMachine": {
+              "moyennePct": 84,
+              "maxPct": 84,
+              "echantillons": 1
+            }
+          }
+        },
+        {
+          "id": "rattachement.apparier.urbain-5m.tout.emprise4km.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "apparier() avec emprise de mission 4 km x 4 km, reseau tout",
+          "resume": {
+            "n": 200,
+            "minMs": 2.59,
+            "p50Ms": 3.62,
+            "p95Ms": 4.57,
+            "p99Ms": 5.12,
+            "maxMs": 6.14,
+            "moyenneMs": 3.65
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "apparie": 180,
+              "non-apparie": 20
+            },
+            "chargeMachine": {
+              "moyennePct": -1,
+              "maxPct": -1,
+              "echantillons": 0
+            }
+          }
+        },
+        {
+          "id": "rattachement.match.classe-5m.reference.http",
+          "famille": "rattachement",
+          "niveau": "http",
+          "description": "POST /api/v2/geo/match, points classe-5m",
+          "resume": {
+            "n": 200,
+            "minMs": 12.34,
+            "p50Ms": 17.85,
+            "p95Ms": 31.58,
+            "p99Ms": 87.31,
+            "maxMs": 128.37,
+            "moyenneMs": 21.03
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 66,
+              "maxPct": 75,
+              "echantillons": 4
+            }
+          }
+        },
+        {
+          "id": "rattachement.terrain.classe-5m.reference.http.concurrence10",
+          "famille": "rattachement",
+          "niveau": "http",
+          "description": "GET current-context, 10 clients simultanes, 400 requetes",
+          "resume": {
+            "n": 400,
+            "minMs": 25.54,
+            "p50Ms": 111.99,
+            "p95Ms": 215.29,
+            "p99Ms": 576.3,
+            "maxMs": 703.84,
+            "moyenneMs": 131.74
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 400
+            },
+            "debitReqParS": 75.2,
+            "clients": 10
+          }
+        },
+        {
+          "id": "recherche.code-exact.http",
+          "famille": "recherche",
+          "niveau": "http",
+          "description": "GET /api/search?q=... (classe de requete code-exact), 5 types d entites",
+          "resume": {
+            "n": 200,
+            "minMs": 11.68,
+            "p50Ms": 17.62,
+            "p95Ms": 34.34,
+            "p99Ms": 74.03,
+            "maxMs": 106.88,
+            "moyenneMs": 20.89
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 89,
+              "maxPct": 97,
+              "echantillons": 4
+            }
+          }
+        },
+        {
+          "id": "recherche.mot-de-nom.http",
+          "famille": "recherche",
+          "niveau": "http",
+          "description": "GET /api/search?q=... (classe de requete mot-de-nom), 5 types d entites",
+          "resume": {
+            "n": 200,
+            "minMs": 12.35,
+            "p50Ms": 30.25,
+            "p95Ms": 166.45,
+            "p99Ms": 230.26,
+            "maxMs": 304.96,
+            "moyenneMs": 50.09
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 99,
+              "maxPct": 100,
+              "echantillons": 11
+            }
+          }
+        },
+        {
+          "id": "recherche.mot-frequent.http",
+          "famille": "recherche",
+          "niveau": "http",
+          "description": "GET /api/search?q=... (classe de requete mot-frequent), 5 types d entites",
+          "resume": {
+            "n": 200,
+            "minMs": 9.88,
+            "p50Ms": 12.38,
+            "p95Ms": 22.1,
+            "p99Ms": 31.34,
+            "maxMs": 33.96,
+            "moyenneMs": 13.72
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 78,
+              "maxPct": 84,
+              "echantillons": 2
+            }
+          }
+        },
+        {
+          "id": "recherche.absent.http",
+          "famille": "recherche",
+          "niveau": "http",
+          "description": "GET /api/search?q=... (classe de requete absent), 5 types d entites",
+          "resume": {
+            "n": 200,
+            "minMs": 9.35,
+            "p50Ms": 12.55,
+            "p95Ms": 16.25,
+            "p99Ms": 17.66,
+            "maxMs": 22.49,
+            "moyenneMs": 12.98
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "HTTP 200": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 76,
+              "maxPct": 76,
+              "echantillons": 2
+            }
+          }
+        },
+        {
+          "id": "recherche.court-absent-2car.http",
+          "famille": "recherche",
+          "niveau": "http",
+          "description": "GET /api/search?q=... (classe de requete court-absent-2car), 5 types d entites -- INFORMATIF : motif de 2 caracteres sans resultat, hors de portee d un index trigramme",
+          "resume": {
+            "n": 200,
+            "minMs": 52.81,
+            "p50Ms": 136.36,
+            "p95Ms": 318.9,
+            "p99Ms": 363.48,
+            "maxMs": 393.2,
+            "moyenneMs": 149.92
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "HTTP 200": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 89,
+              "maxPct": 100,
+              "echantillons": 31
+            }
+          }
+        },
+        {
+          "id": "recherche.absent.service",
+          "famille": "recherche",
+          "niveau": "service",
+          "description": "prisma.troncon.findMany (code ou nom contient, insensible a la casse, take 5), classe absent",
+          "resume": {
+            "n": 200,
+            "minMs": 4.29,
+            "p50Ms": 7.41,
+            "p95Ms": 38.52,
+            "p99Ms": 71.01,
+            "maxMs": 159.5,
+            "moyenneMs": 12.9
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "sans-resultat": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 93,
+              "maxPct": 100,
+              "echantillons": 2
+            }
+          }
+        },
+        {
+          "id": "recherche.mot-de-nom.service",
+          "famille": "recherche",
+          "niveau": "service",
+          "description": "prisma.troncon.findMany (code ou nom contient, insensible a la casse, take 5), classe mot-de-nom",
+          "resume": {
+            "n": 200,
+            "minMs": 4.16,
+            "p50Ms": 7.02,
+            "p95Ms": 111.49,
+            "p99Ms": 193.71,
+            "maxMs": 279.37,
+            "moyenneMs": 23.53
+          },
+          "seuilP95Ms": 300,
+          "extra": {
+            "notes": {
+              "avec-resultat": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 94,
+              "maxPct": 100,
+              "echantillons": 6
+            }
+          }
+        },
+        {
+          "id": "trace.analyse.reference.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "analyserTrace() 60 points, reseau classe, sans graphe (informatif)",
+          "resume": {
+            "n": 200,
+            "minMs": 21.59,
+            "p50Ms": 63.38,
+            "p95Ms": 136.74,
+            "p99Ms": 191.33,
+            "maxMs": 273.36,
+            "moyenneMs": 69.66
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "taux>=80%": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 85,
+              "maxPct": 97,
+              "echantillons": 14
+            }
+          }
+        },
+        {
+          "id": "trace.analyse.reference-graphe.service",
+          "famille": "rattachement",
+          "niveau": "service",
+          "description": "analyserTrace() 60 points, reseau classe, avec graphe (tolerance 5 m, emprise de la trace + 2 km) (informatif)",
+          "resume": {
+            "n": 200,
+            "minMs": 26.35,
+            "p50Ms": 73.58,
+            "p95Ms": 211.1,
+            "p99Ms": 403.07,
+            "maxMs": 1432.09,
+            "moyenneMs": 100.74
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "taux>=80%": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 91,
+              "maxPct": 100,
+              "echantillons": 20
+            }
+          }
+        },
+        {
+          "id": "graphe.construction.indexee.service",
+          "famille": "graphe",
+          "niveau": "service",
+          "description": "construireGraphe() actuel (index spatial des extremites), 12 emprises de 50 km (informatif)",
+          "resume": {
+            "n": 12,
+            "minMs": 2.88,
+            "p50Ms": 7.73,
+            "p95Ms": 32.41,
+            "p99Ms": 32.41,
+            "maxMs": 32.41,
+            "moyenneMs": 12.46
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "tronconsParEmpriseMedian": 65,
+            "tronconsParEmpriseMax": 216
+          }
+        },
+        {
+          "id": "graphe.construction.origine.service",
+          "famille": "graphe",
+          "niveau": "service",
+          "description": "construction d'ORIGINE (commit 2943e22), memes entrees, 12 emprises de 50 km (informatif)",
+          "resume": {
+            "n": 12,
+            "minMs": 0.93,
+            "p50Ms": 5.93,
+            "p95Ms": 55.5,
+            "p99Ms": 55.5,
+            "maxMs": 55.5,
+            "moyenneMs": 11.03
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "tronconsParEmpriseMedian": 65,
+            "tronconsParEmpriseMax": 216
+          }
+        },
+        {
+          "id": "graphe.requete-sql.service",
+          "famille": "graphe",
+          "niveau": "service",
+          "description": "requete SQL de chargement du graphe seule (troncons de l'emprise, ST_AsGeoJSON), sans construction",
+          "resume": {
+            "n": 200,
+            "minMs": 3.4,
+            "p50Ms": 9.39,
+            "p95Ms": 23.07,
+            "p99Ms": 52.84,
+            "maxMs": 114.27,
+            "moyenneMs": 11.79
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "sous-plafond": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 75,
+              "maxPct": 75,
+              "echantillons": 2
+            },
+            "tronconsChargesMedian": 164,
+            "tronconsChargesMax": 6347
+          }
+        },
+        {
+          "id": "graphe.chargement.service",
+          "famille": "graphe",
+          "niveau": "service",
+          "description": "chargerGraphe() complet : requete + JSON.parse + construction du graphe (tolerance 5 m), emprise distanceMax/2 = 25 km",
+          "resume": {
+            "n": 200,
+            "minMs": 4.48,
+            "p50Ms": 21.61,
+            "p95Ms": 127.87,
+            "p99Ms": 529.92,
+            "maxMs": 1173.33,
+            "moyenneMs": 45.92
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "charge": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 79,
+              "maxPct": 98,
+              "echantillons": 8
+            },
+            "noeudsMedian": 125
+          }
+        },
+        {
+          "id": "deviation.calcul.service",
+          "famille": "deviation",
+          "niveau": "service",
+          "description": "calculerDeviation() : coupure de 500 m au milieu d'un troncon classe, distanceMax 50 km, tolerance 5 m (charge + Dijkstra + geometrie)",
+          "resume": {
+            "n": 200,
+            "minMs": 8.95,
+            "p50Ms": 35.32,
+            "p95Ms": 154.07,
+            "p99Ms": 532.11,
+            "maxMs": 1013.95,
+            "moyenneMs": 58.27
+          },
+          "seuilP95Ms": 2000,
+          "extra": {
+            "notes": {
+              "deviation-trouvee": 34,
+              "refus AUCUNE_DEVIATION": 166
+            },
+            "chargeMachine": {
+              "moyennePct": 79,
+              "maxPct": 99,
+              "echantillons": 11
+            }
+          }
+        },
+        {
+          "id": "deviation.calcul.http",
+          "famille": "deviation",
+          "niveau": "http",
+          "description": "POST /api/v2/geo/deviation, memes parametres (authentification + module geoportail + JSON + gzip)",
+          "resume": {
+            "n": 200,
+            "minMs": 16.88,
+            "p50Ms": 50.84,
+            "p95Ms": 191.78,
+            "p99Ms": 512.75,
+            "maxMs": 1042.28,
+            "moyenneMs": 78.57
+          },
+          "seuilP95Ms": 2000,
+          "extra": {
+            "notes": {
+              "HTTP 200": 34,
+              "HTTP 422 AUCUNE_DEVIATION": 166
+            },
+            "chargeMachine": {
+              "moyennePct": 88,
+              "maxPct": 100,
+              "echantillons": 16
+            }
+          }
+        },
+        {
+          "id": "deviation.calcul-100km.service",
+          "famille": "deviation",
+          "niveau": "service",
+          "description": "calculerDeviation(), meme coupure, distanceMax 100 km (informatif)",
+          "resume": {
+            "n": 20,
+            "minMs": 20.33,
+            "p50Ms": 81.45,
+            "p95Ms": 184.7,
+            "p99Ms": 209.81,
+            "maxMs": 209.81,
+            "moyenneMs": 93.36
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "deviation-trouvee": 15,
+              "refus AUCUNE_DEVIATION": 5
+            },
+            "chargeMachine": {
+              "moyennePct": 69,
+              "maxPct": 77,
+              "echantillons": 2
+            }
+          }
+        },
+        {
+          "id": "carte-publique.zoom7.http",
+          "famille": "carte",
+          "niveau": "http",
+          "description": "GET /api/public/carte/geo?zoom=7 (temps serveur + JSON + gzip, sans rendu)",
+          "resume": {
+            "n": 200,
+            "minMs": 110.07,
+            "p50Ms": 160.06,
+            "p95Ms": 439.36,
+            "p99Ms": 548.54,
+            "maxMs": 584.71,
+            "moyenneMs": 205.39
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "HTTP 200 gzip": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 68,
+              "maxPct": 100,
+              "echantillons": 43
+            },
+            "octets": {
+              "zoom": 7,
+              "octetsGzip": 88635,
+              "octetsBruts": 559209,
+              "troncons": 1772
+            }
+          }
+        },
+        {
+          "id": "carte-publique.zoom11.http",
+          "famille": "carte",
+          "niveau": "http",
+          "description": "GET /api/public/carte/geo?zoom=11 (temps serveur + JSON + gzip, sans rendu)",
+          "resume": {
+            "n": 200,
+            "minMs": 150.71,
+            "p50Ms": 215.59,
+            "p95Ms": 679.91,
+            "p99Ms": 931.99,
+            "maxMs": 1059.49,
+            "moyenneMs": 285.53
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "HTTP 200 gzip": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 68,
+              "maxPct": 100,
+              "echantillons": 59
+            },
+            "octets": {
+              "zoom": 11,
+              "octetsGzip": 151181,
+              "octetsBruts": 731168,
+              "troncons": 1772
+            }
+          }
+        },
+        {
+          "id": "carte-publique.zoom14.http",
+          "famille": "carte",
+          "niveau": "http",
+          "description": "GET /api/public/carte/geo?zoom=14 (temps serveur + JSON + gzip, sans rendu)",
+          "resume": {
+            "n": 200,
+            "minMs": 215.72,
+            "p50Ms": 504.2,
+            "p95Ms": 1161.74,
+            "p99Ms": 1233.5,
+            "maxMs": 1419,
+            "moyenneMs": 617.97
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "HTTP 200 gzip": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 90,
+              "maxPct": 100,
+              "echantillons": 134
+            },
+            "octets": {
+              "zoom": 14,
+              "octetsGzip": 292754,
+              "octetsBruts": 1115014,
+              "troncons": 1772
+            }
+          }
+        },
+        {
+          "id": "carte-publique.zoom16.http",
+          "famille": "carte",
+          "niveau": "http",
+          "description": "GET /api/public/carte/geo?zoom=16 (temps serveur + JSON + gzip, sans rendu)",
+          "resume": {
+            "n": 200,
+            "minMs": 159.47,
+            "p50Ms": 271.44,
+            "p95Ms": 866.97,
+            "p99Ms": 1170.74,
+            "maxMs": 1466.64,
+            "moyenneMs": 341.92
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "HTTP 200 gzip": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 91,
+              "maxPct": 100,
+              "echantillons": 74
+            },
+            "octets": {
+              "zoom": 16,
+              "octetsGzip": 392801,
+              "octetsBruts": 1405478,
+              "troncons": 1772
+            }
+          }
+        },
+        {
+          "id": "carte-publique.zoom7.service",
+          "famille": "carte",
+          "niveau": "service",
+          "description": "carteGeoHandler (zoom 7) : 5 requetes SQL + assemblage, sans serialisation ni compression",
+          "resume": {
+            "n": 200,
+            "minMs": 115.83,
+            "p50Ms": 188.43,
+            "p95Ms": 410.28,
+            "p99Ms": 511.37,
+            "maxMs": 646.65,
+            "moyenneMs": 222.07
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "ok": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 80,
+              "maxPct": 100,
+              "echantillons": 46
+            }
+          }
+        },
+        {
+          "id": "geoportail.troncons-geo.http",
+          "famille": "carte",
+          "niveau": "http",
+          "description": "GET /api/troncons/geo (couche reseau du geoportail connecte, non simplifiee)",
+          "resume": {
+            "n": 200,
+            "minMs": 158.94,
+            "p50Ms": 249.52,
+            "p95Ms": 531.56,
+            "p99Ms": 849.01,
+            "maxMs": 1152.97,
+            "moyenneMs": 296.28
+          },
+          "seuilP95Ms": null,
+          "extra": {
+            "notes": {
+              "HTTP 200 gzip": 200
+            },
+            "chargeMachine": {
+              "moyennePct": 87,
+              "maxPct": 100,
+              "echantillons": 60
+            },
+            "octets": {
+              "octetsGzip": 390886,
+              "octetsBruts": 1496088,
+              "troncons": 1772
+            }
+          }
+        }
+      ],
+      "octetsCarte": [
+        {
+          "zoom": 7,
+          "octetsGzip": 88635,
+          "octetsBruts": 559209,
+          "troncons": 1772
+        },
+        {
+          "zoom": 11,
+          "octetsGzip": 151181,
+          "octetsBruts": 731168,
+          "troncons": 1772
+        },
+        {
+          "zoom": 14,
+          "octetsGzip": 292754,
+          "octetsBruts": 1115014,
+          "troncons": 1772
+        },
+        {
+          "zoom": 16,
+          "octetsGzip": 392801,
+          "octetsBruts": 1405478,
+          "troncons": 1772
+        }
+      ],
+      "geoportail": {
+        "octetsGzip": 390886,
+        "octetsBruts": 1496088,
+        "troncons": 1772
+      },
+      "froid": [
+        {
+          "connexionMs": 220.2846,
+          "appels": {
+            "rattachement.terrain.http": 952.8397,
+            "rattachement.terrain.http.2e-appel": 223.2872,
+            "recherche.code-exact.http": 221.2577,
+            "carte-publique.zoom7.http": 636.0627,
+            "deviation.http": 469.2469
+          }
+        },
+        {
+          "connexionMs": 324.5961,
+          "appels": {
+            "rattachement.terrain.http": 565.3048,
+            "rattachement.terrain.http.2e-appel": 241.252,
+            "recherche.code-exact.http": 408.3032,
+            "carte-publique.zoom7.http": 1071.6339,
+            "deviation.http": 397.0902
+          }
+        },
+        {
+          "connexionMs": 403.1797,
+          "appels": {
+            "rattachement.terrain.http": 767.7316,
+            "rattachement.terrain.http.2e-appel": 308.854,
+            "recherche.code-exact.http": 455.4381,
+            "carte-publique.zoom7.http": 1176.6063,
+            "deviation.http": 612.8155
+          }
+        },
+        {
+          "connexionMs": 136.1147,
+          "appels": {
+            "rattachement.terrain.http": 407.1183,
+            "rattachement.terrain.http.2e-appel": 58.5377,
+            "recherche.code-exact.http": 228.4383,
+            "carte-publique.zoom7.http": 638.5345,
+            "deviation.http": 410.3521
+          }
+        },
+        {
+          "connexionMs": 46.4177,
+          "appels": {
+            "rattachement.terrain.http": 178.0564,
+            "rattachement.terrain.http.2e-appel": 32.2483,
+            "recherche.code-exact.http": 87.6787,
+            "carte-publique.zoom7.http": 420.9075,
+            "deviation.http": 261.7293
+          }
+        },
+        {
+          "connexionMs": 53.9957,
+          "appels": {
+            "rattachement.terrain.http": 169.3209,
+            "rattachement.terrain.http.2e-appel": 25.2247,
+            "recherche.code-exact.http": 76.5076,
+            "carte-publique.zoom7.http": 270.892,
+            "deviation.http": 115.4744
+          }
+        },
+        {
+          "connexionMs": 104.5797,
+          "appels": {
+            "rattachement.terrain.http": 323.9822,
+            "rattachement.terrain.http.2e-appel": 31.4886,
+            "recherche.code-exact.http": 107.2618,
+            "carte-publique.zoom7.http": 436.8262,
+            "deviation.http": 151.056
+          }
+        },
+        {
+          "connexionMs": 49.2419,
+          "appels": {
+            "rattachement.terrain.http": 169.9118,
+            "rattachement.terrain.http.2e-appel": 27.6095,
+            "recherche.code-exact.http": 72.6471,
+            "carte-publique.zoom7.http": 257.011,
+            "deviation.http": 116.7861
+          }
+        }
+      ],
+      "plans": {
+        "candidats.reference.sans-emprise": "Limit  (cost=740.86..812.85 rows=5 width=127) (actual time=6.897..7.644 rows=5 loops=1)\n  Buffers: shared hit=133\n  ->  Result  (cost=740.86..870.44 rows=9 width=127) (actual time=6.895..7.637 rows=5 loops=1)\n        Buffers: shared hit=133\n        ->  Sort  (cost=740.86..740.88 rows=9 width=199) (actual time=6.711..6.715 rows=5 loops=1)\n              Sort Key: ((geom <-> '0101000020E61000001F65C405A05926C06D904946CEDA2440'::geometry))\n              Sort Method: top-N heapsort  Memory: 32kB\n              Buffers: shared hit=133\n              ->  Bitmap Heap Scan on troncons t  (cost=37.57..740.72 rows=9 width=199) (actual time=0.186..5.186 rows=1772 loops=1)\n                    Recheck Cond: ((\"deletedAt\" IS NULL) AND ((\"sourceReference\" IS NULL) OR (\"sourceReference\" !~~ 'voirie_locale:%'::text)))\n                    Filter: ((geom IS NOT NULL) AND ((\"sourceReference\" IS NULL) OR ((\"sourceReference\" !~~ 'voirie_locale:%'::text) AND (\"sourceReference\" !~~ 'hors_territoire:%'::text))) AND (st_geometrytype(geom) = 'ST_LineString'::text))\n                    Heap Blocks: exact=129\n                    Buffers: shared hit=133\n                    ->  Bitmap Index Scan on troncons_reseau_reference_idx  (cost=0.00..37.57 rows=1774 width=0) (actual time=0.130..0.131 rows=1812 loops=1)\n                          Index Cond: (\"deletedAt\" IS NULL)\n                          Buffers: shared hit=4\nPlanning:\n  Buffers: shared hit=3\nPlanning Time: 0.547 ms\nExecution Time: 7.716 ms",
+        "candidats.tout.sans-emprise": "Limit  (cost=0.28..250.60 rows=5 width=127) (actual time=0.226..0.355 rows=5 loops=1)\n  Buffers: shared hit=9\n  ->  Index Scan using troncons_geom_gist on troncons t  (cost=0.28..5006.77 rows=100 width=127) (actual time=0.224..0.350 rows=5 loops=1)\n        Index Cond: (geom IS NOT NULL)\n        Order By: (geom <-> '0101000020E61000001E335019FF9629C07369FCC22B112340'::geometry)\n        Filter: ((\"deletedAt\" IS NULL) AND (st_geometrytype(geom) = 'ST_LineString'::text))\n        Buffers: shared hit=9\nPlanning:\n  Buffers: shared hit=3\nPlanning Time: 0.350 ms\nExecution Time: 0.408 ms",
+        "candidats.tout.emprise-4km": "Limit  (cost=34.52..48.92 rows=1 width=127) (actual time=0.287..0.380 rows=5 loops=1)\n  Buffers: shared hit=6\n  ->  Result  (cost=34.52..48.92 rows=1 width=127) (actual time=0.286..0.375 rows=5 loops=1)\n        Buffers: shared hit=6\n        ->  Sort  (cost=34.52..34.52 rows=1 width=199) (actual time=0.237..0.240 rows=5 loops=1)\n              Sort Key: ((geom <-> '0101000020E61000001E335019FF9629C07369FCC22B112340'::geometry))\n              Sort Method: top-N heapsort  Memory: 28kB\n              Buffers: shared hit=6\n              ->  Bitmap Heap Scan on troncons t  (cost=4.38..34.51 rows=1 width=199) (actual time=0.096..0.198 rows=32 loops=1)\n                    Recheck Cond: ((geom IS NOT NULL) AND (geom && '0103000020E61000000100000005000000FFCA4A9352A029C0F29881CAF80723403D9B559FAB8D29C0F29881CAF80723403D9B559FAB8D29C0EE7C3F355E1A2340FFCA4A9352A029C0EE7C3F355E1A2340FFCA4A9352A029C0F29881CAF8072340'::geometry))\n                    Filter: ((\"deletedAt\" IS NULL) AND (st_geometrytype(geom) = 'ST_LineString'::text))\n                    Heap Blocks: exact=4\n                    Buffers: shared hit=6\n                    ->  Bitmap Index Scan on troncons_geom_gist  (cost=0.00..4.38 rows=8 width=0) (actual time=0.060..0.060 rows=32 loops=1)\n                          Index Cond: ((geom IS NOT NULL) AND (geom && '0103000020E61000000100000005000000FFCA4A9352A029C0F29881CAF80723403D9B559FAB8D29C0F29881CAF80723403D9B559FAB8D29C0EE7C3F355E1A2340FFCA4A9352A029C0EE7C3F355E1A2340FFCA4A9352A029C0F29881CAF8072340'::geometry))\n                          Buffers: shared hit=2\nPlanning:\n  Buffers: shared hit=3\nPlanning Time: 0.696 ms\nExecution Time: 0.454 ms",
+        "graphe.chargement-emprise-50km": "Limit  (cost=5.06..321.75 rows=77 width=50) (actual time=0.229..5.351 rows=84 loops=1)\n  Buffers: shared hit=26\n  ->  Bitmap Heap Scan on troncons t  (cost=5.06..321.75 rows=77 width=50) (actual time=0.227..5.320 rows=84 loops=1)\n        Recheck Cond: ((geom IS NOT NULL) AND (geom && '0103000020E6100000010000000500000050D95A828B7927C026EDA24C9C71244050D95A828B7927C06EF4FA030589254039E7C2F5588B26C06EF4FA030589254039E7C2F5588B26C026EDA24C9C71244050D95A828B7927C026EDA24C9C712440'::geometry))\n        Filter: (\"deletedAt\" IS NULL)\n        Heap Blocks: exact=23\n        Buffers: shared hit=26\n        ->  Bitmap Index Scan on troncons_geom_gist  (cost=0.00..5.04 rows=77 width=0) (actual time=0.086..0.087 rows=84 loops=1)\n              Index Cond: ((geom IS NOT NULL) AND (geom && '0103000020E6100000010000000500000050D95A828B7927C026EDA24C9C71244050D95A828B7927C06EF4FA030589254039E7C2F5588B26C06EF4FA030589254039E7C2F5588B26C026EDA24C9C71244050D95A828B7927C026EDA24C9C712440'::geometry))\n              Buffers: shared hit=3\nPlanning:\n  Buffers: shared hit=3\nPlanning Time: 0.426 ms\nExecution Time: 5.545 ms",
+        "recherche.absent": "Limit  (cost=77.73..92.86 rows=4 width=47) (actual time=0.060..0.062 rows=0 loops=1)\n  Buffers: shared hit=18\n  ->  Bitmap Heap Scan on troncons t  (cost=77.73..92.86 rows=4 width=47) (actual time=0.058..0.059 rows=0 loops=1)\n        Recheck Cond: (((code ~~* '%zqplmk%'::text) AND (\"deletedAt\" IS NULL)) OR ((nom ~~* '%zqplmk%'::text) AND (\"deletedAt\" IS NULL)))\n        Buffers: shared hit=18\n        ->  BitmapOr  (cost=77.73..77.73 rows=4 width=0) (actual time=0.045..0.046 rows=0 loops=1)\n              Buffers: shared hit=18\n              ->  Bitmap Index Scan on troncons_code_trgm_idx  (cost=0.00..38.86 rows=2 width=0) (actual time=0.024..0.024 rows=0 loops=1)\n                    Index Cond: (code ~~* '%zqplmk%'::text)\n                    Buffers: shared hit=9\n              ->  Bitmap Index Scan on troncons_nom_trgm_idx  (cost=0.00..38.86 rows=2 width=0) (actual time=0.020..0.020 rows=0 loops=1)\n                    Index Cond: (nom ~~* '%zqplmk%'::text)\n                    Buffers: shared hit=9\nPlanning:\n  Buffers: shared hit=5\nPlanning Time: 1.117 ms\nExecution Time: 0.113 ms",
+        "recherche.mot-de-nom": "Limit  (cost=77.73..92.86 rows=4 width=47) (actual time=0.129..0.160 rows=5 loops=1)\n  Buffers: shared hit=21\n  ->  Bitmap Heap Scan on troncons t  (cost=77.73..92.86 rows=4 width=47) (actual time=0.127..0.156 rows=5 loops=1)\n        Recheck Cond: (((code ~~* '%dikewa%'::text) AND (\"deletedAt\" IS NULL)) OR ((nom ~~* '%dikewa%'::text) AND (\"deletedAt\" IS NULL)))\n        Heap Blocks: exact=3\n        Buffers: shared hit=21\n        ->  BitmapOr  (cost=77.73..77.73 rows=4 width=0) (actual time=0.094..0.095 rows=0 loops=1)\n              Buffers: shared hit=18\n              ->  Bitmap Index Scan on troncons_code_trgm_idx  (cost=0.00..38.86 rows=2 width=0) (actual time=0.024..0.024 rows=0 loops=1)\n                    Index Cond: (code ~~* '%dikewa%'::text)\n                    Buffers: shared hit=9\n              ->  Bitmap Index Scan on troncons_nom_trgm_idx  (cost=0.00..38.86 rows=2 width=0) (actual time=0.068..0.069 rows=8 loops=1)\n                    Index Cond: (nom ~~* '%dikewa%'::text)\n                    Buffers: shared hit=9\nPlanning:\n  Buffers: shared hit=5\nPlanning Time: 1.205 ms\nExecution Time: 0.218 ms"
+      },
+      "migrationsAppliquees": [
+        "20261023200000_index_troncons_geom_planaire",
+        "20261023210000_recherche_troncons_trigramme"
+      ],
+      "froidResume": {
+        "connexionMs": {
+          "n": 8,
+          "minMs": 46.42,
+          "p50Ms": 104.58,
+          "p95Ms": 403.18,
+          "p99Ms": 403.18,
+          "maxMs": 403.18,
+          "moyenneMs": 167.3
+        },
+        "rattachement.terrain.http": {
+          "n": 8,
+          "minMs": 169.32,
+          "p50Ms": 323.98,
+          "p95Ms": 952.84,
+          "p99Ms": 952.84,
+          "maxMs": 952.84,
+          "moyenneMs": 441.78
+        },
+        "rattachement.terrain.http.2e-appel": {
+          "n": 8,
+          "minMs": 25.22,
+          "p50Ms": 32.25,
+          "p95Ms": 308.85,
+          "p99Ms": 308.85,
+          "maxMs": 308.85,
+          "moyenneMs": 118.56
+        },
+        "recherche.code-exact.http": {
+          "n": 8,
+          "minMs": 72.65,
+          "p50Ms": 107.26,
+          "p95Ms": 455.44,
+          "p99Ms": 455.44,
+          "maxMs": 455.44,
+          "moyenneMs": 207.19
+        },
+        "carte-publique.zoom7.http": {
+          "n": 8,
+          "minMs": 257.01,
+          "p50Ms": 436.83,
+          "p95Ms": 1176.61,
+          "p99Ms": 1176.61,
+          "maxMs": 1176.61,
+          "moyenneMs": 613.56
+        },
+        "deviation.http": {
+          "n": 8,
+          "minMs": 115.47,
+          "p50Ms": 261.73,
+          "p95Ms": 612.82,
+          "p99Ms": 612.82,
+          "maxMs": 612.82,
+          "moyenneMs": 316.82
+        }
+      }
+    }
+  ],
+  "transferts3GMs": [
+    {
+      "zoom": 7,
+      "octetsGzip": 88635,
+      "optimiste (Lighthouse mobileSlow4G, ex 'Fast 3G') : 1,6 Mbit/s, RTT 150 ms": 893,
+      "pessimiste (Chrome DevTools '3G') : 400 kbit/s, RTT 400 ms": 2973
+    },
+    {
+      "zoom": 11,
+      "octetsGzip": 151181,
+      "optimiste (Lighthouse mobileSlow4G, ex 'Fast 3G') : 1,6 Mbit/s, RTT 150 ms": 1206,
+      "pessimiste (Chrome DevTools '3G') : 400 kbit/s, RTT 400 ms": 4224
+    },
+    {
+      "zoom": 14,
+      "octetsGzip": 292754,
+      "optimiste (Lighthouse mobileSlow4G, ex 'Fast 3G') : 1,6 Mbit/s, RTT 150 ms": 1914,
+      "pessimiste (Chrome DevTools '3G') : 400 kbit/s, RTT 400 ms": 7055
+    },
+    {
+      "zoom": 16,
+      "octetsGzip": 392801,
+      "optimiste (Lighthouse mobileSlow4G, ex 'Fast 3G') : 1,6 Mbit/s, RTT 150 ms": 2414,
+      "pessimiste (Chrome DevTools '3G') : 400 kbit/s, RTT 400 ms": 9056
+    }
+  ]
+}

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 /**
  * Menu lateral : ce que ces tests defendent.
@@ -14,7 +15,9 @@ vi.mock("../../lib/auth", () => ({ useAuth: () => ({ user: { id: "u", role: "ADM
 import { Sidebar } from "./Sidebar";
 
 function rendreA(chemin: string) {
-  return render(<MemoryRouter initialEntries={[chemin]}><Sidebar open /></MemoryRouter>);
+  // Le tiroir embarque la recherche globale (commit 8682e71), qui interroge le serveur : il lui faut un client de requetes.
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[chemin]}><Sidebar open /></MemoryRouter></QueryClientProvider>);
 }
 const actifs = () => screen.getAllByRole("link").filter((l) => l.getAttribute("aria-current") === "page").map((l) => l.textContent);
 

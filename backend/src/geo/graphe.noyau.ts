@@ -134,6 +134,23 @@ export function construireGraphe(troncons: readonly TronconGraphe[], toleranceFu
 
   // 2. Jonctions en T : une extremite pres de l'interieur d'un AUTRE troncon le coupe.
   let nbJonctionsInterieures = 0;
+
+  // INDEX SPATIAL DES EXTREMITES (grille en degres, 0,01 deg ~ 1,1 km).
+  //
+  // Cette etape comparait chaque troncon a TOUTES les extremites du lot : O(T x E), avec une
+  // projection trigonometrique par couple. Mesure du 23/10/2026 sur un sous-reseau de 7 000 troncons :
+  // 34 s. L'index ne change PAS le resultat : il ne fait que ne presenter a l'ancien test (boite
+  // englobante puis projection) que les extremites situees dans la boite englobante du troncon
+  // (meme boite, exprimee en degres : la projection locale est lineaire en lon et en lat), et elles
+  // sont presentees dans l'ordre d'origine, donc les jonctions s'ajoutent dans le meme ordre.
+  const PAS_GRILLE = 0.01;
+  const grilleExt = new Map<string, number[]>();
+  extremites.forEach((e, idx) => {
+    const k = `${Math.floor(e.p[0] / PAS_GRILLE)}|${Math.floor(e.p[1] / PAS_GRILLE)}`;
+    const l = grilleExt.get(k);
+    if (l) l.push(idx); else grilleExt.set(k, [idx]);
+  });
+
   for (const t of valides) {
     const o = t.coordonnees[0];
     const poly = t.coordonnees.map((c) => versPlan(o, c));
@@ -141,7 +158,31 @@ export function construireGraphe(troncons: readonly TronconGraphe[], toleranceFu
     const minX = Math.min(...xs) - toleranceFusionM, maxX = Math.max(...xs) + toleranceFusionM;
     const minY = Math.min(...ys) - toleranceFusionM, maxY = Math.max(...ys) + toleranceFusionM;
     const nt = parTroncon.get(t.id)!;
-    for (const e of extremites) {
+
+    // Boite englobante en degres (marge de securite de 1e-7 deg ~ 1 cm : l'ancien test exact suit).
+    const echelleLon = DEG * RAYON_TERRE_M * Math.cos(o[1] * DEG);
+    const echelleLat = DEG * RAYON_TERRE_M;
+    const lonMin = o[0] + minX / echelleLon - 1e-7, lonMax = o[0] + maxX / echelleLon + 1e-7;
+    const latMin = o[1] + minY / echelleLat - 1e-7, latMax = o[1] + maxY / echelleLat + 1e-7;
+    let candidats: number[] = [];
+    const gx0 = Math.floor(lonMin / PAS_GRILLE), gx1 = Math.floor(lonMax / PAS_GRILLE);
+    const gy0 = Math.floor(latMin / PAS_GRILLE), gy1 = Math.floor(latMax / PAS_GRILLE);
+    const nbCellules = (gx1 - gx0 + 1) * (gy1 - gy0 + 1);
+    if (!Number.isFinite(nbCellules) || nbCellules > extremites.length) {
+      // Boite plus etendue que le semis d'extremites (ou coordonnees non finies) : balayage complet, comme avant.
+      candidats = extremites.map((_, i) => i);
+    } else {
+      for (let gx = gx0; gx <= gx1; gx++) {
+        for (let gy = gy0; gy <= gy1; gy++) {
+          const l = grilleExt.get(`${gx}|${gy}`);
+          if (l) for (const idx of l) candidats.push(idx);
+        }
+      }
+      candidats.sort((a, b) => a - b);
+    }
+
+    for (const idx of candidats) {
+      const e = extremites[idx];
       if (e.tronconId === t.id) continue;
       const q = versPlan(o, e.p);
       if (q[0] < minX || q[0] > maxX || q[1] < minY || q[1] > maxY) continue;

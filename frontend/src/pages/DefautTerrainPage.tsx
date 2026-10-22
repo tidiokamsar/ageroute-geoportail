@@ -486,7 +486,22 @@ export function DefautTerrainPage() {
           <legend className="px-1 text-sm font-medium text-gray-700">Photos de preuve (5 maximum, 8 Mo par photo)</legend>
           <p className="text-xs text-gray-500">La photo conserve son empreinte SHA-256 au serveur. Si une position GPS a été capturée, elle est jointe comme métadonnée de la preuve.</p>
           {!position && <Button type="button" variant="secondary" onClick={capturePosition}><MapPin className="h-4 w-4" /> Capturer le GPS pour les photos</Button>}
-          <input aria-label="Ajouter des photos du défaut" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple onChange={(event) => { ajouterPhotos(event.target.files); event.target.value = ""; }} className="block w-full text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-navy/5 file:px-3 file:py-2 file:font-medium file:text-navy" />
+          {/*
+            Deux entrées distinctes, pensées téléphone/tablette : PHOTOGRAPHIER ouvre
+            l'appareil photo (capture="environment" : caméra arrière), CHOISIR ouvre la
+            galerie et les fichiers. Sur ordinateur les deux se valent. Le choix reste
+            celui de l'agent ; rien ne se déclenche sans lui.
+          */}
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <label className="flex-1 cursor-pointer rounded-lg border-2 border-dashed border-navy/40 bg-navy/5 px-4 py-3 text-center text-sm font-semibold text-navy transition-colors hover:bg-navy/10">
+              📷 Photographier sur le vif
+              <input aria-label="Photographier une preuve du défaut" type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple onChange={(event) => { ajouterPhotos(event.target.files); event.target.value = ""; }} className="sr-only" />
+            </label>
+            <label className="flex-1 cursor-pointer rounded-lg border border-gray-300 bg-white px-4 py-3 text-center text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50">
+              📎 Choisir dans la galerie ou les fichiers
+              <input aria-label="Choisir des photos existantes du défaut" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => { ajouterPhotos(event.target.files); event.target.value = ""; }} className="sr-only" />
+            </label>
+          </div>
           {photos.length > 0 && <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">{photos.map((photo, index) => <li key={`${photo.name}-${index}`} className="overflow-hidden rounded-lg border border-gray-200"><img src={photo.previewUrl} alt={`Aperçu de ${photo.name}`} className="h-28 w-full object-cover" /><div className="p-2"><p className="truncate text-xs font-medium">{photo.name}</p><p className="text-[11px] text-gray-500">{photo.lat !== undefined ? `GPS ${photo.lat.toFixed(5)}, ${photo.lon?.toFixed(5)}` : "Sans position GPS"}</p><Button type="button" variant="ghost" size="sm" onClick={() => retirerPhoto(index)}>Retirer</Button></div></li>)}</ul>}
         </fieldset>
 

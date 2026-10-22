@@ -56,6 +56,7 @@ Chaque banc nomme ses vérifications, les compte, et sort en **code 1** si une s
 | `teledetection` | transaction annulée | 10 | produits, propositions, tolérance, verdict unique, précision, audit |
 | `veille` | transaction annulée | 10 | astreintes, escalades idempotentes, tableau de veille, audit |
 | `contour` | transaction annulée | 7 | contour du pays du géoportail : frontière extérieure de l'union des régions de niveau 1 (limite commune disparue, niveau 2 exclu, absent sans limites) |
+| `perf/` | clone jetable, jeu synthétique déterministe de 20 000 ou 261 387 tronçons | 45 | **seuils A15 et A20** mesurés (p50/p95/p99, service et HTTP) ; échoue si un seuil du cahier est dépassé ; `--sans-correctifs` rejoue l'origine pour la contre-épreuve. Méthode : `perf/README.md` ; lancé à part, pas par `run.sh` (durée et charge) |
 | `curseur` | **clone `essai_curseur`**, créé puis détruit par le banc | 41 | curseur temporel à deux axes, requalification, découpe, fusion |
 | `programmation` | **clone `essai_programmation`**, créé puis détruit par le banc ; applique au clone la migration `20261023100000` (absente de `replay` tant qu'elle n'y est pas rejouée) | 106 | moteur de risque et de programmation (§ 7.7, A22) : risque, coût et classement comparés à un **oracle SQL** (NUMERIC exact, glouton refait en BigInt), refus sans barème, étiquette PROVISOIRE, rejeu octet pour octet, fiche figée (empreinte recalculée par la base, UPDATE et DELETE refusés), frontière DigitalRoad tenue par les contraintes, audit |
 | `outbox` | **clone `essai_outbox`**, créé puis détruit par le banc | 90 | outbox des intégrations sortantes (A13) : aucune donnée non validée n'entre (service et déclencheurs), idempotence, rejeu sans effet de bord, reprise, file morte, anti-double-envoi sous concurrence réelle, absence de fuite de champs internes. **Contre des simulateurs HTTP écrits par AGEROUTE sur 127.0.0.1, jamais contre DigitalRoad, SharePoint ou la BDR / L²R.** Applique la migration 20261024200000 au clone si `replay` ne la porte pas encore |
@@ -77,10 +78,17 @@ et `import` fabriquent leurs jetons avec des secrets tirés au hasard à chaque 
 
 Les bancs `metre`, `tuiles` et `coherence` (50 vérifications, branche `lot/17-consignes-dt`) s'y ajoutent : lancés un par un le 22/10/2026 (code 0), pas encore rejoués avec l'ensemble.
 
+## Le banc de performance (hors `run.sh`)
+
+`perf/` contient le banc des scenarios A15 et A20 : reseau synthetique deterministe de 20 000 a 261 387 troncons dans un
+clone jetable `essai_perf`, 200 mesures par scenario (p50, p95, p99), verdict contre les seuils du cahier. Il dure de
+dix minutes a deux heures et **n'est pas lance par `run.sh`**. Voir `perf/README.md` et
+`docs/performance/MESURES-A15-A20.md`. Ses modules d'appui ont des tests Vitest (`perf/lib/*.test.ts`), lances par `npm test`.
+
 ## Limites
 
-- Ils tournent sur une base **vide** : aucune mesure de performance ni de comportement sur le volume
-  de production (261 387 tronçons au registre complet).
+- Les bancs ci-dessus tournent sur une base **vide** : aucune mesure de performance ni de comportement sur le volume
+  de production (261 387 tronçons au registre complet). Le banc `perf/` est le seul qui charge ce volume (synthetique).
 - Les jeux de données sont des fixtures écrites pour le banc, pas des données réelles.
 - Les bancs `deviation`, `graphe`, `info-route`, `patrouilles`, `teledetection` et `veille` existaient
   d'abord comme scripts qui imprimaient des valeurs sans rien affirmer ; leurs vérifications ont été

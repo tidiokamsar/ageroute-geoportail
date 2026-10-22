@@ -20,6 +20,20 @@ rien changé, les miennes là où ils n'avaient rien changé, A5 fusionnée en g
 
 ## 22/10/2026 (nuit) — apports de la branche `lot/17-consignes-dt` (DT-2, DT-4 à DT-8)
 
+### Fusion de `lot/03-map-matching` à `4baa281` (23/10)
+
+Conflits : documentation seulement (matrice A15 et A20, preuves, README des bancs), les deux côtés gardés. **Doublon retiré** :
+la ligne principale pose `troncons_geom_gist` par `20261023200000` ; la migration `20261025110000` de cette branche posait le même
+index (sans effet grâce à `IF NOT EXISTS`, mais sa descente aurait supprimé l'index de l'autre). La garde anti-doublon de
+`deployer-console.sh` porte désormais sur `20261023200000`.
+
+| Commande | Résultat |
+|---|---|
+| `verifier.sh --strict --garder` | **79 migrations, 276 vérifications, 0 échec**, 0 sans descente |
+| `infra/ci/bancs-sql.sh` sur la base de référence laissée par le banc (détruite ensuite) | **17 bancs, 0 échec** |
+| `npx vitest run` backend, puis frontend (seul) | **2 649 passés** (165 fichiers) ; **770 passés** (65 fichiers) |
+| `npx tsc --noEmit` (deux côtés), `npm run lint` | 0 erreur ; lint 4 avertissements anciens |
+
 ### Complément DT-9 (complétude des écrans), même branche
 
 Exécuté et lu le 22/10/2026 sur ce poste. Rien n'a été exécuté contre la production ; la CI GitHub n'a pas tourné (compte bloqué pour facturation).
@@ -51,6 +65,24 @@ propres le sont, migrations renumérotées après `20261024200000`. Rien n'a ét
 | `npx vitest run` (frontend, seul) | **489 passés**, 39 fichiers |
 | après rebase sur `34ee0ed` : `npx vitest run` backend puis frontend | **2 464 passés** (152 fichiers, 0 échec) ; **642 passés** (50 fichiers, 0 échec, garde-fou de contraste compris) ; `tsc` et lint : 0 erreur |
 | `npm run lint` ; `npx tsc --noEmit` (backend, frontend) | 0 erreur (4 avertissements connus) ; aucune erreur |
+
+## 22/10/2026 (nuit) — fusion des six lots d'agents, mesures de performance, enregistreur navigateur
+
+Exécuté et lu après la fusion de la branche « performance ». Rien n'a été exécuté contre la production. **La CI GitHub n'a
+toujours pas tourné** (compte bloqué pour facturation) : ces lignes sont les seules preuves réelles.
+
+| Vérification | Commande | Résultat |
+|---|---|---|
+| Backend | `cd backend && npx vitest run` ; `npx tsc --noEmit -p .` | **160 fichiers, 2 541 tests passants** ; 0 erreur de types ; `prisma validate` valide |
+| Frontend | `cd frontend && npx vitest run` ; `npx tsc --noEmit` ; `npm run lint` ; `npm run build` | **53 fichiers, 698 tests passants** ; 0 erreur de types ; lint 0 erreur (4 avertissements) ; build ok |
+| Chaîne de migrations et descentes | `verifier.sh --strict --garder` (conteneur de développement) | **274 vérifications, 0 échec, 0 migration sans descente** |
+| Bancs SQL | `infra/ci/bancs-sql.sh` | **15 bancs, 0 échec** |
+| Bancs d'intégration TypeScript | `bash tests-integration/run.sh` | 739 vérifications sur 18 bancs au dernier run complet (avant les bancs contour, tableau de bord ajouté, performance), tous passants ; le banc contour passe seul (7/7) |
+| Performance A15 et A20 | `backend/tests-integration/perf/` (jeu synthétique de 261 387 tronçons) | chiffres et réserves dans `docs/performance/MESURES-A15-A20.md` : rattachement atteint, recherche partiellement, déviation de justesse à 50 km, rendu 3G non atteint |
+| Régressions trouvées par la fusion | — | le menu embarquait la recherche globale (commit d'une autre session) : le test du menu n'avait pas de `QueryClientProvider` (7 tests rouges, corrigés) ; un test de Gouvernance échoue par intermittence sous charge de la machine, il passe seul |
+
+**Non vérifié** : le comportement sur un téléphone réel (enregistreur navigateur, roulage), les données de production, le cache
+PostgreSQL froid, la CI.
 
 ## 22/10/2026 (soir) — fusion de lot/14-observation-terre dans lot/03-map-matching
 
