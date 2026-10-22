@@ -98,6 +98,27 @@ describe("Les trois échecs ne se confondent pas", () => {
     expect(result.current.enAttente).toBe(false);
   });
 
+  it("un REFUS termine la veille (le navigateur n'enverra plus de point) et permet de relancer", () => {
+    const { result } = renderHook(() => usePositionGps());
+    act(() => result.current.demarrer());
+    act(() => h.echec?.({ code: 1 }));
+    expect(result.current.erreur).toBe("REFUSEE");
+    expect(result.current.actif).toBe(false);
+    expect(h.effacees).toEqual([1]);
+    act(() => result.current.demarrer());                  // l'autorisation a ete rendue dans les reglages
+    expect(h.veilles).toBe(2);
+    expect(result.current.erreur).toBeNull();
+    expect(result.current.actif).toBe(true);
+  });
+
+  it("un signal INDETERMINE ne termine PAS la veille : le point peut encore arriver", () => {
+    const { result } = renderHook(() => usePositionGps());
+    act(() => result.current.demarrer());
+    act(() => h.echec?.({ code: 3 }));
+    expect(result.current.actif).toBe(true);
+    expect(h.effacees).toEqual([]);
+  });
+
   it("distingue un signal INDÉTERMINÉ", () => {
     // Celui-là se corrige en sortant ou en attendant.
     const { result } = renderHook(() => usePositionGps());

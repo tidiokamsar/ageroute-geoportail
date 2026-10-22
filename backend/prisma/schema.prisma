@@ -1905,9 +1905,9 @@ enum MethodeQuantite {
   /// passer une moyenne de bureau pour un constat de terrain.
   COMPTAGE_COEFFICIENT
 
-  /// Longueur ou surface calculee depuis l'emprise relevee (ligne ou polygone), dans le fuseau
-  /// UTM de son point interieur (`metre_utm`). Ajoutee le 22/10/2026. DERIVEE : la geometrie
-  /// est un releve, la quantite un calcul sur ce releve.
+  /// Longueur ou surface MESUREE sur le contour GPS du defaut (`Defaut.emprise`), en projection UTM
+  /// du fuseau du defaut (`metre_utm`), jamais en degres. Ajoutee le 24/10/2026. La base tient
+  /// « cette methode => une emprise existe » (contrainte `defaut_methode_emprise_exige_emprise`).
   EMPRISE_UTM
 }
 

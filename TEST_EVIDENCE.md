@@ -3,6 +3,21 @@
 > Exigé par le § 4 du mandat v2.1. Le § 2.7 impose que toute affirmation de réussite cite la
 > commande lancée et son résultat. Aucune ligne de ce fichier n'est écrite sans l'avoir vue.
 
+## 22/10/2026 (nuit, après fusion de `lot/03-map-matching` à `5f30814`) — PR #3
+
+Conflits résolus : le métré des défauts par emprise est celui de la ligne principale (`070b21e`) ; la migration
+`20261025100000_metre_emprise_utm` de cette branche, en double, est retirée (sa descente aurait retiré la valeur
+`EMPRISE_UTM` dont dépend `20261024300000`). La matrice a été reconstruite ligne à ligne (leurs lignes là où je n'avais
+rien changé, les miennes là où ils n'avaient rien changé, A5 fusionnée en gardant leur statut TP).
+
+| Commande | Résultat |
+|---|---|
+| `verifier.sh --strict --garder` | **78 migrations, 274 vérifications, 0 échec**, 0 sans descente |
+| `infra/ci/bancs-sql.sh` sur la base laissée par le banc | **17 bancs, 0 échec** |
+| bancs d'intégration `metre`, `tuiles`, `coherence` (sur `replay`) | **29/29, 9/9, 12/12** |
+| `npx vitest run` backend, puis frontend | **2 603 passés** (159 fichiers) ; **669 passés** (52 fichiers) |
+| `npx tsc --noEmit` (deux côtés), `npm run lint` | aucune erreur |
+
 ## 22/10/2026 (nuit) — apports de la branche `lot/17-consignes-dt` (DT-2, DT-4 à DT-8)
 
 Branche partie de `origin/lot/03-map-matching` (`94b8769`, puis rebasée sur `34ee0ed`), qui portait déjà T-27 (A30) et T-32 (A10) :

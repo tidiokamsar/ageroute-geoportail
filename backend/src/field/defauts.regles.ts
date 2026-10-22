@@ -116,14 +116,30 @@ export type MethodeQuantite =
   | "LONGUEUR"
   | "LONGUEUR_LARGEUR"
   | "LONGUEUR_LARGEUR_PROFONDEUR"
-  /** Depuis l'emprise relevee, en projection UTM (`field/defauts.emprise.ts`). Ajoutee le 22/10/2026. */
+  /** Longueur ou surface MESUREE sur l'emprise GPS du defaut, en projection UTM (paragraphe 7.1, A5). */
   | "EMPRISE_UTM";
 
 export type RefusQuantite =
   | "MESURES_INSUFFISANTES"
   | "MESURE_ABERRANTE"
   | "COEFFICIENT_ABERRANT"
-  | "DEPASSE_LE_TRONCON";
+  | "DEPASSE_LE_TRONCON"
+  | "EMPRISE_ABERRANTE";
+
+/**
+ * Ce que l'emprise GPS d'un defaut mesure, en metres et en metres carres, dans son fuseau UTM.
+ *
+ * LE MOTEUR RESTE PUR : il ne mesure rien, il recoit la mesure. La mesure est faite par PostGIS
+ * (`metre_utm`, migration 20261020010000) dans `defauts.emprise.ts`, jamais en degres.
+ */
+export interface MetreEmprise {
+  /** `ligne` pour une LineString, `surface` pour un Polygon : ce qu'on peut en tirer differe. */
+  type: "ligne" | "surface";
+  /** Longueur de la ligne, ou perimetre de la surface. */
+  longueurM: number | null;
+  /** Surface, pour une emprise de type `surface`. Nulle pour une ligne. */
+  surfaceM2: number | null;
+}
 
 export type ResultatQuantite =
   | { valeur: number; methode: MethodeQuantite }
@@ -207,10 +223,12 @@ export function quantite(
   unite: UniteDefaut,
   longueurTronconM?: number | null,
   coefficientUnitaire?: number | null,
+  emprise?: MetreEmprise | null,
 ): ResultatQuantite {
   for (const v of [m.nombre, m.longueurM, m.largeurM, m.profondeurM, m.quantiteSaisie]) {
     if (mesurePresenteMaisFausse(v)) return { valeur: null, motif: "MESURE_ABERRANTE" };
   }
+  if (emprise && empriseAberrante(emprise)) return { valeur: null, motif: "EMPRISE_ABERRANTE" };
 
   // Un coefficient present mais faux fait REFUSER, comme une mesure fausse. Un catalogue
   // portant `coefficientUnitaire: 0` ferait sinon rendre une quantite nulle pour douze
@@ -224,10 +242,21 @@ export function quantite(
   if (mesureValide(longueurTronconM) && mesureValide(m.longueurM) && m.longueurM > longueurTronconM) {
     return { valeur: null, motif: "DEPASSE_LE_TRONCON" };
   }
+  // La longueur MESUREE sur l'emprise est comparable a celle du troncon, comme la longueur saisie.
+  if (mesureValide(longueurTronconM) && emprise?.type === "ligne" && mesureValide(emprise.longueurM) && emprise.longueurM > longueurTronconM) {
+    return { valeur: null, motif: "DEPASSE_LE_TRONCON" };
+  }
 
   if (mesureValide(m.quantiteSaisie)) {
     return { valeur: arrondir(m.quantiteSaisie), methode: "SAISIE" };
   }
+
+  // L'EMPRISE MESUREE passe APRES le constat saisi et AVANT les derivations par rectangle : un
+  // contour releve au GPS decrit le defaut tel qu'il est, un produit longueur x largeur n'en est
+  // qu'une approximation. Elle n'est jamais convertie en degres : la mesure vient de la projection
+  // UTM du fuseau du defaut (voir `metre_utm`).
+  const parEmprise = quantiteParEmprise(m, unite, emprise);
+  if (parEmprise !== null) return { valeur: arrondir(parEmprise), methode: "EMPRISE_UTM" };
 
   switch (unite) {
     case "UNITE":
@@ -256,6 +285,57 @@ export function quantite(
       }
       return parComptage(m, coefficientUnitaire);
   }
+}
+
+/** Une emprise presente mais dont la mesure n'est pas un nombre fini strictement positif. */
+function empriseAberrante(e: MetreEmprise): boolean {
+  const principale = e.type === "ligne" ? e.longueurM : e.surfaceM2;
+  return !mesureValide(principale);
+}
+
+/**
+ * Ce que l'emprise donne dans l'unite du type, ou null quand elle n'en tire rien.
+ *
+ *   METRE         ligne                          sa longueur
+ *   METRE_CARRE   surface                        sa surface
+ *                 ligne + largeur saisie         longueur x largeur (la largeur ne se mesure pas au GPS)
+ *   METRE_CUBE    surface + profondeur saisie    surface x profondeur
+ *                 ligne + largeur + profondeur   longueur x largeur x profondeur
+ *   UNITE         jamais : un nombre se compte, il ne se mesure pas
+ *
+ * UNE EMPRISE QUI N'APPORTE RIEN N'EST PAS UNE ERREUR : un polygone autour d'un METRE, ou une ligne
+ * pour un METRE_CARRE sans largeur, reste enregistree comme localisation, et les autres mesures
+ * decident. Refuser ferait perdre un contour utile pour avoir voulu trop bien faire.
+ */
+function quantiteParEmprise(m: MesuresDefaut, unite: UniteDefaut, e: MetreEmprise | null | undefined): number | null {
+  if (!e) return null;
+  switch (unite) {
+    case "METRE":
+      return e.type === "ligne" ? e.longueurM : null;
+    case "METRE_CARRE":
+      if (e.type === "surface") return e.surfaceM2;
+      return mesureValide(m.largeurM) && mesureValide(e.longueurM) ? e.longueurM * m.largeurM : null;
+    case "METRE_CUBE":
+      if (!mesureValide(m.profondeurM)) return null;
+      if (e.type === "surface") return mesureValide(e.surfaceM2) ? e.surfaceM2 * m.profondeurM : null;
+      return mesureValide(m.largeurM) && mesureValide(e.longueurM) ? e.longueurM * m.largeurM * m.profondeurM : null;
+    case "UNITE":
+      return null;
+  }
+}
+
+/**
+ * Mesures requises que l'emprise remplace, parce qu'elle donne deja ce qu'elles servaient a calculer.
+ *
+ * `LONGUEUR` et `LARGEUR` sont les facteurs d'un rectangle : un contour releve les rend inutiles
+ * pour une surface. `PROFONDEUR` et `NOMBRE` ne se tirent d'aucun contour et restent exigees.
+ */
+function mesuresCouvertesParEmprise(unite: UniteDefaut, e: MetreEmprise | null | undefined): MesureDefaut[] {
+  if (!e || empriseAberrante(e) || unite === "UNITE") return [];
+  // Une ligne donne la longueur ; un contour fermé donne longueur ET largeur d'une surface -- mais
+  // rien pour un METRE, dont le polygone ne dit pas la longueur du defaut.
+  if (e.type === "ligne") return ["LONGUEUR"];
+  return unite === "METRE_CARRE" || unite === "METRE_CUBE" ? ["LONGUEUR", "LARGEUR"] : [];
 }
 
 /**
@@ -305,17 +385,21 @@ export function metrer(
   m: MesuresDefaut,
   type: TypeDefaut,
   longueurTronconM?: number | null,
+  emprise?: MetreEmprise | null,
 ): Metre {
   // Une mesure fausse se signale avant toute chose : elle expliquerait autrement un
   // « releve incomplet » trompeur, puisqu'un zero compte comme absent.
   for (const v of [m.nombre, m.longueurM, m.largeurM, m.profondeurM, m.quantiteSaisie]) {
     if (mesurePresenteMaisFausse(v)) return { valeur: null, motif: "MESURE_ABERRANTE" };
   }
+  if (emprise && empriseAberrante(emprise)) return { valeur: null, motif: "EMPRISE_ABERRANTE" };
 
-  const manquantes = mesuresManquantes(m, type.mesuresRequises);
+  // Un contour releve remplace les facteurs du rectangle qu'il rend inutiles (voir ci-dessus).
+  const couvertes = mesuresCouvertesParEmprise(type.unite, emprise);
+  const manquantes = mesuresManquantes(m, type.mesuresRequises).filter((r) => !couvertes.includes(r));
   if (manquantes.length > 0) return { valeur: null, motif: "RELEVE_INCOMPLET", manquantes };
 
-  const q = quantite(m, type.unite, longueurTronconM, type.coefficientUnitaire);
+  const q = quantite(m, type.unite, longueurTronconM, type.coefficientUnitaire, emprise);
   return q.valeur === null ? q : { valeur: q.valeur, unite: type.unite, methode: q.methode };
 }
 
@@ -466,6 +550,7 @@ export const EXPLICATIONS: Record<RefusMetre | RefusGravite, string> = {
   MESURE_ABERRANTE: "Une des mesures est nulle ou négative : corrigez-la avant d'enregistrer.",
   COEFFICIENT_ABERRANT: "La taille unitaire définie pour ce type de défaut est nulle ou négative : signalez-le à votre administrateur.",
   DEPASSE_LE_TRONCON: "Le défaut est plus long que le tronçon qui le porte : vérifiez la mesure ou le rattachement.",
+  EMPRISE_ABERRANTE: "Le contour relevé n'a ni longueur ni surface exploitable : retracez-le.",
   RELEVE_INCOMPLET: "Ce type de défaut demande des mesures qui n'ont pas été relevées.",
   HORS_ECHELLE: "La gravité sort de l'échelle prévue pour ce type de défaut.",
   TYPE_SANS_GRAVITE: "Ce type de défaut ne se gradue pas : il est constaté ou il ne l'est pas.",

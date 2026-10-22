@@ -2,6 +2,7 @@
 // dès que le réseau est disponible et que l'utilisateur est authentifié. Expose un store
 // module-level (pattern identique a toast.ts) pour que le badge de header et la page
 // terrain restent en phase sans prop drilling.
+import axios from "axios";
 import { api } from "./api";
 import {
   getAllPending,
@@ -80,6 +81,26 @@ export async function refreshPendingCount() {
 // ignoree pour toujours par la boucle. La derniere photo ne partait jamais, alors
 // que chaque tentative avait reussi en partie.
 const MAX_TENTATIVES = 5;
+
+/**
+ * Vrai si la requete n'a obtenu AUCUNE reponse : reseau coupe, delai depasse, DNS, serveur
+ * injoignable. L'erreur ne dit rien de la saisie elle-meme.
+ *
+ * POURQUOI ELLE NE COMPTE PAS DANS LE PLAFOND DE TENTATIVES
+ *
+ * `MAX_TENTATIVES` vise l'erreur PERMANENTE d'une saisie (troncon supprime, validation refusee).
+ * Un reseau qui ne repond pas n'est pas une propriete de la saisie : sur un telephone qui capte
+ * mal, l'evenement « online » revient plusieurs fois sans connexion utilisable, et chaque retour
+ * comptait un echec pour CHAQUE element de la file. Cinq retours suffisaient a marquer les 50
+ * saisies d'une mission « abandonnees », donc ignorees par la boucle jusqu'a ce que l'agent les
+ * releve une a une. Les saisies n'etaient pas perdues, mais la synchronisation s'arretait sans
+ * que le reseau en soit la cause (test `offlineSync.cinquante.test.ts`).
+ *
+ * Une erreur du SERVEUR (reponse 4xx, 5xx) compte toujours : lui a repondu.
+ */
+function estErreurReseau(err: unknown): boolean {
+  return axios.isAxiosError(err) && !err.response;
+}
 
 function messageErreur(err: unknown): string {
   if (typeof err === "object" && err !== null && "response" in err) {
@@ -163,7 +184,7 @@ async function syncOne(item: PendingInspection): Promise<boolean> {
     const message = messageErreur(err);
     // Une tentative qui a fait avancer l'envoi repart de zero : ce n'est pas
     // l'erreur permanente que le plafond vise, c'est un reseau qui coupe.
-    const echecsConsecutifs = aProgresse(item, etat) ? 0 : tentatives;
+    const echecsConsecutifs = aProgresse(item, etat) ? 0 : estErreurReseau(err) ? (item.tentatives ?? 0) : tentatives;
     const abandonnee = echecsConsecutifs >= MAX_TENTATIVES;
     await updatePendingInspection({
       ...etat,
@@ -284,7 +305,7 @@ async function syncOneDefaut(item: PendingDefaut, userId: string): Promise<boole
   } catch (err) {
     const message = messageErreur(err);
     const aProgresse = (!item.serverId && !!etat.serverId) || (etat.photos?.length ?? 0) < (item.photos?.length ?? 0);
-    const echecsConsecutifs = aProgresse ? 0 : tentatives;
+    const echecsConsecutifs = aProgresse ? 0 : estErreurReseau(err) ? (item.tentatives ?? 0) : tentatives;
     const abandonnee = echecsConsecutifs >= MAX_TENTATIVES;
     await updatePendingDefaut({
       ...etat,
@@ -344,13 +365,15 @@ async function syncOnePortion(item: PendingPortion, userId: string): Promise<boo
     throw new Error(resultat?.motif ?? "Le serveur n'a pas confirmé la synchronisation de la portion.");
   } catch (err) {
     const message = messageErreur(err);
-    const abandonnee = tentatives >= MAX_TENTATIVES;
+    // Un reseau muet ne compte pas (voir `estErreurReseau`) : la portion reste en file, `error`.
+    const comptees = estErreurReseau(err) ? (item.tentatives ?? 0) : tentatives;
+    const abandonnee = comptees >= MAX_TENTATIVES;
     await updatePendingPortion({
       ...item,
-      tentatives,
+      tentatives: comptees,
       status: abandonnee ? "abandonnee" : "error",
       errorMessage: abandonnee
-        ? `${message} (abandon après ${tentatives} échecs consécutifs)`
+        ? `${message} (abandon après ${comptees} échecs consécutifs)`
         : message,
     });
     return false;

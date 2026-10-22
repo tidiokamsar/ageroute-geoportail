@@ -16,7 +16,7 @@ Aucune opération sur la production (§ A.5.1).
 
 | # | Alerte § A.7 | Vérifié | Verdict |
 |---|---|---|---|
-| S-1 | Dépôt public contenant une IP de production et le chemin d'une clé de sauvegarde | **oui, complètement** | **dépôt public confirmé ; aucun secret ni IP jamais committé.** Pas de rotation nécessaire |
+| S-1 | Dépôt public contenant une IP de production et le chemin d'une clé de sauvegarde | **oui, mais le verdict du 14/10 était incomplet** | **dépôt public confirmé. Corrigé le 22/10 : l'adresse du serveur de sauvegarde distant et le nom de compte `agerdb` figurent dans l'historique (6 commits, 1er et 2 septembre).** Aucun mot de passe ni clé privée trouvés. Voir la correction ci-dessous |
 | S-2 | Mot de passe ADMIN transmis en clair et non changé | non | **bloqué** : exige une opération sur la production |
 | S-3 | Compte de test avec rôle ADMIN en production | partiellement | **traité le 13/10/2026** (rétrogradé, audité) ; à reconfirmer |
 | S-4 | Rôle PostgreSQL `bdri_app` superuser | partiellement | privilèges constatés le 13/10 ; réduction **bloquée** |
@@ -29,6 +29,33 @@ l'alerte.**
 
 ## S-1 — Dépôt public : ce qui a réellement été exposé
 
+> ### Correction du 22/10/2026 : ce chapitre se trompait sur un point
+>
+> Le verdict du 14/10 « aucune IP jamais committée » reposait sur une recherche de l'adresse du serveur
+> **applicatif de production**. Le balayage automatisé de l'historique (`npm run securite:balayer
+> -- --historique`, 320 commits, ajouté le 22/10) trouve une autre adresse : celle du **serveur de
+> sauvegarde distant**, avec le **nom de compte `agerdb`**, dans **6 commits des 1er et 2 septembre**
+> (`e976949b`, `9b3aae75`, `5093da04`, `087ef5c7`, `6be857fa`, `99aa2dff`), via des scripts de sauvegarde et des
+> documents d'audit. **La valeur n'est pas reproduite ici.** Aucun mot de passe ni clé privée n'y figure.
+>
+> **Conséquence.** Le dépôt est public (`isPrivate: false`, revérifié le 22/10) : une adresse, un nom de
+> compte et un chemin de dépôt de sauvegardes sont lisibles par n'importe qui, depuis le 1er septembre, et
+> peuvent avoir été copiés (forks, caches, moteurs de recherche). Une réécriture de l'historique ne défait
+> pas une divulgation déjà faite. Ce compte est précisément celui dont le mot de passe a ensuite transité en
+> clair dans une conversation de travail, et l'incident de compromission des serveurs (voir plus bas)
+> n'écarte pas cette piste : **je ne peux ni la confirmer ni l'exclure.**
+>
+> **À faire, par ordre d'urgence, tous soumis à autorisation (§ A.5.1 et § A.5.5)**
+> 1. Considérer l'adresse et le compte comme **connus du public** : changer le mot de passe du compte
+>    `agerdb`, remplacer ses clés SSH, et **restreindre l'accès SSH du serveur de sauvegarde** aux seules
+>    adresses d'AGEROUTE (pare-feu).
+> 2. **Rendre le dépôt privé** (c'est maintenant une réponse à incident, plus seulement une politique).
+> 3. Seulement ensuite, décider d'une réécriture de l'historique (`git filter-repo` puis push forcé) : elle
+>    réduit l'exposition future, elle ne retire rien de ce qui a été copié, et elle casse les clones et les
+>    pull requests existants.
+> 4. Faire relire par le fournisseur les journaux de connexion du serveur de sauvegarde depuis le
+>    1er septembre.
+
 ### Méthode
 
 Six vérifications, toutes locales ou en lecture seule.
@@ -40,7 +67,7 @@ Six vérifications, toutes locales ou en lecture seule.
 | Entêtes de clé privée | `git log --all -S` sur `BEGIN RSA PRIVATE KEY`, `BEGIN PRIVATE KEY`, `BEGIN OPENSSH PRIVATE KEY`, `BEGIN EC PRIVATE KEY` | **aucun commit** |
 | Mots de passe d'environnement | `git log --all -S` sur `PGPASSWORD`, `JWT_SECRET`, `AWS_SECRET`, `PRIVATE_KEY` | **aucun commit** |
 | Chaînes de connexion | `git log --all -S` sur `postgres://`, `postgresql://` | 4 commits, **analysés ci-dessous** |
-| **IP du serveur de production** | `git grep` sur l'arbre courant, puis `git log --all -S` sur l'historique entier | **0 fichier, 0 commit** |
+| **IP du serveur de production** | `git grep` sur l'arbre courant, puis `git log --all -S` sur l'historique entier | **0 fichier, 0 commit** pour CETTE adresse. **Mais** l'adresse du serveur de **sauvegarde** y est (voir la correction ci-dessus) |
 
 ### Les chaînes de connexion trouvées, et ce qu'elles contenaient
 
@@ -95,14 +122,17 @@ décompose en trois affirmations, dont deux seulement se vérifient :
 | Un chemin de clé de sauvegarde y figure | **oui**, dans les scripts de `infra/backup/` |
 | Une IP de production y figure | **non**, et jamais dans l'historique |
 
-**Aucune rotation de secret n'est donc nécessaire au titre d'une exposition par le dépôt.** Un
-chemin de fichier n'est pas un secret : il ne devient exploitable que par quelqu'un qui a déjà
-accès au serveur, et qui n'a alors pas besoin du dépôt pour le trouver.
+**[Paragraphe corrigé le 22/10 : l'affirmation « aucune rotation nécessaire » du 14/10 est retirée.]**
+Un chemin de fichier n'est pas un secret, mais une adresse de serveur de sauvegarde associée à un
+nom de compte l'est à moitié : elle désigne une cible. La rotation du mot de passe et des clés de ce
+compte est donc à faire (voir la correction en tête de ce chapitre), même si aucun secret n'a été
+commité.
 
-Rendre le dépôt privé reste souhaitable — c'est la règle 1 d'`AGENTS.md` et une réduction de
-surface — mais c'est une **décision de politique, pas une réponse à incident**. La distinction
-compte : traiter ceci comme une fuite déclencherait une rotation de clé de sauvegarde, opération
-risquée qui rendrait les archives existantes illisibles si elle était mal conduite.
+Rendre le dépôt privé est désormais une **réponse à incident** et non plus seulement une décision
+de politique. Attention à ne pas confondre les deux rotations : celle du **mot de passe et des clés SSH
+d'accès** au serveur de sauvegarde est urgente et sans risque pour les archives ; celle de la **clé de
+chiffrement des sauvegardes** (B-21) est une opération risquée, qui rendrait les archives existantes
+illisibles si elle était mal conduite, et ne répond pas à cette exposition.
 
 **Ce que cette vérification n'établit pas** : que rien n'a été exposé par un autre canal — une
 capture d'écran, un message, un document partagé. Elle porte sur le dépôt Git, et sur lui seul.

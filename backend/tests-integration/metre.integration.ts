@@ -5,11 +5,11 @@ import "./lib/garde";
 // L'ORACLE : chaque geometrie de reference est DEFINIE en UTM (surface et longueur exactes) ; le noyau
 // TypeScript `geo/utm.noyau.ts` ne partage aucun code avec PostGIS (`metre_utm`). Les trois doivent
 // se rejoindre : PostGIS = definition au millionieme (meme fuseau), PostGIS = TypeScript au millionieme.
+// Le metre d'un defaut par son contour est eprouve par le banc `metre-defaut`.
 import { PrismaClient } from "@prisma/client";
 import { mesurerGeometrie } from "../src/geo/metre.service";
 import { metreUtm, type GeometrieMetrable } from "../src/geo/utm.noyau";
 import { GEOMETRIES_REFERENCE } from "../src/geo/geometries-reference";
-import { quantiteParEmprise } from "../src/field/defauts.emprise";
 import { verifier, conclure } from "./lib/verdict";
 
 const prisma = new PrismaClient();
@@ -38,11 +38,6 @@ async function main() {
   const illisible = await mesurerGeometrie(prisma, { type: "Polygon", coordinates: [["x"]] });
   verifier("des coordonnees illisibles sont refusees comme telles", !illisible.ok && illisible.code === "GEOMETRIE_ILLISIBLE", illisible);
 
-  // La chaine du metre d'un defaut : mesure PostGIS, puis regle d'emprise.
-  const carre = GEOMETRIES_REFERENCE.find((g) => g.code === "CARRE_100M_28N")!;
-  const mc = await mesurerGeometrie(prisma, carre.geometrie);
-  const q = mc.ok ? quantiteParEmprise("METRE_CARRE", "Polygon", mc.mesure) : null;
-  verifier("un faiencage contourne en carre de 100 m se metre 10 000 m2, methode EMPRISE_UTM", q?.valeur === 10000 && q.methode === "EMPRISE_UTM", q);
   conclure();
 }
 

@@ -323,21 +323,69 @@ function citerCsv(v: unknown, sep: string = SEPARATEUR_CSV): string {
  * Les colonnes inconnues ne sont PAS rejetees : elles finissent dans `attributs`. Rejeter une
  * colonne de plus perdrait de l'information que la source a jugee utile.
  */
-export function lireCsv(texte: string, sep: string = SEPARATEUR_CSV): { entete: string[]; lignes: Record<string, string>[] } {
-  const lignesBrutes = texte.replace(/^﻿/, "").split(/\r?\n/);
-  const premiere = lignesBrutes.findIndex((l) => l.trim().length > 0 && !l.startsWith("#"));
-  if (premiere < 0) return { entete: [], lignes: [] };
-  const entete = decouperLigneCsv(lignesBrutes[premiere], sep).map((h) => h.trim());
+export function lireCsv(texte: string, sep: string = SEPARATEUR_CSV): {
+  entete: string[];
+  lignes: Record<string, string>[];
+  /** Index (dans `lignes`) -> motif, pour les enregistrements dont la forme est douteuse. */
+  anomalies: Map<number, string>;
+} {
+  const enregistrements = decouperEnregistrementsCsv(texte);
+  const premiere = enregistrements.findIndex((e) => e.texte.trim().length > 0 && !e.texte.startsWith("#"));
+  if (premiere < 0) return { entete: [], lignes: [], anomalies: new Map() };
+  const entete = decouperLigneCsv(enregistrements[premiere].texte, sep).map((h) => h.trim());
   const lignes: Record<string, string>[] = [];
-  for (let i = premiere + 1; i < lignesBrutes.length; i += 1) {
-    const l = lignesBrutes[i];
+  const anomalies = new Map<number, string>();
+  for (let i = premiere + 1; i < enregistrements.length; i += 1) {
+    const { texte: l, anomalie } = enregistrements[i];
     if (l.trim().length === 0 || l.startsWith("#")) continue;
     const champs = decouperLigneCsv(l, sep);
     const obj: Record<string, string> = {};
     entete.forEach((h, k) => { obj[h] = champs[k] ?? ""; });
+    // LE NOMBRE DE CHAMPS DOIT EGALER LE NOMBRE DE COLONNES. Un champ en trop etait JETE sans un
+    // mot (il n'a pas de colonne), un champ en moins etait complete par une chaine vide : dans
+    // les deux cas la ligne passait comme valide avec des donnees decalees ou tronquees. La
+    // ligne est maintenant refusee avec son motif, et sa forme brute est conservee.
+    const motif = anomalie
+      ?? (champs.length !== entete.length ? `nombre de colonnes incoherent : ${champs.length} champs pour ${entete.length} colonnes d'en-tete` : null);
+    if (motif) { anomalies.set(lignes.length, motif); obj._ligne_brute = l; }
     lignes.push(obj);
   }
-  return { entete, lignes };
+  return { entete, lignes, anomalies };
+}
+
+/**
+ * Decoupe un texte CSV en enregistrements, en tenant compte des guillemets : un saut de ligne
+ * DANS un champ cite fait partie de l'enregistrement (RFC 4180). Decouper par ligne physique
+ * coupait un commentaire de terrain sur deux lignes en deux enregistrements faux.
+ *
+ * UN GUILLEMET OUVERT ET JAMAIS REFERME ne doit pas avaler le reste du fichier : si la fin du
+ * texte est atteinte guillemet ouvert, l'enregistrement fautif est redecoupe par lignes
+ * physiques, et SEULE sa premiere ligne (celle qui porte le guillemet) est marquee en anomalie.
+ */
+export function decouperEnregistrementsCsv(texte: string): { texte: string; anomalie?: string }[] {
+  const brut = texte.replace(/^﻿/, "");
+  const sortie: { texte: string; anomalie?: string }[] = [];
+  const sansCr = (s: string) => (s.endsWith("\r") ? s.slice(0, -1) : s);
+  let debut = 0;
+  let cite = false;
+  for (let i = 0; i < brut.length; i += 1) {
+    const ch = brut[i];
+    if (ch === '"') cite = !cite;
+    else if (ch === "\n" && !cite) {
+      sortie.push({ texte: sansCr(brut.slice(debut, i)) });
+      debut = i + 1;
+    }
+  }
+  if (debut < brut.length) {
+    const reste = brut.slice(debut);
+    if (!cite) sortie.push({ texte: sansCr(reste) });
+    else {
+      reste.split(/\r?\n/).forEach((l, k) => sortie.push(k === 0
+        ? { texte: l, anomalie: "guillemet ouvert jamais referme : l'enregistrement est lu sur sa seule ligne" }
+        : { texte: l }));
+    }
+  }
+  return sortie;
 }
 
 /** Ecrit un pivot CSV : en-tete fixe, attributs supplementaires en colonnes additionnelles. */

@@ -1,5 +1,3 @@
-import { mesurerGeometrie } from "../geo/metre.service";
-import { compatible, empriseComble, EXPLICATIONS_EMPRISE, quantiteParEmprise } from "../field/defauts.emprise";
 import { Router, type Request, type RequestHandler } from "express";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile, unlink } from "node:fs/promises";
@@ -17,6 +15,10 @@ import { logAuditTransactionnelle } from "../utils/audit";
 import { enregistrerQualite } from "../lib/qualite";
 import { setPointGeom, deriveGeomFromTroncon, deriveGeomFromTronconAbscisse } from "../lib/geo";
 import { donneesObservationConteneur } from "../field/observation-conteneur";
+import {
+  empriseSchema, ecrireEmprise, ecrireQuantiteEmprise, lireEmpriseStockee, mesurerEmprise, sansEmprise,
+  type MesureEmprise,
+} from "../field/defauts.emprise";
 import { verdictDelegation } from "../governance/delegation.service";
 import {
   metrer, graviteValide, transitionEtatPermise,
@@ -112,9 +114,8 @@ const creation = z.object({
   gravite: z.number().int().min(1).optional(),
   etendue: z.enum(["PONCTUEL", "LOCALISE", "ETENDU", "GENERALISE"]).optional(),
   mesures: mesuresSchema.optional(),
-  // Contour releve au GPS : ligne pour un defaut en metres, polygone pour un defaut en metres
-  // carres. Metre en UTM quand les mesures manquent (field/defauts.emprise.ts).
-  emprise: z.object({ type: z.enum(["LineString", "Polygon"]), coordinates: z.array(z.unknown()).min(1) }).strict().optional(),
+  /** Contour GPS du defaut (GeoJSON 4326) : mesure en UTM, jamais en degres (A5). */
+  emprise: empriseSchema.optional(),
 }).strict();
 
 /**
@@ -266,25 +267,15 @@ defautsV2Router.post("/", requireAuth, requireModuleAccess("inspections"), terri
       profondeurM: c.mesures?.profondeurM ?? null,
       quantiteSaisie: c.mesures?.quantiteSaisie ?? null,
     };
-    const longueurTronconM = troncon?.longueurKm ? troncon.longueurKm * 1000 : null;
-    let metre = metrer(mesures, typeDefaut(catalogue), longueurTronconM);
-
-    // EMPRISE : mesuree par PostGIS dans son fuseau UTM, refusee si invalide (jamais reparee) ou
-    // si elle contredit l'unite du type. Elle ne comble que les mesures qu'elle remplace.
+    // L'EMPRISE est mesuree AVANT le metre : un contour invalide est refuse avec sa raison, jamais
+    // repare, et sa mesure (UTM) entre dans le calcul de la quantite.
+    let mesureEmprise: Extract<MesureEmprise, { ok: true }> | null = null;
     if (c.emprise) {
-      if (!compatible(catalogue.unite, c.emprise.type)) {
-        return res.status(422).json({ message: EXPLICATIONS_EMPRISE.EMPRISE_INCOMPATIBLE, motif: "EMPRISE_INCOMPATIBLE" });
-      }
-      const mesure = await mesurerGeometrie(prisma, c.emprise);
-      if (!mesure.ok) {
-        return res.status(422).json({ message: `Emprise ${mesure.code === "GEOMETRIE_ILLISIBLE" ? "illisible" : "invalide"} : ${mesure.raison}.`, motif: mesure.code });
-      }
-      if (empriseComble(metre, catalogue.unite, c.emprise.type)) {
-        const q = quantiteParEmprise(catalogue.unite, c.emprise.type, mesure.mesure, longueurTronconM);
-        if (q.valeur === null) return res.status(422).json({ message: EXPLICATIONS_EMPRISE[q.motif], motif: q.motif });
-        metre = { valeur: q.valeur, unite: catalogue.unite, methode: q.methode };
-      }
+      const m = await mesurerEmprise(prisma, c.emprise);
+      if (!m.ok) return res.status(422).json({ message: `Contour du défaut refusé : ${m.raison}.`, motif: m.motif });
+      mesureEmprise = m;
     }
+    const metre = metrer(mesures, typeDefaut(catalogue), troncon?.longueurKm ? troncon.longueurKm * 1000 : null, mesureEmprise?.metre ?? null);
     if (metre.valeur === null && metre.motif !== "MESURES_INSUFFISANTES") {
       // MESURES_INSUFFISANTES reste franchissable : il ne survient que pour un type
       // sans mesures exigees (AUTRE) saisi sans releve. Le defaut existe, sa quantite
@@ -345,23 +336,29 @@ defautsV2Router.post("/", requireAuth, requireModuleAccess("inspections"), terri
         largeurM: mesures.largeurM ?? null,
         profondeurM: mesures.profondeurM ?? null,
         quantiteSaisie: mesures.quantiteSaisie ?? null,
-        quantite: metre.valeur,
-        uniteQuantite: metre.valeur !== null ? catalogue.unite : null,
-        methodeQuantite: metre.valeur !== null ? metre.methode : null,
+        // Une quantite tiree de l'emprise s'ecrit avec elle, en SQL (voir defauts.emprise.ts).
+        quantite: metre.valeur !== null && sansEmprise(metre.methode) !== null ? metre.valeur : null,
+        uniteQuantite: metre.valeur !== null && sansEmprise(metre.methode) !== null ? catalogue.unite : null,
+        methodeQuantite: metre.valeur !== null ? sansEmprise(metre.methode) : null,
         gravite: c.gravite ?? null,
         etendue: c.etendue ?? null,
         constateA,
         constateParId: user.id,
         },
       });
-      // L'emprise se pose dans la MEME transaction que la quantite qu'elle a servi a calculer :
-      // l'une sans l'autre ne se verifierait plus.
       if (c.emprise) {
-        await tx.$executeRaw`UPDATE "defauts" SET "emprise" = ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(c.emprise)}), 4326) WHERE "id" = ${cree.id}`;
+        await ecrireEmprise(tx, cree.id, c.emprise, metre.valeur !== null && metre.methode === "EMPRISE_UTM"
+          ? { valeur: metre.valeur, unite: catalogue.unite, methode: "EMPRISE_UTM" }
+          : undefined);
       }
       await logAuditTransactionnelle(tx, {
         userId: user.id, action: "CREATE", entityType: "Defaut",
-        entityId: cree.id, after: { code: cree.code, catalogue: catalogue.code, quantite: cree.quantite, methodeQuantite: cree.methodeQuantite, emprise: c.emprise ? c.emprise.type : null },
+        entityId: cree.id,
+        after: {
+          code: cree.code, catalogue: catalogue.code,
+          quantite: metre.valeur !== null ? metre.valeur : cree.quantite,
+          ...(c.emprise ? { emprise: { type: c.emprise.type, epsg: mesureEmprise?.epsg } } : {}),
+        },
         ipAddress: req.ip,
       });
       return cree;
@@ -396,7 +393,16 @@ defautsV2Router.post("/", requireAuth, requireModuleAccess("inspections"), terri
       });
     }
 
-    return res.status(201).json(defaut);
+    // La ligne renvoyee dit la quantite telle qu'elle est ecrite : celle tiree de l'emprise l'a ete en
+    // SQL apres la creation, la ligne creee ne la porte pas encore.
+    const parEmprise = metre.valeur !== null && metre.methode === "EMPRISE_UTM";
+    return res.status(201).json({
+      ...defaut,
+      ...(parEmprise ? { quantite: metre.valeur, uniteQuantite: catalogue.unite, methodeQuantite: "EMPRISE_UTM" } : {}),
+      ...(mesureEmprise
+        ? { metreEmprise: { epsg: mesureEmprise.epsg, longueurM: mesureEmprise.metre.longueurM, surfaceM2: mesureEmprise.metre.surfaceM2, ecartLongueur: mesureEmprise.ecartLongueur, ecartSurface: mesureEmprise.ecartSurface } }
+        : {}),
+    });
   } catch (err) {
     return next(err);
   }
@@ -969,6 +975,8 @@ defautsV2Router.post("/:id/resoumettre", requireAuth, requireModuleAccess("inspe
       gravite: z.number().int().min(1).optional(),
       etendue: z.enum(["PONCTUEL", "LOCALISE", "ETENDU", "GENERALISE"]).optional(),
       commentaire: z.string().max(2000).optional(),
+      /** Contour corrige. Sans lui, le contour deja releve est conserve et re-mesure. */
+      emprise: empriseSchema.optional(),
     }).strict().parse(req.body);
 
     const user = req.user!;
@@ -997,7 +1005,16 @@ defautsV2Router.post("/:id/resoumettre", requireAuth, requireModuleAccess("inspe
     const troncon = defaut.tronconId
       ? await prisma.troncon.findUnique({ where: { id: defaut.tronconId }, select: { longueurKm: true } })
       : null;
-    const metre = metrer(mesures, typeDefaut(defaut.catalogue), troncon?.longueurKm ? troncon.longueurKm * 1000 : null);
+    // Le contour DEJA releve compte dans le recalcul : le perdre ferait retomber la quantite sur les
+    // seules mesures saisies, sans que personne ne l'ait voulu.
+    const empriseRetenue = c.emprise ?? await lireEmpriseStockee(prisma, defaut.id);
+    let mesureEmprise: Extract<MesureEmprise, { ok: true }> | null = null;
+    if (empriseRetenue) {
+      const m = await mesurerEmprise(prisma, empriseRetenue);
+      if (!m.ok) return res.status(422).json({ message: `Contour du défaut refusé : ${m.raison}.`, motif: m.motif });
+      mesureEmprise = m;
+    }
+    const metre = metrer(mesures, typeDefaut(defaut.catalogue), troncon?.longueurKm ? troncon.longueurKm * 1000 : null, mesureEmprise?.metre ?? null);
     if (metre.valeur === null && metre.motif !== "MESURES_INSUFFISANTES") {
       const detail = metre.motif === "RELEVE_INCOMPLET" && metre.manquantes
         ? ` Mesures à relever : ${metre.manquantes.map((m) => NOMS_MESURES[m]).join(", ")}.`
@@ -1022,14 +1039,18 @@ defautsV2Router.post("/:id/resoumettre", requireAuth, requireModuleAccess("inspe
           largeurM: mesures.largeurM ?? null,
           profondeurM: mesures.profondeurM ?? null,
           quantiteSaisie: mesures.quantiteSaisie ?? null,
-          quantite: metre.valeur,
-          uniteQuantite: metre.valeur !== null ? defaut.catalogue.unite : null,
-          methodeQuantite: metre.valeur !== null ? metre.methode : null,
+          quantite: metre.valeur !== null && sansEmprise(metre.methode) !== null ? metre.valeur : null,
+          uniteQuantite: metre.valeur !== null && sansEmprise(metre.methode) !== null ? defaut.catalogue.unite : null,
+          methodeQuantite: metre.valeur !== null ? sansEmprise(metre.methode) : null,
           gravite: gravite ?? null,
           etendue: c.etendue ?? defaut.etendue,
         },
       });
       if (maj.count !== 1) return null;
+      if (c.emprise) await ecrireEmprise(tx, defaut.id, c.emprise);
+      if (metre.valeur !== null && metre.methode === "EMPRISE_UTM") {
+        await ecrireQuantiteEmprise(tx, defaut.id, { valeur: metre.valeur, unite: defaut.catalogue.unite, methode: "EMPRISE_UTM" });
+      }
       const defautMisAJour = await tx.defaut.findUnique({ where: { id: defaut.id } });
       if (!defautMisAJour) throw new Error("Défaut absent après resoumission.");
       await tx.validation.create({

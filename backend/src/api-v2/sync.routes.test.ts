@@ -375,7 +375,39 @@ describe("POST /resolve", () => {
     expect(h.observationCurrent).toMatchObject({ description: "Version retenue", version: 2 });
     expect(h.conflit?.resolution).toBe("LOCAL");
     expect(h.operationStatus?.statut).toBe("SYNCHRONISE");
-    expect(h.audits).toHaveLength(1);
+    // Deux ecritures, deux audits : l'observation (avant/apres) ET la resolution du conflit.
+    expect(h.audits).toHaveLength(2);
+    expect(h.audits[0]).toMatchObject({ entityType: "Observation", action: "UPDATE", entityId: "observation-1" });
+    expect((h.audits[0].before as { version: number }).version).toBe(1);
+    expect(h.audits[1]).toMatchObject({ entityType: "ConflitSync", action: "UPDATE" });
+  });
+
+  it("n'ecrit aucun audit d'observation quand on garde la version du serveur", async () => {
+    h.conflit = {
+      id: uuid(5), operationId: uuid(6), entityType: "Observation", entityId: "observation-1",
+      resolution: null, payloadLocal: { description: "Version locale" }, payloadServeur: { version: 1 },
+    };
+    h.observationCurrent = { id: "observation-1", agentId: "u1", statut: "PROPOSEE", version: 1, deletedAt: null };
+
+    const r = await request(app()).post("/api/v2/sync/resolve").send({ conflitId: uuid(5), resolution: "SERVEUR" });
+
+    expect(r.status).toBe(200);
+    expect(h.observationCurrent.version).toBe(1);
+    expect(h.audits.map((a) => a.entityType)).toEqual(["ConflitSync"]);
+  });
+
+  it("une suppression locale arbitree est auditee DELETE sur l'observation", async () => {
+    h.operation = "DELETE";
+    h.conflit = {
+      id: uuid(5), operationId: uuid(6), entityType: "Observation", entityId: "observation-1",
+      resolution: null, payloadLocal: {}, payloadServeur: { version: 1 },
+    };
+    h.observationCurrent = { id: "observation-1", agentId: "u1", statut: "PROPOSEE", version: 1, deletedAt: null };
+
+    const r = await request(app()).post("/api/v2/sync/resolve").send({ conflitId: uuid(5), resolution: "LOCAL" });
+
+    expect(r.status).toBe(200);
+    expect(h.audits[0]).toMatchObject({ entityType: "Observation", action: "DELETE" });
   });
 
   it("répond 409 si un autre arbitre a déjà revendiqué le conflit", async () => {

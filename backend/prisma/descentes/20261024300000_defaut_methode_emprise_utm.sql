@@ -1,17 +1,18 @@
--- RETOUR ARRIERE de `20261025100000_metre_emprise_utm`.
+-- RETOUR ARRIERE de `20261024300000_defaut_methode_emprise_utm`.
 --
--- Retire la valeur EMPRISE_UTM de MethodeQuantite.
+-- Ajoute la valeur EMPRISE_UTM a MethodeQuantite.
 --
--- CE QUI EST PERDU : rien, si aucun defaut n'a ete metre par son emprise. Sinon la descente
--- REFUSE, MEME avec l'autorisation de perte : retirer la valeur obligerait a inventer une autre
--- methode pour ces quantites, et c'est une decision metier. Les emprises relevees restent dans
--- `defauts.emprise`, colonne anterieure a cette migration.
+-- CE QUI EST PERDU : rien tant qu'aucun defaut ne porte la valeur. La valeur EMPRISE_UTM n'est retiree que si aucun defaut ne l'utilise ; sinon la descente REFUSE, MEME avec l'autorisation de perte : aucune valeur de remplacement n'est inventee (une quantite mesuree sur un contour ne devient ni « saisie » ni « calculee » par decret de script).
+--
+-- GARDE : la descente REFUSE de s'executer si des donnees seraient detruites. Cette garde-ci ne se leve pas par `bdri.perte_autorisee` : retirer la valeur obligerait a choisir la methode de remplacement, ce qui est une decision metier.
 --
 -- EXECUTION : dans UNE transaction, jamais en autocommit :
 --
---     psql -v ON_ERROR_STOP=1 -1 -f descentes/20261025100000_metre_emprise_utm.sql
+--     psql -v ON_ERROR_STOP=1 -1 -f descentes/20261024300000_defaut_methode_emprise_utm.sql
 --
 -- GARDE-TEST-SANS-DEROGATION: INSERT INTO "defauts" ("id","catalogueId","observationId","constateA","constateParId","updatedAt","methodeQuantite") VALUES ('g1',1,'o',now(),'u',now(),'EMPRISE_UTM');
+--
+-- A executer par le banc `verifier.sh` (voir README.md) ; resultat consigne dans docs/scenarios/SCENARIOS-PARTIELS.md.
 
 -- PostgreSQL ne sait pas retirer une valeur d'une enumeration : il faut reconstruire le type.
 -- Cette fonction est temporaire (schema pg_temp) et disparait avec la session.
@@ -74,4 +75,4 @@ SELECT pg_temp.retirer_valeurs_enum('MethodeQuantite', ARRAY['EMPRISE_UTM']);
 
 -- Et retirer la ligne de `_prisma_migrations` :
 --
---   DELETE FROM _prisma_migrations WHERE migration_name = '20261025100000_metre_emprise_utm';
+--   DELETE FROM _prisma_migrations WHERE migration_name = '20261024300000_defaut_methode_emprise_utm';

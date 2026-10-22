@@ -18,6 +18,12 @@ const h = vi.hoisted(() => ({
   missionAccessible: true,
   forceObservationCompareFailure: false,
   operationsTracees: [] as Array<Record<string, unknown>>,
+  /** Nombre de transactions qui echouent encore sur une violation d'unicite (course entre deux envois). */
+  p2002Restants: 0,
+  /** Erreur (autre que P2002) levee par la transaction, et traces ecrites HORS transaction. */
+  erreurTransaction: null as Error | null,
+  tracesHorsTransaction: [] as Array<Record<string, unknown>>,
+  conflitExistant: null as { id: string } | null,
   defautsCrees: [] as Array<Record<string, unknown>>,
   qualites: [] as Array<Record<string, unknown>>,
   setPointGeom: vi.fn(async () => {}),
@@ -31,12 +37,26 @@ vi.mock("../lib/prisma", () => ({
     operationSync: {
       findUnique: vi.fn(async () => h.operationExists),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => { h.operationsTracees.push(data); return data; }),
+      upsert: vi.fn(async ({ create }: { create: Record<string, unknown> }) => { h.tracesHorsTransaction.push(create); return create; }),
     },
     defaut: { findUnique: vi.fn(async () => h.defautExists) },
     observation: { findUnique: vi.fn(async () => h.observationRead) },
-    $transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) => run({
+    conflitSync: { findFirst: vi.fn(async () => h.conflitExistant) },
+    $transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) => {
+      if (h.erreurTransaction) throw h.erreurTransaction;
+      if (h.p2002Restants > 0) {
+        h.p2002Restants -= 1;
+        const { Prisma } = await import("@prisma/client");
+        throw new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "test" });
+      }
+      return run({
       operationSync: {
         create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => { h.operationsTracees.push(data); return data; }),
+        // La trace est un UPSERT : on enregistre ce qui serait cree, et on note si la ligne existait deja.
+        upsert: vi.fn(async ({ create }: { create: Record<string, unknown> }) => {
+          h.operationsTracees.push({ ...create, ...(h.operationExists ? { _miseAJour: true } : {}) });
+          return create;
+        }),
       },
       catalogueDefaut: { findUnique: vi.fn(async () => h.catalogue) },
       troncon: { findFirst: vi.fn(async () => null) },
@@ -76,7 +96,8 @@ vi.mock("../lib/prisma", () => ({
       valeurQualite: {
         upsert: vi.fn(async ({ create }: { create: Record<string, unknown> }) => { h.qualites.push(create); return create; }),
       },
-    })),
+      });
+    }),
   },
 }));
 
@@ -90,7 +111,8 @@ vi.mock("../utils/audit", () => ({
   logAuditTransactionnelle: vi.fn(async (_tx: unknown, params: Record<string, unknown>) => { h.logAudit(params); }),
 }));
 
-import { appliquer } from "./sync.service";
+import { Prisma } from "@prisma/client";
+import { appliquer, champReferenceInconnue, rejetRetentable } from "./sync.service";
 
 const contexte = { appareilId: "device-1", userId: "agent-1" };
 const operationId = "11111111-1111-4111-8111-111111111111";
@@ -105,6 +127,10 @@ beforeEach(() => {
   h.missionAccessible = true;
   h.forceObservationCompareFailure = false;
   h.operationsTracees = [];
+  h.p2002Restants = 0;
+  h.erreurTransaction = null;
+  h.tracesHorsTransaction = [];
+  h.conflitExistant = null;
   h.defautsCrees = [];
   h.qualites = [];
   vi.clearAllMocks();
@@ -327,5 +353,134 @@ describe("synchronisation des observations", () => {
 
     expect(resultat).toMatchObject({ statut: "REJETE", motif: "OPERATION_NON_AUTORISEE" });
     expect(h.observationUpdates).toHaveLength(0);
+  });
+});
+
+/**
+ * Le rejeu d'une operation deja enregistree rend SON resultat, pas toujours « deja traitee ».
+ *
+ * Avant : toute operation connue etait rendue `REJOUEE`, c'est-a-dire comme un succes, meme si
+ * elle avait ete REFUSEE ou mise en CONFLIT. Le telephone la retirait de sa file : saisie perdue
+ * sans erreur. Eprouve en base par `tests-integration/sync.integration.mts` (A7.4, A8.1, A8.2).
+ */
+describe("rejeu d'une operation deja enregistree", () => {
+  const op = (extra: Record<string, unknown> = {}) => ({
+    operationId, entityType: "Observation", entityId: "observation-1", operation: "UPDATE" as const,
+    baseVersion: 1, payload: { description: "Corrigee" }, ...extra,
+  });
+
+  it("un succes enregistre est rendu REJOUEE, sans rien ecrire", async () => {
+    h.operationExists = { entityId: "observation-1", entityType: "Observation", statut: "SYNCHRONISE", userId: "agent-1", derniereErreur: null };
+    const r = await appliquer(op(), contexte);
+    expect(r).toEqual({ operationId, statut: "REJOUEE", entityId: "observation-1" });
+    expect(h.operationsTracees).toHaveLength(0);
+    expect(h.observationUpdates).toHaveLength(0);
+  });
+
+  it("un CONFLIT enregistre reste un conflit, avec le meme identifiant, et n'est pas rendu comme un succes", async () => {
+    h.operationExists = { entityId: "observation-1", entityType: "Observation", statut: "CONFLIT", userId: "agent-1", derniereErreur: "VERSION_PERIMEE" };
+    h.conflitExistant = { id: "conflit-42" };
+    const r = await appliquer(op(), contexte);
+    expect(r).toEqual({ operationId, statut: "CONFLIT", motif: "VERSION_PERIMEE", conflitId: "conflit-42" });
+    expect(h.operationsTracees).toHaveLength(0);
+  });
+
+  it("un refus DEFINITIF reste un refus, avec son motif, et n'est pas reevalue", async () => {
+    h.operationExists = { entityId: "observation-1", entityType: "Observation", statut: "REJETE", userId: "agent-1", derniereErreur: "PAYLOAD_INVALIDE:Observation" };
+    const r = await appliquer(op(), contexte);
+    expect(r).toEqual({ operationId, statut: "REJETE", motif: "PAYLOAD_INVALIDE:Observation" });
+    expect(h.operationsTracees).toHaveLength(0);
+  });
+
+  it("un conflit tranche cote serveur reste REJETE pour le telephone qui renvoie l'operation", async () => {
+    h.operationExists = { entityId: "observation-1", entityType: "Observation", statut: "REJETE", userId: "agent-1", derniereErreur: "CONFLIT_RESOLU_VERSION_SERVEUR" };
+    expect(await appliquer(op(), contexte)).toMatchObject({ statut: "REJETE", motif: "CONFLIT_RESOLU_VERSION_SERVEUR" });
+  });
+
+  it("un refus TEMPORAIRE (entite pas encore creee) est REEVALUE au renvoi, et la trace est mise a jour", async () => {
+    h.operationExists = { entityId: "observation-1", entityType: "Observation", statut: "REJETE", userId: "agent-1", derniereErreur: "ENTITE_INTROUVABLE" };
+    // Entre-temps, la creation est arrivee (ordre inverse d'un lot).
+    h.observationRead = { id: "observation-1", version: 1 };
+    h.observationCurrent = { id: "observation-1", version: 1, agentId: "agent-1", statut: "PROPOSEE", deletedAt: null };
+    const r = await appliquer(op(), contexte);
+    expect(r).toMatchObject({ statut: "SYNCHRONISE", version: 2 });
+    expect(h.observationUpdates).toHaveLength(1);
+    expect(h.operationsTracees[0]).toMatchObject({ statut: "SYNCHRONISE", _miseAJour: true });
+  });
+
+  it("un refus temporaire dont l'entite manque TOUJOURS reste un refus temporaire", async () => {
+    h.operationExists = { entityId: "observation-1", entityType: "Observation", statut: "REJETE", userId: "agent-1", derniereErreur: "ENTITE_INTROUVABLE" };
+    const r = await appliquer(op(), contexte);
+    expect(r).toMatchObject({ statut: "REJETE", motif: "ENTITE_INTROUVABLE" });
+    expect(typeof r.reessayerDansMs).toBe("number");
+    expect(h.observationUpdates).toHaveLength(0);
+  });
+
+  it("deux envois simultanes : la perdante de la course reessaie UNE fois et aboutit", async () => {
+    h.p2002Restants = 1;
+    const r = await appliquer({ ...op(), operation: "CREATE" as const, baseVersion: null, payload: { type: "CHAUSSEE", observeA: "2026-10-08T10:00:00.000Z" } }, contexte);
+    expect(r.statut).toBe("SYNCHRONISE");
+    expect(h.operationsTracees).toHaveLength(1);
+  });
+
+  it("une violation d'unicite qui persiste n'est pas avalee : elle remonte apres le seul reessai", async () => {
+    h.p2002Restants = 2;
+    await expect(appliquer({ ...op(), operation: "CREATE" as const, baseVersion: null, payload: { type: "CHAUSSEE", observeA: "2026-10-08T10:00:00.000Z" } }, contexte))
+      .rejects.toMatchObject({ code: "P2002" });
+  });
+
+  it("l'operation d'un autre compte reste invisible, meme si elle est en conflit", async () => {
+    h.operationExists = { entityId: "secret", entityType: "Observation", statut: "CONFLIT", userId: "agent-2", derniereErreur: "VERSION_PERIMEE" };
+    const r = await appliquer(op(), contexte);
+    expect(r).toEqual({ operationId, statut: "REJETE", motif: "OPERATION_NON_AUTORISEE" });
+  });
+});
+
+describe("reference inconnue : un refus, pas une panne", () => {
+  const p2003 = (field_name: string) => new Prisma.PrismaClientKnownRequestError("Foreign key constraint violated", { code: "P2003", clientVersion: "test", meta: { field_name } });
+
+  it("reconnait une violation de cle etrangere et nomme le champ", () => {
+    expect(champReferenceInconnue(p2003("portions_revetement_fkey (index)"))).toBe("revetement");
+    expect(champReferenceInconnue(p2003("observations_tronconId_fkey (index)"))).toBe("tronconId");
+    expect(champReferenceInconnue(p2003("inconnu"))).toBe("");
+    const brut = new Prisma.PrismaClientKnownRequestError("raw", { code: "P2010", clientVersion: "test", meta: { code: "23503" } });
+    expect(champReferenceInconnue(brut)).toBe("");
+  });
+
+  it("ne confond pas avec les autres erreurs", () => {
+    expect(champReferenceInconnue(new Error("x"))).toBeUndefined();
+    expect(champReferenceInconnue(new Prisma.PrismaClientKnownRequestError("u", { code: "P2002", clientVersion: "test" }))).toBeUndefined();
+  });
+
+  it("une creation dont la reference est inconnue rend REJETE retentable, trace sans payload, au lieu de lever", async () => {
+    h.erreurTransaction = p2003("portions_revetement_fkey (index)");
+    const r = await appliquer({ operationId, entityType: "Portion", entityId: "11111111-1111-4111-8111-aaaaaaaaaaaa", operation: "CREATE", baseVersion: null, payload: {} }, contexte);
+    expect(r).toMatchObject({ statut: "REJETE", motif: "REFERENCE_INCONNUE:revetement" });
+    expect(typeof r.reessayerDansMs).toBe("number");
+    expect(h.tracesHorsTransaction[0]).toMatchObject({ statut: "REJETE", derniereErreur: "REFERENCE_INCONNUE:revetement", payload: { redacted: true } });
+  });
+
+  it("le renvoi d'une operation a reference inconnue est reevalue, comme ENTITE_INTROUVABLE", () => {
+    expect(rejetRetentable("Portion", "REFERENCE_INCONNUE:revetement")).toBe(true);
+    expect(rejetRetentable("Observation", "REFERENCE_INCONNUE:tronconId")).toBe(true);
+    expect(rejetRetentable("Defaut", "REFERENCE_INCONNUE")).toBe(true);
+  });
+});
+
+describe("rejetRetentable", () => {
+  it("l'entite pas encore la est retentable, quel que soit le type", () => {
+    expect(rejetRetentable("Observation", "ENTITE_INTROUVABLE")).toBe(true);
+    expect(rejetRetentable("Defaut", "ENTITE_INTROUVABLE")).toBe(true);
+  });
+  it("un refus de portion non definitif est retentable, un refus definitif non", () => {
+    expect(rejetRetentable("Portion", "TRONCON_INTROUVABLE")).toBe(true);
+    expect(rejetRetentable("Portion", "CHEVAUCHE_UNE_VALIDEE")).toBe(false);
+    expect(rejetRetentable("Portion", "PAYLOAD_INVALIDE")).toBe(false);
+  });
+  it("tout le reste est definitif", () => {
+    for (const motif of ["PAYLOAD_INVALIDE:Observation", "OPERATION_NON_AUTORISEE", "MISSION_NON_AUTORISEE", "VERSION_MANQUANTE", "TYPE_DEFAUT_INCONNU"]) {
+      expect(rejetRetentable("Observation", motif)).toBe(false);
+    }
+    expect(rejetRetentable("Observation", null)).toBe(false);
   });
 });
