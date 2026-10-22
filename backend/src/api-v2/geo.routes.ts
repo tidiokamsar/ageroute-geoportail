@@ -231,6 +231,8 @@ const corpsTrace = z.object({
   reseau: z.enum(["reference", "tout"]).optional(),
   distanceMaxM: z.number().positive().max(200).optional(),
   pasMinM: z.number().min(5).max(500).optional(),
+  /** Tolerance de fusion des extremites pour verifier les changements de troncon sur le graphe. Facultative, jamais supposee. */
+  toleranceFusionM: z.number().positive().max(50).optional(),
 });
 
 geoV2Router.post("/trace", requireAuth, requireModuleAccess("inspections"), async (req, res, next) => {
@@ -238,7 +240,7 @@ geoV2Router.post("/trace", requireAuth, requireModuleAccess("inspections"), asyn
   if (!p.success) return res.status(400).json({ error: "corps invalide : format (gpx ou csv) et contenu sont exiges", details: p.error.flatten().fieldErrors });
   try {
     const lecture = lireTrace(p.data.format, p.data.contenu);
-    return res.json(await analyserTrace(prisma, lecture, { reseau: p.data.reseau, distanceMaxM: p.data.distanceMaxM, pasMinM: p.data.pasMinM }));
+    return res.json(await analyserTrace(prisma, lecture, { reseau: p.data.reseau, distanceMaxM: p.data.distanceMaxM, pasMinM: p.data.pasMinM, toleranceFusionM: p.data.toleranceFusionM }));
   } catch (err) {
     if (err instanceof RefusTrace) return res.status(err.http).json({ error: err.message, code: err.code });
     return next(err);

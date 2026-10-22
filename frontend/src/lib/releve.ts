@@ -24,7 +24,15 @@ export interface SuiteHorsReferentiel {
 }
 
 export interface AnalyseTrace {
-  parametres: { reseau: "reference" | "tout"; distanceMaxM: number; pasMinM: number; incertitudeParDefautM: number; pointsMax: number };
+  parametres: {
+    reseau: "reference" | "tout";
+    distanceMaxM: number;
+    pasMinM: number;
+    incertitudeParDefautM: number;
+    pointsMax: number;
+    /** Le graphe qui a vérifié les changements de tronçon, ou null quand il n'a pas été demandé. */
+    graphe: { toleranceFusionM: number; margeM: number; nbTroncons: number; plafondReseauM: number } | null;
+  };
   indicateurs: {
     pointsLus: number;
     pointsIgnores: number;

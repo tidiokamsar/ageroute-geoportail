@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -31,7 +31,7 @@ vi.mock("../components/CarteReleve", () => ({ CarteReleve: () => <div data-testi
 import { ReleveVehiculePage } from "./ReleveVehiculePage";
 
 const analyse: AnalyseTrace = {
-  parametres: { reseau: "reference", distanceMaxM: 50, pasMinM: 15, incertitudeParDefautM: 15, pointsMax: 3000 },
+  parametres: { reseau: "reference", distanceMaxM: 50, pasMinM: 15, incertitudeParDefautM: 15, pointsMax: 3000, graphe: null },
   indicateurs: {
     pointsLus: 300, pointsIgnores: 2, pointsRetenus: 276, retiresParPas: 22, pointsRattaches: 224, tauxRattachement: 0.812,
     pointsPrecisionInsuffisante: 0, transitionsNonVerifiees: 3, chaines: 1, distanceParcourueM: 5511, dureeS: 552,
@@ -124,6 +124,47 @@ describe("ReleveVehiculePage : analyse", () => {
     expect(within(resultat).getByText("9 min 12 s")).toBeInTheDocument();
     expect(within(resultat).getByText("35,9", { exact: false })).toBeInTheDocument();
     expect(screen.getByTestId("carte")).toBeInTheDocument();
+  });
+
+  it("SANS tolerance : le champ est vide, et AUCUNE valeur n'est envoyee a la place", async () => {
+    rendre();
+    expect((screen.getByLabelText(/tolérance de fusion des extrémités/) as HTMLInputElement).value).toBe("");
+    await userEvent.upload(screen.getByLabelText(/Fichier de trace/), fichier("sortie.gpx"));
+    await userEvent.click(screen.getByRole("button", { name: /Analyser la trace/ }));
+    await waitFor(() => expect(h.appels).toHaveLength(1));
+    expect(h.appels[0].corps).not.toHaveProperty("toleranceFusionM");
+  });
+
+  it("AVEC tolerance : elle est envoyee, virgule decimale comprise, et le resultat dit que le graphe a verifie", async () => {
+    h.reponse = { ...analyse, parametres: { ...analyse.parametres, graphe: { toleranceFusionM: 2.5, margeM: 2000, nbTroncons: 14, plafondReseauM: 2000 } }, indicateurs: { ...analyse.indicateurs, transitionsNonVerifiees: 0 } };
+    rendre();
+    fireEvent.change(screen.getByLabelText(/tolérance de fusion des extrémités/), { target: { value: "2,5" } });
+    await userEvent.upload(screen.getByLabelText(/Fichier de trace/), fichier("sortie.gpx"));
+    await userEvent.click(screen.getByRole("button", { name: /Analyser la trace/ }));
+    await waitFor(() => expect(h.appels).toHaveLength(1));
+    expect(h.appels[0].corps.toleranceFusionM).toBe(2.5);
+    expect(await screen.findByText("graphe : 14 tronçons, tolérance 2,5 m")).toBeInTheDocument();
+  });
+
+  it("SANS graphe, le resultat dit qu'il n'a pas ete utilise", async () => {
+    rendre();
+    await userEvent.upload(screen.getByLabelText(/Fichier de trace/), fichier("sortie.gpx"));
+    await userEvent.click(screen.getByRole("button", { name: /Analyser la trace/ }));
+    expect(await screen.findByText("graphe non utilisé : à lire avec le taux de rattachement")).toBeInTheDocument();
+  });
+
+  it.each([
+    ["nulle", "0"],
+    ["negative", "-3"],
+    ["demesuree", "51"],
+    ["non numerique", "deux"],
+  ])("refuse une tolerance %s, sans rien envoyer", async (_n, valeur) => {
+    rendre();
+    await userEvent.upload(screen.getByLabelText(/Fichier de trace/), fichier("sortie.gpx"));
+    fireEvent.change(screen.getByLabelText(/tolérance de fusion des extrémités/), { target: { value: valeur } });
+    await userEvent.click(screen.getByRole("button", { name: /Analyser la trace/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("tolérance de fusion doit être comprise entre 0 (exclu) et 50 m");
+    expect(h.appels).toHaveLength(0);
   });
 
   it("montre les avertissements du serveur AVANT les chiffres", async () => {
