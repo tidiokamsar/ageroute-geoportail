@@ -37,6 +37,13 @@ vi.mock("../../middleware/module-access.middleware", () => ({
   requireModuleAccess: () => (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
 }));
 
+// Le perimetre territorial est eprouve par ses propres tests (governance/perimetre*.test.ts) ;
+// ici, seuls les roles comptent.
+vi.mock("../../governance/perimetre.service", () => {
+  const passe = () => (_req: express.Request, _res: express.Response, next: express.NextFunction) => next();
+  return { requireTerritoire: passe, aLaCreation: () => async () => [], surLObjet: () => async () => [], importNational: async () => [] };
+});
+
 vi.mock("../../middleware/upload.middleware", () => ({
   uploadExcel: (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
 }));

@@ -1,3 +1,4 @@
+import { requireTerritoire, aLaCreation, importNational, surLObjet } from "../../governance/perimetre.service";
 import { Router } from "express";
 import { requireAuth } from "../../middleware/auth.middleware";
 import { requireRole } from "../../middleware/rbac.middleware";
@@ -20,16 +21,16 @@ ouvragesRouter.use(requireAuth);
 ouvragesRouter.get("/", listHandler);
 ouvragesRouter.get("/geo", listGeoHandler);
 ouvragesRouter.get("/export", exportHandler);
-ouvragesRouter.post("/import", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("ouvrages"), uploadExcel, importHandler);
+ouvragesRouter.post("/import", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("ouvrages"), requireTerritoire("OUVRAGE", importNational), uploadExcel, importHandler);
 ouvragesRouter.use(requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("ouvrages"), createBulkRouter(ouvragesService));
 ouvragesRouter.get("/:id", getHandler);
-ouvragesRouter.post("/", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("ouvrages"), createHandler);
-ouvragesRouter.put("/:id", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("ouvrages"), updateHandler);
-ouvragesRouter.post("/:id/geolocate", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("ouvrages"), geolocateHandler);
+ouvragesRouter.post("/", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("ouvrages"), requireTerritoire("OUVRAGE", aLaCreation("OUVRAGE")), createHandler);
+ouvragesRouter.put("/:id", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("ouvrages"), requireTerritoire("OUVRAGE", surLObjet("OUVRAGE")), updateHandler);
+ouvragesRouter.post("/:id/geolocate", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("ouvrages"), requireTerritoire("OUVRAGE", surLObjet("OUVRAGE")), geolocateHandler);
 ouvragesRouter.post(
   "/:id/photos",
   requireRole("ADMIN", "GESTIONNAIRE"),
-  requireModuleAccess("ouvrages"),
+  requireModuleAccess("ouvrages"), requireTerritoire("OUVRAGE", surLObjet("OUVRAGE")),
   plafondPhotos(async (req) => {
     const o = await prisma.ouvrage.findUnique({
       where: { id: req.params.id }, select: { photos: true },
@@ -39,5 +40,5 @@ ouvragesRouter.post(
   uploadPhoto,
   addPhotoHandler,
 );
-ouvragesRouter.delete("/:id/photos/:filename", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("ouvrages"), removePhotoHandler);
-ouvragesRouter.delete("/:id", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("ouvrages"), deleteHandler);
+ouvragesRouter.delete("/:id/photos/:filename", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("ouvrages"), requireTerritoire("OUVRAGE", surLObjet("OUVRAGE")), removePhotoHandler);
+ouvragesRouter.delete("/:id", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("ouvrages"), requireTerritoire("OUVRAGE", surLObjet("OUVRAGE")), deleteHandler);

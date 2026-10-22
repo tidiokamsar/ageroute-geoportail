@@ -3,6 +3,23 @@
 > Exigé par le § 4 du mandat v2.1. Le § 2.7 impose que toute affirmation de réussite cite la
 > commande lancée et son résultat. Aucune ligne de ce fichier n'est écrite sans l'avoir vue.
 
+## 22/10/2026 — lot 2, contrôle d'accès territorial (DT-3)
+
+Après fusion de `lot/03-map-matching` (T-26, T-28, T-29 de la session GEOPORTAIL) dans cette branche.
+
+| Commande | Résultat |
+|---|---|
+| `npx vitest run src/governance/perimetre*.test.ts src/api-v2/perimetres.routes.test.ts` | **73 passés** (noyau 13, middleware et synchronisation 13, garde-fou de couverture 43, routes 4) |
+| garde-fou de couverture, garde retirée d'une route de `postes` (contre-épreuve) | 1re version : **ne détectait pas** (défaut du garde-fou) ; corrigée : **1 échec** nommant `PUT /:id` |
+| `psql -f backend/prisma/tests/perimetres_territoriaux.test.sql` (base migrée) | **toutes les assertions passent** ; sur `replay` sans la migration : échoue |
+| `verifier.sh --seulement 20261022010000_perimetres_territoriaux` | **4 vérifications, 0 échec** (garde comprise) |
+| `verifier.sh --strict` (chaîne complète) | **71 migrations, 246 vérifications, 0 échec, 0 sans descente** |
+| résolution des régions et refus de synchronisation contre `dt_bench` (script jetable) | hors périmètre refusé, dans le périmètre permis, auto-attribution refusée par la base |
+| `npx vitest run` (backend) | **1 812 passés**, 121 fichiers |
+| `npx vitest run` (frontend, seul) | **476 passés**, 36 fichiers |
+| `npm run lint` (frontend) | **0 erreur**, 4 avertissements `exhaustive-deps` préexistants |
+| `npx tsc --noEmit` (backend, frontend) | aucune erreur |
+
 ## 22/10/2026 — lot 1, surfaces en UTM et géométries de référence (DT-2)
 
 | Commande | Résultat |

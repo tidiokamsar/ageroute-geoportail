@@ -1,3 +1,4 @@
+import { requireTerritoire, aLaCreation, surLObjet, surLObjetVersTroncon } from "../governance/perimetre.service";
 import { mesurerGeometrie } from "../geo/metre.service";
 import { compatible, empriseComble, EXPLICATIONS_EMPRISE, quantiteParEmprise } from "../field/defauts.emprise";
 import { Router, type Request, type RequestHandler } from "express";
@@ -164,7 +165,7 @@ async function perimetreDefauts(user: { id: string; role: string }) {
  *       si une mesure est aberrante, ou si la longueur depasse celle du troncon porte.
  *     tags: [Defauts v2]
  */
-defautsV2Router.post("/", requireAuth, requireModuleAccess("inspections"), async (req, res, next) => {
+defautsV2Router.post("/", requireAuth, requireModuleAccess("inspections"), requireTerritoire("DEFAUT", aLaCreation("DEFAUT")), async (req, res, next) => {
   try {
     const c = creation.parse(req.body);
     const user = req.user!;
@@ -616,7 +617,7 @@ const compterPhotosDefaut = async (req: Request): Promise<number | null> => {
   return defaut ? defaut._count.medias : null;
 };
 
-defautsV2Router.post("/:id/photos", requireAuth, requireModuleAccess("inspections"), plafondPhotos(compterPhotosDefaut), uploadPhoto, async (req, res, next) => {
+defautsV2Router.post("/:id/photos", requireAuth, requireModuleAccess("inspections"), requireTerritoire("DEFAUT", surLObjet("DEFAUT")), plafondPhotos(compterPhotosDefaut), uploadPhoto, async (req, res, next) => {
   try {
     if (!req.user) return res.status(401).json({ message: "Authentification requise." });
     if (!req.file) return res.status(400).json({ message: "Photo manquante." });
@@ -694,7 +695,7 @@ defautsV2Router.post("/:id/photos", requireAuth, requireModuleAccess("inspection
 });
 
 /** Propose un appariement local sans modifier le défaut. La confirmation est explicite. */
-defautsV2Router.post("/:id/appariement/suggestion", requireAuth, requireModuleAccess("inspections"), async (req, res, next) => {
+defautsV2Router.post("/:id/appariement/suggestion", requireAuth, requireModuleAccess("inspections"), requireTerritoire("DEFAUT", surLObjet("DEFAUT")), async (req, res, next) => {
   try {
     const user = req.user!;
     const scope = await perimetreDefauts(user);
@@ -717,7 +718,7 @@ defautsV2Router.post("/:id/appariement/suggestion", requireAuth, requireModuleAc
 });
 
 /** Confirme un tronçon proposé, après recalcul serveur depuis le GPS brut conservé. */
-defautsV2Router.post("/:id/appariement/confirmation", requireAuth, requireModuleAccess("inspections"), async (req, res, next) => {
+defautsV2Router.post("/:id/appariement/confirmation", requireAuth, requireModuleAccess("inspections"), requireTerritoire("DEFAUT", surLObjetVersTroncon("DEFAUT")), async (req, res, next) => {
   try {
     const c = z.object({ tronconId: z.string().min(1) }).strict().parse(req.body);
     const user = req.user!;
@@ -935,7 +936,7 @@ const deciderDefaut: RequestHandler = async (req, res, next) => {
  * et retirer ce chemin casserait un client livre pour satisfaire un nom. Le choix du
  * chemin public, et donc de celui a deprecier, est a arbitrer.
  */
-defautsV2Router.post("/:id/decision", requireAuth, requireModuleAccess("inspections"), deciderDefaut);
+defautsV2Router.post("/:id/decision", requireAuth, requireModuleAccess("inspections"), requireTerritoire("DEFAUT", surLObjet("DEFAUT")), deciderDefaut);
 
 /**
  * @openapi
@@ -948,7 +949,7 @@ defautsV2Router.post("/:id/decision", requireAuth, requireModuleAccess("inspecti
  *       d'historique dans validations et audit transactionnel.
  *     tags: [Defauts v2]
  */
-defautsV2Router.post("/:id/validate", requireAuth, requireModuleAccess("inspections"), deciderDefaut);
+defautsV2Router.post("/:id/validate", requireAuth, requireModuleAccess("inspections"), requireTerritoire("DEFAUT", surLObjet("DEFAUT")), deciderDefaut);
 
 /**
  * @openapi
@@ -961,7 +962,7 @@ defautsV2Router.post("/:id/validate", requireAuth, requireModuleAccess("inspecti
  *       profondeur ne revient pas sans elle.
  *     tags: [Defauts v2]
  */
-defautsV2Router.post("/:id/resoumettre", requireAuth, requireModuleAccess("inspections"), async (req, res, next) => {
+defautsV2Router.post("/:id/resoumettre", requireAuth, requireModuleAccess("inspections"), requireTerritoire("DEFAUT", surLObjet("DEFAUT")), async (req, res, next) => {
   try {
     const c = z.object({
       mesures: mesuresSchema.optional(),
@@ -1070,7 +1071,7 @@ defautsV2Router.post("/:id/resoumettre", requireAuth, requireModuleAccess("inspe
  *       traitement est posee par le serveur, pas declaree par l'appelant.
  *     tags: [Defauts v2]
  */
-defautsV2Router.post("/:id/etat", requireAuth, requireModuleAccess("inspections"), async (req, res, next) => {
+defautsV2Router.post("/:id/etat", requireAuth, requireModuleAccess("inspections"), requireTerritoire("DEFAUT", surLObjet("DEFAUT")), async (req, res, next) => {
   try {
     const { etat } = z.object({
       etat: z.enum(["ACTIF", "TRAITE", "DISPARU"]),

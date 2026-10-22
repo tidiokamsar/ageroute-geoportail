@@ -28,6 +28,8 @@ const h = vi.hoisted(() => ({
 
 vi.mock("../lib/prisma", () => ({
   prisma: {
+    // Perimetres territoriaux (A10) : aucun, donc la regle provisoire nationale s'applique.
+    perimetreTerritorial: { findMany: async () => [] },
     operationSync: {
       findUnique: vi.fn(async () => h.operationExists),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => { h.operationsTracees.push(data); return data; }),

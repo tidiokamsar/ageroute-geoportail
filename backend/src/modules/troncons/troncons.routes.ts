@@ -1,3 +1,4 @@
+import { requireTerritoire, aLaCreation, importNational, surLObjet } from "../../governance/perimetre.service";
 import { Router } from "express";
 import { requireAuth } from "../../middleware/auth.middleware";
 import { requireRole } from "../../middleware/rbac.middleware";
@@ -32,9 +33,9 @@ tronconsRouter.get("/export", exportHandler);
 tronconsRouter.get("/:id/fiche", ficheHandler);
 tronconsRouter.get("/:id", getHandler);
 
-tronconsRouter.post("/import", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), uploadExcel, importHandler);
+tronconsRouter.post("/import", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), requireTerritoire("TRONCON", importNational), uploadExcel, importHandler);
 tronconsRouter.use(requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), createBulkRouter(tronconsService));
-tronconsRouter.post("/", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), createHandler);
-tronconsRouter.put("/:id", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), updateHandler);
-tronconsRouter.patch("/:id/geom", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), updateGeomHandler);
-tronconsRouter.delete("/:id", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), deleteHandler);
+tronconsRouter.post("/", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), requireTerritoire("TRONCON", aLaCreation("TRONCON")), createHandler);
+tronconsRouter.put("/:id", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), requireTerritoire("TRONCON", surLObjet("TRONCON")), updateHandler);
+tronconsRouter.patch("/:id/geom", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), requireTerritoire("TRONCON", surLObjet("TRONCON")), updateGeomHandler);
+tronconsRouter.delete("/:id", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), requireTerritoire("TRONCON", surLObjet("TRONCON")), deleteHandler);

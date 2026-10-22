@@ -66,6 +66,8 @@ vi.mock("../reseau/portions.depot", () => ({
 
 vi.mock("../lib/prisma", () => ({
   prisma: {
+    // Perimetres territoriaux (A10) : aucun, donc la regle provisoire nationale s'applique.
+    perimetreTerritorial: { findMany: async () => [] },
     portion: {
       findMany: async (args: Record<string, unknown>) => {
         h.requetes.push(args);

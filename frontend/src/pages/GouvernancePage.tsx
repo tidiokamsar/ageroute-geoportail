@@ -9,6 +9,7 @@ import { toast } from "../lib/toast";
 import { useConfirm } from "../hooks/useConfirm";
 import { useAuth } from "../lib/auth";
 import type { Region, User } from "../types";
+import { PerimetresTerritoriaux } from "./gouvernance/PerimetresTerritoriaux";
 
 /**
  * Désignation des validateurs (§35 du cahier : « un validateur est désigné pour chaque
@@ -346,6 +347,8 @@ export function GouvernancePage() {
           })}
         </ul>
       </section>
+
+      {user?.role === "ADMIN" && <PerimetresTerritoriaux />}
 
       {dialog}
     </div>

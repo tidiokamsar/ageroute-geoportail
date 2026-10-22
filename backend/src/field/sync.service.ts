@@ -1,3 +1,4 @@
+import { refusTerritorialSync } from "../governance/perimetre.service";
 import { prisma } from "../lib/prisma";
 import { appliquerPortionSync, refusDefinitif } from "./portions.sync";
 import { deriveGeomFromTroncon, deriveGeomFromTronconAbscisse, setPointGeom } from "../lib/geo";
@@ -106,6 +107,29 @@ export async function appliquer(
 
   if (!(OPERATIONS_ACCEPTEES[op.entityType] ?? []).includes(op.operation)) {
     const motif = `OPERATION_NON_SUPPORTEE:${op.entityType}:${op.operation}`;
+    await prisma.operationSync.create({
+      data: {
+        operationId: op.operationId,
+        appareilId: contexte.appareilId,
+        userId: contexte.userId,
+        entityType: op.entityType,
+        entityId: op.entityId,
+        operation: op.operation,
+        payload: { redacted: true } as never,
+        baseVersion: op.baseVersion ?? null,
+        statut: "REJETE",
+        derniereErreur: motif,
+        traiteeA: new Date(),
+      },
+    });
+    return { operationId: op.operationId, statut: "REJETE", motif };
+  }
+
+  // PERIMETRE TERRITORIAL (A10) : la meme regle que l'API. Un refus est definitif : reessayer ne
+  // changera rien tant que le perimetre du compte ne change pas.
+  const refusTerritoire = await refusTerritorialSync(contexte.userId, op);
+  if (refusTerritoire) {
+    const motif = `${refusTerritoire}:${op.entityType}`;
     await prisma.operationSync.create({
       data: {
         operationId: op.operationId,

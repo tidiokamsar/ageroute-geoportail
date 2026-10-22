@@ -91,6 +91,8 @@ vi.mock("node:fs/promises", () => ({
 vi.mock("../geo/appariement", () => ({ apparier: h.apparier }));
 vi.mock("../lib/prisma", () => ({
   prisma: {
+    // Perimetres territoriaux (A10) : aucun, donc la regle provisoire nationale s'applique.
+    perimetreTerritorial: { findMany: async () => [] },
     catalogueDefaut: {
       findUnique: vi.fn(async ({ where }: { where: { code?: string; id?: number } }) =>
         where.code ? h.catalogue[where.code as keyof typeof h.catalogue] ?? null : Object.values(h.catalogue).find((c) => c.id === where.id) ?? null),

@@ -1,3 +1,4 @@
+import { requireTerritoire, surLObjet } from "../governance/perimetre.service";
 import { Router } from "express";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth.middleware";
@@ -120,7 +121,7 @@ observationsV2Router.get("/:id", requireAuth, requireModuleAccess("inspections")
  *       REJECT, et tracee dans valeurs_qualite.
  *     tags: [Observations v2]
  */
-observationsV2Router.post("/:id/validate", requireAuth, requireModuleAccess("inspections"), async (req, res, next) => {
+observationsV2Router.post("/:id/validate", requireAuth, requireModuleAccess("inspections"), requireTerritoire("OBSERVATION", surLObjet("OBSERVATION")), async (req, res, next) => {
   try {
     const c = z.object({
       decision: z.enum(["VALIDEE", "REJETEE"]),

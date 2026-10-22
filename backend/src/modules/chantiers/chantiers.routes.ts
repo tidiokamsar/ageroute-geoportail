@@ -1,3 +1,4 @@
+import { requireTerritoire, aLaCreation, importNational, surLObjet } from "../../governance/perimetre.service";
 import { Router } from "express";
 import { requireAuth } from "../../middleware/auth.middleware";
 import { requireRole } from "../../middleware/rbac.middleware";
@@ -35,9 +36,9 @@ chantiersRouter.get("/geo", listGeoHandler);
 // Meme niveau de garde que /geo, par coherence dans le module.
 chantiersRouter.get("/sans-localisation", listSansLocalisationHandler);
 chantiersRouter.get("/export", exportHandler);
-chantiersRouter.post("/import", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("chantiers"), uploadExcel, importHandler);
+chantiersRouter.post("/import", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("chantiers"), requireTerritoire("CHANTIER", importNational), uploadExcel, importHandler);
 chantiersRouter.use(requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("chantiers"), createBulkRouter(chantiersService));
 chantiersRouter.get("/:id", getHandler);
-chantiersRouter.post("/", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("chantiers"), createHandler);
-chantiersRouter.put("/:id", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("chantiers"), updateHandler);
-chantiersRouter.delete("/:id", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("chantiers"), deleteHandler);
+chantiersRouter.post("/", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("chantiers"), requireTerritoire("CHANTIER", aLaCreation("CHANTIER")), createHandler);
+chantiersRouter.put("/:id", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("chantiers"), requireTerritoire("CHANTIER", surLObjet("CHANTIER")), updateHandler);
+chantiersRouter.delete("/:id", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("chantiers"), requireTerritoire("CHANTIER", surLObjet("CHANTIER")), deleteHandler);

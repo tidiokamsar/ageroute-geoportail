@@ -57,7 +57,7 @@ vi.mock("../reseau/portions.depot", () => ({
   DecisionConcurrente: class extends Error {},
 }));
 vi.mock("../governance/delegation.service", () => ({ verdictDelegation: async () => ({ permis: true, motif: "" }) }));
-vi.mock("../lib/prisma", () => ({ prisma: {} }));
+vi.mock("../lib/prisma", () => ({ prisma: { perimetreTerritorial: { findMany: async () => [] } } }));
 
 import { portionsV2Router } from "./portions.routes";
 

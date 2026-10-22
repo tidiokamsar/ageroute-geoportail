@@ -16,6 +16,7 @@ import { patrouillesV2Router } from "./patrouilles.routes";
 import { infoRouteV2Router } from "./info-route.routes";
 import { veilleV2Router } from "./veille.routes";
 import { teledetectionV2Router } from "./teledetection.routes";
+import { perimetresV2Router } from "./perimetres.routes";
 
 /**
  * `/api/v2` — la nouvelle surface d'API.
@@ -98,3 +99,4 @@ apiV2Router.get("/", (_req, res) => {
     v1: "/api — inchangee, toujours servie",
   });
 });
+apiV2Router.use("/perimetres", perimetresV2Router);

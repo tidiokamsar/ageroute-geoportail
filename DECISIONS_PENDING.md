@@ -500,3 +500,24 @@ chaque compte à un périmètre : c'est une donnée d'organisation, à fournir p
 1. Le choix entre A, B et C (recommandation : **B à terme, C en attendant** ; A est à écarter tant
    que la carte filtre sur le statut).
 2. Si une restriction d'écriture par région est voulue : la liste des comptes et de leur périmètre.
+
+### Mise à jour du 22/10/2026 : le mécanisme « hors zone » existe, la donnée manque
+
+Le point 2 ci-dessus (restriction d'écriture par région) a désormais son **mécanisme**, construit
+sans rien trancher à la place d'AGEROUTE (`governance/perimetre.ts`, migration
+`20261022010000_perimetres_territoriaux`, écran « Périmètres territoriaux » de la page Gouvernance,
+`/api/v2/perimetres`, ADMIN seulement, audité) :
+
+- un ADMIN attribue une ou plusieurs régions à un compte, avec motif, terme facultatif et
+  révocation conservée ; personne ne s'attribue un territoire à soi-même ;
+- **règle provisoire, identifiée comme telle** : un compte **sans** périmètre écrit partout, comme
+  avant ; dès qu'il en a un, il n'écrit que dans ses régions, jamais sur un objet de région
+  inconnue ; l'écran affiche d'abord le nombre de comptes sans périmètre ;
+- **aucun périmètre n'est semé**.
+
+**Décision attendue** : (1) la liste des comptes et de leur périmètre ; (2) si la règle provisoire
+doit à terme s'inverser (un compte sans périmètre n'écrit plus nulle part) — recommandation
+technique : l'inverser une fois tous les comptes actifs couverts, ce que le compteur
+`comptesSansPerimetre` permet de constater ; (3) si la **lecture** doit aussi être restreinte —
+recommandation : non, tant que la carte et les exports servent d'outil de coordination nationale.
+Le point 1 de D-11 (A, B ou C) reste entier.

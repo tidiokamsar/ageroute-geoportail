@@ -27,6 +27,8 @@ vi.mock("../middleware/module-access.middleware", () => ({
 }));
 vi.mock("../lib/prisma", () => ({
   prisma: {
+    // Perimetres territoriaux (A10) : aucun, donc la regle provisoire nationale s'applique.
+    perimetreTerritorial: { findMany: async () => [] },
     mission: { findMany: vi.fn(async () => []) },
     // Paragraphe 35 : « un validateur est designe pour chaque domaine ». La route de
     // validation lit ces designations ; un mock sans ce delegue fait rendre 500.
