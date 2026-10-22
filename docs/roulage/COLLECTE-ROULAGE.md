@@ -29,10 +29,20 @@ A18 reste partiel : le rattachement HMM d'une trace 1 Hz de 2 h est exercé en s
 | Charge d'exemple partagée | `docs/roulage/exemple-session.json` | Écrite par le noyau de l'appareil, relue par le test du serveur |
 | Banc PostGIS | `backend/tests-integration/roulage.integration.mts` | Simulation de 2 h à 1 Hz contre PostGIS, oracle SQL |
 
-**Aucun écran n'est livré**, ni adaptateur de stockage (IndexedDB, SQLite), ni plugin natif, ni branchement dans
-la file `offlineSync.ts`. Le noyau expose ce qu'il faut pour les écrire : `journal(entree)` (rappel de
-persistance), `SessionRoulage.rejouer(entrees)`, `construirePayload`, `operationPourSynchronisation`,
-`interpreterReponse`.
+**Mise à jour du 22/10/2026 (soir) : un enregistreur dans le NAVIGATEUR est livré**, sans application native. Écran
+`/inspections/releve/enregistrer` (`pages/EnregistrementRoulagePage.tsx`), couche hôte `lib/roulageHote.ts` (position du
+navigateur vers le noyau, stockage du journal dans IndexedDB natif avec reprise après fermeture de la page, maintien de
+l'écran allumé par l'API Screen Wake Lock, export GPX). Il pose des repères, ouvre et ferme des segments (un segment
+ouvert empêche l'arrêt : clore ou abandonner, jamais de fin inventée), puis télécharge le GPX ou envoie la session au
+serveur (`POST /v2/sync/push`, opération `SessionRoulage`). Il est couvert par 14 tests d'écran (position simulée, axe-core
+0 violation) et 12 tests de la couche hôte.
+
+**Ses limites, dites à l'écran :** page au premier plan et écran allumé (un navigateur ne lit pas la position écran
+éteint ; la coupure est notée comme interruption, jamais comblée) ; un passager manipule le téléphone ; aucun IRI, aucune
+photo ; la qualification de l'état de chaussée par segment n'est pas saisie sur cet écran. **Il n'a jamais tourné sur un
+téléphone en roulant** : la précision, la tenue de l'écran, la reprise après fermeture et l'API Wake Lock selon le
+navigateur sont à vérifier lors d'un premier essai, avant d'en tirer le moindre chiffre. Aucun adaptateur SQLite, plugin
+natif ni branchement dans la file `offlineSync.ts` n'est livré : l'envoi se fait à la demande, pas en file automatique.
 
 ### Tests
 

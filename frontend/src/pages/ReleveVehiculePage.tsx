@@ -132,7 +132,8 @@ export function ReleveVehiculePage() {
         <h2 id="etat" className="flex items-center gap-2 font-semibold"><AlertTriangle className="h-4 w-4" aria-hidden="true" />État de la fonction</h2>
         <ul className="mt-2 list-disc space-y-1 pl-5">
           <li>Disponible : l'analyse d'un fichier GPX ou CSV déjà enregistré.</li>
-          <li>Pas encore disponible : l'enregistrement continu en roulage depuis une application AGEROUTE (position en arrière-plan, capteurs, photos tous les 20 à 50 m). Il demande une application Android native, qui n'est pas encore développée.</li>
+          <li>Disponible aussi : <Link className="underline" to="/inspections/releve/enregistrer">enregistrer la trace directement depuis le navigateur du téléphone</Link>, page ouverte au premier plan et écran allumé, puis exporter le GPX ou envoyer la session.</li>
+          <li>Pas encore disponible : l'enregistrement continu en arrière-plan depuis une application AGEROUTE (écran éteint, capteurs, photos tous les 20 à 50 m). Il demande une application Android native, qui n'est pas encore développée.</li>
           <li>Cet écran n'enregistre rien dans la base : il montre une analyse. Il ne mesure ni l'IRI ni l'état de la chaussée, qu'un fichier de position ne contient pas.</li>
         </ul>
       </section>
