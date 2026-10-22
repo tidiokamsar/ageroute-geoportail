@@ -3,6 +3,7 @@ import rateLimit from "express-rate-limit";
 import { carteGeoHandler } from "./public.controller";
 import { voirieGeoHandler } from "../voirie-locale/voirie-locale.controller";
 import { infoRoutePubliqueHandler, dernierBulletinHandler } from "./info-route.public";
+import { creerRouteurMetadonnees } from "../../metadonnees/metadonnees.routes";
 
 // Routes PUBLIQUES : aucun requireAuth (contrairement à tous les autres
 // routers de l'API). Limiter le débit ici puisque, sans authentification,
@@ -20,3 +21,6 @@ publicRouter.get("/voirie-locale/geo", voirieGeoHandler);
 // auteur ni texte interne. Le bulletin du jour (EX-06), tel qu'archive, en texte simple.
 publicRouter.get("/info-route", infoRoutePubliqueHandler);
 publicRouter.get("/info-route/bulletin", dernierBulletinHandler);
+
+// Metadonnees ISO 19115 des jeux ci-dessus (description seulement, aucune donnee en plus).
+publicRouter.use("/metadonnees", creerRouteurMetadonnees());

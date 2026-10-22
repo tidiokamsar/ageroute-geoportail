@@ -21,7 +21,7 @@ Légende : **FAIT** (implémenté et testé) · **PARTIEL** · **ABSENT** · **B
 | 8 | Module CITY : signalisation, marquage, mobilier | **PARTIEL** | les **actifs linéaires** sont modélisés (`ouvrages.geomLigne`, migration `20261013240000`). **Manque** : l'inventaire et la notation en roulage (T-15), qui attendent le mobile |
 | 9 | Profil longitudinal par smartphone (IRI) | **BLOQUÉ** | l'inspection porte un `iriEstime` saisi avec sa méthode (D8) ; l'estimation par capteurs du téléphone attend le mobile (B-10) et un étalonnage |
 | 10 | Gestion documentaire, multi-réseaux | **PARTIEL** | base documentaire en service ; liens SharePoint **bloqués** (B-12) ; zones de responsabilité multi-gestionnaires : **décision D-11** (les comptes ne portent aucune région) |
-| 11 | Partage et communication | **PARTIEL** | carte publique en service ; **Info Route publique** ★ (`/api/public/info-route`) et bulletin quotidien (20/10) ; rapport bailleur (non déployé). **Manquent** : permaliens, données ouvertes OGC |
+| 11 | Partage et communication | **PARTIEL** | carte publique en service ; **Info Route publique** ★ (`/api/public/info-route`) et bulletin quotidien (20/10) ; rapport bailleur (non déployé). **Livrés** : permaliens (T-23), métadonnées ISO 19115 des 5 jeux publics (`/api/public/metadonnees`, T-29). **Écarté par la mesure, pas oublié** : services OGC WMS/WFS (`docs/bdri-2/BDRI-2-ARCHITECTURE.md` § 2 : aucun consommateur identifié, 2 306 objets ; à rouvrir avec un cas d'usage) et tuiles vectorielles (la voirie cadrée pèse 263 Ko, voir le commentaire de `voirie-locale.controller.ts`). **Manque** : la licence de réutilisation, que personne n'a arrêtée |
 | 12 | Décarbonation des techniques | **ABSENT** | l'empreinte carbone par traitement (PR-15) suppose des facteurs d'émission approuvés, qu'aucune source ne fournit au dépôt |
 | 13 | ★ Praticabilité saisonnière, incidents, déviations routables | **PARTIEL** | niveaux P1–P4 **provisoires non approuvés** (D-02) ; incidents en main courante immuable ; déviations publiées en texte sur l'Info Route ; **graphe du réseau** et **déviation routée** faits (20/10, `POST /api/v2/geo/deviation`). **Manquent** : l'écran, les sens uniques (absents du référentiel), la praticabilité des routes empruntées (D-02) |
 | 14 | ★ Collecte en roulage, événements Début / Fin | **BLOQUÉ** | § 7.13, application mobile (B-10) |
@@ -49,4 +49,4 @@ développement manquant de ma part :
 3. **Les accès tiers** (DigitalRoad, SharePoint, partenaires) : lignes 6, 10, 17, 18.
 
 Faits depuis : permaliens (11, T-23), déviation sur le graphe (13, T-22), curseur temporel à l'écran
-(3, T-26). Restent exécutables sans eux : données ouvertes OGC (11), persistance de la topologie (15).
+(3, T-26), métadonnées ISO 19115 (11, T-29). Reste exécutable sans eux : persistance de la topologie (15). Les services OGC sont écartés par la mesure jusqu'à l'apparition d'un consommateur.
