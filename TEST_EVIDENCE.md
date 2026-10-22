@@ -3,6 +3,24 @@
 > Exigé par le § 4 du mandat v2.1. Le § 2.7 impose que toute affirmation de réussite cite la
 > commande lancée et son résultat. Aucune ligne de ce fichier n'est écrite sans l'avoir vue.
 
+## 22/10/2026 (nuit) — fusion des six lots d'agents, mesures de performance, enregistreur navigateur
+
+Exécuté et lu après la fusion de la branche « performance ». Rien n'a été exécuté contre la production. **La CI GitHub n'a
+toujours pas tourné** (compte bloqué pour facturation) : ces lignes sont les seules preuves réelles.
+
+| Vérification | Commande | Résultat |
+|---|---|---|
+| Backend | `cd backend && npx vitest run` ; `npx tsc --noEmit -p .` | **160 fichiers, 2 541 tests passants** ; 0 erreur de types ; `prisma validate` valide |
+| Frontend | `cd frontend && npx vitest run` ; `npx tsc --noEmit` ; `npm run lint` ; `npm run build` | **53 fichiers, 698 tests passants** ; 0 erreur de types ; lint 0 erreur (4 avertissements) ; build ok |
+| Chaîne de migrations et descentes | `verifier.sh --strict --garder` (conteneur de développement) | **274 vérifications, 0 échec, 0 migration sans descente** |
+| Bancs SQL | `infra/ci/bancs-sql.sh` | **15 bancs, 0 échec** |
+| Bancs d'intégration TypeScript | `bash tests-integration/run.sh` | 739 vérifications sur 18 bancs au dernier run complet (avant les bancs contour, tableau de bord ajouté, performance), tous passants ; le banc contour passe seul (7/7) |
+| Performance A15 et A20 | `backend/tests-integration/perf/` (jeu synthétique de 261 387 tronçons) | chiffres et réserves dans `docs/performance/MESURES-A15-A20.md` : rattachement atteint, recherche partiellement, déviation de justesse à 50 km, rendu 3G non atteint |
+| Régressions trouvées par la fusion | — | le menu embarquait la recherche globale (commit d'une autre session) : le test du menu n'avait pas de `QueryClientProvider` (7 tests rouges, corrigés) ; un test de Gouvernance échoue par intermittence sous charge de la machine, il passe seul |
+
+**Non vérifié** : le comportement sur un téléphone réel (enregistreur navigateur, roulage), les données de production, le cache
+PostgreSQL froid, la CI.
+
 ## 22/10/2026 (soir) — fusion de lot/14-observation-terre dans lot/03-map-matching
 
 Exécuté et lu le 22/10/2026 après la fusion `437908f` (partie E, A10, CI/S-4). Rien n'a été exécuté contre la production.
