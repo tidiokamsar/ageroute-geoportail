@@ -2,8 +2,10 @@
 
 > Livrable exigé par le § E.1 du prompt maître V10. Rédigé le 20/10/2026.
 > **État** : registre des produits, propositions, verdict du terrain et mesure de précision
-> **construits et éprouvés en base** (migration `20261020000000_observation_terre`). **Aucune image
-> n'a été téléchargée, aucun traitement n'a tourné, aucune dépense n'a été engagée.**
+> **construits et éprouvés en base** (migration `20261020000000_observation_terre`) ; **cohérence
+> entre eux tenue en base et mesurée au volume de la production** depuis le 22/10/2026 (migration
+> `20261022000000_teledetection_coherence`, § 7). **Aucune image n'a été téléchargée, aucun
+> traitement n'a tourné, aucune dépense n'a été engagée.**
 
 ---
 
@@ -16,6 +18,7 @@
 | Le terrain reste juge | **fait** | verdict CONFIRMEE / INFIRMEE, une fois, citant son constat ; la détection est **figée** à l'insertion (déclencheur) |
 | Mesure de la précision contre les constats terrain | **fait** | vue `precision_teledetection`, par type et par méthode ; **nulle sans verdict**, pas zéro |
 | Export des zones à vérifier comme missions de patrouille (EX-03) | **fait** | `POST /api/v2/teledetection/propositions/:id/verification` : mission SURVEILLANCE en brouillon |
+| Cohérence registre / propositions / verdicts | **fait** (22/10) | déclencheur à l'insertion (produit vivant, géométrie dans l'emprise, référence antérieure et couvrante, distance au tronçon **mesurée**, jamais saisie), registre figé dès qu'un produit est cité, aucune suppression physique ; vue `coherence_teledetection` et `GET /api/v2/teledetection/coherence` pour ce qui survient après coup ; section « Cohérence » de l'écran `/teledetection` |
 | Couche « alertes satellite » dans la cellule de veille | **fait** (compteur) | `alertesSatelliteAVerifier` sur la vue murale ; l'affichage cartographique des emprises reste à faire |
 | **Moteur de changement** (comparaison de deux dates) | **absent** | demande Python (rasterio, xarray) et des images : hors de ce dépôt tant que les sources ne sont pas choisies |
 | Procédure d'activation du Copernicus EMS | **absente** | décision institutionnelle (§ E.1) |
@@ -79,3 +82,47 @@ et de validation, pas par la télédétection.
 | Corridor pilote | AGEROUTE | emprise des premières requêtes |
 | Procédure d'activation Copernicus EMS | AGEROUTE, voie institutionnelle | cartographie rapide après catastrophe |
 | Paliers 1 à 3 | AGEROUTE, autorisation de dépense | rien avant un cas d'usage mesuré au pilote |
+
+## 7. Cohérence et mesure au volume de la production (22/10/2026)
+
+### Ce que la base refuse désormais
+
+| Incohérence | Pourquoi elle fausse la précision | Où |
+|---|---|---|
+| Proposition hors de l'emprise de son produit | une détection ne vient que de ce que l'image couvre | déclencheur `propositions_teledetection_coherence`, et le service qui nomme les rangs fautifs (`HORS_EMPRISE`) |
+| Référence d'une comparaison de deux dates non antérieure, retirée, ou qui ne couvre pas la géométrie | ce n'est plus une détection de changement | idem ; noyau `verifierReference` |
+| Distance au tronçon saisie au lieu d'être mesurée (écart > 1 cm) | le rattachement serait affirmé, pas calculé | déclencheur |
+| Modification de la provenance, de la licence ou de l'emprise d'un produit cité | la précision se rapporterait à un autre produit | déclencheur `earth_observation_products_garde` |
+| Suppression physique d'un produit | règle 2 d'`AGENTS.md` | idem |
+
+**La nature n'est pas contrainte** : une référence optique d'avant la crue comparée à un radar
+d'après est une méthode courante de cartographie des inondations. Une première version de la
+migration l'interdisait ; le banc existant l'a fait échouer, et c'était la règle qui avait tort.
+
+### Ce que la vue signale, sans rien corriger
+
+`HORS_EMPRISE` et `REFERENCE_INCOHERENTE` (lignes antérieures au déclencheur, **bloquantes**) ;
+`PRODUIT_RETIRE_EN_ATTENTE`, `TRONCON_RETIRE`, `MISSION_SANS_VERDICT` (mission terminée ou annulée,
+proposition encore à vérifier), `VERDICT_AVANT_FIN_MISSION` (**à examiner**).
+
+### Mesures (banc `backend/prisma/tests/teledetection.bench.sql`, poste de développement)
+
+261 387 tronçons synthétiques (le volume de la production au 21/10/2026), 8 000 propositions
+déposées par la **requête du service recopiée à l'identique**, une par une :
+
+| Tolérance | Médiane | p95 | Rattachées / 2 000 |
+|---|---|---|---|
+| aucune | 1,57 ms | 12,19 ms | 0 |
+| 50 m | 1,85 ms | 11,81 ms | 33 |
+| 500 m | 2,12 ms | 12,95 ms | 899 |
+| 5 000 m (maximum admis) | 4,69 ms | 15,73 ms | 2 000 |
+
+Plan du plus proche voisin : **index `troncons_geom_geography_idx` employé** (asserté). Exactitude :
+sur 40 propositions, troncon et distance trouvés par l'index **identiques** à un balayage complet
+sans index (au centimètre ; asserté). 2 400 verdicts posés en 1,1 s ; vue de précision 37 ms ;
+liste « à vérifier » de la route 14 ms ; vue de cohérence 102 ms, 0 anomalie.
+
+**Ce que ces chiffres ne disent pas** : la durée sur le serveur de production (autre machine, autre
+charge), le coût d'un aller-retour Prisma par proposition, ni un réseau réel (segments tirés au
+hasard, non connectés). Les durées sont affichées, non assertées : un plafond de temps dans un banc
+partagé serait une fausse alerte dès que le poste est chargé.

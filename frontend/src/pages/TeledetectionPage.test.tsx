@@ -8,7 +8,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
  *   - l'ecran dit qu'une detection est une proposition ;
  *   - une methode sans verdict affiche « aucun verdict », pas 0 % ;
  *   - le verdict exige ce que le terrain a constate et la reference du constat ;
- *   - un LECTEUR ne voit ni verdict ni depeche.
+ *   - un LECTEUR ne voit ni verdict ni depeche ;
+ *   - les anomalies de coherence sont dites, bloquantes et a examiner distinguees.
  */
 
 const h = vi.hoisted(() => ({ role: "GESTIONNAIRE", get: {} as Record<string, unknown>, posts: [] as { url: string; corps: unknown }[] }));
@@ -76,5 +77,26 @@ describe("TeledetectionPage", () => {
     expect(await screen.findByText(/Rattachée à GN N0001/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Enregistrer le verdict" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Dépêcher une vérification" })).not.toBeInTheDocument();
+  });
+
+  it("dit les anomalies de coherence, bloquantes et a examiner distinguees", async () => {
+    h.get["/v2/teledetection/coherence"] = {
+      bloquantes: 1, aExaminer: 1, tronquee: false,
+      anomalies: [
+        { code: "HORS_EMPRISE", gravite: "BLOQUANTE", propositionId: "pr-9", produitId: "p-1", detail: "geometrie hors de l'emprise du produit" },
+        { code: "MISSION_SANS_VERDICT", gravite: "A_EXAMINER", propositionId: "pr-8", produitId: "p-1", detail: "mission VER-1 TERMINEE, aucun verdict rendu" },
+      ],
+    };
+    rendre();
+    expect(await screen.findByText(/Hors de l'emprise du produit/)).toBeInTheDocument();
+    expect(screen.getByText(/Mission close sans verdict/)).toBeInTheDocument();
+    expect(screen.getByText("Bloquante")).toBeInTheDocument();
+    expect(screen.getByText("À examiner")).toBeInTheDocument();
+  });
+
+  it("sans anomalie, le dit", async () => {
+    h.get["/v2/teledetection/coherence"] = { bloquantes: 0, aExaminer: 0, tronquee: false, anomalies: [] };
+    rendre();
+    expect(await screen.findByText("Aucune anomalie.")).toBeInTheDocument();
   });
 });

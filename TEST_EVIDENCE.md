@@ -3,6 +3,24 @@
 > Exigé par le § 4 du mandat v2.1. Le § 2.7 impose que toute affirmation de réussite cite la
 > commande lancée et son résultat. Aucune ligne de ce fichier n'est écrite sans l'avoir vue.
 
+## 22/10/2026 — partie E (A30), cohérence et banc de la base (DT-1)
+
+Base privée `dt_bench`, clone de `replay` (PostGIS 3.5.2, GEOS 3.9.0), conteneur `bdri-dev-db`.
+
+| Commande | Résultat |
+|---|---|
+| `psql -f backend/prisma/tests/teledetection_coherence.test.sql` (base migrée) | **16 assertions passent** |
+| la même sur `replay`, **sans** la migration (contre-épreuve) | échoue à la première : « Proposition hors emprise acceptee » |
+| `psql -f backend/prisma/tests/observation_terre.test.sql` (base migrée) | **15 assertions passent** (non-régression) |
+| `psql -f backend/prisma/tests/teledetection.bench.sql` | plan et exactitude asserts ; durées dans `EARTH_OBSERVATION_PLAN.md` § 7 |
+| `verifier.sh --seulement 20261022000000_teledetection_coherence` | **2 vérifications, 0 échec** |
+| `npx vitest run src/teledetection src/api-v2/teledetection.routes.test.ts` | **37 passés** (noyau 24, routes 13) |
+| `npx vitest run` (backend) | **1 555 passés**, 107 fichiers, 0 échec |
+| `npx tsc --noEmit` (backend, frontend) | aucune erreur |
+| `npx vitest run src/pages/TeledetectionPage.test.tsx src/pages/Accessibilite.test.tsx` | **16 passés** |
+| `npx vitest run` (frontend, seul) | **374 passés**, 32 fichiers, 0 échec |
+| service `deposerPropositions` / `coherence` contre `dt_bench` (script jetable, non commité) | hors emprise → 400 `HORS_EMPRISE` (rang 2) ; référence postérieure → 400 ; lot cohérent déposé ; 0 anomalie |
+
 ## 14/10/2026 — lot 3, map-matching (premier incrément)
 
 | Commande | Résultat |

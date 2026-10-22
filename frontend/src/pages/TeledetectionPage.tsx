@@ -79,6 +79,18 @@ function Verdict({ p, onFait }: { p: Proposition; onFait: () => void }) {
   );
 }
 
+interface Anomalie { code: string; gravite: "BLOQUANTE" | "A_EXAMINER"; propositionId: string; produitId: string; detail: string }
+interface Coherence { bloquantes: number; aExaminer: number; tronquee: boolean; anomalies: Anomalie[] }
+
+const LIBELLE_ANOMALIE: Record<string, string> = {
+  HORS_EMPRISE: "Hors de l'emprise du produit",
+  REFERENCE_INCOHERENTE: "Référence incohérente",
+  PRODUIT_RETIRE_EN_ATTENTE: "Produit retiré, proposition en attente",
+  TRONCON_RETIRE: "Tronçon retiré depuis le rattachement",
+  MISSION_SANS_VERDICT: "Mission close sans verdict",
+  VERDICT_AVANT_FIN_MISSION: "Verdict avant la fin de la mission",
+};
+
 export function TeledetectionPage() {
   const { user } = useAuth();
   const peutEcrire = user?.role === "ADMIN" || user?.role === "GESTIONNAIRE";
@@ -96,6 +108,10 @@ export function TeledetectionPage() {
   const produits = useQuery({
     queryKey: ["teledetection", "produits"],
     queryFn: async () => (await api.get<{ produits: Produit[] }>("/v2/teledetection/produits")).data.produits,
+  });
+  const coherence = useQuery({
+    queryKey: ["teledetection", "coherence"],
+    queryFn: async () => (await api.get<Coherence>("/v2/teledetection/coherence")).data,
   });
   const rafraichir = () => client.invalidateQueries({ queryKey: ["teledetection"] });
 
@@ -152,6 +168,27 @@ export function TeledetectionPage() {
             </tbody>
           </table>
         )}
+      </section>
+
+      <section className="rounded-lg border border-gray-200 bg-white p-3" aria-labelledby="titre-coherence">
+        <h2 id="titre-coherence" className="font-semibold">Cohérence du registre, des propositions et des verdicts</h2>
+        <p className="text-xs text-gray-500">« Bloquante » : la précision mesurée est faussée. « À examiner » : quelque chose reste en suspens. Rien n'est corrigé automatiquement.</p>
+        {coherence.isLoading ? <p className="mt-2 text-sm text-gray-500">Chargement…</p>
+          : coherence.isError ? <p className="mt-2 text-sm text-red-700">Contrôle de cohérence indisponible.</p>
+          : !coherence.data?.anomalies?.length ? <p className="mt-2 text-sm text-gray-700">Aucune anomalie.</p>
+          : (
+            <>
+              <p className="mt-2 text-sm"><strong>{coherence.data.bloquantes}</strong> bloquante(s), <strong>{coherence.data.aExaminer}</strong> à examiner{coherence.data.tronquee ? " (liste limitée aux 1 000 premières)" : ""}.</p>
+              <ul className="mt-1 divide-y text-sm">
+                {coherence.data.anomalies.map((a) => (
+                  <li key={`${a.code}-${a.propositionId}`} className="py-1">
+                    <span className={a.gravite === "BLOQUANTE" ? "font-medium text-red-700" : "font-medium text-amber-800"}>{a.gravite === "BLOQUANTE" ? "Bloquante" : "À examiner"}</span>
+                    {" · "}{LIBELLE_ANOMALIE[a.code] ?? a.code} — {a.detail}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
       </section>
 
       <section className="rounded-lg border border-gray-200 bg-white p-3">

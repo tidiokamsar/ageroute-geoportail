@@ -21,7 +21,11 @@ vi.mock("../middleware/auth.middleware", () => ({
 }));
 
 type Ligne = Record<string, unknown>;
-const h = vi.hoisted(() => ({ produits: [] as Ligne[], propositions: [] as Ligne[], missions: [] as Ligne[], audits: [] as Ligne[], raw: [] as unknown[][] }));
+const h = vi.hoisted(() => ({
+  produits: [] as Ligne[], propositions: [] as Ligne[], missions: [] as Ligne[], audits: [] as Ligne[], raw: [] as unknown[][],
+  // Requetes de lecture brutes : leur texte, et ce qu'elles rendent (a regler par test).
+  lectures: [] as string[], reponse: (_sql: string): unknown[] => [],
+}));
 
 vi.mock("../lib/prisma", () => {
   const earthObservationProduct = {
@@ -50,7 +54,7 @@ vi.mock("../lib/prisma", () => {
   const tx = {
     earthObservationProduct, propositionTeledetection, mission, auditLog,
     $executeRaw: async (...a: unknown[]) => { h.raw.push(a); return 1; },
-    $queryRaw: async () => [],
+    $queryRaw: async (sql: TemplateStringsArray) => { const t = sql.join("?"); h.lectures.push(t); return h.reponse(t); },
   };
   return { prisma: { ...tx, $transaction: async (fn: (t: unknown) => Promise<unknown>) => fn(tx) } };
 });
@@ -71,6 +75,7 @@ const produit = {
 
 beforeEach(() => {
   h.produits.length = 0; h.propositions.length = 0; h.missions.length = 0; h.audits.length = 0; h.raw.length = 0;
+  h.lectures.length = 0; h.reponse = () => [];
   compte.role = "GESTIONNAIRE";
 });
 
@@ -118,6 +123,30 @@ describe("Depot de propositions", () => {
     const r = await request(app).post(`${base}/propositions`).send({ ...lot, toleranceRattachementM: 0 });
     expect(r.status).toBe(400); expect(r.body.code).toBe("TOLERANCE_INVALIDE");
   });
+  it("refuse le lot entier si une geometrie sort de l'emprise, en nommant les rangs ; rien n'est insere", async () => {
+    h.reponse = (sql) => (sql.includes("ST_Intersects") ? [{ rang: 2 }] : []);
+    const r = await request(app).post(`${base}/propositions`).send({ ...lot, propositions: [lot.propositions[0], lot.propositions[0]] });
+    expect(r.status).toBe(400); expect(r.body.code).toBe("HORS_EMPRISE");
+    expect(r.body.error).toContain("rangs 2");
+    expect(h.raw).toHaveLength(0);
+  });
+  it("comparaison de deux dates : reference inconnue 404, posterieure, identique ou retiree 400", async () => {
+    h.produits.length = 0;
+    h.produits.push({ id: "p-1", code: "S1", dateAcquisition: new Date("2026-10-02"), deletedAt: null },
+      { id: "p-apres", code: "S1b", dateAcquisition: new Date("2026-10-20"), deletedAt: null },
+      { id: "p-retire", code: "S1c", dateAcquisition: new Date("2026-09-01"), deletedAt: new Date("2026-10-10") },
+      { id: "p-avant", code: "S2", dateAcquisition: new Date("2026-09-01"), deletedAt: null });
+    const envoi = (ref: string) => request(app).post(`${base}/propositions`).send({ ...lot, produitReferenceId: ref });
+    expect((await envoi("p-9")).status).toBe(404);
+    expect((await envoi("p-apres")).body.code).toBe("REFERENCE_NON_ANTERIEURE");
+    expect((await envoi("p-1")).body.code).toBe("REFERENCE_IDENTIQUE");
+    expect((await envoi("p-retire")).body.code).toBe("REFERENCE_RETIREE");
+    expect(h.raw).toHaveLength(0);
+    const ok = await envoi("p-avant");
+    expect(ok.status).toBe(201);
+    // Le controle d'emprise porte aussi sur la reference : son identifiant part en parametre.
+    expect(h.lectures.some((t) => t.includes("ST_Intersects"))).toBe(true);
+  });
   it("refuse un produit inconnu (404), une methode vide, un lot vide, un type hors liste", async () => {
     expect((await request(app).post(`${base}/propositions`).send({ ...lot, produitId: "p-9" })).status).toBe(404);
     expect((await request(app).post(`${base}/propositions`).send({ ...lot, methode: " " })).body.code).toBe("METHODE_REQUISE");
@@ -153,5 +182,19 @@ describe("Verdict du terrain et verification", () => {
   });
   it("refuse un filtre de statut inconnu", async () => {
     expect((await request(app).get(`${base}/propositions?statut=PROBABLE`)).status).toBe(400);
+  });
+});
+
+describe("Coherence", () => {
+  it("rend les anomalies de la vue, bloquantes comptees a part ; lisible par tout compte", async () => {
+    compte.role = "LECTEUR";
+    h.reponse = (sql) => (sql.includes("coherence_teledetection") ? [
+      { code: "HORS_EMPRISE", gravite: "BLOQUANTE", propositionId: "pr-1", produitId: "p-1", detail: "x" },
+      { code: "MISSION_SANS_VERDICT", gravite: "A_EXAMINER", propositionId: "pr-2", produitId: "p-1", detail: "y" },
+    ] : []);
+    const r = await request(app).get(`${base}/coherence`);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ bloquantes: 1, aExaminer: 1, tronquee: false });
+    expect(r.body.anomalies).toHaveLength(2);
   });
 });

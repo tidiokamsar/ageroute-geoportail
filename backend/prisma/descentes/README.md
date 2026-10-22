@@ -10,6 +10,11 @@ descendantes : ces scripts sont ecrits a la main, un par migration, et nommes d'
 refusent de s'executer. Toutes ont ete executees par le banc `verifier.sh` : 238 verifications, 0
 echec. Voir « Ce que le banc prouve, et ce qu'il ne prouve pas » avant de s'y fier.
 
+> **Branche `lot/14-consignes-dt`, 22/10/2026** : le compte ci-dessus incluait une migration alors
+> non commitée (`20261021160000_programmation_saisie`). Au commit `50492e6`, le dépôt porte **68
+> migrations et 68 descentes** ; cette branche ajoute `20261022000000_teledetection_coherence`, avec
+> sa descente vérifiée par le banc (`--seulement`, 2 vérifications, 0 échec).
+
 | Famille | Migrations | Ce que fait la descente |
 |---|---|---|
 | Ajout de colonnes, de tables, d'index | la grande majorite | retire ce que la migration a ajoute, apres une **garde** (voir plus bas) |

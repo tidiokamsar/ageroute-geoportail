@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 import { logAuditTransactionnelle } from "../utils/audit";
 import {
-  codeMissionTeledetection, verifierDepecheVerification, verifierProduit, verifierVerdict,
+  codeMissionTeledetection, verifierDepecheVerification, verifierProduit, verifierReference, verifierVerdict,
   type ProduitSaisi, type StatutProposition, type TypeProposition,
 } from "./teledetection.noyau";
 
@@ -84,6 +84,25 @@ export async function deposerPropositions(
   if (tol !== null && !(tol > 0 && tol <= 5000)) throw new RefusTeledetection("TOLERANCE_INVALIDE", "Tolerance de rattachement : metres, strictement positive, au plus 5 000.", 400);
   const produit = await depot.earthObservationProduct.findFirst({ where: { id: d.produitId, deletedAt: null } });
   if (!produit) throw new RefusTeledetection("PRODUIT_INEXISTANT", "Produit introuvable au registre.", 404);
+  if (d.produitReferenceId) {
+    const reference = await depot.earthObservationProduct.findUnique({ where: { id: d.produitReferenceId } });
+    const v = verifierReference(produit, reference);
+    if (!v.ok) throw new RefusTeledetection(v.code, v.motif, v.code === "REFERENCE_INEXISTANTE" ? 404 : 400);
+  }
+  // Une detection ne vient que de ce que l'image couvre : les geometries hors de l'emprise du
+  // produit (ou de sa reference) sont nommees par leur rang, et le lot entier est refuse. La base
+  // tient la meme regle ; la verifier ici rend un message au lieu d'une erreur de declencheur.
+  const geometries = JSON.stringify(d.propositions.map((p) => p.geometrie));
+  const hors = await depot.$queryRaw<{ rang: number }[]>`
+    SELECT a.ord::integer AS rang
+      FROM jsonb_array_elements(${geometries}::jsonb) WITH ORDINALITY AS a(g, ord)
+      JOIN "earth_observation_products" e ON e."id" IN (${d.produitId}, ${d.produitReferenceId ?? d.produitId})
+     WHERE NOT ST_Intersects(ST_SetSRID(ST_GeomFromGeoJSON(a.g::text), 4326), e."emprise")
+     GROUP BY a.ord ORDER BY a.ord LIMIT 20`;
+  if (hors.length > 0) {
+    throw new RefusTeledetection("HORS_EMPRISE",
+      `Propositions hors de l'emprise du produit${d.produitReferenceId ? " ou de sa reference" : ""} (rangs ${hors.map((h) => h.rang).join(", ")}${hors.length === 20 ? ", ..." : ""}).`, 400);
+  }
 
   return depot.$transaction(async (tx) => {
     const ids: string[] = [];
@@ -173,4 +192,19 @@ export interface LignePrecision { type: string; methode: string; total: number; 
 
 export async function precision(depot: Pick<DepotTeledetection, "$queryRaw">) {
   return depot.$queryRaw<LignePrecision[]>`SELECT * FROM "precision_teledetection" ORDER BY "type", "methode"`;
+}
+
+export interface AnomalieCoherence { code: string; gravite: "BLOQUANTE" | "A_EXAMINER"; propositionId: string; produitId: string; detail: string }
+
+/** Ce que la vue `coherence_teledetection` signale, bloquantes d'abord. */
+export async function coherence(depot: Pick<DepotTeledetection, "$queryRaw">) {
+  const lignes = await depot.$queryRaw<AnomalieCoherence[]>`
+    SELECT * FROM "coherence_teledetection"
+     ORDER BY CASE "gravite" WHEN 'BLOQUANTE' THEN 0 ELSE 1 END, "code", "propositionId" LIMIT 1000`;
+  return {
+    bloquantes: lignes.filter((l) => l.gravite === "BLOQUANTE").length,
+    aExaminer: lignes.filter((l) => l.gravite === "A_EXAMINER").length,
+    tronquee: lignes.length === 1000,
+    anomalies: lignes,
+  };
 }

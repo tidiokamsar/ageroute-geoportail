@@ -86,3 +86,27 @@ export function verifierDepecheVerification(p: { statut: StatutProposition; miss
 export function codeMissionTeledetection(propositionId: string): string {
   return `VER-TD-${propositionId.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
 }
+
+/**
+ * Une detection par comparaison de deux dates s'appuie sur une reference ANTERIEURE, inscrite et
+ * non retiree du registre. La nature n'est pas contrainte : une reference optique d'avant la crue
+ * comparee a un radar d'apres est une methode courante. La base tient la meme regle
+ * (`propositions_teledetection_coherence`) ; le noyau la dit avant elle.
+ */
+export function verifierReference(
+  produit: { id: string; dateAcquisition: Date },
+  reference: { id: string; dateAcquisition: Date; deletedAt: Date | null } | null,
+): Verdict {
+  if (!reference) return { ok: false, code: "REFERENCE_INEXISTANTE", motif: "Produit de reference introuvable au registre." };
+  if (reference.id === produit.id) return { ok: false, code: "REFERENCE_IDENTIQUE", motif: "Une comparaison de deux dates demande deux produits distincts." };
+  if (reference.deletedAt) return { ok: false, code: "REFERENCE_RETIREE", motif: "Le produit de reference est retire du registre." };
+  if (reference.dateAcquisition.getTime() >= produit.dateAcquisition.getTime()) {
+    return { ok: false, code: "REFERENCE_NON_ANTERIEURE", motif: "La reference d'une comparaison de deux dates est anterieure au produit compare." };
+  }
+  return { ok: true };
+}
+
+/** Anomalie signalee par la vue `coherence_teledetection`. */
+export const CODES_COHERENCE = [
+  "HORS_EMPRISE", "REFERENCE_INCOHERENTE", "PRODUIT_RETIRE_EN_ATTENTE", "TRONCON_RETIRE", "MISSION_SANS_VERDICT", "VERDICT_AVANT_FIN_MISSION",
+] as const;

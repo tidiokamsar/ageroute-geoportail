@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { codeMissionTeledetection, verifierDepecheVerification, verifierProduit, verifierVerdict, type ProduitSaisi } from "./teledetection.noyau";
+import { codeMissionTeledetection, verifierDepecheVerification, verifierProduit, verifierReference, verifierVerdict, type ProduitSaisi } from "./teledetection.noyau";
 
 /**
  * Observation de la Terre (partie E) : ce que ces tests defendent.
@@ -70,5 +70,23 @@ describe("Depeche d'une verification", () => {
   });
   it("code de mission stable", () => {
     expect(codeMissionTeledetection("3f2a9c1e-77aa-4b2c-9d10-000000000000")).toBe("VER-TD-3F2A9C1E");
+  });
+});
+
+describe("verifierReference (comparaison de deux dates)", () => {
+  const produit = { id: "apres", dateAcquisition: new Date("2026-10-02") };
+  const ref = (o: Partial<{ id: string; dateAcquisition: Date; deletedAt: Date | null }>) =>
+    ({ id: "avant", dateAcquisition: new Date("2026-09-01"), deletedAt: null, ...o });
+  it("accepte une reference anterieure inscrite, quelle que soit sa nature", () => {
+    expect(code(verifierReference(produit, ref({})))).toBe("OK");
+  });
+  it.each([
+    [null, "REFERENCE_INEXISTANTE"],
+    [ref({ id: "apres" }), "REFERENCE_IDENTIQUE"],
+    [ref({ deletedAt: new Date("2026-10-10") }), "REFERENCE_RETIREE"],
+    [ref({ dateAcquisition: new Date("2026-10-02") }), "REFERENCE_NON_ANTERIEURE"],
+    [ref({ dateAcquisition: new Date("2026-11-01") }), "REFERENCE_NON_ANTERIEURE"],
+  ])("refuse %j -> %s", (r, attendu) => {
+    expect(code(verifierReference(produit, r))).toBe(attendu);
   });
 });
