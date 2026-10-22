@@ -20,6 +20,7 @@ lancer() { # $1 = fichier
 
 for b in "${BANCS[@]}"; do lancer "$b.integration.ts"; done
 lancer "curseur.integration.mts"
+lancer "tableau-de-bord.integration.mts"
 
 printf '\n%s\n' "Resultat des bancs d'integration"
 printf '%s\n' "${lignes[@]}"

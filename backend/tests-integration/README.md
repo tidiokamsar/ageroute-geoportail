@@ -56,6 +56,7 @@ Chaque banc nomme ses vérifications, les compte, et sort en **code 1** si une s
 | `teledetection` | transaction annulée | 10 | produits, propositions, tolérance, verdict unique, précision, audit |
 | `veille` | transaction annulée | 10 | astreintes, escalades idempotentes, tableau de veille, audit |
 | `curseur` | **clone `essai_curseur`**, créé puis détruit par le banc | 41 | curseur temporel à deux axes, requalification, découpe, fusion |
+| `tableau-de-bord` | **clone `essai_tableau_de_bord`**, créé puis détruit par le banc | 116 | A12 : chacun des 31 indicateurs du registre, sur trois portées (national, région 1, région 2), est égal à sa requête de contrôle **et** à une valeur attendue calculée à la main (longueurs par intégrale du méridien WGS84) ; refus d'un indicateur non ventilé à un compte régional (A10) ; région vide ; échéances de patrouille à deux dates ; recoupement avec `longueurReseau` et `couvertureReseau` ; contre-épreuve ; Control Tower ; volets de la fiche 360 |
 
 Soit **122 vérifications**, toutes passantes le 22/10/2026 (`bash tests-integration/run.sh`, code 0).
 
