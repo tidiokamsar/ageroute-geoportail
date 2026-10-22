@@ -22,6 +22,7 @@ import {
   type TypeDefaut, type MesuresDefaut,
 } from "../field/defauts.regles";
 import { validationPermise, EXPLICATIONS as EXPLICATIONS_VALIDATION } from "../governance/validation";
+import { territoireCreationDefaut, territoireDefaut } from "../territoire/territoire.v2";
 
 /**
  * `/api/v2/defauts` — la degradation devient un objet qu'on peut mesurer, arbitrer,
@@ -159,7 +160,7 @@ async function perimetreDefauts(user: { id: string; role: string }) {
  *       si une mesure est aberrante, ou si la longueur depasse celle du troncon porte.
  *     tags: [Defauts v2]
  */
-defautsV2Router.post("/", requireAuth, requireModuleAccess("inspections"), async (req, res, next) => {
+defautsV2Router.post("/", requireAuth, requireModuleAccess("inspections"), territoireCreationDefaut, async (req, res, next) => {
   try {
     const c = creation.parse(req.body);
     const user = req.user!;
@@ -588,7 +589,7 @@ const compterPhotosDefaut = async (req: Request): Promise<number | null> => {
   return defaut ? defaut._count.medias : null;
 };
 
-defautsV2Router.post("/:id/photos", requireAuth, requireModuleAccess("inspections"), plafondPhotos(compterPhotosDefaut), uploadPhoto, async (req, res, next) => {
+defautsV2Router.post("/:id/photos", requireAuth, requireModuleAccess("inspections"), territoireDefaut, plafondPhotos(compterPhotosDefaut), uploadPhoto, async (req, res, next) => {
   try {
     if (!req.user) return res.status(401).json({ message: "Authentification requise." });
     if (!req.file) return res.status(400).json({ message: "Photo manquante." });
@@ -689,7 +690,7 @@ defautsV2Router.post("/:id/appariement/suggestion", requireAuth, requireModuleAc
 });
 
 /** Confirme un tronçon proposé, après recalcul serveur depuis le GPS brut conservé. */
-defautsV2Router.post("/:id/appariement/confirmation", requireAuth, requireModuleAccess("inspections"), async (req, res, next) => {
+defautsV2Router.post("/:id/appariement/confirmation", requireAuth, requireModuleAccess("inspections"), territoireDefaut, async (req, res, next) => {
   try {
     const c = z.object({ tronconId: z.string().min(1) }).strict().parse(req.body);
     const user = req.user!;
@@ -907,7 +908,7 @@ const deciderDefaut: RequestHandler = async (req, res, next) => {
  * et retirer ce chemin casserait un client livre pour satisfaire un nom. Le choix du
  * chemin public, et donc de celui a deprecier, est a arbitrer.
  */
-defautsV2Router.post("/:id/decision", requireAuth, requireModuleAccess("inspections"), deciderDefaut);
+defautsV2Router.post("/:id/decision", requireAuth, requireModuleAccess("inspections"), territoireDefaut, deciderDefaut);
 
 /**
  * @openapi
@@ -920,7 +921,7 @@ defautsV2Router.post("/:id/decision", requireAuth, requireModuleAccess("inspecti
  *       d'historique dans validations et audit transactionnel.
  *     tags: [Defauts v2]
  */
-defautsV2Router.post("/:id/validate", requireAuth, requireModuleAccess("inspections"), deciderDefaut);
+defautsV2Router.post("/:id/validate", requireAuth, requireModuleAccess("inspections"), territoireDefaut, deciderDefaut);
 
 /**
  * @openapi
@@ -933,7 +934,7 @@ defautsV2Router.post("/:id/validate", requireAuth, requireModuleAccess("inspecti
  *       profondeur ne revient pas sans elle.
  *     tags: [Defauts v2]
  */
-defautsV2Router.post("/:id/resoumettre", requireAuth, requireModuleAccess("inspections"), async (req, res, next) => {
+defautsV2Router.post("/:id/resoumettre", requireAuth, requireModuleAccess("inspections"), territoireDefaut, async (req, res, next) => {
   try {
     const c = z.object({
       mesures: mesuresSchema.optional(),
@@ -1042,7 +1043,7 @@ defautsV2Router.post("/:id/resoumettre", requireAuth, requireModuleAccess("inspe
  *       traitement est posee par le serveur, pas declaree par l'appelant.
  *     tags: [Defauts v2]
  */
-defautsV2Router.post("/:id/etat", requireAuth, requireModuleAccess("inspections"), async (req, res, next) => {
+defautsV2Router.post("/:id/etat", requireAuth, requireModuleAccess("inspections"), territoireDefaut, async (req, res, next) => {
   try {
     const { etat } = z.object({
       etat: z.enum(["ACTIF", "TRAITE", "DISPARU"]),

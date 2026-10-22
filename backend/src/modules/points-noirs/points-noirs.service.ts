@@ -13,6 +13,7 @@ import { pointNoirCreateSchema } from "./points-noirs.schema";
 const base = createCrudService(prisma.pointNoir, "PointNoir", {
   include: { region: true, troncon: true },
   delegueTransactionnel: (tx) => (tx as typeof prisma).pointNoir,
+  controleTerritorial: true,
 });
 
 function extractLatLon(data: { lat?: number; lon?: number } & Record<string, unknown>) {

@@ -14,6 +14,13 @@ import request from "supertest";
  * Le calcul lui-meme est eprouve par `curseur.noyau.test.ts` et contre PostGIS (suivi, T-26).
  */
 
+// Controle territorial (A10) : compte NATIONAL ici, le sujet de ce fichier est ailleurs. Le
+// controle lui-meme est eprouve par territoire/*.test.ts et api-v2/perimetres.routes.test.ts.
+vi.mock("../territoire/territoire.service", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  perimetreDe: async () => ({ national: true }),
+}));
+
 vi.mock("../middleware/auth.middleware", () => ({
   requireAuth: (req: express.Request, _r: express.Response, n: express.NextFunction) => {
     (req as unknown as { user: unknown }).user = { id: "u-agent", role: "GESTIONNAIRE" }; n();

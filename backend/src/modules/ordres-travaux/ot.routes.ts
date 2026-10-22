@@ -10,6 +10,7 @@ import {
   changeStatutHandler, convertirHandler, addPhotoHandler, removePhotoHandler,
   deleteHandler, statsHandler, assignablesHandler,
 } from "./ot.controller";
+import { territoireConversionOt } from "../../territoire/territoire.v1";
 
 export const otRouter = Router();
 otRouter.use(requireAuth, requireModuleAccess("ordres-travaux"));
@@ -24,7 +25,7 @@ otRouter.post("/", requireRole("ADMIN", "GESTIONNAIRE", "INSPECTEUR"), createHan
 otRouter.put("/:id", requireRole("ADMIN", "GESTIONNAIRE", "INSPECTEUR"), updateHandler);
 otRouter.post("/:id/assigner", requireRole("ADMIN", "GESTIONNAIRE"), assignHandler);
 otRouter.post("/:id/statut", requireRole("ADMIN", "GESTIONNAIRE", "INSPECTEUR"), changeStatutHandler);
-otRouter.post("/:id/convertir-chantier", requireRole("ADMIN", "GESTIONNAIRE"), convertirHandler);
+otRouter.post("/:id/convertir-chantier", requireRole("ADMIN", "GESTIONNAIRE"), territoireConversionOt, convertirHandler);
 otRouter.post(
   "/:id/photos",
   requireRole("ADMIN", "GESTIONNAIRE", "INSPECTEUR"),

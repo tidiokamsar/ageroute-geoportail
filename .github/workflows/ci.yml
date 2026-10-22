@@ -16,12 +16,15 @@
 # s'executer sous la nouvelle discipline de branches. Les motifs ci-dessous couvrent les
 # branches reellement utilisees dans ce depot.
 #
-# CE QUE CETTE CI NE FAIT PAS, ET POURQUOI
+# LINT : leve le 20/10/2026 (B-29), eslint et sa configuration plate sont des dependances du
+# frontend ; le job frontend le lance.
 #
-# Elle ne lance PAS de lint. Le script `lint` du frontend invoque `eslint`, qui n'est pas une
-# dependance declaree du projet et n'a aucun fichier de configuration : sous eslint 9+, il
-# echoue en reclamant une configuration « plate ». L'ajouter ici ferait echouer chaque build
-# pour un outil que le depot n'installe pas. Consigne en B-29.
+# BANCS SQL : depuis le 22/10/2026, le job « descentes » garde sa base de reference (chaine de
+# migrations complete) et y lance tous les `backend/prisma/tests/*.test.sql`. Les bancs de
+# performance (`*.bench.sql`) restent manuels : sans seuil, ils ne jugent rien.
+#
+# AUCUNE EXECUTION REELLE A CE JOUR : le compte GitHub est verrouille pour facturation, aucun job
+# n'a jamais tourne. Chaque commande a ete executee en local (TEST_EVIDENCE.md).
 
 name: CI
 
@@ -141,4 +144,8 @@ jobs:
       # l'identique, les gardes refusent puis passent avec l'autorisation explicite. Echoue si une
       # migration est ajoutee SANS descente verifiee. Voir backend/prisma/descentes/README.md.
       - name: Banc des descentes
-        run: bash backend/prisma/descentes/verifier.sh --strict
+        run: bash backend/prisma/descentes/verifier.sh --strict --garder
+      # La base de reference laissee par --garder porte toute la chaine : les bancs SQL s'y
+      # executent, chacun dans une transaction annulee.
+      - name: Bancs SQL
+        run: bash infra/ci/bancs-sql.sh

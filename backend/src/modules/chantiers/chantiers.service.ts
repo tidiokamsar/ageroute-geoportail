@@ -14,6 +14,7 @@ import { chantierCreateSchema } from "./chantiers.schema";
 const base = createCrudService(prisma.chantier, "Chantier", {
   include: { region: true, troncon: true },
   delegueTransactionnel: (tx) => (tx as typeof prisma).chantier,
+  controleTerritorial: true,
 });
 
 // Si le chantier reference un troncon + un PK debut/fin, sa geometrie est extraite du trace

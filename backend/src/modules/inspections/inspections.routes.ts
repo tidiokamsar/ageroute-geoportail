@@ -8,6 +8,7 @@ import { plafondPhotos } from "../../middleware/quota-photos.middleware";
 import { prisma } from "../../lib/prisma";
 import { inspectionsService } from "./inspections.service";
 import { listHandler, getHandler, createHandler, updateHandler, deleteHandler, addPhotoHandler, removePhotoHandler } from "./inspections.controller";
+import { territoireInspection } from "../../territoire/territoire.v1";
 
 export const inspectionsRouter = Router();
 inspectionsRouter.use(requireAuth);
@@ -15,8 +16,8 @@ inspectionsRouter.get("/", requireModuleAccess("inspections"), listHandler);
 inspectionsRouter.use(requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("inspections"), createBulkRouter(inspectionsService));
 inspectionsRouter.get("/:id", requireModuleAccess("inspections"), getHandler);
 // Les inspecteurs de terrain peuvent saisir des inspections, en plus des gestionnaires/admins
-inspectionsRouter.post("/", requireRole("ADMIN", "GESTIONNAIRE", "INSPECTEUR"), requireModuleAccess("inspections"), createHandler);
-inspectionsRouter.put("/:id", requireRole("ADMIN", "GESTIONNAIRE", "INSPECTEUR"), requireModuleAccess("inspections"), updateHandler);
+inspectionsRouter.post("/", requireRole("ADMIN", "GESTIONNAIRE", "INSPECTEUR"), requireModuleAccess("inspections"), territoireInspection, createHandler);
+inspectionsRouter.put("/:id", requireRole("ADMIN", "GESTIONNAIRE", "INSPECTEUR"), requireModuleAccess("inspections"), territoireInspection, updateHandler);
 inspectionsRouter.post(
   "/:id/photos",
   requireRole("ADMIN", "GESTIONNAIRE", "INSPECTEUR"),

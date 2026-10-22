@@ -5,6 +5,7 @@ import { logAuditTransactionnelle } from "../utils/audit";
 import { prisma } from "./prisma";
 import { construireSaisies } from "./provenance";
 import { ApiError } from "../middleware/error.middleware";
+import { exigerTerritoire } from "../territoire/territoire.service";
 
 export interface ListParams {
   page?: number;
@@ -94,6 +95,14 @@ export interface OptionsCrud {
    * tracees — ce n'est plus une configuration a ne pas oublier.
    */
   delegueTransactionnel: (tx: unknown) => PrismaDelegate;
+
+  /**
+   * Controle d'acces territorial (A10) sur chaque ecriture : la fiche porte `regionId`, et un compte
+   * regional n'ecrit que dans son perimetre (creation : region d'apres ; modification : avant ET
+   * apres ; archivage et restauration : celle de la fiche). Les imports passent par `create` et
+   * `update` : une ligne hors perimetre est rapportee en erreur de ligne. Voir `territoire/`.
+   */
+  controleTerritorial?: boolean;
 }
 
 export function createCrudService(
@@ -101,7 +110,8 @@ export function createCrudService(
   entityName: string,
   options: OptionsCrud,
 ) {
-  const { include: defaultInclude, delegueTransactionnel: delegueTx } = options;
+  const { include: defaultInclude, delegueTransactionnel: delegueTx, controleTerritorial } = options;
+  const region = (v: unknown): number | null => (v === null || v === undefined || v === "" ? null : Number.isInteger(Number(v)) ? Number(v) : null);
 
   async function list(params: ListParams = {}): Promise<ListResult<unknown>> {
     const page = Math.max(1, params.page ?? 1);
@@ -148,6 +158,7 @@ export function createCrudService(
      * la meme garantie sur le meme invariant.
      */
     const id = (data.id as string | undefined) ?? randomUUID();
+    if (controleTerritorial) await exigerTerritoire(userId, [region(data.regionId)]);
 
     // Forme INTERACTIVE : `after` est la ligne telle que la base l'a rendue, defauts de
     // colonne et champs calcules compris.
@@ -169,6 +180,9 @@ export function createCrudService(
     // retirée des listes opérationnelles restait modifiable par identifiant.
     const before = await model.findFirst({ where: { id, deletedAt: null } });
     if (!before) throw new ApiError(404, `${entityName} introuvable`);
+    if (controleTerritorial) {
+      await exigerTerritoire(userId, "regionId" in data ? [region(before.regionId), region(data.regionId)] : [region(before.regionId)]);
+    }
 
     /**
      * La valeur et sa provenance changent ENSEMBLE, ou pas du tout.
@@ -197,6 +211,7 @@ export function createCrudService(
   async function remove(id: string, userId: string) {
     const before = await model.findUnique({ where: { id } });
     if (!before) throw new ApiError(404, `${entityName} introuvable`);
+    if (controleTerritorial) await exigerTerritoire(userId, [region(before.regionId)]);
     const maintenant = new Date();
     // Une archive sans trace est une disparition silencieuse : c'est le geste ou
     // l'atomicite compte le plus, puisque la donnee quitte les listes operationnelles.
@@ -210,6 +225,11 @@ export function createCrudService(
   }
 
   async function restore(id: string, userId: string) {
+    if (controleTerritorial) {
+      const fiche = await model.findUnique({ where: { id }, select: { regionId: true } });
+      if (!fiche) throw new ApiError(404, `${entityName} introuvable`);
+      await exigerTerritoire(userId, [region(fiche.regionId)]);
+    }
     return prisma.$transaction(async (tx) => {
       const remis = await delegueTx(tx).update({ where: { id }, data: { deletedAt: null } });
       await logAuditTransactionnelle(tx, {

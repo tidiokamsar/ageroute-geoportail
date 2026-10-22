@@ -46,7 +46,9 @@ describe("catalogue", () => {
       expect(f.acces.chemin.startsWith("/api/public")).toBe(true);
       expect(chemins).toContain(f.acces.chemin.slice("/api/public".length));
     }
-  });
+    // L'import charge tout le routeur public (controleurs, services) : 1,7 s a vide, plus de 30 s
+    // quand la suite complete tourne en parallele (constate le 22/10 apres la fusion de lot/14).
+  }, 90_000);
 
   it("ne choisit aucune licence a la place d'AGEROUTE (aucune decision de licence dans le depot)", () => {
     for (const f of CATALOGUE) expect(f.conditions).toBeNull();

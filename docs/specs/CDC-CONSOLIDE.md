@@ -159,7 +159,7 @@ correspondance et l'état.
 | Moteur de qualité | § 7.6 | ✅ |
 | Évaluation, prévision, programmation | § 7.7 | 🟠 RCI écrit et **désapprouvé** (D-00) ; catalogue des traitements ; moteur de coût qui refuse d'estimer sans barème ; risque et programmation : voir la ligne 7.7 de la matrice |
 | Mobile | § 7.8 | ❌ PWA seule ; Capacitor retenu (ADR-009), non commencé ; aucun APK compilable ici (B-10) |
-| Sécurité | § 7.9 | 🟠 RBAC fait, **ABAC par territoire partiel** (5 domaines sur 8 sans route, D-11) ; cinq risques ouverts (B-17 à B-21), voir [SECURITY_REMEDIATION.md](../../SECURITY_REMEDIATION.md) |
+| Sécurité | § 7.9 | 🟠 RBAC fait ; **contrôle territorial des écritures sur les huit domaines livré** (T-32), **sans effet tant qu'aucun compte n'a de périmètre** (D-11) ; réduction des privilèges de `bdri_app` scriptée et éprouvée sur base jetable (T-33), non exécutée en production ; risques B-18 à B-21 ouverts — *22/10* |
 | Intégrations | § 7.10 | ⛔ aucun accès (B-11, B-12) |
 | Interface web | § 7.11 | 🟠 lint d'accessibilité opérationnel ; WCAG 2.1 AA mesuré par axe-core sur 8 écrans, 0 violation ; contraste, géoportail et tableau de bord non mesurés |
 | Tableau de bord | § 7.12 | 🟠 périmètre, portions validées et qualité affichés (15/10) ; Control Tower et Fiche 360° absents |

@@ -149,6 +149,18 @@ privilège → vérifier l'application → conserver le retour arrière.
 
 **Bloqué** : chaque étape est une opération sur la production.
 
+**Préparé et éprouvé le 22/10/2026 (base jetable, jamais la production)** :
+`infra/securite/s4-reduire-bdri-app.sql` (refuse d'être lancé par le rôle qu'il réduit, ou s'il
+n'existe aucun autre rôle SUPERUSER capable de se connecter ; garde `CREATEDB`),
+`s4-retour-bdri-app.sql`, et l'épreuve `s4-epreuve.sh` : schéma complet reconstruit sous un rôle
+propriétaire, réduit, puis contrôlé. **Permis** au rôle réduit : DML, DDL (table, index GiST,
+colonne, fonction, déclencheur, vue), PostGIS, `CREATE EXTENSION btree_gist` (trusted).
+**Refusé** : `CREATE ROLE`, `ALTER SYSTEM`, `COPY … TO PROGRAM`, `pg_read_file`, lecture de
+`pg_authid`, se rendre SUPERUSER. Retour arrière rétabli. Bilan : 0 échec. Constat : une migration
+qui installerait une extension **non trusted** (PostGIS) passerait par le rôle de secours.
+**Reste à faire par AGEROUTE** : créer le rôle de secours avec un mot de passe qu'elle choisit,
+vérifier qu'il se connecte, puis exécuter le script.
+
 ---
 
 ## S-5 — Sauvegardes : lisibles, jamais restaurées

@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 import { logAuditTransactionnelle } from "../utils/audit";
 import {
-  codeMissionTeledetection, verifierDepecheVerification, verifierProduit, verifierVerdict,
+  codeMissionTeledetection, verifierDepecheVerification, verifierDeuxDates, verifierProduit, verifierVerdict,
   type ProduitSaisi, type StatutProposition, type TypeProposition,
 } from "./teledetection.noyau";
 
@@ -63,6 +63,19 @@ export async function enregistrerProduit(
   });
 }
 
+/** Traduit le refus d'emprise du declencheur en refus metier (400) ; le reste remonte tel quel. */
+async function inserer(insertion: () => Promise<unknown>): Promise<void> {
+  try {
+    await insertion();
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    if (message.includes("hors de l'emprise")) {
+      throw new RefusTeledetection("HORS_EMPRISE", "Une detection est hors de l'emprise de son produit (ou du produit de reference) : le lot est refuse.", 400);
+    }
+    throw e;
+  }
+}
+
 export interface PropositionDeposee {
   type: TypeProposition;
   geometrie: GeometrieGeoJson;
@@ -84,6 +97,12 @@ export async function deposerPropositions(
   if (tol !== null && !(tol > 0 && tol <= 5000)) throw new RefusTeledetection("TOLERANCE_INVALIDE", "Tolerance de rattachement : metres, strictement positive, au plus 5 000.", 400);
   const produit = await depot.earthObservationProduct.findFirst({ where: { id: d.produitId, deletedAt: null } });
   if (!produit) throw new RefusTeledetection("PRODUIT_INEXISTANT", "Produit introuvable au registre.", 404);
+  const reference = d.produitReferenceId
+    ? await depot.earthObservationProduct.findFirst({ where: { id: d.produitReferenceId, deletedAt: null } })
+    : null;
+  if (d.produitReferenceId && !reference) throw new RefusTeledetection("REFERENCE_INEXISTANTE", "Produit de reference introuvable au registre.", 404);
+  const deuxDates = verifierDeuxDates(produit, reference);
+  if (!deuxDates.ok) throw new RefusTeledetection(deuxDates.code, deuxDates.motif, 400);
 
   return depot.$transaction(async (tx) => {
     const ids: string[] = [];
@@ -92,7 +111,9 @@ export async function deposerPropositions(
       const geojson = JSON.stringify(p.geometrie);
       // Le troncon vivant le plus proche dans le rayon, en geography (metres). Sans tolerance,
       // aucun rattachement : les deux colonnes restent nulles ensemble (contrainte pt_rattachement).
-      await tx.$executeRaw`
+      // L'emprise est tenue par la base (declencheur `propositions_teledetection_coherence`) : une
+      // detection hors de la scene de son produit fait echouer tout le lot, rien n'est depose.
+      await inserer(() => tx.$executeRaw`
         WITH g AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON(${geojson}), 4326) AS geom),
         proche AS (
           SELECT t."id", ST_Distance(t."geom"::geography, g.geom::geography) AS d
@@ -105,7 +126,7 @@ export async function deposerPropositions(
           ("id", "produitId", "produitReferenceId", "type", "methode", "score", "geom", "tronconId", "distanceTronconM", "creeParId")
         SELECT ${id}, ${d.produitId}, ${d.produitReferenceId ?? null}, ${p.type}, ${d.methode.trim()}, ${p.score ?? null}::double precision, g.geom,
                (SELECT "id" FROM proche), (SELECT d FROM proche), ${ctx.auteurId}
-          FROM g`;
+          FROM g`);
       ids.push(id);
     }
     const rattachees = await tx.propositionTeledetection.count({ where: { id: { in: ids }, tronconId: { not: null } } });

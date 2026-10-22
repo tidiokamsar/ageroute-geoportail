@@ -25,6 +25,43 @@ Toutes les lignes ci-dessous ont été exécutées et lues le 22/10/2026 sur ce 
 téléchargés) ; le comportement des bancs sur le volume de production ; la CI (compte GitHub bloqué pour
 facturation, aucune exécution réussie ou échouée au sens des tests).
 
+## 22/10/2026 — CI exécutée en local et S-4 éprouvé (T-33)
+
+**Aucune exécution GitHub** : le compte est verrouillé pour facturation. Ces commandes sont celles
+des jobs, lancées dans le conteneur de développement.
+
+| Commande | Résultat |
+|---|---|
+| `verifier.sh --strict --garder` (job « descentes », toutes les migrations) | **242 vérifications, 0 échec, 0 migration sans descente** |
+| `infra/ci/bancs-sql.sh` (nouvelle étape du job, sur la base de référence bâtie par la chaîne) | **14 bancs, 0 échec** |
+| `infra/securite/s4-epreuve.sh` | **0 échec** : rôle réduit garde DML, DDL, PostGIS, `btree_gist` ; perd `CREATE ROLE`, `ALTER SYSTEM`, `COPY TO PROGRAM`, `pg_read_file`, `pg_authid`, l'auto-promotion ; retour arrière rétabli ; `CREATE EXTENSION postgis` refusé (non trusted) |
+
+## 22/10/2026 — contrôle d'accès territorial des huit domaines (A10, T-32)
+
+Branche `lot/14-observation-terre`, base `replay`.
+
+| Commande | Résultat |
+|---|---|
+| `npx vitest run src/territoire` | **18 passés** : règle pure (national, régional, région inconnue) ; fabrique CRUD (création, modification avant/après, archivage en masse par ligne, restauration, compte introuvable) ; garde `requireTerritoire` (403 `HORS_PERIMETRE`, `REGION_INCONNUE`, aucune lecture pour un compte national) ; synchronisation par opération |
+| `npx vitest run src/api-v2/perimetres.routes.test.ts` | **4 passés** : ADMIN seul, ADMIN non restreignable, région inconnue refusée, remplacement audité, compte national par défaut compté |
+| `psql … -f backend/prisma/tests/perimetres_comptes.test.sql` | **5 assertions** : rien de semé, double rattachement refusé, auteur obligatoire, région rattachée non supprimable, cascade à la suppression du compte |
+| `verifier.sh --seulement 20261022030000_perimetres_territoriaux` | **4 vérifications, 0 échec** : descente, aller-retour, garde refuse avec données, passe avec autorisation |
+| `npx vitest run` (backend complet) | **110 fichiers, 1 574 passés**, 0 échec (avant correction : 92 échecs dans 6 fichiers de routes dont le faux `prisma` ne connaissait pas le périmètre ; corrigé en y déclarant le compte national) |
+| `npx tsc -p tsconfig.json --noEmit` | aucune erreur |
+
+## 22/10/2026 — partie E (A30) : cohérence et banc de performance (T-27)
+
+Branche `lot/14-observation-terre`, base `replay` (PostGIS 3.5.2, GEOS 3.9).
+
+| Commande | Résultat |
+|---|---|
+| `psql … -f backend/prisma/tests/teledetection_coherence.test.sql` | **7 assertions** : hors emprise du produit refusée, hors emprise de la référence refusée, référence postérieure refusée, comparaison antérieure acceptée, vue vide sur données cohérentes, quatre anomalies nommées sur une ligne ancienne |
+| `psql … -f backend/prisma/tests/observation_terre.test.sql` | **15 assertions**, toutes passent après la migration |
+| `psql … -f backend/prisma/tests/observation_terre.bench.sql` | 261 387 segments **synthétiques** ; plan sur `troncons_geom_geography_idx` ; dépôt de 1 000 propositions 3 485 ms (3,49 ms chacune), sans contrôle 3 105 ms (0,38 ms de déclencheur) ; 1 042 rattachées sur 2 000 ; précision 28,6 ms (0,667, juste) ; compteur A_VERIFIER 1,6 ms ; cohérence 79,9 ms, 0 anomalie. Durées de ce poste, pas de la production |
+| `verifier.sh --seulement 20261022020000_teledetection_coherence` | **2 vérifications, 0 échec** : descente au schéma d'avant, aller-retour identique |
+| `npx vitest run src/teledetection src/api-v2/teledetection.routes.test.ts` | **34 passés** (dont 6 nouveaux : deux dates, `REFERENCE_INEXISTANTE`, `HORS_EMPRISE` en 400) |
+| `npx tsc -p tsconfig.json --noEmit` (backend) | aucune erreur |
+
 ## 14/10/2026 — lot 3, map-matching (premier incrément)
 
 | Commande | Résultat |

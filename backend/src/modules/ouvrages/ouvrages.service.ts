@@ -16,6 +16,7 @@ import { ouvrageCreateSchema } from "./ouvrages.schema";
 const base = createCrudService(prisma.ouvrage, "Ouvrage", {
   include: { region: true, troncon: true },
   delegueTransactionnel: (tx) => (tx as typeof prisma).ouvrage,
+  controleTerritorial: true,
 });
 const photos = createPhotoService(prisma.ouvrage, "Ouvrage");
 

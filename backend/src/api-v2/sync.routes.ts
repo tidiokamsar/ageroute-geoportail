@@ -6,6 +6,8 @@ import { prisma } from "../lib/prisma";
 import { logAuditTransactionnelle } from "../utils/audit";
 import { appliquer, statutAppareil, TYPES_ACCEPTES, OPERATIONS_ACCEPTEES } from "../field/sync.service";
 import { preparerPayloadObservationSync } from "../field/observation-sync-payload";
+import { perimetreDe } from "../territoire/territoire.service";
+import { verdictOperationSync } from "../territoire/territoire.v2";
 
 /**
  * `/api/v2/sync` — remontee et redescente des donnees de terrain.
@@ -78,8 +80,16 @@ syncV2Router.post("/push", requireAuth, requireModuleAccess("inspections"), asyn
      * voir le resultat de la premiere, sinon elle partirait d'une version perimee et
      * serait mise en conflit avec son propre predecesseur.
      */
+    // Controle territorial (A10) : perimetre lu une fois ; une operation hors perimetre est
+    // rejetee seule, sans etre enregistree (un reessai aboutit si le perimetre change).
+    const perimetre = await perimetreDe(user);
     const resultats = [];
     for (const op of corps.operations) {
+      const territoire = await verdictOperationSync(perimetre, op);
+      if (!territoire.ok) {
+        resultats.push({ operationId: op.operationId, statut: "REJETE" as const, motif: territoire.code });
+        continue;
+      }
       resultats.push(await appliquer(op, { appareilId: appareil.id, userId: user.id }));
     }
 
@@ -246,6 +256,14 @@ syncV2Router.post("/resolve", requireAuth, requireModuleAccess("inspections"), a
     }
     if (corps.resolution === "LOCAL" && !["UPDATE", "DELETE"].includes(operation.operation)) {
       return res.status(409).json({ message: "Opération locale non prise en charge." });
+    }
+
+    // Controle territorial (A10) : appliquer la version locale ecrit l'observation, avec ses liens.
+    if (corps.resolution === "LOCAL") {
+      const territoire = await verdictOperationSync(await perimetreDe(user), {
+        entityType: conflit.entityType, operation: operation.operation, entityId: conflit.entityId, payload: conflit.payloadLocal,
+      });
+      if (!territoire.ok) return res.status(403).json({ message: territoire.motif, code: territoire.code });
     }
 
     const payloadLocal = conflit.payloadLocal;
