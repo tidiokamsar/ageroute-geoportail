@@ -3498,3 +3498,103 @@ model PerimetreCompte {
   @@index([regionId])
   @@map("perimetres_comptes")
 }
+
+// ===================== MOTEUR DE RISQUE ET DE PROGRAMMATION (§ 7.7, A22) =====================
+//
+// Les quatre modeles ci-dessous n'ont VOLONTAIREMENT aucune relation vers `User` ni `Troncon` :
+// les cles etrangeres existent en base (migration 20261023100000_moteur_programmation), mais ne pas
+// les declarer ici evite d'editer les modeles partages (ajouts minimaux en fin de fichier). Le code
+// y accede par SQL etiquete ($queryRaw), pas par le client genere. Les declencheurs d'immutabilite
+// et les contraintes CHECK (empreinte SHA-256 verifiee, coherence texte canonique / colonnes) vivent
+// dans la migration : Prisma ne sait pas les exprimer.
+
+/// Parametres du moteur (ponderations, seuils). Une version est IMMUABLE ; `approuveeLe` nul =
+/// PROVISOIRE, non approuve. Le jeu seme est un amorcage de simulation SANS SOURCE.
+model ParametresProgrammation {
+  id             String    @id @default(uuid())
+  version        String    @unique
+  source         String
+  valeurs        Json
+  motif          String?
+  creeParId      String?
+  createdAt      DateTime  @default(now())
+  approuveeLe    DateTime?
+  approuveeParId String?
+  deletedAt      DateTime?
+
+  scenarios ScenarioProgrammation[]
+
+  @@map("parametres_programmation")
+}
+
+/// Scenario annuel (PAE) calcule : entrees et resultat sous forme canonique, empreintes verifiees
+/// en base. Fige : seule la suppression logique est permise.
+model ScenarioProgrammation {
+  id                String                  @id @default(uuid())
+  annee             Int
+  intitule          String
+  parametresId      String
+  parametres        ParametresProgrammation @relation(fields: [parametresId], references: [id])
+  parametresVersion String
+  budgetGnf         BigInt
+  perimetre         Json                    @default("{}")
+  entreesCanoniques String
+  empreinteEntrees  String
+  resultatCanonique String
+  empreinteResultat String
+  nbRetenues        Int
+  nbEcartees        Int
+  montantEngageGnf  BigInt
+  provisoire        Boolean
+  creeParId         String
+  creeLe            DateTime                @default(now())
+  deletedAt         DateTime?
+
+  fiches FicheIntervention[]
+
+  @@index([annee, creeLe(sort: Desc)], map: "scenarios_programmation_annee_idx")
+  @@map("scenarios_programmation")
+}
+
+/// Fiche d'intervention FIGEE : texte canonique + SHA-256, ni UPDATE ni DELETE (declencheur).
+model FicheIntervention {
+  id                String                @id @default(uuid())
+  reference         String                @unique
+  scenarioId        String
+  scenario          ScenarioProgrammation @relation(fields: [scenarioId], references: [id])
+  tronconId         String
+  annee             Int
+  parametresVersion String
+  contenuCanonique  String
+  empreinteSha256   String                @unique
+  figeLe            DateTime              @default(now())
+  figeParId         String
+
+  statuts FicheInterventionStatut[]
+
+  @@unique([scenarioId, tronconId], map: "fiches_intervention_scenario_troncon_key")
+  @@index([tronconId], map: "fiches_intervention_troncon_idx")
+  @@index([annee], map: "fiches_intervention_annee_idx")
+  @@map("fiches_intervention")
+}
+
+/// Cycle de vie d'une fiche, en ajout seul. TRANSMIS, EN_EXECUTION, ACHEVE et EVALUE exigent
+/// l'origine externe et le fait identifie (CHECK en base, comme `cycle-vie.noyau.ts`).
+model FicheInterventionStatut {
+  id                   String            @id @default(uuid())
+  ficheId              String
+  fiche                FicheIntervention @relation(fields: [ficheId], references: [id])
+  rang                 Int
+  de                   String?
+  vers                 String
+  origine              String
+  motif                String?
+  messageDigitalRoadId String?
+  inspectionId         String?
+  versionFigee         String?
+  auteurId             String?
+  enregistreLe         DateTime          @default(now())
+
+  @@unique([ficheId, rang], map: "fiches_intervention_statuts_fiche_rang_key")
+  @@map("fiches_intervention_statuts")
+}
