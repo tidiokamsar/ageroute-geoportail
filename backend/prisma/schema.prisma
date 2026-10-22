@@ -335,6 +335,8 @@ model User {
   delegationsRecues    DelegationValidation[] @relation("DelegationValidateur")
   delegationsAccordees DelegationValidation[] @relation("DelegationDelegant")
   delegationsRevoquees DelegationValidation[] @relation("DelegationRevocateur")
+  perimetre            PerimetreCompte[]      @relation("PerimetreCompte")
+  perimetresAccordes   PerimetreCompte[]      @relation("PerimetreAccordeur")
 
   reglesConditionCreees     RegleCondition[]           @relation("RegleConditionAuteur")
   reglesConditionApprouvees RegleCondition[]           @relation("RegleConditionApprobateur")
@@ -422,6 +424,7 @@ model Region {
   Mission        Mission[]
 
   delegationsValidation DelegationValidation[]
+  perimetresComptes     PerimetreCompte[]
   programmesPatrouille  ProgrammePatrouille[]
 
   astreintes Astreinte[]
@@ -3440,4 +3443,21 @@ model PropositionTeledetection {
   @@index([tronconId], map: "propositions_teledetection_troncon_idx")
   @@index([geom], map: "propositions_teledetection_geom_gist", type: Gist)
   @@map("propositions_teledetection")
+}
+
+/// Perimetre regional d'un compte (A10, « 403 hors zone »). AUCUNE ligne = perimetre NATIONAL,
+/// le comportement d'avant ; des qu'une region est rattachee, les ecritures du compte sur les huit
+/// domaines sont refusees hors de ses regions. Donnee d'organisation fournie par AGEROUTE.
+model PerimetreCompte {
+  userId       String
+  user         User     @relation("PerimetreCompte", fields: [userId], references: [id], onDelete: Cascade)
+  regionId     Int
+  region       Region   @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  accordeParId String
+  accordePar   User     @relation("PerimetreAccordeur", fields: [accordeParId], references: [id], onDelete: Restrict)
+  accordeLe    DateTime @default(now())
+
+  @@id([userId, regionId])
+  @@index([regionId])
+  @@map("perimetres_comptes")
 }

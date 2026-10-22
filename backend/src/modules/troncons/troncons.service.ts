@@ -20,6 +20,7 @@ import { tronconCreateSchema, type TronconCreateInput } from "./troncons.schema"
 const base = createCrudService(prisma.troncon, "Troncon", {
   include: { region: true },
   delegueTransactionnel: (tx) => (tx as typeof prisma).troncon,
+  controleTerritorial: true,
 });
 
 /**

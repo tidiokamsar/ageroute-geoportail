@@ -18,6 +18,7 @@ import {
   depotPrisma,
   regionDuTronconDeLaPortion,
 } from "../reseau/portions.depot";
+import { territoireCreationPortion, territoireFusionPortions, territoirePortion } from "../territoire/territoire.v2";
 
 /**
  * `/api/v2/portions` — l'ecriture des portions homogenes.
@@ -176,7 +177,7 @@ portionsV2Router.get("/", requireAuth, requireModuleAccess("geoportail"), async 
  *       Refuse de se poser par-dessus une portion deja validee, qu'il faut requalifier.
  *     tags: [Portions v2]
  */
-portionsV2Router.post("/", requireAuth, requireModuleAccess("geoportail"), async (req, res, next) => {
+portionsV2Router.post("/", requireAuth, requireModuleAccess("geoportail"), territoireCreationPortion, async (req, res, next) => {
   try {
     const c = corpsCreation.parse(req.body);
     const user = (req as unknown as { user: { id: string } }).user;
@@ -198,7 +199,7 @@ portionsV2Router.post("/", requireAuth, requireModuleAccess("geoportail"), async
  *       heritent de ses attributs. Decouper n'est pas qualifier.
  *     tags: [Portions v2]
  */
-portionsV2Router.post("/:id/decoupe", requireAuth, requireModuleAccess("geoportail"), async (req, res, next) => {
+portionsV2Router.post("/:id/decoupe", requireAuth, requireModuleAccess("geoportail"), territoirePortion, async (req, res, next) => {
   try {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const { aM } = z.object({ aM: z.number().min(0).max(10_000_000) }).parse(req.body);
@@ -218,7 +219,7 @@ portionsV2Router.post("/:id/decoupe", requireAuth, requireModuleAccess("geoporta
  *     summary: Fusionne deux portions adjacentes et compatibles
  *     tags: [Portions v2]
  */
-portionsV2Router.post("/fusion", requireAuth, requireModuleAccess("geoportail"), async (req, res, next) => {
+portionsV2Router.post("/fusion", requireAuth, requireModuleAccess("geoportail"), territoireFusionPortions, async (req, res, next) => {
   try {
     const c = z.object({ idA: z.string().uuid(), idB: z.string().uuid() }).parse(req.body);
     const user = (req as unknown as { user: { id: string } }).user;
@@ -241,7 +242,7 @@ portionsV2Router.post("/fusion", requireAuth, requireModuleAccess("geoportail"),
  *       proposition, pas un changement officiel.
  *     tags: [Portions v2]
  */
-portionsV2Router.post("/:id/requalification", requireAuth, requireModuleAccess("geoportail"), async (req, res, next) => {
+portionsV2Router.post("/:id/requalification", requireAuth, requireModuleAccess("geoportail"), territoirePortion, async (req, res, next) => {
   try {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const q = qualification.parse(req.body);
@@ -265,7 +266,7 @@ portionsV2Router.post("/:id/requalification", requireAuth, requireModuleAccess("
  *       region du troncon, lui seul peut trancher.
  *     tags: [Portions v2]
  */
-portionsV2Router.post("/:id/validation", requireAuth, requireModuleAccess("geoportail"), async (req, res, next) => {
+portionsV2Router.post("/:id/validation", requireAuth, requireModuleAccess("geoportail"), territoirePortion, async (req, res, next) => {
   try {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const c = z.object({

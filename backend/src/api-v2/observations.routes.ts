@@ -7,6 +7,7 @@ import { logAuditTransactionnelle } from "../utils/audit";
 import { enregistrerQualite } from "../lib/qualite";
 import { validationPermise, EXPLICATIONS } from "../governance/validation";
 import { verdictDelegation } from "../governance/delegation.service";
+import { territoireObservation } from "../territoire/territoire.v2";
 
 /**
  * `/api/v2/observations` — consultation et VALIDATION.
@@ -120,7 +121,7 @@ observationsV2Router.get("/:id", requireAuth, requireModuleAccess("inspections")
  *       REJECT, et tracee dans valeurs_qualite.
  *     tags: [Observations v2]
  */
-observationsV2Router.post("/:id/validate", requireAuth, requireModuleAccess("inspections"), async (req, res, next) => {
+observationsV2Router.post("/:id/validate", requireAuth, requireModuleAccess("inspections"), territoireObservation, async (req, res, next) => {
   try {
     const c = z.object({
       decision: z.enum(["VALIDEE", "REJETEE"]),

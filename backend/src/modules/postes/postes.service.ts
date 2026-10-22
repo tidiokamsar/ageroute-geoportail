@@ -13,6 +13,7 @@ import { posteCreateSchema } from "./postes.schema";
 const base = createCrudService(prisma.poste, "Poste", {
   include: { region: true, troncon: true },
   delegueTransactionnel: (tx) => (tx as typeof prisma).poste,
+  controleTerritorial: true,
 });
 
 function extractLatLon(data: { lat?: number; lon?: number } & Record<string, unknown>) {

@@ -3,6 +3,19 @@
 > Exigé par le § 4 du mandat v2.1. Le § 2.7 impose que toute affirmation de réussite cite la
 > commande lancée et son résultat. Aucune ligne de ce fichier n'est écrite sans l'avoir vue.
 
+## 22/10/2026 — contrôle d'accès territorial des huit domaines (A10, T-28)
+
+Branche `lot/14-observation-terre`, base `replay`.
+
+| Commande | Résultat |
+|---|---|
+| `npx vitest run src/territoire` | **18 passés** : règle pure (national, régional, région inconnue) ; fabrique CRUD (création, modification avant/après, archivage en masse par ligne, restauration, compte introuvable) ; garde `requireTerritoire` (403 `HORS_PERIMETRE`, `REGION_INCONNUE`, aucune lecture pour un compte national) ; synchronisation par opération |
+| `npx vitest run src/api-v2/perimetres.routes.test.ts` | **4 passés** : ADMIN seul, ADMIN non restreignable, région inconnue refusée, remplacement audité, compte national par défaut compté |
+| `psql … -f backend/prisma/tests/perimetres_comptes.test.sql` | **5 assertions** : rien de semé, double rattachement refusé, auteur obligatoire, région rattachée non supprimable, cascade à la suppression du compte |
+| `verifier.sh --seulement 20261022030000_perimetres_territoriaux` | **4 vérifications, 0 échec** : descente, aller-retour, garde refuse avec données, passe avec autorisation |
+| `npx vitest run` (backend complet) | **110 fichiers, 1 574 passés**, 0 échec (avant correction : 92 échecs dans 6 fichiers de routes dont le faux `prisma` ne connaissait pas le périmètre ; corrigé en y déclarant le compte national) |
+| `npx tsc -p tsconfig.json --noEmit` | aucune erreur |
+
 ## 22/10/2026 — partie E (A30) : cohérence et banc de performance (T-27)
 
 Branche `lot/14-observation-terre`, base `replay` (PostGIS 3.5.2, GEOS 3.9).
