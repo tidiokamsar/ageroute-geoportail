@@ -183,6 +183,55 @@ PostgreSQL local, ni Docker fonctionnel sur le poste de travail (voir `BLOCKERS.
 
 ---
 
+## Mise à jour du 22/10/2026 : l'incident de compromission des serveurs
+
+> Ce chapitre rassemble ce que le dépôt documente déjà (ligne T-10 du suivi d'exécution) et ce que
+> j'ai constaté pendant la reprise d'accès. **Il ne contient ni adresse de serveur, ni valeur de
+> secret.** Les faits ci-dessous n'ont pas été revérifiés en production depuis le 21/10 : toute
+> vérification sur un serveur exige une autorisation (§ A.5.1).
+
+**Ce qui s'est produit.** Une compromission par tâche planifiée (cron) du compte applicatif `maarch`
+a été trouvée sur **les deux serveurs** : cinq lignes de tâches pirates dans un fichier de spool
+daté du 17/06, soit quatre mois de présence. Une clé SSH RSA étrangère (commentaire « mdrfckr ») et
+**14 connexions** (18/09 et 19/10) sont documentées dans un dossier d'incident daté du 21/10 sur le
+serveur de rebond.
+
+**Ce qui a été fait (par les exploitants, avec le fournisseur)** : relance de `sshd` le 21/10 ;
+nettoyage des tâches pirates sur les deux serveurs ; suppression des comptes `maarch` (application
+abandonnée, décision du 21/10) ; durcissement de `sshd` partout (`PasswordAuthentication no`,
+`PermitRootLogin no`), **vérifié de l'extérieur** : les deux serveurs refusent les connexions par
+mot de passe et par `root`.
+
+**Ce qui n'est PAS établi**
+- **L'origine de l'intrusion.** Une clé étrangère sur le compte `maarch` du serveur de rebond,
+  vue le 19/10, est l'hypothèse la plus plausible ; ce n'est qu'une hypothèse.
+- **L'étendue réelle.** Quatre mois de présence : aucune analyse forensique complète n'a été faite,
+  et je ne peux pas déclarer les données intactes. Les compteurs de la base sont identiques avant
+  et après le déploiement du 21/10 (`261387 1172 1820694 1585 9`), ce qui ne prouve pas l'absence
+  de lecture.
+
+**À faire, par ordre d'urgence (aucun de ces gestes n'est fait)**
+1. **Changer le mot de passe d'accès** qui a transité en clair dans une conversation de travail le
+   21/10 (valeur volontairement non reproduite ici) : il est à considérer comme compromis.
+2. **Faire tourner les clés SSH et les secrets** de l'application (JWT, base, sauvegardes) : cela
+   coupera les sauvegardes le temps du redépôt de la clé, à planifier.
+3. **Faire analyser les journaux** par le fournisseur sur la période du 17/06 au 21/10, pour borner
+   l'étendue.
+4. **Revoir les services exposés** relevés pendant la reprise d'accès et non revérifiés depuis :
+   un tunnel d'administration GLPI publiant un port de base de données, et des ports de prise en
+   main à distance (RustDesk). À confirmer avant toute conclusion.
+5. **Mettre à jour GLPI** (signalé ouvert au suivi T-10).
+6. **Rotation du compte de service de la base** et réduction des privilèges de `bdri_app` : scripts
+   prêts et éprouvés sur base jetable (voir S-4), non exécutés en production.
+
+**S-5, mise à jour.** Le suivi T-10 indique qu'une **copie restaurée de la base réelle** a servi à
+essayer les 18 migrations avant le déploiement du 21/10, et qu'un dump de 292 Mo a été vérifié :
+la restauration a donc été exercée une fois, sur une copie. Cela ne remplace pas une restauration
+d'épreuve planifiée et consignée, et la clé de chiffrement des sauvegardes reste sans copie hors
+serveur (B-21).
+
+---
+
 ## Ce que je n'ai pas fait, et ne ferai pas sans autorisation
 
 Changer un mot de passe, modifier un privilège, créer ou supprimer un rôle, réécrire
