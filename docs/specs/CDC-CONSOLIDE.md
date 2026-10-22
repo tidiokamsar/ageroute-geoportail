@@ -155,7 +155,7 @@ correspondance et l'état.
 | Moteur de qualité | § 7.6 | ✅ |
 | Évaluation, prévision, programmation | § 7.7 | 🟠 RCI fait ; **risque, traitement, coût, programmation absents** ; barèmes et matrices de dégradation présents mais lus par aucun code |
 | Mobile | § 7.8 | ❌ PWA seule ; React Native décidé, non commencé |
-| Sécurité | § 7.9 | 🟠 RBAC fait ; **contrôle territorial des écritures sur les huit domaines livré** (T-28), **sans effet tant qu'aucun compte n'a de périmètre** (D-11) ; réduction des privilèges de `bdri_app` scriptée et éprouvée sur base jetable (T-29), non exécutée en production ; risques B-18 à B-21 ouverts — *22/10* |
+| Sécurité | § 7.9 | 🟠 RBAC fait ; **contrôle territorial des écritures sur les huit domaines livré** (T-32), **sans effet tant qu'aucun compte n'a de périmètre** (D-11) ; réduction des privilèges de `bdri_app` scriptée et éprouvée sur base jetable (T-33), non exécutée en production ; risques B-18 à B-21 ouverts — *22/10* |
 | Intégrations | § 7.10 | ⛔ aucun accès (B-11, B-12) |
 | Interface web | § 7.11 | 🟠 |
 | Tableau de bord | § 7.12 | 🟠 portions validées et répartition qualité au tableau de bord, périmètre dit d'abord (T-7b) — *22/10* |

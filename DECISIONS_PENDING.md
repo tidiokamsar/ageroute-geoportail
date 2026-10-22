@@ -498,7 +498,7 @@ chaque compte à un périmètre : c'est une donnée d'organisation, à fournir p
    que la carte filtre sur le statut).
 2. Si une restriction d'écriture par région est voulue : la liste des comptes et de leur périmètre.
 
-**Mise à jour du 22/10/2026 (T-28)** : le mécanisme est livré. `PUT /api/v2/perimetres/:userId`
+**Mise à jour du 22/10/2026 (T-32)** : le mécanisme est livré. `PUT /api/v2/perimetres/:userId`
 (ADMIN) rattache un compte à ses régions ; dès lors ses écritures sur les huit domaines sont refusées
 hors de ses régions (403). Sans rattachement, un compte reste national, comme avant, et
 `GET /api/v2/perimetres` en donne le nombre. **Il ne manque que la donnée** : la liste des comptes et

@@ -3,7 +3,7 @@
 > Exigé par le § 4 du mandat v2.1. Le § 2.7 impose que toute affirmation de réussite cite la
 > commande lancée et son résultat. Aucune ligne de ce fichier n'est écrite sans l'avoir vue.
 
-## 22/10/2026 — CI exécutée en local et S-4 éprouvé (T-29)
+## 22/10/2026 — CI exécutée en local et S-4 éprouvé (T-33)
 
 **Aucune exécution GitHub** : le compte est verrouillé pour facturation. Ces commandes sont celles
 des jobs, lancées dans le conteneur de développement.
@@ -14,7 +14,7 @@ des jobs, lancées dans le conteneur de développement.
 | `infra/ci/bancs-sql.sh` (nouvelle étape du job, sur la base de référence bâtie par la chaîne) | **14 bancs, 0 échec** |
 | `infra/securite/s4-epreuve.sh` | **0 échec** : rôle réduit garde DML, DDL, PostGIS, `btree_gist` ; perd `CREATE ROLE`, `ALTER SYSTEM`, `COPY TO PROGRAM`, `pg_read_file`, `pg_authid`, l'auto-promotion ; retour arrière rétabli ; `CREATE EXTENSION postgis` refusé (non trusted) |
 
-## 22/10/2026 — contrôle d'accès territorial des huit domaines (A10, T-28)
+## 22/10/2026 — contrôle d'accès territorial des huit domaines (A10, T-32)
 
 Branche `lot/14-observation-terre`, base `replay`.
 
