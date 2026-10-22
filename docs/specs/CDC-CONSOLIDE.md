@@ -147,18 +147,18 @@ correspondance et l'état.
 
 | Domaine | Référence | État |
 |---|---|---|
-| Conventions géospatiales | § 7.1 🔒 | 🟠 longueurs en `geography`, conforme ; une concaténation SQL corrigée ([ADR-005](../pilotage/DECISIONS.md)) ; **UTM 28N/29N non utilisé, à introduire pour les surfaces** |
+| Conventions géospatiales | § 7.1 🔒 | ✅ longueurs en `geography` ; une concaténation SQL corrigée ([ADR-005](../pilotage/DECISIONS.md)) ; **métré UTM 28N/29N** (`metre_utm`, banc sur géométries connues, T-18) ; index GiST sur toutes les colonnes géométriques (T-19) — *mise à jour du 22/10* |
 | Référencement linéaire | § 7.2 | 🟡 portions conformes ; **historisation bitemporelle partielle**, codification nationale absente |
-| Map-matching | § 7.3 | 🟡 ponctuel fait ; **HMM de trace absent** |
+| Map-matching | § 7.3 | 🟡 ponctuel fait ; HMM de trace sur **graphe du réseau** (T-20, jeu synthétique) ; analyse serveur d'une trace GPX/CSV (T-24) ; **aucune épreuve sur traces réelles** (mobile, B-10) — *22/10* |
 | Catalogue et métrés | § 7.4 | ✅ sauf photos de référence par gravité |
 | Workflow de validation | § 7.5 | ✅ |
 | Moteur de qualité | § 7.6 | ✅ |
 | Évaluation, prévision, programmation | § 7.7 | 🟠 RCI fait ; **risque, traitement, coût, programmation absents** ; barèmes et matrices de dégradation présents mais lus par aucun code |
 | Mobile | § 7.8 | ❌ PWA seule ; React Native décidé, non commencé |
-| Sécurité | § 7.9 | 🟠 RBAC fait, **ABAC par territoire partiel** ; cinq risques ouverts (B-17 à B-21) |
+| Sécurité | § 7.9 | 🟠 RBAC fait ; **contrôle territorial des écritures sur les huit domaines livré** (T-28), **sans effet tant qu'aucun compte n'a de périmètre** (D-11) ; réduction des privilèges de `bdri_app` scriptée et éprouvée sur base jetable (T-29), non exécutée en production ; risques B-18 à B-21 ouverts — *22/10* |
 | Intégrations | § 7.10 | ⛔ aucun accès (B-11, B-12) |
 | Interface web | § 7.11 | 🟠 |
-| Tableau de bord | § 7.12 | 🟠 ne connaît ni portions ni qualité |
+| Tableau de bord | § 7.12 | 🟠 portions validées et répartition qualité au tableau de bord, périmètre dit d'abord (T-7b) — *22/10* |
 | Collecte en roulage | § 7.13 | ❌ |
 | Excellence référentiel et Géoportail | § 7.14 | ❌ codification, topologie routable, gazetier, métadonnées, réconciliation OSM |
 
