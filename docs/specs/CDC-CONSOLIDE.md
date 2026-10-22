@@ -1,6 +1,10 @@
 # Cahier des charges consolidé — Système national de gestion du patrimoine routier
 
-**Version 1.0, 14/10/2026.** Exigé par le § 13.3 du mandat v2.1.
+**Version 1.1, 22/10/2026** (version 1.0 du 14/10/2026). Exigé par le § 13.3 du mandat v2.1.
+
+La colonne « État » du § 5, le § 6 et le § 7 ont été remis à l'état du code et des tests le 22/10/2026.
+En cas d'écart, [REQUIREMENTS_TRACEABILITY.md](../../REQUIREMENTS_TRACEABILITY.md) fait foi : elle porte la
+commande, le résultat et la réserve de chaque ligne.
 
 Ce document fusionne en une seule référence : le cahier RAI V3.1, l'exigence « vision
 nationale » à dix points, l'addendum critique V4.1, les décisions du commanditaire des 13 et
@@ -37,7 +41,7 @@ dans DigitalRoad** (mandat § 1.2).
 `ot_photos`, les routes `/api/marches` et `/api/ordres-travaux`, les pages `/marches` et
 `/ordres-travaux`.
 
-**Décision** ([ADR-003](../pilotage/DECISIONS.md)) : maintenus en fonctionnement, **gelés**, non
+**Décision** ([ADR-003](../../TECHNICAL_DECISIONS.md)) : maintenus en fonctionnement, **gelés**, non
 étendus. Leur transfert éventuel est une décision institutionnelle (B-08).
 
 🔒 **Aucune estimation ni programmation ne crée de décompte, de certification de paiement ou
@@ -52,10 +56,10 @@ C'est la raison d'être de ce document. Sept conflits ont été identifiés et t
 
 | # | Conflit | Retenu | Motif |
 |---|---|---|---|
-| C-01 | **Pondérations du RCI** : cahier § 13 à huit composantes (signalisation 10) contre liste du commanditaire à neuf (environnement 5 + autres 5) | **Cahier § 13** | La signalisation est inventoriable et constitue une famille d'actif ; « autres critères » n'est définissable par rien. [ADR-004](../pilotage/DECISIONS.md) |
+| C-01 | **Pondérations du RCI** : cahier § 13 à huit composantes (signalisation 10) contre liste du commanditaire à neuf (environnement 5 + autres 5) | **Cahier § 13** | La signalisation est inventoriable et constitue une famille d'actif ; « autres critères » n'est définissable par rien. [ADR-004](../../TECHNICAL_DECISIONS.md) |
 | C-02 | **Technologie mobile** : PWA + Capacitor (13/10) contre React Native (mandat § 7.8) | **React Native** | Le § 7.13 est irréalisable en PWA, et le § 7.8 tranche lui-même. [ADR-002](../architecture/ADR-002-TECHNOLOGIE-MOBILE.md) |
 | C-03 | **Travaux et ordres de travaux** : prévus par les versions antérieures, exclus par le mandat § 1.2 | **Exclus** | Décision du commanditaire |
-| C-04 | **Opérations de production** : mandats antérieurs autorisaient le déploiement, § 2.1 🔒 l'interdit | **Interdit** depuis le 14/10 14:23 | Garde-fou non négociable. [ADR-001](../pilotage/DECISIONS.md) |
+| C-04 | **Opérations de production** : mandats antérieurs autorisaient le déploiement, § 2.1 🔒 l'interdit | **Interdit** depuis le 14/10 14:23 | Garde-fou non négociable. [ADR-001](../../TECHNICAL_DECISIONS.md) |
 | C-05 | **Découpage administratif** : mandat § 1.1 énonce 8 régions et 33 préfectures ; la table `regions` porte 11 lignes dont `Siguiri`, `Beyla` et `Non renseigné` | **non tranché** | Décision institutionnelle (B-06). `limites_admin` niveau 1 couvre bien le pays (244 785 km² sur ≈ 245 857), mais avec les mêmes 10 entités |
 | C-06 | **Linéaire du réseau** : mandat § 1.1 annonce ≈ 44 000 km classés ; la base mesure **21 156,6 km** | **la base fait foi**, l'écart est localisé ci-dessous | Mandat § 1.2 : « si un élément du dépôt contredit ce contexte, le dépôt fait foi » |
 | C-07 | **Nomenclature des classes** : mandat § 1.1 parle de RN, RP (préfectorales), RC (communautaires) ; l'énumération `ClasseRoute` porte RN, **RR**, RU, PISTE, NON_CLASSEE | **non tranché** | À aligner sur le classement officiel (B-07). Il manque une valeur, pas seulement un libellé |
@@ -103,7 +107,7 @@ indicateur affiche son périmètre : ce périmètre doit dire « réseau classé
 Ces éléments sont en production, testés, et ne sont pas à refaire (mandat § 4 : « Ne refais
 jamais un audit déjà consigné »). Preuves dans
 [21_TABLEAU_CONFORMITE.md](../rai-v3/21_TABLEAU_CONFORMITE.md) et
-[TESTS.md](../pilotage/TESTS.md).
+[TESTS.md](../../TEST_EVIDENCE.md).
 
 | Domaine | Acquis |
 |---|---|
@@ -147,20 +151,20 @@ correspondance et l'état.
 
 | Domaine | Référence | État |
 |---|---|---|
-| Conventions géospatiales | § 7.1 🔒 | 🟠 longueurs en `geography`, conforme ; une concaténation SQL corrigée ([ADR-005](../pilotage/DECISIONS.md)) ; **UTM 28N/29N non utilisé, à introduire pour les surfaces** |
-| Référencement linéaire | § 7.2 | 🟡 portions conformes ; **historisation bitemporelle partielle**, codification nationale absente |
-| Map-matching | § 7.3 | 🟡 ponctuel fait ; **HMM de trace absent** |
+| Conventions géospatiales | § 7.1 🔒 | 🟠 longueurs en `geography` ; concaténation SQL corrigée ([ADR-005](../../TECHNICAL_DECISIONS.md)) ; **UTM 28N/29N employé** par `metre_utm` (écart de 0,04 à 0,18 % à l'ellipsoïde, sur géométries connues) ; index GiST sur toutes les colonnes géométriques ; `ST_IsValid` contrôlé sur les tronçons seulement |
+| Référencement linéaire | § 7.2 | 🟡 portions, lignage, exclusion et **bitemporalité à deux axes** faits ; date d'effet saisissable depuis le 22/10 ; codification nationale absente (D-06) |
+| Map-matching | § 7.3 | 🟡 ponctuel complet ; **HMM de trace** et **graphe du réseau** faits et branchés à `POST /api/v2/geo/trace` ; tolérance de fusion réelle, sens uniques et performance nationale non mesurés |
 | Catalogue et métrés | § 7.4 | ✅ sauf photos de référence par gravité |
 | Workflow de validation | § 7.5 | ✅ |
 | Moteur de qualité | § 7.6 | ✅ |
-| Évaluation, prévision, programmation | § 7.7 | 🟠 RCI fait ; **risque, traitement, coût, programmation absents** ; barèmes et matrices de dégradation présents mais lus par aucun code |
-| Mobile | § 7.8 | ❌ PWA seule ; React Native décidé, non commencé |
-| Sécurité | § 7.9 | 🟠 RBAC fait, **ABAC par territoire partiel** ; cinq risques ouverts (B-17 à B-21) |
+| Évaluation, prévision, programmation | § 7.7 | 🟠 RCI écrit et **désapprouvé** (D-00) ; catalogue des traitements ; moteur de coût qui refuse d'estimer sans barème ; risque et programmation : voir la ligne 7.7 de la matrice |
+| Mobile | § 7.8 | ❌ PWA seule ; Capacitor retenu (ADR-009), non commencé ; aucun APK compilable ici (B-10) |
+| Sécurité | § 7.9 | 🟠 RBAC fait, **ABAC par territoire partiel** (5 domaines sur 8 sans route, D-11) ; cinq risques ouverts (B-17 à B-21), voir [SECURITY_REMEDIATION.md](../../SECURITY_REMEDIATION.md) |
 | Intégrations | § 7.10 | ⛔ aucun accès (B-11, B-12) |
-| Interface web | § 7.11 | 🟠 |
-| Tableau de bord | § 7.12 | 🟠 ne connaît ni portions ni qualité |
-| Collecte en roulage | § 7.13 | ❌ |
-| Excellence référentiel et Géoportail | § 7.14 | ❌ codification, topologie routable, gazetier, métadonnées, réconciliation OSM |
+| Interface web | § 7.11 | 🟠 lint d'accessibilité opérationnel ; WCAG 2.1 AA mesuré par axe-core sur 8 écrans, 0 violation ; contraste, géoportail et tableau de bord non mesurés |
+| Tableau de bord | § 7.12 | 🟠 périmètre, portions validées et qualité affichés (15/10) ; Control Tower et Fiche 360° absents |
+| Collecte en roulage | § 7.13 | 🟠 **côté serveur seulement** : analyse d'une trace GPX ou CSV importée et écran « Relevé en véhicule » ; l'enregistrement sur le téléphone n'est pas commencé |
+| Excellence référentiel et Géoportail | § 7.14 | 🟠 faits : déviation routée sur le graphe, permaliens, curseur temporel, métadonnées ISO 19115 (XML non validé contre les XSD). Absents : codification nationale, gazetier, vue de route, carte des années futures. Services OGC et tuiles vectorielles écartés par la mesure (voir [LOGIROAD_BENCHMARK.md](../../LOGIROAD_BENCHMARK.md)) |
 
 Les 70 fonctions étendues du § 14 (T-, E-, PR-, R-, D-, P-, G-, X-) sont intégrées par
 référence, avec leurs priorités MoSCoW et leurs lots. Conformément au § 14, **même les fonctions
@@ -178,7 +182,7 @@ C doivent être anticipées dans le modèle de données dès le lot 2**.
 | 13/10 | 6 573 tronçons hors territoire : **conserver, classifier, n'exclure que selon une règle de périmètre validée** |
 | 13/10 | 42 doublons : **fiche de comparaison par paire, sans fusion automatique** |
 | 13/10 | 1 029 axes régionaux : **référentiel provisoire, sans inventer les longueurs** |
-| 14/10 | **Règle `rci-2026.1` approuvée**, avec la fraîcheur à 365 jours et les confiances `HIGH`/`MEDIUM` |
+| 14/10 | **Règle `rci-2026.1` approuvée**, avec la fraîcheur à 365 jours et les confiances `HIGH`/`MEDIUM` ; **désapprouvée le jour même à 16 h 19** (D-00, option B) en attendant la confrontation à VIZIR et à la directive UEMOA |
 | 14/10 | Barèmes de coût : **conserver les valeurs comme défauts, les rendre paramétrables** |
 | 14/10 | **Mandat v2.1** : gel de la production, périmètre réduit, exigences de roulage et d'excellence |
 
@@ -186,7 +190,9 @@ C doivent être anticipées dans le modèle de données dès le lot 2**.
 
 ## 7. Ce qui attend un arbitrage
 
-Repris de [BLOCAGES.md](../pilotage/BLOCAGES.md), car aucun développement ne les contourne.
+Repris de [BLOCKERS.md](../../BLOCKERS.md), car aucun développement ne les contourne. Les options, impacts et
+recommandations techniques des décisions D-01, D-02, D-06, D-07, D-09, D-10 et D-11 sont réunis dans
+[DECISIONS-SYNTHESE-ARBITRAGE.md](../pilotage/DECISIONS-SYNTHESE-ARBITRAGE.md).
 
 **Décisions institutionnelles** : valeurs de praticabilité (B-01) ; millésime et largeur des
 barèmes (B-02) ; rattachement des `RES-nnnn` aux axes (B-03) ; règle de périmètre hors
@@ -208,7 +214,7 @@ quatre comptes ADMIN actifs (B-20) ; clé de sauvegarde sans copie hors serveur 
 
 Les 22 scénarios A1 à A22 du § 10 et les 10 scénarios B1 à B10 du § 14.9 du mandat v2.1 font
 foi sans modification. Leur état d'éprouvabilité est tenu dans
-[TESTS.md](../pilotage/TESTS.md), qui distingue ce qui est testé de ce qui ne l'est pas — et
+[TESTS.md](../../TEST_EVIDENCE.md), qui distingue ce qui est testé de ce qui ne l'est pas — et
 dit pourquoi.
 
 **Définition de « terminé » 🔒** (§ 9) : compilation sans erreur de typage ; tests unitaires,

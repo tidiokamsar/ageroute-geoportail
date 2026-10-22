@@ -217,17 +217,21 @@ export async function doublonsDeGeometrie(p: Portee): Promise<ComptageFamille> {
  * mal faite en introduirait.
  */
 export async function geometriesInvalides(p: Portee): Promise<ComptageFamille> {
-  const lignes = await prisma.$queryRaw<{ id: string; code: string; raison: string }[]>`
-    SELECT t.id, t.code, ST_IsValidReason(t.geom) AS raison
+  // Le COMPTE vient de count(*) OVER (), pas de la longueur de la liste : celle-ci est plafonnee a
+  // PLAFOND_EXEMPLES, et `nombre: lignes.length` annoncait 20 pour 25 geometries invalides (ou pour
+  // 5 000). Une seule passe : le cout est celui de l'ancienne requete quand il n'y a aucune invalide.
+  const lignes = await prisma.$queryRaw<{ id: string; code: string; raison: string; total: bigint }[]>`
+    SELECT t.id, t.code, ST_IsValidReason(t.geom) AS raison, count(*) OVER () AS total
       FROM troncons t
      WHERE t."deletedAt" IS NULL AND t.geom IS NOT NULL
        AND (${p.regionId}::int IS NULL OR t."regionId" = ${p.regionId}::int)
        AND NOT ST_IsValid(t.geom)
+     ORDER BY t.id
      LIMIT ${PLAFOND_EXEMPLES}
   `;
   return {
     famille: "GEOMETRIE_INVALIDE",
-    nombre: lignes.length,
+    nombre: lignes.length > 0 ? Number(lignes[0].total) : 0,
     surTotal: null,
     exemples: lignes.map((l) => ({
       famille: "GEOMETRIE_INVALIDE" as const,

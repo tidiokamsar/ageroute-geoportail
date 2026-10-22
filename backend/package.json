@@ -26,6 +26,7 @@
     "import:chantiers-projets": "tsx scripts/import-chantiers-projets.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:integration": "bash tests-integration/run.sh",
     "typecheck:scripts": "tsc -p tsconfig.scripts.json",
     "backfill:provenance": "tsx scripts/backfill-provenance.ts",
     "backfill:qualite": "tsx scripts/backfill-qualite.ts",
