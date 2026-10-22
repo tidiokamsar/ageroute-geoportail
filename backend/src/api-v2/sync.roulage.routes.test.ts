@@ -60,12 +60,26 @@ vi.mock("../lib/prisma", () => {
     operationSync: {
       findUnique: vi.fn(async ({ where }: { where: { operationId: string } }) => h.operations.get(where.operationId) ?? null),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => { h.operations.set(data.operationId as string, data); return data; }),
+      // Le service ecrit ses traces par upsert (une operation refusee TEMPORAIREMENT est reevaluee sous la
+      // meme cle) : creation si la ligne manque, mise a jour sinon.
+      upsert: vi.fn(async ({ where, create, update }: { where: { operationId: string }; create: Record<string, unknown>; update: Record<string, unknown> }) => {
+        const existante = h.operations.get(where.operationId);
+        const ligne = existante ? { ...existante, ...update } : create;
+        h.operations.set(where.operationId, ligne);
+        return ligne;
+      }),
     },
     $queryRaw: vi.fn(async (_s: TemplateStringsArray, id: string) => (h.sessions.has(id) ? [{ id }] : [])),
     $transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) => {
       h.ordre.push("transaction");
       const aEcrire: Record<string, unknown>[] = [];
-      const tx = { operationSync: { create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => { aEcrire.push(data); return data; }) } };
+      const tx = {
+        operationSync: {
+          create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => { aEcrire.push(data); return data; }),
+          // Meme semantique que le client : le premier envoi cree la ligne (aucune ligne n'existe dans ces tests).
+          upsert: vi.fn(async ({ create }: { create: Record<string, unknown> }) => { aEcrire.push(create); return create; }),
+        },
+      };
       const r = await run(tx);
       // Validation seulement si la transaction a reussi : une exception l'annule.
       for (const d of aEcrire) h.operations.set(d.operationId as string, d);

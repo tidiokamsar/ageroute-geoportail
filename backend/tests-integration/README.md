@@ -59,14 +59,17 @@ Chaque banc nomme ses vérifications, les compte, et sort en **code 1** si une s
 | `programmation` | **clone `essai_programmation`**, créé puis détruit par le banc ; applique au clone la migration `20261023100000` (absente de `replay` tant qu'elle n'y est pas rejouée) | 106 | moteur de risque et de programmation (§ 7.7, A22) : risque, coût et classement comparés à un **oracle SQL** (NUMERIC exact, glouton refait en BigInt), refus sans barème, étiquette PROVISOIRE, rejeu octet pour octet, fiche figée (empreinte recalculée par la base, UPDATE et DELETE refusés), frontière DigitalRoad tenue par les contraintes, audit |
 | `outbox` | **clone `essai_outbox`**, créé puis détruit par le banc | 90 | outbox des intégrations sortantes (A13) : aucune donnée non validée n'entre (service et déclencheurs), idempotence, rejeu sans effet de bord, reprise, file morte, anti-double-envoi sous concurrence réelle, absence de fuite de champs internes. **Contre des simulateurs HTTP écrits par AGEROUTE sur 127.0.0.1, jamais contre DigitalRoad, SharePoint ou la BDR / L²R.** Applique la migration 20261024200000 au clone si `replay` ne la porte pas encore |
 | `tableau-de-bord` | **clone `essai_tableau_de_bord`**, créé puis détruit par le banc | 116 | A12 : chacun des 31 indicateurs du registre, sur trois portées (national, région 1, région 2), est égal à sa requête de contrôle **et** à une valeur attendue calculée à la main (longueurs par intégrale du méridien WGS84) ; refus d'un indicateur non ventilé à un compte régional (A10) ; région vide ; échéances de patrouille à deux dates ; recoupement avec `longueurReseau` et `couvertureReseau` ; contre-épreuve ; Control Tower ; volets de la fiche 360 |
-
-Soit **122 vérifications** hors `programmation`, toutes passantes le 22/10/2026 (`bash tests-integration/run.sh`, code 0).
-Le banc `programmation` (106 vérifications) a été ajouté après cette exécution et lancé **seul** (code 0, 22/10/2026) ;
-`run.sh` le lance désormais avec les autres, mais l'ensemble n'a pas été rejoué depuis.
 | `roulage` | **clone `essai_roulage`**, créé puis détruit par le banc (il y applique la migration `20261024100000` si `replay` ne l'a pas) | 50 | **simulation** d'une session de 2 h à 1 Hz produite par le vrai noyau de l'appareil : zéro doublon au rejeu, taux de rattachement mesuré, marqueurs et événements linéaires comparés à un **oracle SQL**, territoire, audit, refus |
+| `sync` | **clone `essai_sync`** ; routes réelles (`/api/v2/sync`), jetons signés | 67 | A7 et A8 : 50 observations rejouées, coupures, ordre inversé, concurrence, atomicité, PostGIS ; conflits, deux versions conservées, arbitrage |
+| `import` | **clone `essai_import`** ; route multipart réelle | 39 | A28 : statut par ligne, rejeu sans écriture, lot modifié, CSV hors norme, concurrence, 20 000 lignes |
+| `metre-defaut` | **clone `essai_metre`** ; applique au clone les migrations `20261024300000` et `20261024310000` | 73 | A5 : contour GPS d'un défaut mesuré en UTM, 37 figures contre un oracle écrit sans PostGIS (`lib/geodesie.ts`) |
+| `taches-internes` | **clone `essai_taches`** ; écrit puis retire des photos dans `uploads/photos` | 76 | A29 : preuves avant/après, clôture, abandon, frontière DigitalRoad, rapprochement en lecture seule |
 
-Soit **122 vérifications** avant le banc `roulage` (toutes passantes le 22/10/2026), **172** avec lui.
-`roulage` est une **simulation** : voir `docs/roulage/COLLECTE-ROULAGE.md` pour ce qu'il ne prouve pas.
+Soit **739 vérifications sur 18 bancs**, toutes passantes le 22/10/2026 après la fusion des six lots d'agents
+(`bash tests-integration/run.sh`, code 0). Les bancs `roulage`, `outbox`, `programmation`, `tableau-de-bord`, `sync`,
+`import`, `metre-defaut` et `taches-internes` créent leur propre clone de `replay` et y appliquent au besoin les
+migrations récentes. `roulage` est une **simulation** (voir `docs/roulage/COLLECTE-ROULAGE.md`) ; les bancs `sync`
+et `import` fabriquent leurs jetons avec des secrets tirés au hasard à chaque lancement : rien n'est écrit dans le dépôt.
 
 ## Limites
 

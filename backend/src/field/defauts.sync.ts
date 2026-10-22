@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Prisma } from "@prisma/client";
 import { donneesObservationConteneur } from "./observation-conteneur";
+import { empriseSchema, mesurerEmprise, sansEmprise, type EmpriseGeoJson, type QuantiteEmprise } from "./defauts.emprise";
 import { z } from "zod";
 import {
   graviteValide,
@@ -39,6 +40,8 @@ export const defautSyncCreationSchema = z.object({
   gravite: z.number().int().min(1).optional(),
   etendue: z.enum(["PONCTUEL", "LOCALISE", "ETENDU", "GENERALISE"]).optional(),
   mesures: mesuresSchema.optional(),
+  /** Contour GPS (GeoJSON 4326), mesure en UTM cote serveur. Declare ici : zod ecarte en silence ce qu'il ne connait pas. */
+  emprise: empriseSchema.optional(),
 }).strict();
 
 export type DefautSyncCreation = z.infer<typeof defautSyncCreationSchema>;
@@ -62,6 +65,8 @@ export interface PreparationDefautSync {
   unite: TypeDefaut["unite"] | null;
   methode: string | null;
   constateA: Date;
+  /** Contour a ecrire apres la creation du defaut, avec la quantite quand il l'a fournie. */
+  emprise: { geojson: EmpriseGeoJson; quantite?: QuantiteEmprise } | null;
 }
 
 export type ResultatPreparationDefautSync =
@@ -177,10 +182,17 @@ export async function preparerDefautSync(
     profondeurM: c.mesures?.profondeurM ?? null,
     quantiteSaisie: c.mesures?.quantiteSaisie ?? null,
   };
-  const metre = metrer(mesures, type, troncon?.longueurKm != null ? troncon.longueurKm * 1000 : null);
+  // L'emprise est mesuree dans la transaction (lecture seule) : invalide, elle est refusee avec son motif.
+  let mesureEmprise: Awaited<ReturnType<typeof mesurerEmprise>> | null = null;
+  if (c.emprise) {
+    mesureEmprise = await mesurerEmprise(tx, c.emprise);
+    if (!mesureEmprise.ok) return refuser(mesureEmprise.motif);
+  }
+  const metre = metrer(mesures, type, troncon?.longueurKm != null ? troncon.longueurKm * 1000 : null, mesureEmprise?.ok ? mesureEmprise.metre : null);
   if (metre.valeur === null && metre.motif !== "MESURES_INSUFFISANTES") {
     return refuser(metre.motif);
   }
+  const parEmprise = metre.valeur !== null && metre.methode === "EMPRISE_UTM";
 
   /**
    * TOUT DEFAUT A SON OBSERVATION, MEME VENU DE LA FILE HORS LIGNE.
@@ -231,9 +243,10 @@ export async function preparerDefautSync(
     largeurM: mesures.largeurM,
     profondeurM: mesures.profondeurM,
     quantiteSaisie: mesures.quantiteSaisie,
-    quantite: metre.valeur,
-    uniteQuantite: metre.valeur !== null ? catalogue.unite : null,
-    methodeQuantite: metre.valeur !== null ? metre.methode : null,
+    // Une quantite tiree de l'emprise s'ecrit avec elle, en SQL, apres la creation (defauts.emprise.ts).
+    quantite: metre.valeur !== null && !parEmprise ? metre.valeur : null,
+    uniteQuantite: metre.valeur !== null && !parEmprise ? catalogue.unite : null,
+    methodeQuantite: metre.valeur !== null ? sansEmprise(metre.methode) : null,
     gravite: c.gravite ?? null,
     etendue: c.etendue ?? null,
     constateA,
@@ -258,6 +271,12 @@ export async function preparerDefautSync(
       unite: metre.valeur !== null ? catalogue.unite : null,
       methode: metre.valeur !== null ? metre.methode : null,
       constateA,
+      emprise: c.emprise
+        ? {
+            geojson: c.emprise,
+            ...(parEmprise && metre.valeur !== null ? { quantite: { valeur: metre.valeur, unite: catalogue.unite, methode: "EMPRISE_UTM" as const } } : {}),
+          }
+        : null,
     },
   };
 }
