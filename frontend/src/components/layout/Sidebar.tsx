@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { NavLink } from "react-router-dom";
 import clsx from "clsx";
 import { useAuth } from "../../lib/auth";
+import { GlobalSearch } from "./GlobalSearch";
 import { hasModuleAccess, moduleForPath } from "../../lib/modules";
 
 const sections = [
@@ -131,6 +132,11 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
           <h1 className="text-base font-bold leading-tight">BDRI</h1>
           <p className="text-xs text-white/60 mt-0.5">AGEROUTE Guinée</p>
         </div>
+      </div>
+      {/* Sur telephone, la recherche globale de l'en-tete est masquee (md:) : le tiroir
+          est le seul endroit ou elle existe. Sans lui, chercher exigerait un ordinateur. */}
+      <div className="md:hidden px-4 pt-3">
+        <GlobalSearch />
       </div>
       <nav className="flex-1 overflow-y-auto py-4">
         {visibleSections.map((section) => (
