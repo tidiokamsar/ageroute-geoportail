@@ -115,7 +115,9 @@ export type MethodeQuantite =
   | "COMPTAGE_COEFFICIENT"
   | "LONGUEUR"
   | "LONGUEUR_LARGEUR"
-  | "LONGUEUR_LARGEUR_PROFONDEUR";
+  | "LONGUEUR_LARGEUR_PROFONDEUR"
+  /** Depuis l'emprise relevee, en projection UTM (`field/defauts.emprise.ts`). Ajoutee le 22/10/2026. */
+  | "EMPRISE_UTM";
 
 export type RefusQuantite =
   | "MESURES_INSUFFISANTES"

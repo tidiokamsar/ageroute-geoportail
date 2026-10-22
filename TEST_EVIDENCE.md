@@ -3,6 +3,20 @@
 > Exigé par le § 4 du mandat v2.1. Le § 2.7 impose que toute affirmation de réussite cite la
 > commande lancée et son résultat. Aucune ligne de ce fichier n'est écrite sans l'avoir vue.
 
+## 22/10/2026 — lot 1, surfaces en UTM et géométries de référence (DT-2)
+
+| Commande | Résultat |
+|---|---|
+| `npx vitest run src/geo/utm.noyau.test.ts` | **36 passés** |
+| la même, facteur d'échelle 0,99961 au lieu de 0,9996 (contre-épreuve) | **18 échecs** |
+| la même, terme α3 de la série retiré (contre-épreuve) | **1 échec** (sommet à plus d'un millimètre) |
+| `psql -f backend/prisma/tests/metre_reference.test.sql` (base `dt_bench`) | **9 géométries, toutes les assertions passent** |
+| `npx vitest run src/geo/geometries-reference.banc.test.ts` | banc SQL à jour avec le jeu |
+| `verifier.sh --seulement 20261022003000_metre_emprise_utm` | **4 vérifications, 0 échec** |
+| `npx vitest run src/field/defauts.emprise.test.ts src/api-v2/defauts.routes.test.ts` | **78 passés** |
+| service `mesurerGeometrie` + `quantiteParEmprise` contre `dt_bench` (script jetable) | carré 10 000 m², ligne 1 000 m, polygone à cheval 7 998 955,189 m² en 29N = noyau TS ; papillon refusé « Self-intersection » |
+| `npx vitest run` (backend) | **1 609 passés**, 110 fichiers, 0 échec |
+
 ## 22/10/2026 — partie E (A30), cohérence et banc de la base (DT-1)
 
 Base privée `dt_bench`, clone de `replay` (PostGIS 3.5.2, GEOS 3.9.0), conteneur `bdri-dev-db`.
@@ -128,7 +142,7 @@ Ces mesures ne seront plus reproductibles : le § 2.1 coupe l'accès à la produ
 | Exigence | Manque |
 |---|---|
 | A2 identification du tronçon à ≥ 95 % | **aucun jeu de points GPS annotés** (B-26) |
-| A5 métré, écart < 1 % | aucune géométrie de test de référence |
+| A5 métré, écart < 1 % | ~~aucune géométrie de test de référence~~ : jeu figé depuis le 22/10 (`geo/geometries-reference.ts`), voir la section du 22/10 |
 | A7 hors ligne, 50 observations sans doublon | testé unitairement, jamais sur un appareil |
 | A10 sécurité, 403 par appel direct | partiellement : les gardes de rôle sont testées, pas l'ABAC par zone |
 | A15 performance, rattachement < 300 ms p95 | **jamais mesuré** |

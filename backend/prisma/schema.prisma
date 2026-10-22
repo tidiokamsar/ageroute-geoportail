@@ -1863,6 +1863,11 @@ enum MethodeQuantite {
   /// de qualite est donc DERIVED, la ou `COMPTAGE` est OBSERVED. Les confondre ferait
   /// passer une moyenne de bureau pour un constat de terrain.
   COMPTAGE_COEFFICIENT
+
+  /// Longueur ou surface calculee depuis l'emprise relevee (ligne ou polygone), dans le fuseau
+  /// UTM de son point interieur (`metre_utm`). Ajoutee le 22/10/2026. DERIVEE : la geometrie
+  /// est un releve, la quantite un calcul sur ce releve.
+  EMPRISE_UTM
 }
 
 /// Importance spatiale du defaut sur le troncon, independante de sa gravite.
