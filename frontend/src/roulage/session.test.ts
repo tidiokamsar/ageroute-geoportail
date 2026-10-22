@@ -265,10 +265,15 @@ describe("marqueur (A16, partie logicielle)", () => {
     }
     durees.sort((a, b) => a - b);
     const pire = durees[durees.length - 1];
-    // 200 ms est le budget de l'exigence. Le seuil du test est volontairement plus strict, pour qu'une
-    // regression en O(n) (balayage de la trace a chaque marqueur) soit attrapee. Cette mesure est celle
-    // de Node sur le poste de developpement : elle ne dit RIEN de la latence sur un telephone.
-    expect(pire).toBeLessThan(50);
+    const mediane = durees[Math.floor(durees.length / 2)];
+    // 200 ms est le budget de l'exigence : il borne le PIRE cas. Une regression en O(n) (balayage de la
+    // trace a chaque marqueur) decale TOUTE la serie, pas un seul point : c'est la MEDIANE, stricte, qui
+    // l'attrape. Le pire cas d'une serie de 500 mesures est domine par les pauses de la machine (ramasse-
+    // miettes, autres processus) : le borner a 50 ms le faisait echouer par intermittence quand la suite
+    // complete tourne en parallele (constate le 22/10/2026). Cette mesure est celle de Node sur le poste
+    // de developpement : elle ne dit RIEN de la latence sur un telephone.
+    expect(mediane).toBeLessThan(20);
+    expect(pire).toBeLessThan(200);
     expect(banc.session.etat.marqueurs).toHaveLength(500);
   });
 });

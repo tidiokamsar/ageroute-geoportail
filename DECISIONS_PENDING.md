@@ -430,6 +430,14 @@ monté par `migrate deploy`, et le plan de reprise après sinistre repose entiè
 > placée après `decomptes` reste impossible, puisque l'échec survient avant. Le pont
 > (`backend/prisma/descentes/ponts/20260702110000_marches_bailleurs_avancement.sql`) ne sert qu'au banc :
 > **rien n'a été corrigé dans l'historique**, et le choix reste le vôtre.
+>
+> **Second défaut de reconstruction, trouvé le 22/10/2026 en lançant l'application sur une base rejouée** : le
+> code (`chantiers.service.ts`, `qualite.routes.ts`) et la migration `20260902140000_poste_recuperation` emploient
+> l'extension **`unaccent`**, et **aucune migration ne la crée** (seules `postgis` et `btree_gist` le sont). Elle existe
+> en production, créée à la main. Sur une base reconstruite par les migrations, `GET /api/public/carte/geo` répond 500
+> (`function unaccent(text) does not exist`), donc la carte publique ne s'affiche pas. Correction possible, additive et
+> sans effet en production : une migration `CREATE EXTENSION IF NOT EXISTS unaccent`. Elle n'est pas écrite : elle
+> touche la chaîne de migrations, donc relève du même arbitrage D-10.
 
 ### Pourquoi ce n'est pas une simple correction de fichier
 

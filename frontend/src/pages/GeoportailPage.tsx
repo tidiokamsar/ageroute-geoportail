@@ -39,7 +39,8 @@ import {
   ZOOM_MINIMUM,
   type CategorieVoirie, legendeVoirie } from "./geoportail/VoirieLocaleLayer";
 import { RechercheVille } from "../components/RechercheVille";
-import { tronconDansFiltre, type FiltreVille } from "../lib/villes";
+import { sommetDansFiltre, tronconDansFiltre, type FiltreVille } from "../lib/villes";
+import { COUCHES_PAR_DEFAUT, coucheVisible, garderLeFocus, lireFocus, PARAM_VUE, sansFocus, VUE_COMPLETE, type FocusKind } from "../lib/focus";
 import axios from "axios";
 import { MeasureLayer, type MeasureMode } from "./geoportail/MeasureLayer";
 import { DrawTronconLayer, type DrawHandle, type DrawPhase } from "./geoportail/DrawTronconLayer";
@@ -191,9 +192,24 @@ function LayerRow({ checked, onChange, label, bold }: { checked: boolean; onChan
 export function GeoportailPage() {
   const [params, setParams] = useSearchParams();
 
+  // Mode « un seul element » : l'URL en est la source de verite (voir lib/focus.ts). Arriver par un lien
+  // « Carte » ou choisir un resultat de recherche n'affiche QUE cet element, pas le reseau de la region.
+  const focus = useMemo(() => lireFocus(params), [params]);
+  const isoler = useCallback(
+    (kind: FocusKind, id: string) => {
+      const next = new URLSearchParams(params);
+      next.delete(PARAM_VUE);
+      next.set("select", kind);
+      next.set("id", id);
+      setParams(next, { replace: true });
+    },
+    [params, setParams],
+  );
+  const toutAfficher = useCallback(() => setParams(sansFocus(params), { replace: true }), [params, setParams]);
+
   const [layers, setLayers] = useState<Record<LayerKey, boolean>>(() => {
     const fromUrl = params.get("layers");
-    if (!fromUrl) return { troncons: true, chantiers: true, ouvrages: true, postes: true, pointsNoirs: true };
+    if (!fromUrl) return { ...COUCHES_PAR_DEFAUT };
     const active = new Set(fromUrl.split(","));
     return Object.fromEntries(LAYER_KEYS.map((k) => [k, active.has(k)])) as Record<LayerKey, boolean>;
   });
@@ -219,6 +235,9 @@ export function GeoportailPage() {
   );
   const [showAlertes, setShowAlertes] = useState(false);
   const [showToponymes, setShowToponymes] = useState(false);
+  // Contour du pays : un repere de fond, allume par defaut. Il vient des limites administratives de
+  // niveau 1 (source OCHA COD-AB), pas d'une frontiere officielle : la case le dit.
+  const [showContour, setShowContour] = useState(true);
   // D9 (validée) : affichage complet des franchissements OSM en propositions,
   // et repositionnement terrain des ouvrages en attendant la mission.
   const [showPontsOsm, setShowPontsOsm] = useState(false);
@@ -359,6 +378,14 @@ export function GeoportailPage() {
 
   const exportRef = useRef<HTMLDivElement>(null);
 
+  const { data: contour } = useQuery({
+    queryKey: ["contour-pays"],
+    queryFn: async () => (await api.get<Feature<Geometry, { source: string; valideLe: string | null; avertissement: string }>>("/v2/geo/contour")).data,
+    // 404 si la base ne porte aucune limite : on n'insiste pas, et rien n'est invente a la place.
+    retry: false,
+    staleTime: 3_600_000,
+  });
+
   const { data: regions } = useQuery({
     queryKey: ["regions"],
     queryFn: async () => (await api.get<Region[]>("/regions")).data,
@@ -464,6 +491,76 @@ export function GeoportailPage() {
     [chantiers, chantierStatutFilter]
   );
 
+  // Ce que la carte DESSINE. Le filtre par ville ne restreignait que les troncons : tous les actifs
+  // (ouvrages, postes, points noirs, chantiers) restaient affiches, ou qu'ils soient. Il s'applique
+  // maintenant a tous. En mode « un seul element », les filtres sont ignores (l'element demande
+  // s'affiche meme si un filtre l'aurait ecarte) et rien d'autre n'est dessine.
+  const dansLaVille = useCallback(
+    (lat: number, lon: number) => !villeFiltre || sommetDansFiltre(lat, lon, villeFiltre),
+    [villeFiltre],
+  );
+  const tronconsAffiches = useMemo(
+    () => garderLeFocus(focus ? (troncons ?? []) : filteredTroncons, focus, "troncon"),
+    [focus, troncons, filteredTroncons],
+  );
+  const chantiersAffiches = useMemo(
+    () =>
+      garderLeFocus(
+        focus
+          ? (chantiers ?? [])
+          : filteredChantiers.filter((c) =>
+              !villeFiltre ||
+              (c.lat != null && c.lon != null
+                ? dansLaVille(c.lat, c.lon)
+                : geoJsonToLatLngs(c.geometry ?? "").some(([la, lo]) => dansLaVille(la, lo))),
+            ),
+        focus,
+        "chantier",
+      ),
+    [focus, chantiers, filteredChantiers, villeFiltre, dansLaVille],
+  );
+  const ouvragesAffiches = useMemo(
+    () =>
+      garderLeFocus(
+        focus
+          ? (ouvrages ?? [])
+          : (ouvrages ?? []).filter(
+              (o) => (!regionFilter || o.region === regionFilter) && (!reprisSeulement || o.repris) && dansLaVille(o.lat, o.lon),
+            ),
+        focus,
+        "ouvrage",
+      ),
+    [focus, ouvrages, regionFilter, reprisSeulement, dansLaVille],
+  );
+  const postesAffiches = useMemo(
+    () =>
+      garderLeFocus(
+        focus ? (postes ?? []) : (postes ?? []).filter((p) => (!regionFilter || p.region === regionFilter) && dansLaVille(p.lat, p.lon)),
+        focus,
+        "poste",
+      ),
+    [focus, postes, regionFilter, dansLaVille],
+  );
+  const pointsNoirsAffiches = useMemo(
+    () =>
+      garderLeFocus(
+        focus
+          ? (pointsNoirs ?? [])
+          : (pointsNoirs ?? []).filter((p) => (!regionFilter || p.region === regionFilter) && dansLaVille(p.lat, p.lon)),
+        focus,
+        "pointNoir",
+      ),
+    [focus, pointsNoirs, regionFilter, dansLaVille],
+  );
+  const libelleFocus = useMemo(() => {
+    if (!focus) return "";
+    if (focus.kind === "troncon") { const t = (troncons ?? []).find((x) => x.id === focus.id); return t ? `${t.code} — ${t.nom}` : "tronçon"; }
+    if (focus.kind === "ouvrage") return (ouvrages ?? []).find((x) => x.id === focus.id)?.nom ?? "ouvrage";
+    if (focus.kind === "chantier") return (chantiers ?? []).find((x) => x.id === focus.id)?.intitule ?? "chantier";
+    if (focus.kind === "poste") return (postes ?? []).find((x) => x.id === focus.id)?.nom ?? "poste";
+    return (pointsNoirs ?? []).find((x) => x.id === focus.id)?.description ?? "point noir";
+  }, [focus, troncons, ouvrages, chantiers, postes, pointsNoirs]);
+
   // Recherche unifiee (tous types confondus) : un utilisateur cherchant "Kindia" ou un nom
   // d'ouvrage ne devrait pas avoir a deviner dans quel module chercher. Chaque resultat
   // porte sa propre cible de centrage (point ou milieu de trace).
@@ -518,6 +615,7 @@ export function GeoportailPage() {
           label: `${t.code} — ${t.nom}`,
           sub: "Tronçon",
           onSelect: () => {
+            isoler("troncon", t.id);
             const pts = geoJsonToLatLngs(t.geometry);
             if (pts.length) setFlyTarget(pts[Math.floor(pts.length / 2)]);
             setSelectedFeature({ kind: "troncon", data: t });
@@ -533,6 +631,7 @@ export function GeoportailPage() {
           label: o.nom,
           sub: `Ouvrage — ${o.type}`,
           onSelect: () => {
+            isoler("ouvrage", o.id);
             setFlyTarget([o.lat, o.lon]);
             setSelectedFeature({ kind: "ouvrage", data: o });
           },
@@ -547,6 +646,7 @@ export function GeoportailPage() {
           label: c.intitule,
           sub: "Chantier",
           onSelect: () => {
+            isoler("chantier", c.id);
             if (c.lat != null && c.lon != null) setFlyTarget([c.lat, c.lon]);
             else {
               const pts = geoJsonToLatLngs(c.geometry ?? "");
@@ -565,6 +665,7 @@ export function GeoportailPage() {
           label: p.description,
           sub: "Point noir",
           onSelect: () => {
+            isoler("pointNoir", p.id);
             setFlyTarget([p.lat, p.lon]);
             setSelectedFeature({ kind: "pointNoir", data: p });
           },
@@ -579,6 +680,7 @@ export function GeoportailPage() {
           label: p.nom,
           sub: `Poste — ${p.type}`,
           onSelect: () => {
+            isoler("poste", p.id);
             setFlyTarget([p.lat, p.lon]);
             setSelectedFeature({ kind: "poste", data: p });
           },
@@ -586,7 +688,7 @@ export function GeoportailPage() {
       }
     }
     return hits.slice(0, 10);
-  }, [troncons, ouvrages, chantiers, pointsNoirs, postes, search]);
+  }, [troncons, ouvrages, chantiers, pointsNoirs, postes, search, isoler]);
 
   /**
    * Complement serveur : les troncons que la carte ne transporte pas.
@@ -632,10 +734,10 @@ export function GeoportailPage() {
   // le nombre d'elements SVG dessines par Leaflet reste le meme, mais on supprime le cout
   // de reconciliation React (diff de ~1700 composants) a chaque re-render (changement de
   // filtre, ouverture d'un modal, etc.) — sensible sur un reseau de cette taille.
-  const tronconsById = useMemo(() => new Map(filteredTroncons.map((t) => [t.id, t])), [filteredTroncons]);
+  const tronconsById = useMemo(() => new Map(tronconsAffiches.map((t) => [t.id, t])), [tronconsAffiches]);
   const tronconsFeatureCollection = useMemo(() => {
     const features: Feature<Geometry, { id: string }>[] = [];
-    for (const t of filteredTroncons) {
+    for (const t of tronconsAffiches) {
       try {
         features.push({ type: "Feature", geometry: JSON.parse(t.geometry), properties: { id: t.id } });
       } catch {
@@ -643,7 +745,7 @@ export function GeoportailPage() {
       }
     }
     return { type: "FeatureCollection" as const, features };
-  }, [filteredTroncons]);
+  }, [tronconsAffiches]);
 
   const repartitionParEtat = useMemo(() => {
     const totals = new Map<EtatPatrimoine, number>();
@@ -670,6 +772,8 @@ export function GeoportailPage() {
     if (regionFilter) next.set("region", regionFilter);
     if (etatFilter) next.set("etat", etatFilter);
     next.set("bg", basemap);
+    // Un lien PARTAGE rouvre la vue complete (avec l'element ouvert) : il n'isole pas l'element.
+    next.set(PARAM_VUE, VUE_COMPLETE);
     next.set("lat", viewRef.current.center[0].toFixed(5));
     next.set("lng", viewRef.current.center[1].toFixed(5));
     next.set("zoom", String(viewRef.current.zoom));
@@ -686,7 +790,7 @@ export function GeoportailPage() {
 
   async function handleShare() {
     const url = buildShareUrl();
-    setParams(new URLSearchParams(url.split("?")[1]), { replace: true });
+    if (!focus) setParams(new URLSearchParams(url.split("?")[1]), { replace: true });
     try {
       await navigator.clipboard.writeText(url);
       setShareCopied(true);
@@ -771,6 +875,16 @@ export function GeoportailPage() {
             </div>
             <RechercheVille compact onAppliquer={setVilleFiltre} />
           </div>
+        )}
+        {focus && (
+          <button
+            type="button"
+            onClick={toutAfficher}
+            className="flex items-center gap-1.5 self-start rounded-full bg-gold px-3 py-1 text-xs font-medium text-navy shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-navy/40"
+          >
+            Affichage limité à : {libelleFocus} — Afficher tout
+            <X className="h-3 w-3" />
+          </button>
         )}
         {villeFiltre && (
           <button
@@ -1260,6 +1374,15 @@ export function GeoportailPage() {
           </PanelSection>
 
           <PanelSection icon={<MapPinned className="h-4 w-4" />} title="Repères" defaultOpen={false}>
+            <LayerRow checked={showContour} onChange={() => setShowContour((v) => !v)} label="Contour de la Guinée" />
+            {showContour && contour && (
+              <p className="text-[11px] text-gray-500 ml-6">
+                Repère de fond tiré des limites des 8 régions ({contour.properties.source}, valides au {contour.properties.valideLe ?? "date inconnue"}), simplifié. Ce n'est pas une frontière officielle.
+              </p>
+            )}
+            {showContour && !contour && (
+              <p className="text-[11px] text-gray-500 ml-6">Aucune limite administrative en base : le contour ne peut pas être tracé.</p>
+            )}
             <LayerRow checked={showToponymes} onChange={() => setShowToponymes((v) => !v)} label="Ponts, tunnels, parkings" />
           </PanelSection>
 
@@ -1346,6 +1469,14 @@ export function GeoportailPage() {
             maxZoom={ZOOM_MAX}
             maxNativeZoom={bm.maxNativeZoom}
           />
+          {showContour && contour && (
+            <GeoJSON
+              key="contour-pays"
+              data={contour}
+              interactive={false}
+              style={{ color: "#1a2942", weight: 2, opacity: 0.75, dashArray: "8 5", fill: false }}
+            />
+          )}
           {flyTarget && <FlyTo position={flyTarget} />}
           <ViewTracker onChange={handleViewChange} />
           <MeasureLayer
@@ -1370,9 +1501,9 @@ export function GeoportailPage() {
             />
           )}
 
-          {layers.troncons && (
+          {coucheVisible(focus, layers, "troncons") && (
             <GeoJSON
-              key={`troncons-${curseur.actif ? "ref" : "etat"}-${tronconsFeatureCollection.features.length}-${regionFilter}-${etatFilter}-${Object.values(classeFilter).join("")}-${villeFiltre ? `${villeFiltre.a.nom}-${villeFiltre.b?.nom ?? ""}` : ""}`}
+              key={`troncons-${focus ? `seul-${focus.id}` : "tous"}-${curseur.actif ? "ref" : "etat"}-${tronconsFeatureCollection.features.length}-${regionFilter}-${etatFilter}-${Object.values(classeFilter).join("")}-${villeFiltre ? `${villeFiltre.a.nom}-${villeFiltre.b?.nom ?? ""}` : ""}`}
               data={tronconsFeatureCollection}
               style={(feature) => {
                 // Curseur temporel allume : le troncon n'est plus qu'un TRACE DE REFERENCE gris.
@@ -1405,7 +1536,7 @@ export function GeoportailPage() {
               état, independante des couches de base (visible meme si "Tous les
               tronçons" est decoche) pour un reperage rapide des points a traiter
               en urgence — inspire du calque "Alertes" de l'observatoire de reference. */}
-          {showAlertes &&
+          {showAlertes && !focus &&
             alertTroncons.map((t) => {
               const positions = geoJsonToLatLngs(t.geometry);
               if (!positions.length) return null;
@@ -1421,8 +1552,8 @@ export function GeoportailPage() {
               );
             })}
 
-          {layers.chantiers &&
-            filteredChantiers
+          {coucheVisible(focus, layers, "chantiers") &&
+            chantiersAffiches
               .filter((c) => !c.approximate)
               .map((c) => {
                 const positions = geoJsonToLatLngs(c.geometry ?? "");
@@ -1443,7 +1574,7 @@ export function GeoportailPage() {
                 );
               })}
 
-          {showAlertes &&
+          {showAlertes && !focus &&
             alertOuvrages.map((o) => (
               <CircleMarker
                 key={`alert-${o.id}`}
@@ -1460,7 +1591,7 @@ export function GeoportailPage() {
               Rouge = aucun ouvrage BDRI a 250 m (a instruire), vert = correspondance. */}
           {/* Voirie locale AVANT les troncons : le reseau AGEROUTE doit rester
               au-dessus, c'est lui qu'on consulte. */}
-          {showVoirie && (
+          {showVoirie && !focus && (
             <VoirieLocaleLayer
               categories={categoriesVoirie}
               onChargement={setEtatVoirie}
@@ -1468,7 +1599,7 @@ export function GeoportailPage() {
             />
           )}
 
-          {showPontsOsm && pontsOsm && (
+          {showPontsOsm && !focus && pontsOsm && (
             <FranchissementsLayer
               key="ponts-osm-symboles"
               data={pontsOsm}
@@ -1485,8 +1616,8 @@ export function GeoportailPage() {
 
           {/* Marqueurs ponctuels regroupes (clustering) pour la lisibilite au dezoom */}
           <MarkerClusterGroup chunkedLoading maxClusterRadius={50}>
-            {layers.chantiers &&
-              filteredChantiers
+            {coucheVisible(focus, layers, "chantiers") &&
+              chantiersAffiches
                 .filter((c) => c.approximate && c.lat != null && c.lon != null)
                 .map((c) => (
                   <Marker
@@ -1501,7 +1632,7 @@ export function GeoportailPage() {
                   </Marker>
                 ))}
 
-            {showToponymes &&
+            {showToponymes && !focus &&
               TOPONYMES.map((t, i) => (
                 <CircleMarker
                   key={`topo-${i}`}
@@ -1514,10 +1645,8 @@ export function GeoportailPage() {
                 </CircleMarker>
               ))}
 
-            {layers.ouvrages &&
-              ouvrages
-                ?.filter((o) => !regionFilter || o.region === regionFilter)
-                .filter((o) => !reprisSeulement || o.repris)
+            {coucheVisible(focus, layers, "ouvrages") &&
+              ouvragesAffiches
                 .map((o) => (
                   <Marker
                     key={o.id}
@@ -1540,9 +1669,8 @@ export function GeoportailPage() {
                   </Marker>
                 ))}
 
-            {layers.postes &&
-              postes
-                ?.filter((p) => !regionFilter || p.region === regionFilter)
+            {coucheVisible(focus, layers, "postes") &&
+              postesAffiches
                 .map((p) => (
                   <Marker
                     key={p.id}
@@ -1554,9 +1682,8 @@ export function GeoportailPage() {
                   </Marker>
                 ))}
 
-            {layers.pointsNoirs &&
-              pointsNoirs
-                ?.filter((p) => !regionFilter || p.region === regionFilter)
+            {coucheVisible(focus, layers, "pointsNoirs") &&
+              pointsNoirsAffiches
                 .map((p) => (
                   <Marker
                     key={p.id}

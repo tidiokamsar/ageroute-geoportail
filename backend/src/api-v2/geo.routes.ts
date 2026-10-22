@@ -8,6 +8,7 @@ import { RefusDeviationHttp, calculerDeviation } from "../geo/deviation.service"
 import { EmpriseTropLarge } from "../geo/graphe.depot";
 import { analyserTrace, lireTrace, RefusTrace } from "../geo/trace.service";
 import { mesurerGeometrie } from "../geo/metre.service";
+import { contourPays } from "../geo/contour.service";
 
 /**
  * `/api/v2/geo` — appariement d'une position GPS sur le reseau.
@@ -235,6 +236,27 @@ geoV2Router.post("/trace", requireAuth, requireModuleAccess("inspections"), asyn
     return res.json(await analyserTrace(prisma, lecture, { reseau: p.data.reseau, distanceMaxM: p.data.distanceMaxM, pasMinM: p.data.pasMinM, toleranceFusionM: p.data.toleranceFusionM }));
   } catch (err) {
     if (err instanceof RefusTrace) return res.status(err.http).json({ error: err.message, code: err.code });
+    return next(err);
+  }
+});
+
+/**
+ * @openapi
+ * /api/v2/geo/contour:
+ *   get:
+ *     summary: Contour du pays (frontiere exterieure des 8 regions de la source OCHA COD-AB), simplifie
+ *     tags: [Geo v2]
+ *
+ * Fond de repere du geoportail, pas une frontiere officielle : la reponse porte sa source, sa date et
+ * un avertissement. 404 si la base ne porte aucune limite de niveau 1 (aucun trace de repli invente).
+ */
+geoV2Router.get("/contour", requireAuth, requireModuleAccess("geoportail"), async (_req, res, next) => {
+  try {
+    const contour = await contourPays(prisma);
+    if (!contour) return res.status(404).json({ error: "Aucune limite administrative de niveau 1 en base.", code: "LIMITES_ABSENTES" });
+    res.set("Cache-Control", "private, max-age=3600");
+    return res.json(contour);
+  } catch (err) {
     return next(err);
   }
 });
