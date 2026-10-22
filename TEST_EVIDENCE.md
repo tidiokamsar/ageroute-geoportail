@@ -3,6 +3,21 @@
 > Exigé par le § 4 du mandat v2.1. Le § 2.7 impose que toute affirmation de réussite cite la
 > commande lancée et son résultat. Aucune ligne de ce fichier n'est écrite sans l'avoir vue.
 
+## 22/10/2026 (soir) — fusion de lot/14-observation-terre dans lot/03-map-matching
+
+Exécuté et lu le 22/10/2026 après la fusion `437908f` (partie E, A10, CI/S-4). Rien n'a été exécuté contre la production.
+
+| Vérification | Commande | Résultat |
+|---|---|---|
+| Backend | `cd backend && npx vitest run` | **122 fichiers, 1 731 tests passants** ; `npx tsc --noEmit -p .` : 0 erreur |
+| Frontend | `cd frontend && npx vitest run`, `npx tsc --noEmit`, `npm run lint` | 37 fichiers, **479 tests passants** ; 0 erreur de types ; lint 0 erreur, 4 avertissements |
+| Chaîne de migrations et descentes | `docker exec bdri-dev-db bash …/descentes/verifier.sh --strict --garder` | **71 migrations, 244 vérifications, 0 échec, 0 migration sans descente** (bases jetables `rt_*`) |
+| Bancs SQL | `bash infra/ci/bancs-sql.sh` sur la base de référence gardée | **14 bancs, 0 échec** |
+| Bancs d'intégration TypeScript | `bash tests-integration/run.sh` (base `replay`) | **122 vérifications passantes**, code 0 ; `replay` n'est pas rejouée avec les trois migrations récentes |
+| Régressions trouvées par la fusion | — | 3 tests de la date d'effet des portions échouaient (le contrôle territorial interroge la base) : perimètre neutralisé dans le test ; 1 test dépassait 30 s sous charge : délai porté à 90 s |
+
+**La CI GitHub n'a pas tourné** (compte bloqué pour facturation) : elle n'est ni réussie ni échouée au sens des tests.
+
 ## 22/10/2026 — graphe de trace (T-28), métadonnées ISO 19115 (T-29), compte des géométries invalides, bancs versionnés
 
 Toutes les lignes ci-dessous ont été exécutées et lues le 22/10/2026 sur ce poste (base de rejeu locale
