@@ -105,9 +105,9 @@ function StatCard({ label, value, sub, color, icon: Icon }: {
       <div className="absolute -top-3 -right-3 h-16 w-16 rounded-full opacity-[0.08]" style={{ backgroundColor: color }} />
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-[11px] font-medium uppercase tracking-widest text-gray-400">{label}</p>
+          <p className="text-[11px] font-medium uppercase tracking-widest text-gray-500">{label}</p>
           <p className="mt-1 text-2xl font-black" style={{ color }}>{value}</p>
-          {sub && <p className="mt-0.5 text-xs text-gray-400">{sub}</p>}
+          {sub && <p className="mt-0.5 text-xs text-gray-500">{sub}</p>}
         </div>
         <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: `${color}15`, color }}>
           <Icon className="h-4 w-4" />
@@ -162,7 +162,7 @@ function ExecutiveTab({ data }: { data: DecisionData }) {
         {/* Répartition état réseau */}
         <Card className="shadow-sm border-gray-200/60">
           <h3 className="text-sm font-semibold text-gray-700 mb-1">Répartition de l'état du réseau</h3>
-          <p className="text-xs text-gray-400 mb-4">% du linéaire total — {kpis.longueurTotaleKm} km</p>
+          <p className="text-xs text-gray-500 mb-4">% du linéaire total — {kpis.longueurTotaleKm} km</p>
           <div className="flex items-center gap-6">
             <ResponsiveContainer width={160} height={160}>
               <PieChart>
@@ -195,7 +195,7 @@ function ExecutiveTab({ data }: { data: DecisionData }) {
         {/* Budget par bailleur */}
         <Card className="shadow-sm border-gray-200/60">
           <h3 className="text-sm font-semibold text-gray-700 mb-1">Répartition budgétaire par bailleur</h3>
-          <p className="text-xs text-gray-400 mb-3">Total engagé : {fmtGnf(kpis.budgetTotal)}</p>
+          <p className="text-xs text-gray-500 mb-3">Total engagé : {fmtGnf(kpis.budgetTotal)}</p>
           {bailleurPieData.length > 0 ? (
             <ResponsiveContainer width="100%" height={200}>
               <PieChart>
@@ -207,7 +207,7 @@ function ExecutiveTab({ data }: { data: DecisionData }) {
               </PieChart>
             </ResponsiveContainer>
           ) : (
-            <p className="text-sm text-gray-400 text-center py-8">Aucune donnée bailleur disponible</p>
+            <p className="text-sm text-gray-500 text-center py-8">Aucune donnée bailleur disponible</p>
           )}
           <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
             {bailleurPieData.map((b, i) => (
@@ -301,9 +301,9 @@ function PriorisationTab({ data }: { data: DecisionData }) {
         <div className="flex items-center gap-2 mb-3">
           <Scale className="h-4 w-4 text-navy" />
           <h3 className="text-sm font-semibold text-gray-700">Pondération des critères</h3>
-          <span className="ml-auto text-xs text-gray-400">Logique HDM-4 / RONET</span>
+          <span className="ml-auto text-xs text-gray-500">Logique HDM-4 / RONET</span>
         </div>
-        <p className="text-xs text-gray-400 mb-4">Ajustez les poids pour recalculer le classement en temps réel selon votre politique d'investissement</p>
+        <p className="text-xs text-gray-500 mb-4">Ajustez les poids pour recalculer le classement en temps réel selon votre politique d'investissement</p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {[
             { key: "etat" as const, label: "État de la chaussée", sub: "CRITIQUE=100, MAUVAIS=70, MOYEN=40", color: "#dc2626" },
@@ -315,7 +315,7 @@ function PriorisationTab({ data }: { data: DecisionData }) {
               <div className="flex items-center justify-between mb-1">
                 <div>
                   <span className="text-xs font-medium text-gray-700">{label}</span>
-                  <p className="text-[10px] text-gray-400">{sub}</p>
+                  <p className="text-[10px] text-gray-500">{sub}</p>
                 </div>
                 <span className="text-sm font-black" style={{ color }}>{weights[key]}%</span>
               </div>
@@ -337,7 +337,7 @@ function PriorisationTab({ data }: { data: DecisionData }) {
       <Card className="shadow-sm border-gray-200/60 p-0 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-700">Classement des tronçons par score de priorité</h3>
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-gray-500">
             {scored.length} tronçons (état dégradé) —{" "}
             <span className={nbCalculables === 0 ? "font-semibold text-amber-700" : ""}>
               {nbCalculables} score{nbCalculables > 1 ? "s" : ""} calculable{nbCalculables > 1 ? "s" : ""}
@@ -365,7 +365,7 @@ function PriorisationTab({ data }: { data: DecisionData }) {
                   <td className="px-3 py-2.5 text-gray-600">{t.region}</td>
                   <td className="px-3 py-2.5"><EtatPill etat={t.etat} /></td>
                   <td className="px-3 py-2.5 text-right tabular-nums">
-                    {t.traficMoyenJma != null ? t.traficMoyenJma.toLocaleString("fr-FR") : <span className="text-gray-400" title="Aucun comptage — 0 tronçon sur 1 690">non renseigné</span>}
+                    {t.traficMoyenJma != null ? t.traficMoyenJma.toLocaleString("fr-FR") : <span className="text-gray-500" title="Aucun comptage — 0 tronçon sur 1 690">non renseigné</span>}
                   </td>
                   <td className="px-3 py-2.5 tabular-nums">{t.longueurKm.toFixed(1)} km</td>
                   <td className="px-3 py-2.5 tabular-nums text-right">
@@ -376,7 +376,7 @@ function PriorisationTab({ data }: { data: DecisionData }) {
                         ~{t.montantRehabEstimeMd.toFixed(1)} <span className="text-[10px]">{t.estimationCout?.provisoire === false ? "estimé" : "estimé, provisoire"}</span>
                       </span>
                     ) : (
-                      <span className="text-gray-400" title={t.estimations.cout}>non estimé</span>
+                      <span className="text-gray-500" title={t.estimations.cout}>non estimé</span>
                     )}
                   </td>
                   <td className="px-3 py-2.5">
@@ -401,7 +401,7 @@ function PriorisationTab({ data }: { data: DecisionData }) {
             </tbody>
           </table>
         </div>
-        <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50/50 text-[10px] text-gray-400">
+        <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50/50 text-[10px] text-gray-500">
           Score = f(état, trafic, criticité stratégique, coût de report) — inspiré HDM-4/RONET — <span className="text-amber-700 font-medium">les données de trafic réelles amélioreraient significativement la précision</span>
         </div>
       </Card>
@@ -466,7 +466,7 @@ function SimulateurTab({ data }: { data: DecisionData }) {
           <Wallet className="h-4 w-4 text-navy" />
           <h3 className="text-sm font-semibold text-gray-700">Enveloppe budgétaire disponible</h3>
         </div>
-        <p className="text-xs text-gray-400 mb-4">Le simulateur sélectionne automatiquement les tronçons prioritaires jusqu'à épuisement du budget</p>
+        <p className="text-xs text-gray-500 mb-4">Le simulateur sélectionne automatiquement les tronçons prioritaires jusqu'à épuisement du budget</p>
         <div className="flex items-center gap-4 mb-4">
           <input type="range" min={100} max={8000} step={50} value={budget}
             onChange={(e) => setBudget(Number(e.target.value))}
@@ -487,7 +487,7 @@ function SimulateurTab({ data }: { data: DecisionData }) {
             { label: "Réduction réseau dégradé", value: `−${simulation.impact.toFixed(1)} pt` },
           ].map(({ label, value }) => (
             <div key={label} className="rounded-lg bg-gray-50 px-3 py-2.5">
-              <p className="text-[10px] text-gray-400 mb-0.5">{label}</p>
+              <p className="text-[10px] text-gray-500 mb-0.5">{label}</p>
               <p className="text-base font-black text-navy">{value}</p>
             </div>
           ))}
@@ -497,7 +497,7 @@ function SimulateurTab({ data }: { data: DecisionData }) {
       <Card className="shadow-sm border-gray-200/60 p-0 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-700">Sélection proposée (par ordre de priorité)</h3>
-          <span className="text-xs text-gray-400">{simulation.count} tronçons financés sur {scored.length}</span>
+          <span className="text-xs text-gray-500">{simulation.count} tronçons financés sur {scored.length}</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
@@ -516,7 +516,7 @@ function SimulateurTab({ data }: { data: DecisionData }) {
                   <td className="px-3 py-2"><EtatPill etat={t.etat} /></td>
                   <td className="px-3 py-2 tabular-nums">{t.longueurKm.toFixed(1)} km</td>
                   <td className="px-3 py-2 tabular-nums text-right" title={t.estimations.cout}>
-                    {t.montantRehabEstimeMd != null ? t.montantRehabEstimeMd.toFixed(1) : <span className="text-gray-400">non estimé</span>}
+                    {t.montantRehabEstimeMd != null ? t.montantRehabEstimeMd.toFixed(1) : <span className="text-gray-500">non estimé</span>}
                   </td>
                   <td className="px-3 py-2 tabular-nums">{t.cumul != null ? `${t.cumul.toFixed(0)} Md` : "—"}</td>
                   <td className="px-3 py-2">
@@ -525,7 +525,7 @@ function SimulateurTab({ data }: { data: DecisionData }) {
                         <CheckCircle2 className="h-3 w-3" /> Financé
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 text-gray-500 px-2 py-0.5 text-[10px]">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 text-gray-600 px-2 py-0.5 text-[10px]">
                         Hors enveloppe
                       </span>
                     )}
@@ -535,7 +535,7 @@ function SimulateurTab({ data }: { data: DecisionData }) {
             </tbody>
           </table>
         </div>
-        <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50/50 text-[10px] text-gray-400">
+        <div className="px-4 py-2.5 border-t border-gray-100 bg-gray-50/50 text-[10px] text-gray-500">
           Coûts de réhabilitation estimés : Critique 800 M GNF/km · Mauvais 500 M GNF/km · Moyen 150 M GNF/km — <span className="text-amber-700 font-medium">à calibrer avec les marchés réels AGEROUTE</span>
         </div>
       </Card>
@@ -615,7 +615,7 @@ function ContractuelTab({ data }: { data: DecisionData }) {
           <h3 className="text-sm font-semibold text-gray-700 mb-0.5">
             Courbe en S — {topChantier.intitule.length > 60 ? topChantier.intitule.substring(0, 60) + "…" : topChantier.intitule}
           </h3>
-          <p className="text-xs text-gray-400 mb-1">
+          <p className="text-xs text-gray-500 mb-1">
             Avancement physique prévu vs réel · {fmtGnf(topChantier.montantGnf)} · {topChantier.bailleur}
           </p>
           <div className="flex items-center gap-4 mb-3 text-[11px] text-gray-500 flex-wrap">
@@ -650,7 +650,7 @@ function ContractuelTab({ data }: { data: DecisionData }) {
       <Card className="shadow-sm border-gray-200/60 p-0 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-gray-700">Chantiers en cours — vue d'ensemble</h3>
-          <span className="text-xs text-gray-400">{enCours.length} actifs</span>
+          <span className="text-xs text-gray-500">{enCours.length} actifs</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
@@ -667,7 +667,7 @@ function ContractuelTab({ data }: { data: DecisionData }) {
                   <tr key={c.id} className={`hover:bg-blue-50/20 transition-colors ${c.enRetard ? "border-l-2 border-l-red-400" : ""}`}>
                     <td className="px-3 py-2.5 max-w-[200px]">
                       <span className="block truncate font-medium text-gray-800" title={c.intitule}>{c.intitule}</span>
-                      <span className="text-gray-400">{c.entreprise}</span>
+                      <span className="text-gray-500">{c.entreprise}</span>
                     </td>
                     <td className="px-3 py-2.5 text-gray-500">{c.region}</td>
                     <td className="px-3 py-2.5 text-gray-500">{c.bailleur}</td>
@@ -680,7 +680,7 @@ function ContractuelTab({ data }: { data: DecisionData }) {
                         <span className="tabular-nums font-semibold text-navy">{c.avancementPct}%</span>
                       </div>
                     </td>
-                    <td className="px-3 py-2.5 tabular-nums text-gray-400">{c.avancementPrevu}%</td>
+                    <td className="px-3 py-2.5 tabular-nums text-gray-500">{c.avancementPrevu}%</td>
                     <td className="px-3 py-2.5 tabular-nums whitespace-nowrap">{fmtGnf(c.montantGnf)}</td>
                     <td className="px-3 py-2.5">
                       {c.enRetard ? (
@@ -776,7 +776,7 @@ export function DecisionPage() {
       {activeTab === "simulateur"  && <SimulateurTab data={data} />}
       {activeTab === "contractuel" && <ContractuelTab data={data} />}
 
-      <p className="text-[10px] text-gray-300 text-center pb-2">
+      <p className="text-[10px] text-gray-500 text-center pb-2">
         Module Aide à la Décision · BDRI AGEROUTE Guinée · Données réelles de production · Scores à calibrer avec données terrain
       </p>
     </div>

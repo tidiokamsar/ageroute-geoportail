@@ -70,7 +70,7 @@ export function PointsNoirsPage() {
       cell: ({ row: { original: p } }) =>
         p.troncon
           ? <span className="text-sm font-semibold text-navy">{p.troncon.code}</span>
-          : <span className="text-sm text-gray-300">—</span>,
+          : <span className="text-sm text-gray-500">—</span>,
     },
     {
       id: "pk",
@@ -78,7 +78,7 @@ export function PointsNoirsPage() {
       cell: ({ row: { original: p } }) =>
         p.pk != null
           ? <span className="text-sm text-gray-600">PK {p.pk}</span>
-          : <span className="text-sm text-gray-300">—</span>,
+          : <span className="text-sm text-gray-500">—</span>,
     },
     {
       accessorKey: "gravite",
@@ -91,7 +91,7 @@ export function PointsNoirsPage() {
       cell: ({ row: { original: p } }) => {
         const colorClass =
           p.nbAccidents > 5 ? "text-red-600"
-          : p.nbAccidents >= 1 ? "text-orange-500"
+          : p.nbAccidents >= 1 ? "text-orange-700"
           : "text-gray-600";
         return <span className={`text-sm font-bold ${colorClass}`}>{p.nbAccidents}</span>;
       },

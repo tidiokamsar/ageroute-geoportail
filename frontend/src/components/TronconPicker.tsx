@@ -50,7 +50,7 @@ export function TronconPicker({
         <button
           type="button"
           onClick={() => onChange(undefined)}
-          className="absolute right-2 top-2 text-xs text-gray-400 hover:text-red-600"
+          className="absolute right-2 top-2 text-xs text-gray-500 hover:text-red-600"
         >
           ✕
         </button>

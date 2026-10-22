@@ -90,7 +90,7 @@ export function PostesPage() {
         p.troncon ? (
           <span className="text-sm font-medium text-navy">{p.troncon.code}</span>
         ) : (
-          <span className="text-sm text-gray-300">—</span>
+          <span className="text-sm text-gray-500">—</span>
         ),
     },
     {
@@ -103,11 +103,11 @@ export function PostesPage() {
       header: () => <span className="block text-right w-full">Trafic (v/j)</span>,
       cell: ({ row: { original: p } }) => {
         if (p.traficJma == null) {
-          return <span className="block text-right text-gray-300 pr-2">—</span>;
+          return <span className="block text-right text-gray-500 pr-2">—</span>;
         }
         const colorCls =
           p.traficJma > 10000 ? "text-green-700" :
-          p.traficJma < 1000  ? "text-orange-600" :
+          p.traficJma < 1000  ? "text-orange-700" :
           "text-gray-700";
         return (
           <span className={`block text-right text-sm tabular-nums pr-2 ${colorCls}`}>

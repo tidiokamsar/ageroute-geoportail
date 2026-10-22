@@ -118,7 +118,7 @@ export function TronconFicheModal({ open, onClose, tronconId }: { open: boolean;
   return (
     <Modal open={open} onClose={onClose} title={title}>
       {isLoading || !data ? (
-        <p className="text-sm text-gray-400">Chargement...</p>
+        <p className="text-sm text-gray-500">Chargement...</p>
       ) : (
         <div>
           <div className="flex justify-end mb-2">
@@ -136,7 +136,7 @@ export function TronconFicheModal({ open, onClose, tronconId }: { open: boolean;
                 }`}
               >
                 {t.label}
-                {t.count != null && <span className="ml-1 text-xs text-gray-400">({t.count})</span>}
+                {t.count != null && <span className="ml-1 text-xs text-gray-500">({t.count})</span>}
               </button>
             ))}
           </div>

@@ -91,7 +91,7 @@ function ChantiersLinkModal({ marche, onClose }: { marche: Marche; onClose: () =
         <div>
           <p className="text-xs font-medium text-gray-500 mb-2">Chantiers actuellement liés ({attached.length})</p>
           {attached.length === 0 ? (
-            <p className="text-sm text-gray-400 italic">Aucun chantier lié à ce marché.</p>
+            <p className="text-sm text-gray-500 italic">Aucun chantier lié à ce marché.</p>
           ) : (
             <div className="space-y-1.5">
               {attached.map((l) => (
@@ -102,7 +102,7 @@ function ChantiersLinkModal({ marche, onClose }: { marche: Marche; onClose: () =
                   </div>
                   <button
                     onClick={() => detach.mutate(l.chantierId)}
-                    className="h-6 w-6 shrink-0 flex items-center justify-center rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50"
+                    className="h-6 w-6 shrink-0 flex items-center justify-center rounded-md text-gray-500 hover:text-red-500 hover:bg-red-50"
                     title="Détacher"
                   >
                     <X className="h-3.5 w-3.5" />
@@ -116,7 +116,7 @@ function ChantiersLinkModal({ marche, onClose }: { marche: Marche; onClose: () =
         <div>
           <p className="text-xs font-medium text-gray-500 mb-2">Lier un nouveau chantier</p>
           <div className="relative mb-2">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
             <Input
               placeholder="Rechercher un chantier (min. 2 caractères)…"
               value={search}
@@ -134,11 +134,11 @@ function ChantiersLinkModal({ marche, onClose }: { marche: Marche; onClose: () =
                   className="w-full text-left rounded-lg border border-gray-200 px-3 py-2 hover:border-navy/40 hover:bg-navy/5 transition-colors flex items-center justify-between gap-2"
                 >
                   <span className="text-sm text-gray-700 truncate">{c.intitule}</span>
-                  <Link2 className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                  <Link2 className="h-3.5 w-3.5 text-gray-500 shrink-0" />
                 </button>
               ))}
               {candidates && candidates.data.filter((c) => !attachedIds.has(c.id)).length === 0 && (
-                <p className="text-xs text-gray-400 italic py-2">Aucun résultat.</p>
+                <p className="text-xs text-gray-500 italic py-2">Aucun résultat.</p>
               )}
             </div>
           )}
@@ -216,7 +216,7 @@ function AvancementModal({ marche, onClose }: { marche: Marche; onClose: () => v
           {avancements && avancements.length > 0 ? (
             <div className="overflow-x-auto max-h-48 overflow-y-auto">
               <table className="w-full text-xs">
-                <thead className="text-gray-400 uppercase">
+                <thead className="text-gray-500 uppercase">
                   <tr className="border-b border-gray-100">
                     <th className="text-left py-1.5">Période</th>
                     <th className="text-right py-1.5">Phys. prévu</th>
@@ -239,7 +239,7 @@ function AvancementModal({ marche, onClose }: { marche: Marche; onClose: () => v
               </table>
             </div>
           ) : (
-            <p className="text-sm text-gray-400 italic">Aucune saisie d'avancement pour ce marché.</p>
+            <p className="text-sm text-gray-500 italic">Aucune saisie d'avancement pour ce marché.</p>
           )}
         </div>
       </div>
@@ -387,7 +387,7 @@ function DecaissementsModal({ marche, onClose }: { marche: Marche; onClose: () =
                     </span>
                     <button
                       onClick={() => remove.mutate(d.id)}
-                      className="h-6 w-6 flex items-center justify-center rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50"
+                      className="h-6 w-6 flex items-center justify-center rounded-md text-gray-500 hover:text-red-500 hover:bg-red-50"
                       title="Supprimer"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -397,7 +397,7 @@ function DecaissementsModal({ marche, onClose }: { marche: Marche; onClose: () =
               ))}
             </div>
           ) : (
-            <p className="text-sm text-gray-400 italic">Aucun décompte enregistré.</p>
+            <p className="text-sm text-gray-500 italic">Aucun décompte enregistré.</p>
           )}
         </div>
       </div>
@@ -464,7 +464,7 @@ export function MarchesPage() {
           : 0;
         return (
           <button onClick={() => setDecaissementsFor(m)} className="flex items-center gap-1.5 group" title="Voir les décaissements">
-            <Wallet className="h-3 w-3 text-gray-400 group-hover:text-navy" />
+            <Wallet className="h-3 w-3 text-gray-500 group-hover:text-navy" />
             <div className="w-12 h-1.5 rounded-full bg-gray-100 overflow-hidden">
               <div className="h-full rounded-full bg-green-500" style={{ width: `${pct}%` }} />
             </div>
@@ -504,7 +504,7 @@ export function MarchesPage() {
       endpoint="marches"
       title="Marchés"
       subtitle="Marchés, décomptes et avancement"
-      pageIcon={<Briefcase className="h-4 w-4 text-emerald-600" />}
+      pageIcon={<Briefcase className="h-4 w-4 text-emerald-700" />}
       searchPlaceholder="Rechercher un marché…"
       columns={columns}
       fields={marcheFields}

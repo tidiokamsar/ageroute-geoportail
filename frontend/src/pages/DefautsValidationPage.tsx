@@ -239,7 +239,7 @@ export function DefautsValidationPage() {
           <section aria-label="Défauts à valider" className="space-y-3">
             {chargementDefauts ? <Card><p className="text-sm text-gray-500">Chargement des défauts…</p></Card>
               : erreurDefauts ? <Card><p className="text-sm text-red-700">{parseApiError(erreurDefauts).message}</p></Card>
-                : defauts.length === 0 ? <Card><div className="flex items-center gap-3 text-gray-600"><CheckCircle2 className="h-5 w-5 text-green-600" /><p>Aucun défaut en attente de validation.</p></div></Card>
+                : defauts.length === 0 ? <Card><div className="flex items-center gap-3 text-gray-600"><CheckCircle2 className="h-5 w-5 text-green-700" /><p>Aucun défaut en attente de validation.</p></div></Card>
                   : defauts.map((item) => (
                     <Card key={item.id} className={selection?.id === item.id ? "border-navy ring-1 ring-navy/20" : ""}>
                       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -303,7 +303,7 @@ export function DefautsValidationPage() {
           <section aria-label="Observations à valider" className="space-y-3">
             {chargementObservations ? <Card><p className="text-sm text-gray-500">Chargement des observations…</p></Card>
               : erreurObservations ? <Card><p className="text-sm text-red-700">{parseApiError(erreurObservations).message}</p></Card>
-                : observations.length === 0 ? <Card><div className="flex items-center gap-3 text-gray-600"><CheckCircle2 className="h-5 w-5 text-green-600" /><p>Aucune observation en attente de validation.</p></div></Card>
+                : observations.length === 0 ? <Card><div className="flex items-center gap-3 text-gray-600"><CheckCircle2 className="h-5 w-5 text-green-700" /><p>Aucune observation en attente de validation.</p></div></Card>
                   : observations.map((item) => (
                     <Card key={item.id} className={selection?.id === item.id ? "border-navy ring-1 ring-navy/20" : ""}>
                       <div className="flex items-start justify-between gap-3"><div><p className="font-semibold text-navy">{item.type}</p><p className="mt-1 text-xs text-gray-500">{dateFr(item.observeA)} · {item.mission?.code ?? "hors mission"}</p></div><span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800">À valider</span></div>

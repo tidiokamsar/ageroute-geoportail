@@ -51,7 +51,7 @@ export function RechercheVille({
     <div className={`w-full ${compact ? "" : "max-w-xs"}`}>
       <div className="flex items-center gap-1.5">
         <div className="relative flex-1">
-          <MapPin className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+          <MapPin className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500" />
           <input
             value={saisie}
             onChange={(e) => { setSaisie(e.target.value); setOuvert("a"); setVilleA(null); }}
@@ -60,7 +60,7 @@ export function RechercheVille({
             className="w-full rounded-lg border border-gray-200 bg-white py-1.5 pl-8 pr-7 text-sm text-navy placeholder:text-gray-400 focus:border-navy/40 focus:outline-none focus:ring-2 focus:ring-navy/20"
           />
           {saisie && (
-            <button onClick={toutEffacer} aria-label="Effacer" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500">
+            <button onClick={toutEffacer} aria-label="Effacer" className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-500">
               <X className="h-3.5 w-3.5" />
             </button>
           )}
@@ -72,9 +72,9 @@ export function RechercheVille({
                     onClick={() => choisir(v)}
                     className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-navy/5"
                   >
-                    <MapPin className="h-3 w-3 text-gray-400" />
+                    <MapPin className="h-3 w-3 text-gray-500" />
                     {v.nom}
-                    <span className="ml-auto text-[10px] text-gray-400">{v.region}</span>
+                    <span className="ml-auto text-[10px] text-gray-500">{v.region}</span>
                   </button>
                 </li>
               ))}
@@ -84,7 +84,7 @@ export function RechercheVille({
 
         {villeA && (
           <>
-            <ArrowRight className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+            <ArrowRight className="h-3.5 w-3.5 shrink-0 text-gray-500" />
             <div className="relative w-32">
               <input
                 value={villeB ? villeB.nom : saisieB}
@@ -101,7 +101,7 @@ export function RechercheVille({
                         onClick={() => choisir(v)}
                         className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-navy/5"
                       >
-                        <MapPin className="h-3 w-3 text-gray-400" />
+                        <MapPin className="h-3 w-3 text-gray-500" />
                         {v.nom}
                       </button>
                     </li>
@@ -118,7 +118,7 @@ export function RechercheVille({
           </>
         )}
       </div>
-      <p className="mt-1 text-[10px] leading-snug text-gray-400">
+      <p className="mt-1 text-[10px] leading-snug text-gray-500">
         Une ville → tronçons à moins de 20 km · deux villes → axe entre les deux (les autres couches restent)
       </p>
     </div>

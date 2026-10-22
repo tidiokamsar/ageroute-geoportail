@@ -3,6 +3,18 @@
 > Exigé par le § 4 du mandat v2.1. Le § 2.7 impose que toute affirmation de réussite cite la
 > commande lancée et son résultat. Aucune ligne de ce fichier n'est écrite sans l'avoir vue.
 
+## 22/10/2026 — lot 5, contraste WCAG 1.4.3 et lint (DT-6)
+
+| Commande | Résultat |
+|---|---|
+| analyse statique, premier relevé | 1 250 paires jugées, **511 échecs** (gris 500 sur `#f4f6f8` : 206 ; gris 400 : 174 ; ardoise 500 : 51 ; rouge 600 : 26...) |
+| après correction (fond `#f8f9fb`, 238 remplacements, 9 paires) | 1 293 paires jugées, **0 échec** hors des 2 fichiers en suspens (21 défauts comptés) |
+| `npx vitest run src/test/contraste.test.ts` | **6 passés** ; contre-épreuve (gris 400 réintroduit dans `OuvragesPage`) : **échec** nommant `OuvragesPage.tsx:117` |
+| `npx vitest run src/features/geoportail/map/symbology.test.ts` | **43 passés** contre le fond lu dans `index.css` |
+| `npx vitest run` (frontend, seul) | **482 passés**, 37 fichiers |
+| `npm run lint` | **0 erreur**, 4 avertissements préexistants |
+| `npx tsc --noEmit` (frontend) | aucune erreur |
+
 ## 22/10/2026 — lots 3 et 4 : rattachement mesuré (A15) et tuiles vectorielles (DT-4, DT-5)
 
 Base privée `dt_bench`, 261 387 tronçons synthétiques (dont 1 700 du réseau classé).

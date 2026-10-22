@@ -65,7 +65,7 @@ export function RapportBailleurPage() {
 
   const tauxDecaissement = kpis.montantEngage > 0 ? (kpis.montantDecaisse / kpis.montantEngage) * 100 : 0;
 
-  if (!bailleurs) return <p className="text-gray-400 p-6">Chargement...</p>;
+  if (!bailleurs) return <p className="text-gray-500 p-6">Chargement...</p>;
 
   return (
     <div className="space-y-4">
@@ -89,7 +89,7 @@ export function RapportBailleurPage() {
               <option value="">Tous les bailleurs</option>
               {bailleurs.map((b) => <option key={b.id} value={b.id}>{b.nom}</option>)}
             </select>
-            <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+            <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-500" />
           </div>
           <Button onClick={printReport}>🖨 Imprimer / PDF</Button>
         </div>
@@ -135,9 +135,9 @@ export function RapportBailleurPage() {
             Détail des marchés {bailleur ? `— ${bailleur.nom}` : "(tous bailleurs)"}
           </h3>
           {isLoading ? (
-            <p className="text-sm text-gray-400 py-6 text-center">Chargement...</p>
+            <p className="text-sm text-gray-500 py-6 text-center">Chargement...</p>
           ) : marches.length === 0 ? (
-            <p className="text-sm text-gray-400 py-6 text-center">Aucun marché pour ce bailleur.</p>
+            <p className="text-sm text-gray-500 py-6 text-center">Aucun marché pour ce bailleur.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -166,10 +166,10 @@ export function RapportBailleurPage() {
                         <td className="py-2 pr-3 text-gray-600">{STATUT_LABEL[m.statut]}</td>
                         <td className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">{fmtGnf(m.montantTotal)}</td>
                         <td className="py-2 pr-3 text-right tabular-nums whitespace-nowrap">
-                          {fmtGnf(m.montantDecaisse)} <span className="text-gray-400">({pctDecaisse.toFixed(0)}%)</span>
+                          {fmtGnf(m.montantDecaisse)} <span className="text-gray-500">({pctDecaisse.toFixed(0)}%)</span>
                         </td>
                         <td className="py-2 pr-3 text-right tabular-nums">
-                          {dernierAv ? `${dernierAv.avancementPhysiqueReel}%` : <span className="text-gray-300">—</span>}
+                          {dernierAv ? `${dernierAv.avancementPhysiqueReel}%` : <span className="text-gray-500">—</span>}
                         </td>
                         <td className="py-2 pr-3 text-gray-600 whitespace-nowrap">{fmtDate(m.dateFinPrevue)}</td>
                         <td className="py-2">
@@ -178,7 +178,7 @@ export function RapportBailleurPage() {
                               <AlertTriangle className="h-3 w-3" /> Retard
                             </span>
                           ) : (
-                            <span className="text-gray-300 text-xs">—</span>
+                            <span className="text-gray-500 text-xs">—</span>
                           )}
                         </td>
                       </tr>
@@ -190,7 +190,7 @@ export function RapportBailleurPage() {
           )}
         </Card>
 
-        <p className="text-[10px] text-gray-400 text-center pb-2 no-print">
+        <p className="text-[10px] text-gray-500 text-center pb-2 no-print">
           Rapport généré automatiquement à partir des données réelles BDRI — méthodologie et pondérations disponibles sur demande.
         </p>
       </div>
