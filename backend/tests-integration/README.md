@@ -56,6 +56,7 @@ Chaque banc nomme ses vérifications, les compte, et sort en **code 1** si une s
 | `teledetection` | transaction annulée | 10 | produits, propositions, tolérance, verdict unique, précision, audit |
 | `veille` | transaction annulée | 10 | astreintes, escalades idempotentes, tableau de veille, audit |
 | `curseur` | **clone `essai_curseur`**, créé puis détruit par le banc | 41 | curseur temporel à deux axes, requalification, découpe, fusion |
+| `outbox` | **clone `essai_outbox`**, créé puis détruit par le banc | 90 | outbox des intégrations sortantes (A13) : aucune donnée non validée n'entre (service et déclencheurs), idempotence, rejeu sans effet de bord, reprise, file morte, anti-double-envoi sous concurrence réelle, absence de fuite de champs internes. **Contre des simulateurs HTTP écrits par AGEROUTE sur 127.0.0.1, jamais contre DigitalRoad, SharePoint ou la BDR / L²R.** Applique la migration 20261024200000 au clone si `replay` ne la porte pas encore |
 
 Soit **122 vérifications**, toutes passantes le 22/10/2026 (`bash tests-integration/run.sh`, code 0).
 
