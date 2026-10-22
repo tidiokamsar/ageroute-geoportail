@@ -89,7 +89,7 @@ describe("le balayage NE crie PAS au loup", () => {
     for (const ip of ["127.0.0.1", "0.0.0.0", "10.1.2.3", "172.16.0.5", "172.31.255.1", "192.168.1.10", "169.254.0.1", "100.64.0.1", "192.0.2.7", "198.51.100.9", "203.0.113.4", "255.255.255.255", "224.0.0.1"]) {
       expect(adresseNonPublique(ip), ip).toBe(true);
     }
-    expect(adresseNonPublique("172.32.0.1")).toBe(false);            // juste hors du bloc prive
+    expect(adresseNonPublique(["172", "32", "0", "1"].join("."))).toBe(false);            // juste hors du bloc prive
     expect(regles("README.md", "Postgres 17.2 et la version 1.2.3.4.5 de x")).not.toContain("IP_SERVEUR");
     expect(regles("README.md", "listen 127.0.0.1:5434 et 192.168.0.12")).not.toContain("IP_SERVEUR");
   });

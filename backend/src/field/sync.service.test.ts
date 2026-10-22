@@ -20,6 +20,9 @@ const h = vi.hoisted(() => ({
   operationsTracees: [] as Array<Record<string, unknown>>,
   /** Nombre de transactions qui echouent encore sur une violation d'unicite (course entre deux envois). */
   p2002Restants: 0,
+  /** Erreur (autre que P2002) levee par la transaction, et traces ecrites HORS transaction. */
+  erreurTransaction: null as Error | null,
+  tracesHorsTransaction: [] as Array<Record<string, unknown>>,
   conflitExistant: null as { id: string } | null,
   defautsCrees: [] as Array<Record<string, unknown>>,
   qualites: [] as Array<Record<string, unknown>>,
@@ -34,11 +37,13 @@ vi.mock("../lib/prisma", () => ({
     operationSync: {
       findUnique: vi.fn(async () => h.operationExists),
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => { h.operationsTracees.push(data); return data; }),
+      upsert: vi.fn(async ({ create }: { create: Record<string, unknown> }) => { h.tracesHorsTransaction.push(create); return create; }),
     },
     defaut: { findUnique: vi.fn(async () => h.defautExists) },
     observation: { findUnique: vi.fn(async () => h.observationRead) },
     conflitSync: { findFirst: vi.fn(async () => h.conflitExistant) },
     $transaction: vi.fn(async (run: (tx: unknown) => Promise<unknown>) => {
+      if (h.erreurTransaction) throw h.erreurTransaction;
       if (h.p2002Restants > 0) {
         h.p2002Restants -= 1;
         const { Prisma } = await import("@prisma/client");
@@ -106,7 +111,8 @@ vi.mock("../utils/audit", () => ({
   logAuditTransactionnelle: vi.fn(async (_tx: unknown, params: Record<string, unknown>) => { h.logAudit(params); }),
 }));
 
-import { appliquer, rejetRetentable } from "./sync.service";
+import { Prisma } from "@prisma/client";
+import { appliquer, champReferenceInconnue, rejetRetentable } from "./sync.service";
 
 const contexte = { appareilId: "device-1", userId: "agent-1" };
 const operationId = "11111111-1111-4111-8111-111111111111";
@@ -122,6 +128,8 @@ beforeEach(() => {
   h.forceObservationCompareFailure = false;
   h.operationsTracees = [];
   h.p2002Restants = 0;
+  h.erreurTransaction = null;
+  h.tracesHorsTransaction = [];
   h.conflitExistant = null;
   h.defautsCrees = [];
   h.qualites = [];
@@ -425,6 +433,37 @@ describe("rejeu d'une operation deja enregistree", () => {
     h.operationExists = { entityId: "secret", entityType: "Observation", statut: "CONFLIT", userId: "agent-2", derniereErreur: "VERSION_PERIMEE" };
     const r = await appliquer(op(), contexte);
     expect(r).toEqual({ operationId, statut: "REJETE", motif: "OPERATION_NON_AUTORISEE" });
+  });
+});
+
+describe("reference inconnue : un refus, pas une panne", () => {
+  const p2003 = (field_name: string) => new Prisma.PrismaClientKnownRequestError("Foreign key constraint violated", { code: "P2003", clientVersion: "test", meta: { field_name } });
+
+  it("reconnait une violation de cle etrangere et nomme le champ", () => {
+    expect(champReferenceInconnue(p2003("portions_revetement_fkey (index)"))).toBe("revetement");
+    expect(champReferenceInconnue(p2003("observations_tronconId_fkey (index)"))).toBe("tronconId");
+    expect(champReferenceInconnue(p2003("inconnu"))).toBe("");
+    const brut = new Prisma.PrismaClientKnownRequestError("raw", { code: "P2010", clientVersion: "test", meta: { code: "23503" } });
+    expect(champReferenceInconnue(brut)).toBe("");
+  });
+
+  it("ne confond pas avec les autres erreurs", () => {
+    expect(champReferenceInconnue(new Error("x"))).toBeUndefined();
+    expect(champReferenceInconnue(new Prisma.PrismaClientKnownRequestError("u", { code: "P2002", clientVersion: "test" }))).toBeUndefined();
+  });
+
+  it("une creation dont la reference est inconnue rend REJETE retentable, trace sans payload, au lieu de lever", async () => {
+    h.erreurTransaction = p2003("portions_revetement_fkey (index)");
+    const r = await appliquer({ operationId, entityType: "Portion", entityId: "11111111-1111-4111-8111-aaaaaaaaaaaa", operation: "CREATE", baseVersion: null, payload: {} }, contexte);
+    expect(r).toMatchObject({ statut: "REJETE", motif: "REFERENCE_INCONNUE:revetement" });
+    expect(typeof r.reessayerDansMs).toBe("number");
+    expect(h.tracesHorsTransaction[0]).toMatchObject({ statut: "REJETE", derniereErreur: "REFERENCE_INCONNUE:revetement", payload: { redacted: true } });
+  });
+
+  it("le renvoi d'une operation a reference inconnue est reevalue, comme ENTITE_INTROUVABLE", () => {
+    expect(rejetRetentable("Portion", "REFERENCE_INCONNUE:revetement")).toBe(true);
+    expect(rejetRetentable("Observation", "REFERENCE_INCONNUE:tronconId")).toBe(true);
+    expect(rejetRetentable("Defaut", "REFERENCE_INCONNUE")).toBe(true);
   });
 });
 

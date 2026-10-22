@@ -88,6 +88,8 @@ async function versionEntite(entityType: string, entityId: string): Promise<numb
  */
 export function rejetRetentable(entityType: string, motif: string | null): boolean {
   if (motif === "ENTITE_INTROUVABLE") return true;
+  // Une reference inconnue peut arriver plus tard (vocabulaire ajoute, observation de la meme file en retard).
+  if (motif !== null && motif.startsWith("REFERENCE_INCONNUE")) return true;
   return entityType === "Portion" && motif !== null && !refusDefinitif(motif);
 }
 
@@ -135,8 +137,51 @@ export async function appliquer(
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       return appliquerUneFois(op, contexte);
     }
+    const champ = champReferenceInconnue(err);
+    if (champ !== undefined) return rejeterReferenceInconnue(op, contexte, champ);
     throw err;
   }
+}
+
+/**
+ * Une operation qui nomme une reference que la base ne connait pas : un vocabulaire absent du
+ * referentiel (revetement, etat, praticabilite), un troncon, une mission ou une observation qui n'existent
+ * pas (ENCORE). Prisma rend P2003 (ou P2010 / 23503 en SQL brut). Renvoie le nom du champ, ou `undefined`
+ * si l'erreur n'est pas de cette famille.
+ */
+export function champReferenceInconnue(err: unknown): string | undefined {
+  if (!(err instanceof Prisma.PrismaClientKnownRequestError)) return undefined;
+  const sql = err.code === "P2010" && (err.meta as { code?: string } | undefined)?.code === "23503";
+  if (err.code !== "P2003" && !sql) return undefined;
+  const contrainte = String((err.meta as { field_name?: string; constraint?: string } | undefined)?.field_name ?? "");
+  // `portions_revetement_fkey (index)` -> `revetement` ; `observations_tronconId_fkey` -> `tronconId`.
+  return /^[a-z_]+?_([A-Za-z]+)_fkey/.exec(contrainte)?.[1] ?? "";
+}
+
+/**
+ * LE REFUS PLUTOT QUE LA PANNE. Avant, une reference inconnue faisait repondre 500 a tout le lot : la
+ * requete n'enregistrait rien, les operations suivantes n'etaient pas traitees, et le telephone reessayait
+ * a l'identique. L'operation est maintenant REFUSEE avec son motif, tracee, et RETENTABLE (la reference peut
+ * arriver plus tard : un vocabulaire ajoute au referentiel, l'observation d'une file arrivee dans le desordre).
+ * La transaction a ete annulee par la base : la trace s'ecrit donc HORS de celle-ci, sans payload.
+ */
+async function rejeterReferenceInconnue(
+  op: OperationEntrante,
+  contexte: { appareilId: string; userId: string },
+  champ: string,
+): Promise<ResultatOperation> {
+  const motif = champ ? `REFERENCE_INCONNUE:${champ}` : "REFERENCE_INCONNUE";
+  const donnees = {
+    appareilId: contexte.appareilId, entityId: op.entityId, operation: op.operation,
+    payload: { redacted: true } as never, baseVersion: op.baseVersion ?? null,
+    statut: "REJETE" as never, derniereErreur: motif, traiteeA: new Date(),
+  };
+  await prisma.operationSync.upsert({
+    where: { operationId: op.operationId },
+    create: { operationId: op.operationId, userId: contexte.userId, entityType: op.entityType, ...donnees },
+    update: { ...donnees, tentatives: { increment: 1 } },
+  });
+  return { operationId: op.operationId, statut: "REJETE", motif, reessayerDansMs: delaiAvantReessai(3) };
 }
 
 /**

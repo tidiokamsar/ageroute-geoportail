@@ -208,6 +208,31 @@ async function main() {
   const attendu = new Map(defauts.map((d) => [d.operationId, d.payload as { lat: number; lon: number }]));
   verifier("A7.8 chaque point PostGIS est le point emis (ecart < 1e-9 degre)", ecarts.length === 20 && ecarts.every((e) => Math.abs(e.lat - attendu.get(e.id)!.lat) < 1e-9 && Math.abs(e.lon - attendu.get(e.id)!.lon) < 1e-9));
 
+  // --- A7.8b Portions hors ligne : le troisieme type de la file locale.
+  const portions: Op[] = Array.from({ length: 5 }, (_, i) => {
+    const id = randomUUID();
+    return { operationId: id, entityType: "Portion", entityId: id, operation: "CREATE", baseVersion: null,
+      payload: { tronconId, debutM: i * 400, finM: i * 400 + 400, revetement: "BITUME", observeeLe: "2026-10-20T08:00:00.000Z", valideDu: null, confiance: "MEDIUM" } };
+  });
+  const idsP = portions.map((p) => `'${p.operationId}'`).join(",");
+  // Le vocabulaire « BITUME » n'est pas encore au referentiel (la base est vide) : la reference est INCONNUE.
+  const rpInconnu = await push(tAgent, devA.id, portions);
+  verifier("A7.8b une reference inconnue (revetement absent du referentiel) est un REFUS tracable et retentable, pas une erreur serveur qui perd le lot",
+    rpInconnu.status === 200 && rpInconnu.body.rejetees === 5 && resultats(rpInconnu).every((x) => x.motif === "REFERENCE_INCONNUE:revetement" && typeof x.reessayerDansMs === "number")
+    && await compter(`SELECT count(*) n FROM portions WHERE "clientOperationId" IN (${idsP})`) === 0, rpInconnu.body);
+  await prisma.$executeRawUnsafe(`INSERT INTO referentiel_revetements (code, libelle, ordre, bitumineux, "updatedAt") VALUES ('BITUME', 'Bitume', 1, true, now())`);
+  const rp1 = await push(tAgent, devA.id, portions);          // le telephone renvoie les MEMES operations, le referentiel a evolue
+  const rp2 = await push(tAgent, devB.id, portions);
+  verifier("A7.8b 5 portions hors ligne apres ajout du vocabulaire : les memes operations sont APPLIQUEES (5 SYNCHRONISE), puis 5 REJOUEE, 5 lignes, toutes A_VALIDER (le terrain propose, il ne valide pas)",
+    rp1.body.synchronisees === 5 && rp2.body.rejouees === 5
+    && await compter(`SELECT count(*) n FROM portions WHERE "clientOperationId" IN (${idsP}) AND "statutValidation"::text = 'A_VALIDER'`) === 5, [rp1.body, rp2.body]);
+  const inversee = { ...portions[0], operationId: randomUUID(), entityId: randomUUID(), payload: { ...portions[0].payload, debutM: 500, finM: 100 } };
+  const ri1 = await push(tAgent, devA.id, [inversee]);
+  const ri2 = await push(tAgent, devA.id, [inversee]);
+  verifier("A7.8b une portion aux bornes inversees est REJETEE (definitif) et, renvoyee, reste REJETEE : jamais rendue comme un succes",
+    resultats(ri1)[0]?.statut === "REJETE" && resultats(ri2)[0]?.statut === "REJETE" && resultats(ri2)[0]?.motif === resultats(ri1)[0]?.motif
+    && await compter(`SELECT count(*) n FROM portions WHERE "clientOperationId" = '${inversee.operationId}'`) === 0, [ri1.body, ri2.body]);
+
   // --- A7.9 Une cle connue n'est pas un oracle : un autre compte ne rejoue pas mon operation.
   const rVol = await push(tAutre, devAutre.id, [file1[0]]);
   verifier("A7.9 un autre agent qui renvoie une de mes cles est REJETE (OPERATION_NON_AUTORISEE), sans rien apprendre",

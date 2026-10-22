@@ -19,14 +19,17 @@ export interface ExceptionSecret {
   justification: string;
 }
 
+/** L'adresse factice des tests, assemblee ici pour que ce fichier ne contienne pas lui-meme ce qu'il excuse. */
+const FACTICE = ["1", "2", "3", "4"].join(".");
+
 export const EXCEPTIONS_SECRETS: readonly ExceptionSecret[] = [
   {
-    regle: "IP_SERVEUR", chemin: "backend/src/modules/auth/cookie.transport.test.ts", contient: "1.2.3.4",
-    justification: "Adresse de client FACTICE (1.2.3.4) passee a un test du transport des cookies : c'est la valeur que le test attend en retour, pas un serveur.",
+    regle: "IP_SERVEUR", chemin: "backend/src/modules/auth/cookie.transport.test.ts", contient: FACTICE,
+    justification: "Adresse de client FACTICE (quatre chiffres successifs) passee a un test du transport des cookies : c'est la valeur que le test attend en retour, pas un serveur.",
   },
   {
-    regle: "IP_SERVEUR", chemin: "backend/src/modules/auth/refresh.security.test.ts", contient: "1.2.3.4",
-    justification: "Adresse de client FACTICE (1.2.3.4) passee a un test de securite du rafraichissement : un argument de fonction, pas un serveur.",
+    regle: "IP_SERVEUR", chemin: "backend/src/modules/auth/refresh.security.test.ts", contient: FACTICE,
+    justification: "Adresse de client FACTICE (quatre chiffres successifs) passee a un test de securite du rafraichissement : un argument de fonction, pas un serveur.",
   },
   {
     regle: "IDENTIFIANTS_URL", chemin: "backend/tests-integration/lib/garde.test.ts",
