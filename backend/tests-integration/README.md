@@ -59,10 +59,17 @@ Chaque banc nomme ses vérifications, les compte, et sort en **code 1** si une s
 
 Soit **122 vérifications**, toutes passantes le 22/10/2026 (`bash tests-integration/run.sh`, code 0).
 
+## Le banc de performance (hors `run.sh`)
+
+`perf/` contient le banc des scenarios A15 et A20 : reseau synthetique deterministe de 20 000 a 261 387 troncons dans un
+clone jetable `essai_perf`, 200 mesures par scenario (p50, p95, p99), verdict contre les seuils du cahier. Il dure de
+dix minutes a deux heures et **n'est pas lance par `run.sh`**. Voir `perf/README.md` et
+`docs/performance/MESURES-A15-A20.md`. Ses modules d'appui ont des tests Vitest (`perf/lib/*.test.ts`), lances par `npm test`.
+
 ## Limites
 
-- Ils tournent sur une base **vide** : aucune mesure de performance ni de comportement sur le volume
-  de production (261 387 tronçons au registre complet).
+- Les bancs ci-dessus tournent sur une base **vide** : aucune mesure de performance ni de comportement sur le volume
+  de production (261 387 tronçons au registre complet). Le banc `perf/` est le seul qui charge ce volume (synthetique).
 - Les jeux de données sont des fixtures écrites pour le banc, pas des données réelles.
 - Les bancs `deviation`, `graphe`, `info-route`, `patrouilles`, `teledetection` et `veille` existaient
   d'abord comme scripts qui imprimaient des valeurs sans rien affirmer ; leurs vérifications ont été
