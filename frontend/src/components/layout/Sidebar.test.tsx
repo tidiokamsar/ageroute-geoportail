@@ -51,3 +51,11 @@ describe("Sidebar : groupe Releve terrain", () => {
     expect(screen.getAllByRole("link", { name: "Défauts terrain" })).toHaveLength(1);
   });
 });
+
+describe("Sidebar : Control Tower", () => {
+  it("figure dans le groupe Pilotage et s'active sur /control-tower", () => {
+    rendreA("/control-tower");
+    expect(screen.getByRole("link", { name: "Control Tower" })).toHaveAttribute("href", "/control-tower");
+    expect(actifs()).toEqual(["Control Tower"]);
+  });
+});

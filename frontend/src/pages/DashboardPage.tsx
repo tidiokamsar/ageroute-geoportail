@@ -7,6 +7,7 @@ import {
 import { api } from "../lib/api";
 import { KpiCard, Card } from "../components/ui/Card";
 import { LongueurReseauCard } from "../components/LongueurReseauCard";
+import { IndicateursControles } from "../components/IndicateursControles";
 import { ETAT_COLORS } from "./geoportail/types";
 import type { ActivityEntry, DashboardKpis } from "../types";
 
@@ -184,6 +185,9 @@ export function DashboardPage() {
           )}
         </div>
       )}
+
+      {/* Indicateurs du registre : périmètre affiché, rapprochement avec la requête de contrôle (A12). */}
+      <IndicateursControles />
 
       {/* ── Bandeau alerte ────────────────────────────────────────────────── */}
       {data.alertesCount > 0 && (
