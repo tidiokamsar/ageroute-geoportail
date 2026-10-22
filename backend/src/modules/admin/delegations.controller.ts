@@ -1,5 +1,6 @@
 import type { Request, Response, NextFunction } from "express";
 import { z } from "zod";
+import { queryBoolean } from "../../lib/list-query";
 import { prisma } from "../../lib/prisma";
 import { ApiError } from "../../middleware/error.middleware";
 import { logAuditTransactionnelle, construireAudit } from "../../utils/audit";
@@ -59,7 +60,7 @@ export async function listDelegationsHandler(req: Request, res: Response, next: 
     const q = z.object({
       domaine: z.enum(DOMAINES_VALIDATION as unknown as [string, ...string[]]).optional(),
       /** Par defaut on rend TOUT, historique compris : c'est ce qu'un audit demande. */
-      enVigueurSeulement: z.coerce.boolean().optional(),
+      enVigueurSeulement: queryBoolean,
     }).parse(req.query);
 
     const lignes = await prisma.delegationValidation.findMany({
