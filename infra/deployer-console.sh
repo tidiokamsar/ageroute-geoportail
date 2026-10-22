@@ -28,8 +28,8 @@ set -euo pipefail
 COMMIT="${1:-}"
 SHA_ATTENDU="${2:-}"
 ARCHIVE_LOCALE="${3:-}"
-ATTENDUES_EN_ATTENTE=4
-PREMIERE_EN_ATTENTE="20261024100000_sessions_roulage"
+ATTENDUES_EN_ATTENTE=6
+PREMIERE_EN_ATTENTE="20261023200000_index_troncons_geom_planaire"
 DEPOT="tidiokamsar/ageroute-geoportail"
 HORODATAGE="$(date +%Y%m%d-%H%M%S)"
 SAUVEGARDES="/var/backups/bdri-deploiement/${HORODATAGE}"
@@ -133,6 +133,23 @@ if grep -qx "20261020020000_index_gist_complets" "${SAUVEGARDES}/en-attente.txt"
   vert "aucun : la migration 20261020020000 ne cree pas de doublon"
 else
   vert "20261020020000 n est pas en attente : ses index vivent deja (deploiement precedent), la garde ne la concerne plus"
+fi
+
+# ---------------------------------------------------------------------------------------------
+etape "7b. Garde-fous des migrations de performance (index planaire, recherche trigramme)"
+# 20261023200000 pose un index GiST PLANAIRE sur troncons.geom ; 20261023210000 cree l'extension pg_trgm et
+# deux index GIN. Ces trois index se construisent SANS CONCURRENCE : l'ecriture sur `troncons` est bloquee le
+# temps de la construction (secondes, sur environ 261 000 lignes). Les gardes ne parlent que si la migration
+# correspondante est vraiment en attente.
+if grep -qx "20261023200000_index_troncons_geom_planaire" "${SAUVEGARDES}/en-attente.txt"; then
+  PLANAIRE=$(psql_prod "SELECT string_agg(indexname, ', ') FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'troncons' AND indexname <> 'troncons_geom_gist' AND indexdef ILIKE '%USING gist (geom)%'")
+  [ -z "$PLANAIRE" ] || arret "un index GiST planaire existe deja sur troncons.geom (${PLANAIRE}) : la migration 20261023200000 creerait un doublon, a examiner avant de deployer"
+  vert "aucun index GiST planaire prealable sur troncons.geom"
+fi
+if grep -qx "20261023210000_recherche_troncons_trigramme" "${SAUVEGARDES}/en-attente.txt"; then
+  TRGM=$(psql_prod "SELECT count(*) FROM pg_available_extensions WHERE name = 'pg_trgm'")
+  [ "$TRGM" = "1" ] || arret "l'extension pg_trgm n'est pas disponible dans cette base : 20261023210000 echouerait"
+  vert "extension pg_trgm disponible"
 fi
 
 # ---------------------------------------------------------------------------------------------
