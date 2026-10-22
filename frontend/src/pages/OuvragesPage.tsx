@@ -60,7 +60,7 @@ function ThumbCell({ photos }: { photos?: string[] | null }) {
 
   if (!filename) {
     return (
-      <div className="h-9 w-9 rounded-md bg-gray-100 flex items-center justify-center text-gray-300">
+      <div className="h-9 w-9 rounded-md bg-gray-100 flex items-center justify-center text-gray-600">
         <ImageOff className="h-4 w-4" />
       </div>
     );
@@ -141,7 +141,7 @@ export function OuvragesPage() {
         o.troncon ? (
           <span className="text-sm font-medium text-navy">{o.troncon.code}</span>
         ) : (
-          <span className="text-sm text-gray-300">—</span>
+          <span className="text-sm text-gray-500">—</span>
         ),
     },
     {
@@ -151,7 +151,7 @@ export function OuvragesPage() {
         o.pk != null ? (
           <span className="text-xs font-mono text-gray-600 whitespace-nowrap tabular-nums">PK {o.pk}</span>
         ) : (
-          <span className="text-sm text-gray-300">—</span>
+          <span className="text-sm text-gray-500">—</span>
         ),
     },
     {
@@ -159,7 +159,7 @@ export function OuvragesPage() {
       header: () => <span className="block text-right w-full">Longueur</span>,
       cell: ({ row: { original: o } }) => (
         <span className="block text-right text-sm text-gray-600 tabular-nums pr-2">
-          {o.longueurM != null ? `${o.longueurM} m` : <span className="text-gray-300">—</span>}
+          {o.longueurM != null ? `${o.longueurM} m` : <span className="text-gray-500">—</span>}
         </span>
       ),
     },
@@ -175,7 +175,7 @@ export function OuvragesPage() {
       endpoint="ouvrages"
       title="Ouvrages d'art"
       subtitle="Ponts, dalots, buses et ouvrages hydrauliques"
-      pageIcon={<Landmark className="h-4 w-4 text-teal-600" />}
+      pageIcon={<Landmark className="h-4 w-4 text-teal-700" />}
       searchPlaceholder="Rechercher un ouvrage…"
       columns={columns}
       fields={ouvrageFields}

@@ -28,7 +28,7 @@ export function FilterSelect({ value, onChange, children }: {
       >
         {children}
       </select>
-      <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+      <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-500" />
     </div>
   );
 }
@@ -158,7 +158,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
           {rowExtraActions?.map((action) => (
             <button
               key={action.label}
-              className="px-2 py-1 rounded text-xs text-gray-400 hover:text-navy hover:bg-gray-100"
+              className="px-2 py-1 rounded text-xs text-gray-500 hover:text-navy hover:bg-gray-100"
               onClick={() => action.onClick(row.original)}
             >
               {action.label}
@@ -168,7 +168,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
             <button
               onClick={() => bulkRestore.mutate([row.original.id])}
               title="Restaurer"
-              className="p-1.5 rounded text-gray-400 hover:text-green-600 hover:bg-green-50"
+              className="p-1.5 rounded text-gray-500 hover:text-green-600 hover:bg-green-50"
             >
               <RotateCcw className="h-3.5 w-3.5" />
             </button>
@@ -179,7 +179,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
           {canWrite(user?.role) && (
             <button
               title="Modifier"
-              className="p-1.5 rounded text-gray-400 hover:text-navy hover:bg-gray-100"
+              className="p-1.5 rounded text-gray-500 hover:text-navy hover:bg-gray-100"
               onClick={() => {
                 setEditing(row.original);
                 setFormError(null);
@@ -193,7 +193,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
           {canDelete(user?.role) && (
             <button
               title="Archiver"
-              className="p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50"
+              className="p-1.5 rounded text-gray-500 hover:text-red-500 hover:bg-red-50"
               onClick={async () => {
                 if (await confirm("Archiver cet élément ?", { danger: true })) remove.mutate(row.original.id);
               }}
@@ -204,7 +204,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
           {rowExtraActions?.map((action) => (
             <button
               key={action.label}
-              className="px-2 py-1 rounded text-xs text-gray-400 hover:text-navy hover:bg-gray-100"
+              className="px-2 py-1 rounded text-xs text-gray-500 hover:text-navy hover:bg-gray-100"
               onClick={() => action.onClick(row.original)}
             >
               {action.label}
@@ -213,7 +213,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
           {auditEntityType && (
             <button
               title="Historique"
-              className="p-1.5 rounded text-gray-400 hover:text-navy hover:bg-gray-100"
+              className="p-1.5 rounded text-gray-500 hover:text-navy hover:bg-gray-100"
               onClick={() => setHistoryId(row.original.id)}
             >
               <Clock className="h-3.5 w-3.5" />
@@ -309,7 +309,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
           />
           Tout sélectionner
         </label>
-        <span className="text-sm text-gray-400">
+        <span className="text-sm text-gray-500">
           {(data?.total ?? 0).toLocaleString("fr-FR")} élément{(data?.total ?? 0) !== 1 ? "s" : ""}
         </span>
       </div>

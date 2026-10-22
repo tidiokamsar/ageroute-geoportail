@@ -41,9 +41,9 @@ export function AuditHistoryModal({
   return (
     <Modal open={open} onClose={onClose} title={`Historique — ${title}`}>
       {isLoading ? (
-        <p className="text-sm text-gray-400">Chargement...</p>
+        <p className="text-sm text-gray-500">Chargement...</p>
       ) : !data?.data.length ? (
-        <p className="text-sm text-gray-400">Aucune opération enregistrée.</p>
+        <p className="text-sm text-gray-500">Aucune opération enregistrée.</p>
       ) : (
         <ul className="space-y-2 max-h-96 overflow-y-auto">
           {data.data.map((e) => {
@@ -54,7 +54,7 @@ export function AuditHistoryModal({
                   <span className={`rounded px-2 py-0.5 text-xs font-semibold ${a.cls}`}>{a.label}</span>
                   <span className="text-gray-700">{e.auteur}</span>
                 </div>
-                <span className="text-xs text-gray-400">{new Date(e.createdAt).toLocaleString("fr-FR")}</span>
+                <span className="text-xs text-gray-500">{new Date(e.createdAt).toLocaleString("fr-FR")}</span>
               </li>
             );
           })}

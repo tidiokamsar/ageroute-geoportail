@@ -277,9 +277,9 @@ export function PrevisionsBudgetaires() {
       )}
 
       {isLoading ? (
-        <p className="text-sm text-gray-400">Chargement…</p>
+        <p className="text-sm text-gray-500">Chargement…</p>
       ) : lignes.length === 0 ? (
-        <p className="text-sm text-gray-400 py-4 text-center">
+        <p className="text-sm text-gray-500 py-4 text-center">
           Aucune prévision saisie. {peutSaisir ? "La première se pose ci-dessus : rien n'est prérempli." : "Aucune saisie n'est possible depuis un compte lecteur."}
         </p>
       ) : (
@@ -303,7 +303,7 @@ export function PrevisionsBudgetaires() {
                   <td className="py-2 pr-3 font-semibold text-navy tabular-nums">{l.annee}</td>
                   <td className="py-2 pr-3 text-gray-700">
                     {l.intitule}
-                    {l.tronconCode && <span className="text-xs text-gray-400"> · {l.tronconCode}</span>}
+                    {l.tronconCode && <span className="text-xs text-gray-500"> · {l.tronconCode}</span>}
                   </td>
                   <td className="py-2 pr-3 text-gray-600">{l.bailleur ?? "—"}</td>
                   <td className="py-2 pr-3 text-gray-500">{l.typeIntervention ?? "—"}</td>

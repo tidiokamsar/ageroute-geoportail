@@ -10,6 +10,13 @@ descendantes : ces scripts sont ecrits a la main, un par migration, et nommes d'
 refusent de s'executer. Toutes ont ete executees par le banc `verifier.sh` : 238 verifications, 0
 echec. Voir « Ce que le banc prouve, et ce qu'il ne prouve pas » avant de s'y fier.
 
+> **Branche `lot/17-consignes-dt`, 22/10/2026 (nuit)** : **77 migrations, 77 descentes** (apres rebase sur `34ee0ed`), banc
+> `verifier.sh --strict` : **272 verifications, 0 echec**. Les trois ajoutees par cette branche
+> (`20261025100000_metre_emprise_utm`, `20261025110000_index_geom_troncons`,
+> `20261025120000_teledetection_coherence_complements`) sont toutes reversibles ; la premiere refuse
+> sans derogation si un defaut porte la methode `EMPRISE_UTM`, la troisieme rend a l'identique la
+> fonction et la vue de `20261022020000`.
+
 | Famille | Migrations | Ce que fait la descente |
 |---|---|---|
 | Ajout de colonnes, de tables, d'index | la grande majorite | retire ce que la migration a ajoute, apres une **garde** (voir plus bas) |

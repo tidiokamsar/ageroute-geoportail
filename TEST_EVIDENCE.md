@@ -3,6 +3,27 @@
 > Exigé par le § 4 du mandat v2.1. Le § 2.7 impose que toute affirmation de réussite cite la
 > commande lancée et son résultat. Aucune ligne de ce fichier n'est écrite sans l'avoir vue.
 
+## 22/10/2026 (nuit) — apports de la branche `lot/17-consignes-dt` (DT-2, DT-4 à DT-8)
+
+Branche partie de `origin/lot/03-map-matching` (`94b8769`, puis rebasée sur `34ee0ed`), qui portait déjà T-27 (A30) et T-32 (A10) :
+les versions concurrentes de la branche `lot/14-consignes-dt` n'y sont PAS reprises ; seuls les apports
+propres le sont, migrations renumérotées après `20261024200000`. Rien n'a été exécuté contre la production.
+
+| Commande | Résultat |
+|---|---|
+| `verifier.sh --strict --garder` | **75 migrations, 264 vérifications, 0 échec** ; après rebase sur `34ee0ed` : **77 migrations, 272 vérifications, 0 échec**, 0 sans descente |
+| `infra/ci/bancs-sql.sh` sur la base laissée par le banc | **16 bancs, 0 échec** ; après rebase : **17 bancs, 0 échec** (dont `teledetection_complements`, `metre_reference`, `outbox`) |
+| `teledetection_complements.test.sql` sur `replay`, sans la migration (contre-épreuve) | échoue : « Proposition sur produit retire acceptee » |
+| `npx tsx tests-integration/metre.integration.ts` | **30/30** |
+| `npx tsx tests-integration/tuiles.integration.ts` | **9/9** |
+| `npx tsx tests-integration/coherence.integration.mts` (clone `essai_coherence`, détruit ensuite) | **12/12** |
+| `territoire.couverture.test.ts` : contrôle retiré d'un service CRUD, puis garde retirée d'une route v2 | **4 échecs**, puis **1 échec**, nommant chaque route |
+| requête de la garde anti-doublon de `deployer-console.sh` | nomme `troncons_geom_gist` sur une base qui le porte ; rien sur `replay` |
+| `npx vitest run` (backend) | **1 992 passés sur 1 993** ; 1 échec : `trace.import.noyau.test.ts` « reste linéaire sur un fichier volumineux » (3,8 s pour un plafond de 2 s, sous la charge de la suite) — **seul : 21/21, 512 ms**. Test de durée de T-24, code non modifié ici |
+| `npx vitest run` (frontend, seul) | **489 passés**, 39 fichiers |
+| après rebase sur `34ee0ed` : `npx vitest run` backend puis frontend | **2 464 passés** (152 fichiers, 0 échec) ; **642 passés** (50 fichiers, 0 échec, garde-fou de contraste compris) ; `tsc` et lint : 0 erreur |
+| `npm run lint` ; `npx tsc --noEmit` (backend, frontend) | 0 erreur (4 avertissements connus) ; aucune erreur |
+
 ## 22/10/2026 (soir) — fusion de lot/14-observation-terre dans lot/03-map-matching
 
 Exécuté et lu le 22/10/2026 après la fusion `437908f` (partie E, A10, CI/S-4). Rien n'a été exécuté contre la production.

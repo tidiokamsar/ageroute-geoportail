@@ -81,3 +81,21 @@ et de validation, pas par la télédétection.
 | Corridor pilote | AGEROUTE | emprise des premières requêtes |
 | Procédure d'activation Copernicus EMS | AGEROUTE, voie institutionnelle | cartographie rapide après catastrophe |
 | Paliers 1 à 3 | AGEROUTE, autorisation de dépense | rien avant un cas d'usage mesuré au pilote |
+
+## 8. Compléments de cohérence (22/10/2026, DT-7)
+
+Par-dessus T-27 (`20261022020000`), la migration `20261025120000_teledetection_coherence_complements`
+ajoute, sans retirer aucune règle :
+
+| Ajout | Pourquoi |
+|---|---|
+| refus d'une proposition sur un produit ou une référence **retiré** du registre | un produit retiré ne doit plus produire de détection |
+| refus d'un rattachement à un tronçon retiré ou à une **distance déclarée** (écart > 1 cm à la distance mesurée) | un rattachement se mesure, il ne s'affirme pas |
+| produit cité **figé**, aucune **suppression physique** | la précision mesurée doit se rapporter au produit tel qu'il était |
+| trois règles de plus dans la vue : `PRODUIT_RETIRE_EN_ATTENTE`, `MISSION_SANS_VERDICT`, `VERDICT_AVANT_FIN_MISSION` | ce qui survient après le dépôt |
+
+La **nature** de la référence n'est pas contrainte : une référence optique d'avant la crue comparée à
+un radar d'après est une méthode courante. `GET /api/v2/teledetection/coherence` rend chaque anomalie
+avec sa gravité (BLOQUANTE : précision faussée ; A_EXAMINER : en suspens) ; l'écran `/teledetection`
+l'affiche. La descente rend la vue et la fonction d'origine **à l'identique** (vérifié par le banc
+`verifier.sh` et par le banc d'intégration `coherence`).

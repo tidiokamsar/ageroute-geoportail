@@ -192,7 +192,7 @@ export function DashboardPage() {
       {/* ── Bandeau alerte ────────────────────────────────────────────────── */}
       {data.alertesCount > 0 && (
         <div className="flex items-center gap-3 rounded-xl border-l-4 border-l-red-500 border border-red-200 bg-red-50 px-4 py-3">
-          <AlertOctagon className="h-5 w-5 text-red-500 shrink-0" />
+          <AlertOctagon className="h-5 w-5 text-red-600 shrink-0" />
           <div className="flex-1">
             <p className="text-sm font-semibold text-red-800">
               {data.alertesCount} alerte(s) critique(s)
@@ -283,11 +283,11 @@ export function DashboardPage() {
               <h3 className="text-sm font-semibold text-gray-700">Activité récente</h3>
             </div>
             {!activity || activity.length === 0 ? (
-              <p className="text-sm text-gray-400">Aucune activité récente.</p>
+              <p className="text-sm text-gray-500">Aucune activité récente.</p>
             ) : (
               <ul className="max-h-[260px] overflow-y-auto">
                 {activity.map((a) => {
-                  const badge = ACTION_BADGE[a.action] ?? { cls: "bg-gray-100 text-gray-500", symbol: "·" };
+                  const badge = ACTION_BADGE[a.action] ?? { cls: "bg-gray-100 text-gray-600", symbol: "·" };
                   return (
                     <li key={a.id} className="flex items-start gap-2.5 py-1.5 border-b border-gray-50 last:border-0">
                       <span className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${badge.cls}`}>
@@ -299,7 +299,7 @@ export function DashboardPage() {
                           {ACTION_LABELS[a.action] ?? a.action}{" "}
                           {ENTITY_LABELS[a.entityType] ?? a.entityType}
                         </p>
-                        <p className="text-[10px] text-gray-400 mt-0.5">{timeAgo(a.createdAt)}</p>
+                        <p className="text-[10px] text-gray-500 mt-0.5">{timeAgo(a.createdAt)}</p>
                       </div>
                     </li>
                   );

@@ -151,7 +151,7 @@ correspondance et l'état.
 
 | Domaine | Référence | État |
 |---|---|---|
-| Conventions géospatiales | § 7.1 🔒 | 🟠 longueurs en `geography` ; concaténation SQL corrigée ([ADR-005](../../TECHNICAL_DECISIONS.md)) ; **UTM 28N/29N employé** par `metre_utm` (écart de 0,04 à 0,18 % à l'ellipsoïde, sur géométries connues) ; index GiST sur toutes les colonnes géométriques ; `ST_IsValid` contrôlé sur les tronçons seulement |
+| Conventions géospatiales | § 7.1 🔒 | 🟠 longueurs en `geography` ; concaténation SQL corrigée ([ADR-005](../../TECHNICAL_DECISIONS.md)) ; **UTM 28N/29N employé** par `metre_utm` (écart de 0,04 à 0,18 % à l'ellipsoïde, sur géométries connues) ; **jeu de 9 géométries de référence et noyau TypeScript concordant au millionième** (A5 TT, DT-2) ; métré des défauts par emprise ; index GiST sur toutes les colonnes géométriques ; `ST_IsValid` contrôlé sur les tronçons seulement |
 | Référencement linéaire | § 7.2 | 🟡 portions, lignage, exclusion et **bitemporalité à deux axes** faits ; date d'effet saisissable depuis le 22/10 ; codification nationale absente (D-06) |
 | Map-matching | § 7.3 | 🟡 ponctuel complet ; **HMM de trace** et **graphe du réseau** faits et branchés à `POST /api/v2/geo/trace` ; tolérance de fusion réelle, sens uniques et performance nationale non mesurés |
 | Catalogue et métrés | § 7.4 | ✅ sauf photos de référence par gravité |
@@ -159,12 +159,12 @@ correspondance et l'état.
 | Moteur de qualité | § 7.6 | ✅ |
 | Évaluation, prévision, programmation | § 7.7 | 🟠 RCI écrit et **désapprouvé** (D-00) ; catalogue des traitements ; moteur de coût qui refuse d'estimer sans barème ; risque et programmation : voir la ligne 7.7 de la matrice |
 | Mobile | § 7.8 | ❌ PWA seule ; Capacitor retenu (ADR-009), non commencé ; aucun APK compilable ici (B-10) |
-| Sécurité | § 7.9 | 🟠 RBAC fait ; **contrôle territorial des écritures sur les huit domaines livré** (T-32), **sans effet tant qu'aucun compte n'a de périmètre** (D-11) ; réduction des privilèges de `bdri_app` scriptée et éprouvée sur base jetable (T-33), non exécutée en production ; risques B-18 à B-21 ouverts — *22/10* |
+| Sécurité | § 7.9 | 🟠 RBAC fait ; **contrôle territorial des écritures sur les huit domaines livré** (T-32 ; écran d'administration et garde-fou de couverture, DT-8), **sans effet tant qu'aucun compte n'a de périmètre** (D-11) ; réduction des privilèges de `bdri_app` scriptée et éprouvée sur base jetable (T-33), non exécutée en production ; risques B-18 à B-21 ouverts — *22/10* |
 | Intégrations | § 7.10 | ⛔ aucun accès (B-11, B-12) |
-| Interface web | § 7.11 | 🟠 lint d'accessibilité opérationnel ; WCAG 2.1 AA mesuré par axe-core sur 8 écrans, 0 violation ; contraste, géoportail et tableau de bord non mesurés |
+| Interface web | § 7.11 | 🟠 lint d'accessibilité opérationnel ; WCAG 2.1 AA mesuré par axe-core sur 8 écrans, 0 violation ; **contraste mesuré statiquement et corrigé** (511 échecs → 0 sur 1 337 paires, DT-6) ; géoportail et tableau de bord non mesurés sous axe-core, aucun essai en navigateur réel |
 | Tableau de bord | § 7.12 | 🟠 périmètre, portions validées et qualité affichés (15/10) ; Control Tower et Fiche 360° absents |
 | Collecte en roulage | § 7.13 | 🟠 **côté serveur seulement** : analyse d'une trace GPX ou CSV importée et écran « Relevé en véhicule » ; l'enregistrement sur le téléphone n'est pas commencé |
-| Excellence référentiel et Géoportail | § 7.14 | 🟠 faits : déviation routée sur le graphe, permaliens, curseur temporel, métadonnées ISO 19115 (XML non validé contre les XSD). Absents : codification nationale, gazetier, vue de route, carte des années futures. Services OGC et tuiles vectorielles écartés par la mesure (voir [LOGIROAD_BENCHMARK.md](../../LOGIROAD_BENCHMARK.md)) |
+| Excellence référentiel et Géoportail | § 7.14 | 🟠 faits : déviation routée sur le graphe, permaliens, curseur temporel, métadonnées ISO 19115 (XML non validé contre les XSD). Absents : codification nationale, gazetier, vue de route, carte des années futures. Services OGC écartés par la mesure ; **tuiles vectorielles servies côté serveur** (DT-5) mais non affichées (B-30, voir [LOGIROAD_BENCHMARK.md](../../LOGIROAD_BENCHMARK.md)) |
 
 Les 70 fonctions étendues du § 14 (T-, E-, PR-, R-, D-, P-, G-, X-) sont intégrées par
 référence, avec leurs priorités MoSCoW et leurs lots. Conformément au § 14, **même les fonctions

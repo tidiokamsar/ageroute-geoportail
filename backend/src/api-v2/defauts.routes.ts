@@ -1,3 +1,5 @@
+import { mesurerGeometrie } from "../geo/metre.service";
+import { compatible, empriseComble, EXPLICATIONS_EMPRISE, quantiteParEmprise } from "../field/defauts.emprise";
 import { Router, type Request, type RequestHandler } from "express";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile, unlink } from "node:fs/promises";
@@ -110,6 +112,9 @@ const creation = z.object({
   gravite: z.number().int().min(1).optional(),
   etendue: z.enum(["PONCTUEL", "LOCALISE", "ETENDU", "GENERALISE"]).optional(),
   mesures: mesuresSchema.optional(),
+  // Contour releve au GPS : ligne pour un defaut en metres, polygone pour un defaut en metres
+  // carres. Metre en UTM quand les mesures manquent (field/defauts.emprise.ts).
+  emprise: z.object({ type: z.enum(["LineString", "Polygon"]), coordinates: z.array(z.unknown()).min(1) }).strict().optional(),
 }).strict();
 
 /**
@@ -261,7 +266,25 @@ defautsV2Router.post("/", requireAuth, requireModuleAccess("inspections"), terri
       profondeurM: c.mesures?.profondeurM ?? null,
       quantiteSaisie: c.mesures?.quantiteSaisie ?? null,
     };
-    const metre = metrer(mesures, typeDefaut(catalogue), troncon?.longueurKm ? troncon.longueurKm * 1000 : null);
+    const longueurTronconM = troncon?.longueurKm ? troncon.longueurKm * 1000 : null;
+    let metre = metrer(mesures, typeDefaut(catalogue), longueurTronconM);
+
+    // EMPRISE : mesuree par PostGIS dans son fuseau UTM, refusee si invalide (jamais reparee) ou
+    // si elle contredit l'unite du type. Elle ne comble que les mesures qu'elle remplace.
+    if (c.emprise) {
+      if (!compatible(catalogue.unite, c.emprise.type)) {
+        return res.status(422).json({ message: EXPLICATIONS_EMPRISE.EMPRISE_INCOMPATIBLE, motif: "EMPRISE_INCOMPATIBLE" });
+      }
+      const mesure = await mesurerGeometrie(prisma, c.emprise);
+      if (!mesure.ok) {
+        return res.status(422).json({ message: `Emprise ${mesure.code === "GEOMETRIE_ILLISIBLE" ? "illisible" : "invalide"} : ${mesure.raison}.`, motif: mesure.code });
+      }
+      if (empriseComble(metre, catalogue.unite, c.emprise.type)) {
+        const q = quantiteParEmprise(catalogue.unite, c.emprise.type, mesure.mesure, longueurTronconM);
+        if (q.valeur === null) return res.status(422).json({ message: EXPLICATIONS_EMPRISE[q.motif], motif: q.motif });
+        metre = { valeur: q.valeur, unite: catalogue.unite, methode: q.methode };
+      }
+    }
     if (metre.valeur === null && metre.motif !== "MESURES_INSUFFISANTES") {
       // MESURES_INSUFFISANTES reste franchissable : il ne survient que pour un type
       // sans mesures exigees (AUTRE) saisi sans releve. Le defaut existe, sa quantite
@@ -331,9 +354,14 @@ defautsV2Router.post("/", requireAuth, requireModuleAccess("inspections"), terri
         constateParId: user.id,
         },
       });
+      // L'emprise se pose dans la MEME transaction que la quantite qu'elle a servi a calculer :
+      // l'une sans l'autre ne se verifierait plus.
+      if (c.emprise) {
+        await tx.$executeRaw`UPDATE "defauts" SET "emprise" = ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(c.emprise)}), 4326) WHERE "id" = ${cree.id}`;
+      }
       await logAuditTransactionnelle(tx, {
         userId: user.id, action: "CREATE", entityType: "Defaut",
-        entityId: cree.id, after: { code: cree.code, catalogue: catalogue.code, quantite: cree.quantite },
+        entityId: cree.id, after: { code: cree.code, catalogue: catalogue.code, quantite: cree.quantite, methodeQuantite: cree.methodeQuantite, emprise: c.emprise ? c.emprise.type : null },
         ipAddress: req.ip,
       });
       return cree;

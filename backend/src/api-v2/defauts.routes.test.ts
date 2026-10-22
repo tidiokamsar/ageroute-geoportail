@@ -31,6 +31,8 @@ const h = vi.hoisted(() => {
     ORNIERAGE: { id: 2, code: "ORNIERAGE", unite: "METRE", mesuresRequises: ["LONGUEUR", "PROFONDEUR"], graviteMax: 4, actif: true, version: 1, famille: "CHAUSSEE", libelle: "Orniérage" },
     SIGNALISATION: { id: 12, code: "SIGNALISATION", unite: "UNITE", mesuresRequises: ["NOMBRE"], graviteMax: null, actif: true, version: 1, famille: "SIGNALISATION", libelle: "Signalisation" },
     AUTRE: { id: 13, code: "AUTRE", unite: "UNITE", mesuresRequises: [], graviteMax: 4, actif: true, version: 1, famille: "CHAUSSEE", libelle: "Autre" },
+    FISSURE: { id: 14, code: "FISSURE", unite: "METRE", mesuresRequises: ["LONGUEUR"], graviteMax: 4, actif: true, version: 1, famille: "CHAUSSEE", libelle: "Fissure" },
+    FAIENCAGE: { id: 15, code: "FAIENCAGE", unite: "METRE_CARRE", mesuresRequises: [], graviteMax: 4, actif: true, version: 1, famille: "CHAUSSEE", libelle: "Faiencage" },
   };
   return {
     compte: { id: "agent-1", role: "INSPECTEUR" },
@@ -53,8 +55,13 @@ const h = vi.hoisted(() => {
     match: { tronconId: "t1", code: "RN1-001", nom: "RN1", classe: "RN", distanceM: 3, abscisseM: 120, pk: 4.2, pkMotif: "CALCULE", confiance: 0.9, ambigu: false },
     apparier: vi.fn(async () => h.match),
     tronconTrouve: { id: "t1", longueurKm: 2.0 },
+    /** Ce que PostGIS rendrait pour l'emprise envoyee (geo/metre.service). */
+    mesureEmprise: { ok: true, mesure: { epsg: 32628, longueurM: 12.5, surfaceM2: 0 } } as Record<string, unknown>,
+    executeRaw: [] as unknown[][],
   };
 });
+
+vi.mock("../geo/metre.service", () => ({ mesurerGeometrie: vi.fn(async () => h.mesureEmprise) }));
 
 vi.mock("../middleware/auth.middleware", () => ({
   requireAuth: (req: express.Request, _r: express.Response, n: express.NextFunction) => {
@@ -189,6 +196,7 @@ vi.mock("../lib/prisma", () => ({
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: "media-1", ...data })),
     },
     $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn({
+      $executeRaw: vi.fn(async (...a: unknown[]) => { h.executeRaw.push(a); return 1; }),
       // Le serveur materialise l'observation conteneur DANS cette transaction depuis que
       // `defauts.observationId` est NOT NULL. Un mock sans ce delegue ferait rendre 500
       // a la creation, sans dire pourquoi.
@@ -295,6 +303,50 @@ beforeEach(() => {
 
 describe("POST /api/v2/defauts — création", () => {
   const gps = { lat: 9.5, lon: -13.7 };
+
+  describe("Métré par l'emprise relevée (A5)", () => {
+    const ligne = { type: "LineString", coordinates: [[-13.7, 9.5], [-13.6999, 9.5]] };
+    const polygone = { type: "Polygon", coordinates: [[[-13.7, 9.5], [-13.6999, 9.5], [-13.6999, 9.5001], [-13.7, 9.5]]] };
+    beforeEach(() => { h.executeRaw.length = 0; h.mesureEmprise = { ok: true, mesure: { epsg: 32628, longueurM: 12.5, surfaceM2: 6.25 } }; });
+
+    it("une fissure contournée sans mesure : longueur UTM, méthode EMPRISE_UTM, emprise posée dans la transaction", async () => {
+      const r = await request(app).post("/api/v2/defauts").send({ catalogueCode: "FISSURE", ...gps, gravite: 1, emprise: ligne });
+      expect(r.status).toBe(201);
+      expect(r.body).toMatchObject({ quantite: 12.5, methodeQuantite: "EMPRISE_UTM", uniteQuantite: "METRE" });
+      const sql = (h.executeRaw[0][0] as string[]).join("?");
+      expect(sql).toContain('UPDATE "defauts" SET "emprise"');
+      expect(h.executeRaw[0].slice(1)).toContain(JSON.stringify(ligne));
+    });
+    it("un faïençage contourné : surface UTM", async () => {
+      const r = await request(app).post("/api/v2/defauts").send({ catalogueCode: "FAIENCAGE", ...gps, gravite: 1, emprise: polygone });
+      expect(r.status).toBe(201);
+      expect(r.body).toMatchObject({ quantite: 6.25, methodeQuantite: "EMPRISE_UTM" });
+    });
+    it("le contour remplace longueur et largeur, jamais la profondeur", async () => {
+      const sans = await request(app).post("/api/v2/defauts").send({ catalogueCode: "NID_POULE", ...gps, gravite: 2, emprise: polygone });
+      expect(sans.status).toBe(422);
+      expect(sans.body.motif).toBe("RELEVE_INCOMPLET");
+      expect(sans.body.message).toContain("la profondeur");
+      const avec = await request(app).post("/api/v2/defauts").send({ catalogueCode: "NID_POULE", ...gps, gravite: 2, emprise: polygone, mesures: { profondeurM: 0.05 } });
+      expect(avec.status).toBe(201);
+      expect(avec.body.methodeQuantite).toBe("EMPRISE_UTM");
+    });
+    it("les mesures passent avant l'emprise", async () => {
+      const r = await request(app).post("/api/v2/defauts").send({ catalogueCode: "FISSURE", ...gps, gravite: 1, emprise: ligne, mesures: { longueurM: 11 } });
+      expect(r.body).toMatchObject({ quantite: 11, methodeQuantite: "LONGUEUR" });
+    });
+    it("refuse une emprise contraire à l'unité, invalide, ou plus longue que le tronçon", async () => {
+      const inc = await request(app).post("/api/v2/defauts").send({ catalogueCode: "FISSURE", ...gps, gravite: 1, emprise: polygone });
+      expect(inc.status).toBe(422); expect(inc.body.motif).toBe("EMPRISE_INCOMPATIBLE");
+      h.mesureEmprise = { ok: false, code: "GEOMETRIE_INVALIDE", raison: "Self-intersection[-13.7 9.5]" };
+      const inv = await request(app).post("/api/v2/defauts").send({ catalogueCode: "FAIENCAGE", ...gps, gravite: 1, emprise: polygone });
+      expect(inv.status).toBe(422); expect(inv.body.motif).toBe("GEOMETRIE_INVALIDE"); expect(inv.body.message).toContain("Self-intersection");
+      h.mesureEmprise = { ok: true, mesure: { epsg: 32628, longueurM: 2500, surfaceM2: 0 } };
+      const long = await request(app).post("/api/v2/defauts").send({ catalogueCode: "FISSURE", tronconId: "t1", abscisseM: 10, confianceAppariement: 0.9, gravite: 1, emprise: ligne });
+      expect(long.status).toBe(422); expect(long.body.motif).toBe("DEPASSE_LE_TRONCON");
+      expect(h.executeRaw).toHaveLength(0);
+    });
+  });
 
   it("refuse un orniérage sans profondeur : le relevé incomplet ne passe pas la porte", async () => {
     const r = await request(app).post("/api/v2/defauts").send({

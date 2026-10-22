@@ -197,7 +197,7 @@ export function CurseurTemporel({
             </li>
           </ul>
 
-          <p className="text-[10px] leading-snug text-gray-400">
+          <p className="text-[10px] leading-snug text-gray-500">
             Les couleurs des tronçons sont désactivées : elles montrent l'état d'aujourd'hui, qui n'est
             pas celui de la date choisie. Les dates futures ne sont pas proposées : une carte des années
             à venir suppose des scénarios de programmation, non arrêtés.

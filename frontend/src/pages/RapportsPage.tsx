@@ -16,10 +16,10 @@ import type { RapportRegionLigne } from "../types";
 
 const ETAT_CONFIG = [
   { key: "kmBon",       label: "Bon",      color: "#16a34a", textColor: "text-green-700" },
-  { key: "kmMoyen",     label: "Moyen",    color: "#84cc16", textColor: "text-lime-600"  },
-  { key: "kmMauvais",   label: "Mauvais",  color: "#f97316", textColor: "text-orange-600"},
+  { key: "kmMoyen",     label: "Moyen",    color: "#84cc16", textColor: "text-lime-700"  },
+  { key: "kmMauvais",   label: "Mauvais",  color: "#f97316", textColor: "text-orange-700"},
   { key: "kmCritique",  label: "Critique", color: "#dc2626", textColor: "text-red-600"   },
-  { key: "kmNonEvalue", label: "Non éval.", color: "#9ca3af", textColor: "text-gray-400" },
+  { key: "kmNonEvalue", label: "Non éval.", color: "#9ca3af", textColor: "text-gray-500" },
 ] as const;
 
 type SortKey = "region" | "troncons" | "longueurKm" | "ouvrages" | "chantiersEnCours" | keyof typeof ETAT_CONFIG[number];
@@ -69,7 +69,7 @@ function exportCsv(lignes: RapportRegionLigne[], totaux: ReturnType<typeof compu
 // ── Composants visuels ────────────────────────────────────────────────────────
 
 function MiniBar({ bon, moyen, mauvais, critique, total }: { bon: number; moyen: number; mauvais: number; critique: number; total: number }) {
-  if (total === 0) return <span className="text-gray-300 text-xs">—</span>;
+  if (total === 0) return <span className="text-gray-500 text-xs">—</span>;
   const segs = [
     { v: bon,     c: "#16a34a" },
     { v: moyen,   c: "#84cc16" },
@@ -102,7 +102,7 @@ function CustomBarTooltip({ active, payload, label }: { active?: boolean; payloa
           <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: p.fill }} />
           <span className="text-gray-600 flex-1">{p.name}</span>
           <span className="font-medium">{km(p.value)} km</span>
-          <span className="text-gray-400">({pct(p.value, total)}%)</span>
+          <span className="text-gray-500">({pct(p.value, total)}%)</span>
         </div>
       ))}
     </div>
@@ -134,7 +134,7 @@ function PrevisionsParAnnee() {
     return (
       <Card>
         <h3 className="text-sm font-semibold text-navy mb-1">Prévisions budgétaires saisies</h3>
-        <p className="text-sm text-gray-400">
+        <p className="text-sm text-gray-500">
           Aucune prévision saisie. Elles se posent dans le module Programmation, ligne par
           ligne : année, intitulé, montant, bailleur — rien n'est prérempli.
         </p>
@@ -149,7 +149,7 @@ function PrevisionsParAnnee() {
   return (
     <Card>
       <h3 className="text-sm font-semibold text-navy mb-1">Prévisions budgétaires saisies</h3>
-      <p className="text-[11px] text-gray-400 mb-3">
+      <p className="text-[11px] text-gray-500 mb-3">
         Saisies manuelles (hors chantiers) — montant hors prévisions annulées
       </p>
       <div className="overflow-x-auto">
@@ -224,7 +224,7 @@ export function RapportsPage() {
     else { setSortKey(col); setSortDir("desc"); }
   }
 
-  if (isLoading || !data) return <p className="p-4 text-gray-400">Chargement...</p>;
+  if (isLoading || !data) return <p className="p-4 text-gray-500">Chargement...</p>;
 
   const totaux = computeTotaux(data);
   const pctCritique = pct(totaux.kmCritique, totaux.longueurKm);
@@ -275,7 +275,7 @@ export function RapportsPage() {
       {/* Alerte qualité données */}
       {hasDataQualityIssue && (
         <div className="flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm no-print">
-          <AlertTriangle className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+          <AlertTriangle className="h-4 w-4 text-amber-700 mt-0.5 shrink-0" />
           <div>
             <p className="font-semibold text-amber-800">
               {pctNonRenseigne}% des tronçons ({nonRenseigne?.troncons ?? 0} sur {totaux.troncons}) n'ont pas de région renseignée
@@ -305,7 +305,7 @@ export function RapportsPage() {
         {/* Barres empilées par région */}
         <Card className="lg:col-span-2">
           <h3 className="text-sm font-semibold text-navy mb-1">État du réseau par région (top 8)</h3>
-          <p className="text-[11px] text-gray-400 mb-3">En km — hors tronçons sans région</p>
+          <p className="text-[11px] text-gray-500 mb-3">En km — hors tronçons sans région</p>
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={barData} margin={{ top: 0, right: 4, left: -10, bottom: 0 }}>
               <XAxis dataKey="name" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
@@ -334,7 +334,7 @@ export function RapportsPage() {
                 </ResponsiveContainer>
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                   <span className="text-lg font-bold text-navy leading-none">{pctMauvaisCritique}%</span>
-                  <span className="text-[10px] text-gray-400 mt-0.5">dégradé</span>
+                  <span className="text-[10px] text-gray-500 mt-0.5">dégradé</span>
                 </div>
               </div>
               <div className="space-y-1.5 flex-1 min-w-0">
@@ -395,7 +395,7 @@ export function RapportsPage() {
 
           <div className="flex items-center justify-between mb-2">
             <h3 className="text-sm font-semibold text-navy">Détail par région</h3>
-            <p className="text-[11px] text-gray-400 no-print">Cliquez sur une région pour voir sur le géoportail</p>
+            <p className="text-[11px] text-gray-500 no-print">Cliquez sur une région pour voir sur le géoportail</p>
           </div>
 
           <div className="overflow-x-auto">
@@ -418,11 +418,11 @@ export function RapportsPage() {
                     <span className="flex items-center justify-end gap-1">Chantiers <SortIcon col="chantiersEnCours" active={sortKey} dir={sortDir} /></span>
                   </th>
                   <th className="py-2 px-2 text-right text-xs text-green-700 uppercase">Bon</th>
-                  <th className="py-2 px-2 text-right text-xs text-lime-600 uppercase">Moyen</th>
-                  <th className="py-2 px-2 text-right text-xs text-orange-600 uppercase">Mauvais</th>
+                  <th className="py-2 px-2 text-right text-xs text-lime-700 uppercase">Moyen</th>
+                  <th className="py-2 px-2 text-right text-xs text-orange-700 uppercase">Mauvais</th>
                   <th className="py-2 px-2 text-right text-xs text-red-600 uppercase">Critique</th>
-                  <th className="py-2 px-2 text-right text-xs text-gray-400 uppercase hidden sm:table-cell">Non éval.</th>
-                  <th className="py-2 px-2 text-xs text-gray-400 uppercase hidden md:table-cell">État</th>
+                  <th className="py-2 px-2 text-right text-xs text-gray-500 uppercase hidden sm:table-cell">Non éval.</th>
+                  <th className="py-2 px-2 text-xs text-gray-500 uppercase hidden md:table-cell">État</th>
                 </tr>
               </thead>
               <tbody>
@@ -438,26 +438,26 @@ export function RapportsPage() {
                       <td className="py-2 px-2">
                         <span className={`font-medium flex items-center gap-1.5 ${isNonRenseigne ? "text-amber-700" : "text-navy group-hover:underline"}`}>
                           {isNonRenseigne ? (
-                            <><AlertTriangle className="h-3 w-3 text-amber-500" />{l.region || "Non renseigné"}</>
+                            <><AlertTriangle className="h-3 w-3 text-amber-700" />{l.region || "Non renseigné"}</>
                           ) : (
-                            <><span className="hover:underline">{l.region}</span><ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100 text-gray-400" /></>
+                            <><span className="hover:underline">{l.region}</span><ExternalLink className="h-3 w-3 opacity-0 group-hover:opacity-100 text-gray-500" /></>
                           )}
                         </span>
                       </td>
-                      <td className="py-2 px-2 text-right tabular-nums">{l.troncons || <span className="text-gray-300">—</span>}</td>
-                      <td className="py-2 px-2 text-right tabular-nums">{l.longueurKm > 0 ? `${km(l.longueurKm)} km` : <span className="text-gray-300">—</span>}</td>
-                      <td className="py-2 px-2 text-right tabular-nums">{l.ouvrages || <span className="text-gray-300">—</span>}</td>
+                      <td className="py-2 px-2 text-right tabular-nums">{l.troncons || <span className="text-gray-500">—</span>}</td>
+                      <td className="py-2 px-2 text-right tabular-nums">{l.longueurKm > 0 ? `${km(l.longueurKm)} km` : <span className="text-gray-500">—</span>}</td>
+                      <td className="py-2 px-2 text-right tabular-nums">{l.ouvrages || <span className="text-gray-500">—</span>}</td>
                       <td className="py-2 px-2 text-right tabular-nums">
                         {l.chantiersEnCours > 0
                           ? <span className="inline-flex items-center justify-center bg-amber-100 text-amber-700 rounded px-1.5 py-0.5 text-xs font-medium">{l.chantiersEnCours}</span>
-                          : <span className="text-gray-300">—</span>
+                          : <span className="text-gray-500">—</span>
                         }
                       </td>
                       <td className="py-2 px-2 text-right tabular-nums text-green-700">{l.kmBon > 0 ? km(l.kmBon) : <span className="text-gray-200">—</span>}</td>
-                      <td className="py-2 px-2 text-right tabular-nums text-lime-600">{l.kmMoyen > 0 ? km(l.kmMoyen) : <span className="text-gray-200">—</span>}</td>
-                      <td className="py-2 px-2 text-right tabular-nums text-orange-600">{l.kmMauvais > 0 ? km(l.kmMauvais) : <span className="text-gray-200">—</span>}</td>
+                      <td className="py-2 px-2 text-right tabular-nums text-lime-700">{l.kmMoyen > 0 ? km(l.kmMoyen) : <span className="text-gray-200">—</span>}</td>
+                      <td className="py-2 px-2 text-right tabular-nums text-orange-700">{l.kmMauvais > 0 ? km(l.kmMauvais) : <span className="text-gray-200">—</span>}</td>
                       <td className="py-2 px-2 text-right tabular-nums text-red-600 font-medium">{l.kmCritique > 0 ? km(l.kmCritique) : <span className="text-gray-200">—</span>}</td>
-                      <td className="py-2 px-2 text-right tabular-nums text-gray-400 hidden sm:table-cell">{l.kmNonEvalue > 0 ? km(l.kmNonEvalue) : <span className="text-gray-200">—</span>}</td>
+                      <td className="py-2 px-2 text-right tabular-nums text-gray-500 hidden sm:table-cell">{l.kmNonEvalue > 0 ? km(l.kmNonEvalue) : <span className="text-gray-200">—</span>}</td>
                       <td className="py-2 px-2 hidden md:table-cell">
                         <MiniBar bon={l.kmBon} moyen={l.kmMoyen} mauvais={l.kmMauvais} critique={l.kmCritique} total={evalTotal} />
                       </td>
@@ -472,10 +472,10 @@ export function RapportsPage() {
                   <td className="py-2 px-2 text-right">{totaux.ouvrages}</td>
                   <td className="py-2 px-2 text-right">{totaux.chantiersEnCours}</td>
                   <td className="py-2 px-2 text-right text-green-700">{km(totaux.kmBon)}</td>
-                  <td className="py-2 px-2 text-right text-lime-600">{km(totaux.kmMoyen)}</td>
-                  <td className="py-2 px-2 text-right text-orange-600">{km(totaux.kmMauvais)}</td>
+                  <td className="py-2 px-2 text-right text-lime-700">{km(totaux.kmMoyen)}</td>
+                  <td className="py-2 px-2 text-right text-orange-700">{km(totaux.kmMauvais)}</td>
                   <td className="py-2 px-2 text-right text-red-600">{km(totaux.kmCritique)}</td>
-                  <td className="py-2 px-2 text-right text-gray-400 hidden sm:table-cell">{km(totaux.kmNonEvalue)}</td>
+                  <td className="py-2 px-2 text-right text-gray-500 hidden sm:table-cell">{km(totaux.kmNonEvalue)}</td>
                   <td className="py-2 px-2 hidden md:table-cell">
                     <MiniBar bon={totaux.kmBon} moyen={totaux.kmMoyen} mauvais={totaux.kmMauvais} critique={totaux.kmCritique} total={totaux.kmBon + totaux.kmMoyen + totaux.kmMauvais + totaux.kmCritique} />
                   </td>

@@ -100,7 +100,7 @@ export function FicheChildManager<T extends { id: string }>({
       {geoError && <p className="text-xs text-red-600 mb-2">{geoError}</p>}
 
       {items.length === 0 ? (
-        <p className="text-gray-400">{emptyLabel}</p>
+        <p className="text-gray-500">{emptyLabel}</p>
       ) : (
         <ul className="space-y-1">
           {items.map((it) => (

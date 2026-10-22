@@ -5,7 +5,7 @@
 set -u
 cd "$(dirname "$0")/.."
 
-BANCS=(trace metadonnees geometries-invalides deviation graphe info-route patrouilles teledetection veille)
+BANCS=(trace metadonnees geometries-invalides deviation graphe info-route patrouilles teledetection veille metre tuiles)
 echec=0
 lignes=()
 
@@ -24,6 +24,7 @@ lancer "programmation.integration.mts"
 lancer "outbox.integration.mts"
 lancer "tableau-de-bord.integration.mts"
 lancer "roulage.integration.mts"
+lancer "coherence.integration.mts"
 
 printf '\n%s\n' "Resultat des bancs d'integration"
 printf '%s\n' "${lignes[@]}"

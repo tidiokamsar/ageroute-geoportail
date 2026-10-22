@@ -26,7 +26,7 @@ function AuthedThumbnail({ filename, onDelete, canWrite }: { filename: string; o
       {src ? (
         <img src={src} alt="" className="w-full h-full object-cover" />
       ) : (
-        <div className="w-full h-full flex items-center justify-center text-gray-300 text-xs">…</div>
+        <div className="w-full h-full flex items-center justify-center text-gray-500 text-xs">…</div>
       )}
       {canWrite && onDelete && (
         <button
@@ -109,7 +109,7 @@ export function PhotoGallery({
         </div>
       )}
       {photos.length === 0 ? (
-        <p className="text-sm text-gray-400">Aucune photo.</p>
+        <p className="text-sm text-gray-500">Aucune photo.</p>
       ) : (
         <div className="grid grid-cols-3 gap-2">
           {photos.map((p) => (

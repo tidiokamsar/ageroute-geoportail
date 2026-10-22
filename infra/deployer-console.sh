@@ -15,7 +15,7 @@
 #   4. compteurs de reference releves
 #   5. historique des migrations : 0 inachevee, 0 orpheline, 17 en attente exactement
 #   6. une descente pour chaque migration en attente
-#   7. aucun index GiST deja present sur les colonnes que 20261020020000 indexe
+#   7. aucun index GiST deja present sur les colonnes que 20261020020000 et 20261025110000 indexent
 #   8. empreintes des .env ; archive verifiee ; migrations ESSAYEES sur une copie restauree
 #   9. confirmation humaine, puis extraction, construction, migrations
 #  10. controles d'apres : compteurs, sante, audit, 401, .env inchanges
@@ -133,6 +133,15 @@ if grep -qx "20261020020000_index_gist_complets" "${SAUVEGARDES}/en-attente.txt"
   vert "aucun : la migration 20261020020000 ne cree pas de doublon"
 else
   vert "20261020020000 n est pas en attente : ses index vivent deja (deploiement precedent), la garde ne la concerne plus"
+fi
+# Meme garde pour l'index GiST PLANAIRE de troncons.geom (20261025110000, A15). L'index existant
+# porte sur l'expression `(geom)::geography` et ne compte pas : seul un GiST sur `geom` nu ferait
+# doublon. La base de production a ete construite par `db push` : un tel index peut y exister sous
+# un autre nom.
+if grep -qx "20261025110000_index_geom_troncons" "${SAUVEGARDES}/en-attente.txt"; then
+  DOUBLONS=$(psql_prod "SELECT string_agg(indexname, ', ') FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'troncons' AND indexdef ~* 'USING gist \(geom\)'")
+  [ -z "$DOUBLONS" ] || arret "index GiST planaire deja present sur troncons.geom (${DOUBLONS}) : la migration 20261025110000 creerait un doublon, a examiner avant de deployer"
+  vert "aucun GiST planaire sur troncons.geom : la migration 20261025110000 ne cree pas de doublon"
 fi
 
 # ---------------------------------------------------------------------------------------------

@@ -60,6 +60,12 @@ Chaque banc nomme ses vérifications, les compte, et sort en **code 1** si une s
 | `outbox` | **clone `essai_outbox`**, créé puis détruit par le banc | 90 | outbox des intégrations sortantes (A13) : aucune donnée non validée n'entre (service et déclencheurs), idempotence, rejeu sans effet de bord, reprise, file morte, anti-double-envoi sous concurrence réelle, absence de fuite de champs internes. **Contre des simulateurs HTTP écrits par AGEROUTE sur 127.0.0.1, jamais contre DigitalRoad, SharePoint ou la BDR / L²R.** Applique la migration 20261024200000 au clone si `replay` ne la porte pas encore |
 | `tableau-de-bord` | **clone `essai_tableau_de_bord`**, créé puis détruit par le banc | 116 | A12 : chacun des 31 indicateurs du registre, sur trois portées (national, région 1, région 2), est égal à sa requête de contrôle **et** à une valeur attendue calculée à la main (longueurs par intégrale du méridien WGS84) ; refus d'un indicateur non ventilé à un compte régional (A10) ; région vide ; échéances de patrouille à deux dates ; recoupement avec `longueurReseau` et `couvertureReseau` ; contre-épreuve ; Control Tower ; volets de la fiche 360 |
 
+| `metre` | lecture seule | 30 | métré UTM (A5) : 9 géométries de référence, PostGIS = valeur de définition au millionième, PostGIS = noyau TypeScript (`geo/utm.noyau.ts`) au millionième, papillon refusé avec sa raison, métré d'un défaut par emprise |
+| `tuiles` | transaction annulée | 9 | tuiles MVT (§ 7.14) **décodées** par un lecteur protobuf propre au banc : objets par couche comparés à un oracle SQL, propriétés publiées, voirie seulement dès z12, tuile hors Guinée vide |
+| `coherence` | **clone `essai_coherence`**, créé puis détruit ; applique `20261025120000` | 12 | compléments de cohérence A30 par le service et par la base (produit et référence retirés, distance déclarée, registre figé, pas de suppression physique), vue lue avec sa gravité, **descente rendant la vue d'origine à l'identique** |
+
+Les bancs `metre`, `tuiles` et `coherence` (51 vérifications) ont été ajoutés le 22/10/2026 et lancés un par un (code 0).
+
 Soit **122 vérifications** hors `programmation`, toutes passantes le 22/10/2026 (`bash tests-integration/run.sh`, code 0).
 Le banc `programmation` (106 vérifications) a été ajouté après cette exécution et lancé **seul** (code 0, 22/10/2026) ;
 `run.sh` le lance désormais avec les autres, mais l'ensemble n'a pas été rejoué depuis.
