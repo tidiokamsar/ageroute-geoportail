@@ -23,6 +23,7 @@ lancer "curseur.integration.mts"
 lancer "programmation.integration.mts"
 lancer "outbox.integration.mts"
 lancer "tableau-de-bord.integration.mts"
+lancer "roulage.integration.mts"
 
 printf '\n%s\n' "Resultat des bancs d'integration"
 printf '%s\n' "${lignes[@]}"

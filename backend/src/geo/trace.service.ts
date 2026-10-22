@@ -155,6 +155,28 @@ export async function analyserTrace(
   lecture: { points: PointBrut[]; ignores?: number; avertissements?: string[] },
   options: OptionsTrace = {},
 ): Promise<AnalyseTrace> {
+  return (await analyserTraceDetaillee(depot, lecture, options)).analyse;
+}
+
+/**
+ * Meme analyse, avec en plus le detail POINT PAR POINT : les points retenus apres nettoyage et, a
+ * l'identique, le rattachement du HMM pour chacun (troncon, abscisse). La collecte en roulage en a
+ * besoin pour placer un marqueur ou un evenement lineaire dans le temps ; la reponse HTTP de
+ * `POST /geo/trace`, elle, reste celle d'avant (`analyserTrace`).
+ */
+export interface AnalyseTraceDetaillee {
+  analyse: AnalyseTrace;
+  /** Points conserves apres nettoyage, dans l'ordre. */
+  retenus: PointBrut[];
+  /** Rattachement du HMM, un par point retenu (meme ordre, meme longueur). */
+  apparies: PointApparie[];
+}
+
+export async function analyserTraceDetaillee(
+  depot: DepotTrace,
+  lecture: { points: PointBrut[]; ignores?: number; avertissements?: string[] },
+  options: OptionsTrace = {},
+): Promise<AnalyseTraceDetaillee> {
   const reseau = options.reseau ?? "reference";
   const distanceMaxM = options.distanceMaxM ?? DISTANCE_MAX_PAR_DEFAUT_M;
   const pasMinM = options.pasMinM ?? PAS_MIN_PAR_DEFAUT_M;
@@ -276,7 +298,7 @@ export async function analyserTrace(
     avertissements.push(`La trace est coupee en ${r.chaines} parties que le parcours n'a pas pu relier.`);
   }
 
-  return {
+  const analyse: AnalyseTrace = {
     parametres: { reseau, distanceMaxM, pasMinM, incertitudeParDefautM: INCERTITUDE_PAR_DEFAUT_M, pointsMax: POINTS_MAX, graphe },
     indicateurs: {
       pointsLus: lecture.points.length + (lecture.ignores ?? 0),
@@ -299,6 +321,7 @@ export async function analyserTrace(
     rattache: r.points.map((p) => p.tronconId !== null),
     avertissements,
   };
+  return { analyse, retenus: pts, apparies: r.points };
 }
 
 async function enrichirPassages(

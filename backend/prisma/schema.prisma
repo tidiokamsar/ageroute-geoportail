@@ -3668,3 +3668,117 @@ model OutboxTentative {
   @@unique([evenementId, numero], map: "outbox_tentatives_numero_key")
   @@map("outbox_tentatives")
 }
+
+// ===================== COLLECTE EN ROULAGE (paragraphe 7.13) =====================
+//
+// Quatre tables creees par la migration 20261024100000_sessions_roulage. Leurs cles etrangeres
+// (users, appareils, missions, troncons, portions) existent EN BASE mais ne sont pas declarees en
+// `@relation` ici : le faire imposerait d'ajouter un champ inverse a chacun de ces cinq modeles, que
+// d'autres chantiers modifient en parallele. Le code les lit par SQL parametre (comme
+// `perimetres_comptes` avant elles), sans passer par un delegue Prisma.
+
+/// Session de roulage envoyee par un telephone : trace GNSS brute (`points`, forme compacte
+/// [tMs, lat, lon, precisionM, vitesseMs, segment]) et analyse serveur. Idempotente par
+/// `clientOperationId`. Aucun IRI : il n'existe pas d'etalonnage approuve.
+model SessionRoulage {
+  id                   String    @id
+  clientOperationId    String    @unique
+  userId               String
+  appareilId           String
+  missionId            String?
+  debutA               DateTime
+  finA                 DateTime
+  versionContrat       Int
+  provenanceParametres String
+  parametres           Json
+  nbPoints             Int
+  points               Json
+  trous                Json
+  interruptions        Json
+  pauses               Json
+  compteurs            Json
+  analyse              Json
+  tauxRattachement     Float?
+  geom                 Unsupported("geometry(MultiLineString,4326)")?
+  deletedAt            DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @default(now())
+
+  @@index([userId])
+  @@index([appareilId])
+  @@index([missionId])
+  @@index([geom], map: "sessions_roulage_geom_gist", type: Gist)
+  @@map("sessions_roulage")
+}
+
+/// Marqueur d'evenement ponctuel pose en roulage, rattache a un troncon par la trace.
+model MarqueurRoulage {
+  sessionId           String
+  id                  String
+  code                String
+  note                String?
+  poseA               DateTime
+  lat                 Float?
+  lon                 Float?
+  precisionM          Float?
+  ageFixMs            Int?
+  positionPerimee     Boolean
+  latenceLogicielleMs Float?
+  statut              String
+  motif               String?
+  tronconId           String?
+  abscisseM           Float?
+  distanceM           Float?
+  positionTraceLat    Float?
+  positionTraceLon    Float?
+  geom                Unsupported("geometry(Point,4326)")?
+  createdAt           DateTime @default(now())
+
+  @@id([sessionId, id])
+  @@index([tronconId])
+  @@index([geom], map: "marqueurs_roulage_geom_gist", type: Gist)
+  @@map("marqueurs_roulage")
+}
+
+/// Evenement lineaire Debut/Fin d'une session. Les portions qu'il produit (propositions A_VALIDER)
+/// sont reliees par `evenements_roulage_portions`.
+model EvenementRoulage {
+  sessionId          String
+  id                 String
+  code               String
+  note               String?
+  statutAppareil     String
+  qualification      Json?
+  debutA             DateTime
+  finA               DateTime?
+  debut              Json
+  fin                Json?
+  couvertureGnss     Float?
+  distanceDirecteM   Float?
+  avertissements     Json
+  motifAbandon       String?
+  statutRattachement String
+  motif              String?
+  troncons           Json
+  createdAt          DateTime @default(now())
+
+  @@id([sessionId, id])
+  @@map("evenements_roulage")
+}
+
+/// Lien evenement lineaire -> portion creee, avec le sens de parcours.
+model EvenementRoulagePortion {
+  sessionId   String
+  evenementId String
+  rang        Int
+  portionId   String
+  tronconId   String
+  debutM      Float
+  finM        Float
+  sens        String
+
+  @@id([sessionId, evenementId, rang])
+  @@index([portionId])
+  @@index([tronconId])
+  @@map("evenements_roulage_portions")
+}
