@@ -3,6 +3,20 @@
 > Exigé par le § 4 du mandat v2.1. Le § 2.7 impose que toute affirmation de réussite cite la
 > commande lancée et son résultat. Aucune ligne de ce fichier n'est écrite sans l'avoir vue.
 
+## 22/10/2026 — lots 3 et 4 : rattachement mesuré (A15) et tuiles vectorielles (DT-4, DT-5)
+
+Base privée `dt_bench`, 261 387 tronçons synthétiques (dont 1 700 du réseau classé).
+
+| Commande | Résultat |
+|---|---|
+| `psql -f backend/prisma/tests/appariement.bench.sql` | classé + emprise : médiane 1,57 / p95 3,54 ms sans index planaire, 0,79 / 1,20 ms avec ; tout le réseau sans emprise : **376,7 / 831,9 ms** sans, **0,55 / 0,85 ms** avec ; premier candidat identique sur 300 positions |
+| essai de plan, tuile z10 de Conakry | filtre planaire `geom &&` : balayage parallèle, 107 ms ; `geom::geography &&` : index `troncons_geom_geography_idx`, 13 ms ; mêmes 843 lignes |
+| `verifier.sh --seulement 20261022020000_index_geom_troncons` | **2 vérifications, 0 échec** |
+| `psql -f backend/prisma/tests/index_gist.test.sql` | 21 colonnes couvertes, toutes les assertions passent |
+| `npx vitest run src/tuiles` | **15 passés** |
+| `tuileReseau` contre `dt_bench` (script jetable, protobuf décodé) | z6 584 objets, médiane 121 ms ; z10 6 objets (= comptage SQL), 11,6 ms ; z12 1 + 77 objets, 13,4 ms ; z14 9 objets, 9,2 ms ; tuile hors Guinée vide |
+| `npx vitest run` (backend) | 1er passage : **1 échec** intermittent, `metadonnees.test.ts` (T-29) sous charge, qui passe seul (19/19, 1,8 s) ; 2e passage : **1 827 passés**, 122 fichiers, 0 échec |
+
 ## 22/10/2026 — lot 2, contrôle d'accès territorial (DT-3)
 
 Après fusion de `lot/03-map-matching` (T-26, T-28, T-29 de la session GEOPORTAIL) dans cette branche.
@@ -162,7 +176,7 @@ Ces mesures ne seront plus reproductibles : le § 2.1 coupe l'accès à la produ
 | A5 métré, écart < 1 % | ~~aucune géométrie de test de référence~~ : jeu figé depuis le 22/10 (`geo/geometries-reference.ts`), voir la section du 22/10 |
 | A7 hors ligne, 50 observations sans doublon | testé unitairement, jamais sur un appareil |
 | A10 sécurité, 403 par appel direct | partiellement : les gardes de rôle sont testées, pas l'ABAC par zone |
-| A15 performance, rattachement < 300 ms p95 | **jamais mesuré** |
+| A15 performance, rattachement < 300 ms p95 | ~~jamais mesuré~~ : mesuré le 22/10 au volume de production, voir la section du 22/10 (lots 3 et 4) |
 | A16 à A19 roulage | sans objet : les fonctions n'existent pas |
 | A18 trace HMM à ≥ 97 % | sans objet |
 | A20 Géoportail, premier rendu < 3 s en 3G | **jamais mesuré** |
