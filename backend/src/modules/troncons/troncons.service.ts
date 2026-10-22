@@ -175,8 +175,18 @@ async function itineraire(fromId: string, toId: string) {
  *
  * Zero signifie « aucune simplification » — a ce niveau de zoom, c'est la forme
  * exacte qu'on regarde.
+ *
+ * `decimales` : CHIFFRES APRES LA VIRGULE DES COORDONNEES (PostGIS `maxdecimaldigits`)
+ *
+ * Le defaut est celui de PostGIS (9, soit 0,1 mm) : sans cet argument la reponse est inchangee.
+ * Un appelant qui a deja simplifie a une tolerance de T degres n'a aucun besoin de coordonnees
+ * plus fines que T : la carte publique arrondit en consequence (voir `decimalesSelonZoom`). Les
+ * chiffres inutiles pesaient sur une reponse destinee a des connexions mobiles ; la mesure est
+ * dans docs/performance/MESURES-A15-A20.md.
  */
-async function listGeo({ tout = false, simplification = 0 }: { tout?: boolean; simplification?: number } = {}) {
+const DECIMALES_PAR_DEFAUT = 9;
+
+async function listGeo({ tout = false, simplification = 0, decimales = DECIMALES_PAR_DEFAUT }: { tout?: boolean; simplification?: number; decimales?: number } = {}) {
   return prisma.$queryRaw`
     SELECT t.id, t.code, t.nom, t.classe, t.etat, t."longueurKm", r.nom AS region,
            t.revetement, t."pkDebut", t."pkFin", t."traficMoyenJma",
@@ -195,7 +205,8 @@ async function listGeo({ tout = false, simplification = 0 }: { tout?: boolean; s
            ST_AsGeoJSON(
              CASE WHEN ${simplification}::float8 > 0
                   THEN ST_SimplifyPreserveTopology(t.geom, ${simplification}::float8)
-                  ELSE t.geom END
+                  ELSE t.geom END,
+             ${decimales}::int
            ) AS geometry
     FROM troncons t
     LEFT JOIN regions r ON r.id = t."regionId"
