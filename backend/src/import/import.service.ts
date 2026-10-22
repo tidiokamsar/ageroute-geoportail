@@ -259,7 +259,9 @@ export async function recevoirLot(depot: DepotImport, d: DemandeReception): Prom
         where: { systemeSource_empreinteFichier: { systemeSource: d.systemeSource, empreinteFichier: empreinte } },
       });
       if (recu) return lotDejaRecu(recu);
-      if (essai >= 5) throw err;
+      if (essai >= 8) throw err;
+      // Un court delai aleatoire disperse les concurrents : sans lui, ils recomptent ensemble et se heurtent a nouveau.
+      await new Promise((r) => setTimeout(r, 10 + Math.random() * 40));
     }
   }
 }

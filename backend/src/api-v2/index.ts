@@ -19,6 +19,7 @@ import { teledetectionV2Router } from "./teledetection.routes";
 import { programmationV2Router } from "./programmation.routes";
 import { baremesV2Router } from "./baremes.routes";
 import { perimetresV2Router } from "./perimetres.routes";
+import { tachesInternesV2Router } from "./taches-internes.routes";
 
 /**
  * `/api/v2` — la nouvelle surface d'API.
@@ -86,6 +87,7 @@ apiV2Router.use("/teledetection", teledetectionV2Router);
 apiV2Router.use("/programmation", programmationV2Router);
 apiV2Router.use("/baremes", baremesV2Router);
 apiV2Router.use("/perimetres", perimetresV2Router);
+apiV2Router.use("/taches-internes", tachesInternesV2Router);
 
 /**
  * Inventaire de la surface v2, pour qu'un client sache ce qui existe reellement.
@@ -96,7 +98,7 @@ apiV2Router.use("/perimetres", perimetresV2Router);
 apiV2Router.get("/", (_req, res) => {
   res.json({
     version: "v2",
-    domaines: ["geo", "sync", "devices", "missions", "observations", "defauts", "field", "portions", "referentiels", "qualite", "reseau", "imports", "exploitation", "teledetection", "programmation", "baremes", "perimetres"],
+    domaines: ["geo", "sync", "devices", "missions", "observations", "defauts", "field", "portions", "referentiels", "qualite", "reseau", "imports", "exploitation", "teledetection", "programmation", "baremes", "perimetres", "taches-internes"],
     aVenir: [
       "auth", "tracks",
       "assets", "offline", "intelligence", "ai", "integrations",

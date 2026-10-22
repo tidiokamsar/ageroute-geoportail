@@ -55,10 +55,10 @@ describe("course entre deux envois du meme fichier", () => {
     expect(depot.$transaction).toHaveBeenCalledTimes(2);
   });
 
-  it("une unicite qui persiste est signalee apres cinq essais, pas avalee", async () => {
-    const depot = depotAvec({ transactions: Array.from({ length: 5 }, () => () => { throw violation(); }) });
+  it("une unicite qui persiste est signalee apres huit essais, pas avalee", async () => {
+    const depot = depotAvec({ transactions: Array.from({ length: 8 }, () => () => { throw violation(); }) });
     await expect(recevoirLot(depot, demande)).rejects.toMatchObject({ code: "P2002" });
-    expect(depot.$transaction).toHaveBeenCalledTimes(5);
+    expect(depot.$transaction).toHaveBeenCalledTimes(8);
   });
 
   it("une autre erreur n'est jamais reessayee", async () => {
