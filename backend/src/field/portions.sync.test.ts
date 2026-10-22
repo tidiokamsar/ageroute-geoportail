@@ -130,6 +130,25 @@ describe("La forme du payload", () => {
     if (r.success) expect(r.data.observeeLe).toEqual(new Date("2026-10-09T08:00:00.000Z"));
   });
 
+  it("CONSERVE la date d'effet saisie hors ligne : zod ecarte en silence ce qu'il ne connait pas", async () => {
+    // Sans `valideDu` dans le schema, la date saisie par l'agent disparaitrait a la
+    // synchronisation, et la portion n'apparaitrait a aucune date du curseur temporel.
+    await appliquerPortionSync(TX, payload({ valideDu: "2026-03-15T18:30:00Z" }), { userId: "u", operationId: "op-1" });
+    expect((h.demandes[0] as { valideDu: Date }).valideDu.toISOString()).toBe("2026-03-15T00:00:00.000Z");
+  });
+
+  it("une date d'effet absente reste absente : rien n'est invente a partir de la date du constat", async () => {
+    await appliquerPortionSync(TX, payload({ observeeLe: "2026-10-09T08:00:00.000Z" }), { userId: "u", operationId: "op-1" });
+    expect((h.demandes[0] as { valideDu?: Date | null }).valideDu ?? null).toBeNull();
+  });
+
+  it("REFUSE une date d'effet future : un fait de terrain est deja vrai", async () => {
+    const demain = new Date(Date.now() + 3 * 86_400_000).toISOString();
+    const r = await appliquerPortionSync(TX, payload({ valideDu: demain }), { userId: "u", operationId: "op-1" });
+    expect(r).toEqual({ ok: false, motif: "PAYLOAD_INVALIDE" });
+    expect(h.demandes).toHaveLength(0);
+  });
+
   it("fait remonter le refus du service tel quel", async () => {
     h.refus = "CHEVAUCHE_UNE_VALIDEE";
     const r = await appliquerPortionSync(TX, payload(), { userId: "u", operationId: "op-1" });

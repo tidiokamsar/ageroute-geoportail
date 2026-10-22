@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { creerPortion, type DemandeCreation } from "../reseau/portions.service";
 import { depotDans } from "../reseau/portions.depot";
+import { dateEffet } from "../reseau/date-effet";
 import type { Portion } from "../reseau/portions";
 
 /**
@@ -44,6 +45,12 @@ export const payloadPortion = z.object({
   /** Date du CONSTAT, pas de l'envoi : une portion relevee lundi et remontee vendredi
    *  decrit lundi. Confondre les deux ferait vieillir toute la collecte hors ligne. */
   observeeLe: z.coerce.date().nullish(),
+  /**
+   * DEPUIS QUAND c'est vrai sur le terrain. Declaree ici parce que zod ECARTE EN SILENCE les
+   * champs inconnus : sans cette ligne, une date d'effet saisie hors ligne serait perdue a la
+   * synchronisation, et la portion n'apparaitrait a aucune date du curseur temporel.
+   */
+  valideDu: dateEffet,
   confiance: z.enum(["HIGH", "MEDIUM", "LOW"]).nullish(),
   observationId: z.string().uuid().nullish(),
 });

@@ -48,6 +48,12 @@ export interface Qualification {
   largeurM?: number | null;
   source?: string | null;
   observeeLe?: Date | null;
+  /**
+   * DEPUIS QUAND cette qualification est vraie sur le terrain (jour UTC). Facultative, et
+   * « absente » veut dire INCONNUE : la portion ne sera alors placee a aucune date du curseur
+   * temporel. Distincte de `observeeLe`, voir `date-effet.ts`.
+   */
+  valideDu?: Date | null;
   confiance?: "HIGH" | "MEDIUM" | "LOW" | null;
   observationId?: string | null;
 }
@@ -92,6 +98,12 @@ export interface Ecriture {
   /** Couples parent -> enfant, par index dans `inserer`. */
   lignage: { parentId: string; enfantIndex: number }[];
   auteurId: string;
+  /**
+   * Cloture TERRAIN des versions remplacees : leur `valideAu` prend cette date, SI elles n'en
+   * ont pas deja une. C'est le geste qui distingue les deux axes : `remplaceeLe` se pose a
+   * l'enregistrement, `valideAu` a la date ou la realite a change.
+   */
+  cloreTerrain?: { valideAu: Date };
   /** Pour l'audit : ce que l'operation est, en un mot. */
   operation: "CREATION" | "DECOUPE" | "FUSION" | "REQUALIFICATION";
   /**
@@ -109,7 +121,8 @@ export type RefusEcriture =
   | RefusDecoupe
   | RefusFusion
   | "PORTION_INTROUVABLE"
-  | "CHEVAUCHE_UNE_VALIDEE";
+  | "CHEVAUCHE_UNE_VALIDEE"
+  | "DATE_EFFET_NON_POSTERIEURE";
 
 export type Resultat<T> = { refus: RefusEcriture } | { refus: null; valeur: T };
 
@@ -131,6 +144,8 @@ function neuve(
     largeurM: q.largeurM ?? null,
     source: q.source ?? null,
     observeeLe: q.observeeLe ?? null,
+    valideDu: q.valideDu ?? null,
+    valideAu: null,
     confiance: q.confiance ?? null,
     statutValidation: "A_VALIDER",
     remplaceeLe: null,
@@ -294,6 +309,14 @@ export async function requalifierPortion(
     return { refus: "LONGUEUR_TRONCON_INCONNUE" };
   }
 
+  // La date d'effet de la nouvelle version doit etre STRICTEMENT posterieure a celle de
+  // l'ancienne : sinon l'ancienne se fermerait avant d'avoir commence, ou le meme jour, et le
+  // CHECK de la base refuserait l'intervalle vide -- un refus clair vaut mieux qu'une erreur SQL.
+  const dateEffet = q.valideDu ?? null;
+  if (dateEffet !== null && p.valideDu != null && dateEffet.getTime() <= p.valideDu.getTime()) {
+    return { refus: "DATE_EFFET_NON_POSTERIEURE" };
+  }
+
   const existantes = await depot.portionsDuTroncon(p.tronconId);
   // On s'exclut soi-meme : requalifier SA PROPRE emprise est precisement le geste voulu.
   if (chevaucheUneValidee(existantes, p.debutM, p.finM, [p.id])) {
@@ -307,6 +330,7 @@ export async function requalifierPortion(
     largeurM: q.largeurM ?? p.largeurM,
     source: q.source ?? null,
     observeeLe: q.observeeLe ?? null,
+    valideDu: dateEffet,
     confiance: q.confiance ?? null,
   }, "REQUALIFICATION");
 
@@ -317,6 +341,9 @@ export async function requalifierPortion(
     auteurId,
     operation: "REQUALIFICATION",
     tronconId: p.tronconId,
+    // Sans date d'effet fournie, rien n'est invente : l'ancienne version garde un `valideAu`
+    // inconnu, comme avant.
+    ...(dateEffet !== null && p.valideAu == null ? { cloreTerrain: { valideAu: dateEffet } } : {}),
   });
   return { refus: null, valeur: creee };
 }

@@ -13,7 +13,7 @@ Légende : **FAIT** (implémenté et testé) · **PARTIEL** · **ABSENT** · **B
 |---|---|---|---|
 | 1 | Notation de l'état, 21 types de défauts | **PARTIEL** | catalogue **31 types**, revêtu / non revêtu ★ (`field/catalogue-defauts.referentiel.ts`, 22 tests) ; sections fixes faites (IO-04). **Manquent** : l'indice d'état (RCI écrit mais **désapprouvé**) et la note UEMOA sur sections fixes |
 | 2 | Images 360° tous les 5 m, sur la carte | **BLOQUÉ** | vue de route et imagerie continue relèvent de la collecte en roulage (§ 7.13), qui attend l'application mobile (B-10) |
-| 3 | Carte du réseau par année (passé, présent, futur) | **PARTIEL** | l'historisation **bitemporelle** existe en base (§ 7.2, exclusion corrigée sur l'axe terrain). **Manquent** : le curseur temporel à l'écran et la carte des années futures, qui suppose des scénarios de programmation |
+| 3 | Carte du réseau par année (passé, présent, futur) | **PARTIEL** | le **curseur temporel** existe (T-26) : il montre l'état des portions validées à une date passée ou présente, sur l'axe terrain et, en option, sur l'axe système (« tel que connu le… »), vérifié contre PostGIS réel ; la **date d'effet** est désormais saisissable. **Manquent** : la carte des **années futures**, qui suppose des scénarios de programmation ; et **de quoi montrer** tant que la date d'effet n'est pas saisie (la colonne existe en production depuis le 21/10, aucun chemin ne l'écrivait avant ce lot, et le code du curseur n'est pas déployé) |
 | 4 | Recommandations de travaux, quantités, coûts | **PARTIEL / BLOQUÉ** | catalogue des traitements créé (non approuvé) ; moteur de coût qui **refuse** sans ligne de barème (`engines/cout.noyau.ts`). **Manquent** : la matrice d'orientation ; les barèmes attendent D-07, l'état attend la règle RCI |
 | 5 | Priorisation sur 6 ans par lois de vieillissement et d'effet | **ABSENT** | lois de vieillissement **identifiées** (`matrices_degradation`) mais lues par aucun code ; cycle de vie des interventions gardé (`programmation/cycle-vie.noyau.ts`). PPE 3–6 ans, optimisation par source de financement ★ : absentes, et dépendantes de 1 et 4 |
 | 6 | Suivi budgétaire par trimestre | **ABSENT / BLOQUÉ** | le réalisé doit remonter de DigitalRoad (B-11, aucun accès) |
@@ -48,5 +48,5 @@ développement manquant de ma part :
    ricochet 3 (années futures).
 3. **Les accès tiers** (DigitalRoad, SharePoint, partenaires) : lignes 6, 10, 17, 18.
 
-Restent exécutables sans eux : permaliens et données ouvertes OGC (11), calcul d'itinéraire de
-déviation sur le graphe (13), curseur temporel à l'écran (3), persistance de la topologie (15).
+Faits depuis : permaliens (11, T-23), déviation sur le graphe (13, T-22), curseur temporel à l'écran
+(3, T-26). Restent exécutables sans eux : données ouvertes OGC (11), persistance de la topologie (15).

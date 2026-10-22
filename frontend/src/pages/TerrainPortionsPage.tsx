@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { aujourdhui } from "../lib/curseur";
 import { AlertTriangle, Crosshair, MapPin, Scissors, TrendingDown, TrendingUp } from "lucide-react";
 import { api } from "../lib/api";
 import { toast } from "../lib/toast";
@@ -109,6 +110,7 @@ export function TerrainPortionsPage() {
   const [etat, setEtat] = useState("");
   const [praticabilite, setPraticabilite] = useState("");
   const [longueurM, setLongueurM] = useState("1000");
+  const [valideDu, setValideDu] = useState("");
   const [envoi, setEnvoi] = useState(false);
   const derniereInterrogee = useRef<{ lat: number; lon: number } | null>(null);
 
@@ -169,6 +171,9 @@ export function TerrainPortionsPage() {
       praticabilite: praticabilite || null,
       source: `terrain:${t.code}`,
       observeeLe: new Date().toISOString(),
+      // Date d'effet : saisie par l'agent, JAMAIS deduite de la date du releve (`observeeLe`) :
+      // une piste relevee aujourd'hui peut etre en laterite depuis l'an dernier. Vide = inconnue.
+      valideDu: valideDu || null,
       // La confiance de la PORTION suit celle du rattachement : qualifier depuis un
       // appariement douteux ne produit pas une observation sûre.
       confiance: (t.confiance >= 0.8 ? "HIGH" : t.confiance >= 0.5 ? "MEDIUM" : "LOW") as
@@ -426,6 +431,20 @@ export function TerrainPortionsPage() {
                   valeur n'a été inventée.
                 </span>
               )}
+            </label>
+
+            <label className="block text-sm" htmlFor="portion-valide-du">
+              <span className="text-slate-600">Vrai depuis le (date d'effet)</span>
+              <input
+                id="portion-valide-du" type="date" max={aujourdhui()} value={valideDu}
+                onChange={(e) => setValideDu(e.target.value)}
+                className="mt-1 w-full rounded border px-2 py-1"
+              />
+              <span className="text-xs text-slate-500">
+                Depuis quand c'est vrai sur le terrain, pas la date de ce relevé. Laissée vide, elle
+                reste inconnue : la portion n'apparaîtra à aucune date du curseur temporel du
+                géoportail.
+              </span>
             </label>
 
             <Button onClick={qualifier} disabled={!peutQualifier || envoi} className="w-full">

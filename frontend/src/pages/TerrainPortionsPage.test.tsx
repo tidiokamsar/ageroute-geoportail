@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 /**
@@ -211,6 +211,37 @@ describe("Proposer une portion", () => {
     await waitFor(() => expect(h.post).toHaveBeenCalledWith("/v2/portions", expect.objectContaining({
       tronconId: TRONCON.tronconId, debutM: 10_000, finM: 11_000,
     })));
+  });
+
+  it("porte la date d'effet saisie par l'agent, bornee a aujourd'hui, et JAMAIS deduite de la date du releve", async () => {
+    h.post.mockResolvedValue({ data: {} });
+    render(<TerrainPortionsPage />);
+    const user = await localiser();
+    const champ = screen.getByLabelText(/Vrai depuis le/) as HTMLInputElement;
+    expect(champ.type).toBe("date");
+    expect(champ.max).toBe(new Date().toISOString().slice(0, 10));
+    fireEvent.change(champ, { target: { value: "2026-03-15" } });
+    await user.click(screen.getByRole("button", { name: /Proposer cette portion/ }));
+    await waitFor(() => expect(h.post).toHaveBeenCalled());
+    const corps = h.post.mock.calls[0][1];
+    expect(corps.valideDu).toBe("2026-03-15");
+    // La date du releve reste un champ distinct.
+    expect(corps.observeeLe).not.toBe(corps.valideDu);
+  });
+
+  it("une date d'effet laissee vide part NULLE : inconnue, pas « depuis toujours », pas la date du jour", async () => {
+    h.post.mockResolvedValue({ data: {} });
+    render(<TerrainPortionsPage />);
+    const user = await localiser();
+    await user.click(screen.getByRole("button", { name: /Proposer cette portion/ }));
+    await waitFor(() => expect(h.post).toHaveBeenCalled());
+    expect(h.post.mock.calls[0][1].valideDu).toBeNull();
+  });
+
+  it("explique que laisser la date vide cache la portion du curseur temporel", async () => {
+    render(<TerrainPortionsPage />);
+    await localiser();
+    expect(screen.getByText(/n'apparaîtra à aucune date du curseur temporel/)).toBeInTheDocument();
   });
 
   it("n'envoie JAMAIS de statutValidation", async () => {

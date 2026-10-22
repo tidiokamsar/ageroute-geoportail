@@ -4,6 +4,8 @@ import { requireAuth } from "../middleware/auth.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
 import { prisma } from "../lib/prisma";
 import { verdictDelegation } from "../governance/delegation.service";
+import { dateEffet } from "../reseau/date-effet";
+import { chronologie, lirePortionsALaDate, RefusCurseur, type Emprise } from "../reseau/curseur.service";
 import { EXPLICATIONS as EXPLICATIONS_VALIDATION, validationPermise } from "../governance/validation";
 import {
   creerPortion,
@@ -51,6 +53,8 @@ const qualification = z.object({
   largeurM: z.number().positive().max(100).nullish(),
   source: z.string().max(200).nullish(),
   observeeLe: z.coerce.date().nullish(),
+  /** Depuis quand c'est vrai sur le terrain (un jour, jamais dans le futur). Voir `date-effet.ts`. */
+  valideDu: dateEffet,
   confiance: z.enum(["HIGH", "MEDIUM", "LOW"]).nullish(),
   observationId: z.string().uuid().nullish(),
 });
@@ -69,6 +73,7 @@ const CONFLIT = new Set([
   "HORS_PORTION", "MORCEAU_TROP_COURT", "PORTION_REMPLACEE",
   "TRONCONS_DIFFERENTS", "NON_ADJACENTES", "ATTRIBUTS_DIFFERENTS",
   "VALIDATIONS_DIFFERENTES", "CHEVAUCHE_UNE_VALIDEE",
+  "PERIODES_DIFFERENTES", "DATE_EFFET_NON_POSTERIEURE",
 ]);
 
 /** Ce que chaque refus veut dire pour l'agent, en une phrase actionnable. */
@@ -85,6 +90,8 @@ export const EXPLICATIONS_PORTION: Record<string, string> = {
   ATTRIBUTS_DIFFERENTS: "Ces deux portions ne décrivent pas la même chose : fusionner choisirait pour vous.",
   VALIDATIONS_DIFFERENTES: "L'une est validée et l'autre non : la fusion ferait entrer une proposition dans le référentiel.",
   CHEVAUCHE_UNE_VALIDEE: "Une portion validée couvre déjà ces mètres. Requalifiez-la plutôt que d'en proposer une seconde.",
+  PERIODES_DIFFERENTES: "Ces deux portions ne sont pas vraies aux mêmes dates : les fusionner ferait croire que l'état a duré sur les deux périodes.",
+  DATE_EFFET_NON_POSTERIEURE: "La date d'effet doit être postérieure à celle de la version qu'elle remplace.",
   PORTION_INTROUVABLE: "Portion introuvable.",
 };
 
@@ -160,6 +167,95 @@ portionsV2Router.get("/", requireAuth, requireModuleAccess("geoportail"), async 
       portions,
       curseurSuivant: portions.length === limite ? portions.at(-1)?.id : null,
     });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+const jourIso = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "attendu : AAAA-MM-JJ")
+  // `refine` s'execute MEME quand `regex` a echoue : `toISOString()` sur une date invalide leve
+  // une RangeError, et dans un gestionnaire asynchrone cela laisserait la requete sans reponse.
+  .refine((s) => {
+    const t = Date.parse(`${s}T00:00:00Z`);
+    return !Number.isNaN(t) && new Date(t).toISOString().startsWith(s);
+  }, "date inexistante");
+
+const requeteCurseur = z.object({
+  date: jourIso,
+  connu: jourIso.optional(),
+  bbox: z.string().max(100).optional(),
+  tronconId: z.string().uuid().optional(),
+  inclureAValider: z.enum(["true", "false"]).optional(),
+});
+
+/**
+ * @openapi
+ * /api/v2/portions/a-la-date:
+ *   get:
+ *     summary: Les portions vraies a une date (curseur temporel)
+ *     description: >
+ *       Rend ce qui etait vrai SUR LE TERRAIN a la date `date`, et, avec `connu`, tel que le
+ *       systeme le SAVAIT ce jour-la. Par defaut seules les portions validees sont rendues ;
+ *       `inclureAValider=true` ajoute les propositions, qui restent identifiables. Une portion
+ *       sans date d'effet n'est placee a aucune date : elle n'apparait pas, et la chronologie
+ *       en donne le compte. Un perimetre est exige : `bbox` (ouest,sud,est,nord) OU `tronconId`.
+ *       Aucune date future.
+ *     tags: [Portions v2]
+ */
+portionsV2Router.get("/a-la-date", requireAuth, requireModuleAccess("geoportail"), async (req, res, next) => {
+  const q = requeteCurseur.safeParse(req.query);
+  if (!q.success) return res.status(400).json({ error: "parametres invalides : date (AAAA-MM-JJ) est exigee", details: q.error.flatten().fieldErrors });
+
+  const aujourdhui = new Date();
+  const dateTerrain = new Date(`${q.data.date}T00:00:00Z`);
+  if (dateTerrain.getTime() > aujourdhui.getTime()) {
+    return res.status(400).json({ error: "La date ne peut pas etre dans le futur : le curseur montre le passe et le present, pas des previsions.", code: "DATE_FUTURE" });
+  }
+  // `connu` designe un JOUR ENTIER : ce que le systeme savait a la fin de cette journee.
+  const connuLe = q.data.connu ? new Date(`${q.data.connu}T23:59:59.999Z`) : null;
+  if (connuLe && connuLe.getTime() - 86_400_000 > aujourdhui.getTime()) {
+    return res.status(400).json({ error: "« connu au » ne peut pas etre dans le futur.", code: "DATE_FUTURE" });
+  }
+
+  let emprise: Emprise | undefined;
+  if (q.data.bbox !== undefined) {
+    const v = q.data.bbox.split(",").map(Number);
+    if (v.length !== 4 || !v.every(Number.isFinite)) {
+      return res.status(400).json({ error: "bbox attendu : ouest,sud,est,nord (quatre nombres)", code: "EMPRISE_INVALIDE" });
+    }
+    emprise = { ouest: v[0], sud: v[1], est: v[2], nord: v[3] };
+  }
+
+  try {
+    return res.json(await lirePortionsALaDate(prisma, {
+      dateTerrain,
+      connuLe,
+      inclureAValider: q.data.inclureAValider === "true",
+      emprise,
+      tronconId: q.data.tronconId,
+    }));
+  } catch (err) {
+    if (err instanceof RefusCurseur) return res.status(err.http).json({ error: err.message, code: err.code });
+    return next(err);
+  }
+});
+
+/**
+ * @openapi
+ * /api/v2/portions/chronologie:
+ *   get:
+ *     summary: Bornes et volumes du curseur temporel
+ *     description: >
+ *       Premiere et derniere date d'effet connues, nombre de portions placees dans le temps, et
+ *       nombre de portions SANS date d'effet (placees a aucune date). Sert a dire la verite
+ *       quand le curseur n'a rien a montrer.
+ *     tags: [Portions v2]
+ */
+portionsV2Router.get("/chronologie", requireAuth, requireModuleAccess("geoportail"), async (_req, res, next) => {
+  try {
+    return res.json(await chronologie(prisma));
   } catch (err) {
     return next(err);
   }
