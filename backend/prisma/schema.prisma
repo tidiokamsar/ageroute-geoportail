@@ -337,6 +337,7 @@ model User {
   delegationsRevoquees DelegationValidation[] @relation("DelegationRevocateur")
   perimetre            PerimetreCompte[]      @relation("PerimetreCompte")
   perimetresAccordes   PerimetreCompte[]      @relation("PerimetreAccordeur")
+  outboxCrees          OutboxEvenement[]      @relation("OutboxCreateur")
 
   reglesConditionCreees     RegleCondition[]           @relation("RegleConditionAuteur")
   reglesConditionApprouvees RegleCondition[]           @relation("RegleConditionApprobateur")
@@ -3497,4 +3498,73 @@ model PerimetreCompte {
   @@id([userId, regionId])
   @@index([regionId])
   @@map("perimetres_comptes")
+}
+
+/// Outbox des integrations sortantes (A13, paragraphes 7.10 et 7.15). Migration
+/// 20261024200000_outbox_integrations, docs/integrations/SORTANTS.md.
+///
+/// SEULES LES DONNEES VALIDEES ENTRENT (declencheur outbox_garde), la cle d'idempotence est le
+/// SHA-256 de (destination, type, source, empreinte de la charge), ENVOYE est immuable, aucune
+/// ligne ne se supprime. Statuts en TEXTE contraint (CHECK) et non en enumeration : etendre un
+/// vocabulaire = une migration reversible. Le code n'utilise PAS ce modele (SQL etiquete, voir
+/// integrations/outbox.depot.ts) ; il est declare pour que le schema reflete la base.
+///
+/// Les index PARTIELS (outbox_evenements_du_idx) vivent dans la migration : Prisma 5 ne sait pas
+/// exprimer le predicat, le declarer ici le ferait recreer sans lui.
+/// Les contrats d'echange sont des hypotheses testees contre des simulateurs ecrits par AGEROUTE :
+/// aucun systeme reel n'a ete atteint.
+model OutboxEvenement {
+  id                   String    @id @default(dbgenerated("(gen_random_uuid())::text"))
+  destination          String
+  typeEvenement        String
+  sourceType           String
+  sourceId             String
+  version              Int       @default(0)
+  cleIdempotence       String
+  chargeCanonique      String
+  empreinteCharge      String
+  statut               String    @default("EN_ATTENTE")
+  tentatives           Int       @default(0)
+  tentativesMax        Int       @default(8)
+  relances             Int       @default(0)
+  prochaineTentativeLe DateTime  @default(now())
+  verrouPar            String?
+  verrouJusqua         DateTime?
+  dernierCode          String?
+  dernierMessage       String?
+  accuseReference      String?
+  envoyeLe             DateTime?
+  abandonneLe          DateTime?
+  motifAbandon         String?
+  creeParId            String
+  creePar              User      @relation("OutboxCreateur", fields: [creeParId], references: [id], onDelete: Restrict)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @default(now())
+
+  tentativesJournal OutboxTentative[]
+
+  @@unique([destination, cleIdempotence], map: "outbox_evenements_cle_key")
+  @@unique([destination, typeEvenement, sourceType, sourceId, version], map: "outbox_evenements_version_key")
+  @@index([statut, destination], map: "outbox_evenements_statut_idx")
+  @@index([sourceType, sourceId], map: "outbox_evenements_source_idx")
+  @@map("outbox_evenements")
+}
+
+/// Journal en ajout seul des tentatives d'emission : jamais de corps de reponse ni d'en-tete.
+model OutboxTentative {
+  id              String          @id @default(dbgenerated("(gen_random_uuid())::text"))
+  evenementId     String
+  evenement       OutboxEvenement @relation(fields: [evenementId], references: [id], onDelete: Restrict)
+  numero          Int
+  debutLe         DateTime
+  finLe           DateTime
+  issue           String
+  codeHttp        Int?
+  codeErreur      String?
+  message         String?
+  accuseReference String?
+  travailleur     String?
+
+  @@unique([evenementId, numero], map: "outbox_tentatives_numero_key")
+  @@map("outbox_tentatives")
 }
