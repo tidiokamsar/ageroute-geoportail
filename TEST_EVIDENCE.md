@@ -20,6 +20,19 @@ rien changé, les miennes là où ils n'avaient rien changé, A5 fusionnée en g
 
 ## 22/10/2026 (nuit) — apports de la branche `lot/17-consignes-dt` (DT-2, DT-4 à DT-8)
 
+### Complément DT-9 (complétude des écrans), même branche
+
+Exécuté et lu le 22/10/2026 sur ce poste. Rien n'a été exécuté contre la production ; la CI GitHub n'a pas tourné (compte bloqué pour facturation).
+
+| Commande | Résultat |
+|---|---|
+| `cd backend && npx vitest run` | **2 622 passés**, 161 fichiers, 0 échec (dont `roulage.routes.test.ts` 6, `patrouilles.routes.test.ts` 18, `historique=false` et `national=false`) |
+| `cd frontend && npx vitest run` (seul) | **770 passés**, 65 fichiers, 0 échec (garde-fou de contraste compris) |
+| `Accessibilite.test.tsx` (axe-core, WCAG 2.1 A et AA) | **31 cas, 0 violation**, dont Main courante (liste et déclaration ouverte), Registre des défauts, Missions terrain, Gestion des portions |
+| `npx tsc --noEmit` (deux côtés) ; `npm run lint` ; `npx vite build` | 0 erreur ; lint 0 erreur, 4 avertissements anciens dans des fichiers non touchés ; build réussi |
+| Navigateur réel, téléphone | **non essayés** |
+
+
 Branche partie de `origin/lot/03-map-matching` (`94b8769`, puis rebasée sur `34ee0ed`), qui portait déjà T-27 (A30) et T-32 (A10) :
 les versions concurrentes de la branche `lot/14-consignes-dt` n'y sont PAS reprises ; seuls les apports
 propres le sont, migrations renumérotées après `20261024200000`. Rien n'a été exécuté contre la production.

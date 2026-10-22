@@ -36,6 +36,8 @@ const sections = [
       { to: "/marches", label: "Marchés" },
       { to: "/programmation", label: "Programmation" },
       { to: "/inspections", label: "Inspections" },
+      { to: "/inspections/missions", label: "Missions terrain" },
+      { to: "/inspections/defauts/registre", label: "Registre des défauts" },
       { to: "/inspections/defauts/validation", label: "Validation des relevés", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/inspections/defauts/catalogue", label: "Catalogue des défauts", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/imports", label: "Lots d'import", roles: ["ADMIN", "GESTIONNAIRE"] },
@@ -49,11 +51,13 @@ const sections = [
       { to: "/inspections/terrain", label: "Inspection terrain" },
       { to: "/inspections/terrain/defauts", label: "Défauts terrain" },
       { to: "/inspections/terrain/portions", label: "Portions terrain" },
+      { to: "/portions/gestion", label: "Gestion des portions" },
     ],
   },
   {
     title: "EXPLOITATION",
     items: [
+      { to: "/exploitation/main-courante", label: "Main courante" },
       { to: "/veille", label: "Cellule de veille" },
       { to: "/exploitation/patrouilles", label: "Patrouilles" },
       { to: "/exploitation/info-route", label: "Info Route et bulletin" },

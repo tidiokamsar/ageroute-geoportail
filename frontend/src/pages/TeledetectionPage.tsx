@@ -6,6 +6,7 @@ import { toast } from "../lib/toast";
 import { useAuth } from "../lib/auth";
 import { Button } from "../components/ui/Button";
 import { messageErreur } from "../lib/exploitation";
+import { DepotModal, ProduitModal } from "./teledetection/Saisies";
 
 /**
  * Observation de la Terre (partie E) : propositions de télédétection et verdict du terrain.
@@ -36,7 +37,10 @@ interface Proposition {
   troncon: { code: string; nom: string } | null;
 }
 interface LignePrecision { type: string; methode: string; total: number; aVerifier: number; confirmees: number; infirmees: number; precision: number | null }
-interface Produit { id: string; code: string; palier: number; source: string; nature: string; dateAcquisition: string; resolutionM: number; couvertureNuagesPct: number | null; licence: string }
+interface Produit {
+  id: string; code: string; palier: number; source: string; nature: string; dateAcquisition: string; dateFin: string | null; resolutionM: number;
+  couvertureNuagesPct: number | null; incertitude: string; provenance: string; licence: string; versionTraitement: string; autorisationDepenseRef: string | null;
+}
 
 const LIBELLE_TYPE: Record<string, string> = {
   NOUVELLE_ROUTE: "Nouvelle route", COUPURE_PROBABLE: "Coupure probable", VEGETATION: "Végétation", INONDATION: "Inondation",
@@ -111,6 +115,8 @@ export function TeledetectionPage() {
     queryKey: ["teledetection", "produits"],
     queryFn: async () => (await api.get<{ produits: Produit[] }>("/v2/teledetection/produits")).data.produits,
   });
+  const [saisieProduit, setSaisieProduit] = useState(false);
+  const [saisieLot, setSaisieLot] = useState(false);
   const coherence = useQuery({
     queryKey: ["teledetection", "coherence"],
     queryFn: async () => (await api.get<Coherence>("/v2/teledetection/coherence")).data,
@@ -194,17 +200,38 @@ export function TeledetectionPage() {
       </section>
 
       <section className="rounded-lg border border-gray-200 bg-white p-3">
-        <h2 className="font-semibold">Registre des produits</h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-semibold">Registre des produits</h2>
+          {peutEcrire && (
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => setSaisieProduit(true)}>Enregistrer un produit</Button>
+              <Button size="sm" variant="outline" disabled={!produits.data?.length} onClick={() => setSaisieLot(true)}>Déposer un lot de propositions</Button>
+            </div>
+          )}
+        </div>
         {!produits.data?.length ? <p className="mt-2 text-sm text-gray-500">Aucun produit enregistré : aucune source n'a encore été choisie (voir EARTH_OBSERVATION_PLAN.md).</p> : (
           <ul className="mt-2 divide-y text-sm">
             {produits.data.map((p) => (
               <li key={p.id} className="py-1">
-                {p.code} — {p.source} ({p.nature}, palier {p.palier}) du {new Date(p.dateAcquisition).toLocaleDateString("fr-FR")}, {p.resolutionM} m
-                {p.couvertureNuagesPct !== null ? `, ${p.couvertureNuagesPct} % de nuages` : ""} · licence : {p.licence}
+                <details>
+                  <summary className="cursor-pointer">
+                    {p.code} — {p.source} ({p.nature}, palier {p.palier}) du {new Date(p.dateAcquisition).toLocaleDateString("fr-FR")}, {p.resolutionM} m
+                    {p.couvertureNuagesPct !== null ? `, ${p.couvertureNuagesPct} % de nuages` : ""} · licence : {p.licence}
+                  </summary>
+                  <dl className="mt-1 grid grid-cols-[max-content_1fr] gap-x-3 gap-y-0.5 pl-4 text-xs text-gray-700">
+                    <dt>Provenance</dt><dd className="break-all">{p.provenance}</dd>
+                    <dt>Incertitude</dt><dd>{p.incertitude}</dd>
+                    <dt>Version de traitement</dt><dd>{p.versionTraitement}</dd>
+                    {p.dateFin && (<><dt>Fin de période</dt><dd>{new Date(p.dateFin).toLocaleDateString("fr-FR")}</dd></>)}
+                    {p.autorisationDepenseRef && (<><dt>Autorisation de dépense</dt><dd>{p.autorisationDepenseRef}</dd></>)}
+                  </dl>
+                </details>
               </li>
             ))}
           </ul>
         )}
+        {saisieProduit && <ProduitModal open onClose={() => setSaisieProduit(false)} onFait={() => { setSaisieProduit(false); rafraichir(); }} />}
+        {saisieLot && <DepotModal open produits={produits.data ?? []} onClose={() => setSaisieLot(false)} onFait={() => { setSaisieLot(false); rafraichir(); }} />}
       </section>
     </div>
   );

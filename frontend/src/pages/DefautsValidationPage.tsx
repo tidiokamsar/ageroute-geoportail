@@ -9,7 +9,7 @@ import { toast } from "../lib/toast";
 
 type DecisionDefaut = "VALIDE" | "REJETE" | "A_CORRIGER";
 type DecisionObservation = "VALIDEE" | "REJETEE";
-type Historique = {
+export type Historique = {
   id: string;
   statutAvant: string | null;
   statutApres: string;
@@ -18,7 +18,7 @@ type Historique = {
   decideA: string;
   decidePar?: { nomComplet: string } | null;
 };
-type Defaut = {
+export type Defaut = {
   id: string;
   code: string | null;
   tronconId: string | null;
@@ -77,7 +77,7 @@ function dateFr(value: string): string {
   return Number.isNaN(date.getTime()) ? "Date inconnue" : date.toLocaleString("fr-FR");
 }
 
-function DetailHistorique({ lignes }: { lignes?: Historique[] }) {
+export function DetailHistorique({ lignes }: { lignes?: Historique[] }) {
   if (!lignes?.length) return <p className="text-xs text-gray-500">Aucune décision précédente.</p>;
   return (
     <ol className="space-y-2">
@@ -92,7 +92,7 @@ function DetailHistorique({ lignes }: { lignes?: Historique[] }) {
   );
 }
 
-function PreuvePhoto({ media }: { media: NonNullable<Defaut["medias"]>[number] }) {
+export function PreuvePhoto({ media }: { media: NonNullable<Defaut["medias"]>[number] }) {
   const [source, setSource] = useState<string | null>(null);
   useEffect(() => {
     let active = true;

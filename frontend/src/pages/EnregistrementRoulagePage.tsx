@@ -5,6 +5,7 @@ import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { toast } from "../lib/toast";
 import { Button } from "../components/ui/Button";
+import { MesSessions } from "./roulage/MesSessions";
 import { libelleDuree, libelleKm } from "../lib/releve";
 import {
   garderEcranAllume, nomFichierGpx, ouvrirStockage, positionVersEchantillon, versGpx,
@@ -64,6 +65,9 @@ async function obtenirAppareil(userId: string): Promise<string> {
   return id;
 }
 
+interface MissionCourte { id: string; code: string; intitule: string; statut: string; assigneId: string | null; createurId: string }
+const MISSIONS_CLOSES = new Set(["TERMINEE", "ANNULEE"]);
+
 export function EnregistrementRoulagePage() {
   const { user } = useAuth();
   const session = useRef<SessionRoulage | null>(null);
@@ -76,6 +80,10 @@ export function EnregistrementRoulagePage() {
   const [interrompue, setInterrompue] = useState<{ positions: number; arretee: boolean } | null>(null);
   const [envoi, setEnvoi] = useState<"aucun" | "en_cours" | "envoye" | "echec">("aucun");
   const [messageEnvoi, setMessageEnvoi] = useState("");
+  // Mission de rattachement, facultative. Le serveur n'accepte qu'une mission dont l'agent est
+  // l'assigne ou le createur : l'ecran ne propose que celles-la, encore ouvertes.
+  const [missionId, setMissionId] = useState("");
+  const [missions, setMissions] = useState<MissionCourte[] | null>(null);
 
   const rafraichir = useCallback((surcharge: Partial<Vue> = {}) => {
     const s = session.current;
@@ -236,10 +244,19 @@ export function EnregistrementRoulagePage() {
     URL.revokeObjectURL(url);
   }
 
+  async function chargerMissions() {
+    try {
+      const { data } = await api.get<MissionCourte[]>("/v2/missions", { params: { limite: 200 } });
+      setMissions(data.filter((m) => !MISSIONS_CLOSES.has(m.statut) && (m.assigneId === user?.id || m.createurId === user?.id)));
+    } catch {
+      toast.error("Missions indisponibles (réseau ?) : la session peut partir sans mission.");
+    }
+  }
+
   async function envoyer() {
     const s = session.current;
     if (!s || !user) return;
-    const p = construirePayload(s.etat);
+    const p = construirePayload(s.etat, { missionId: missionId || null });
     if (!p.ok) {
       setEnvoi("echec");
       setMessageEnvoi(p.refus === "TROP_PEU_DE_POINTS" ? "Moins de deux positions retenues : rien à envoyer." : "La session n'est pas terminée.");
@@ -371,6 +388,19 @@ export function EnregistrementRoulagePage() {
 
           {vue.phase === "arretee" && (
             <div className="space-y-3">
+              <div className="text-sm">
+                <p id="titre-mission" className="font-medium">Mission (facultative)</p>
+                {missions === null ? (
+                  <Button size="sm" variant="ghost" onClick={() => void chargerMissions()}>Rattacher à une de mes missions</Button>
+                ) : missions.length === 0 ? (
+                  <p className="text-gray-600">Aucune mission ouverte qui vous soit assignée.</p>
+                ) : (
+                  <select aria-labelledby="titre-mission" className="mt-1 w-full max-w-xl rounded-md border border-gray-300 px-3 py-2" value={missionId} disabled={envoi === "envoye"} onChange={(e) => setMissionId(e.target.value)}>
+                    <option value="">Sans mission</option>
+                    {missions.map((m) => <option key={m.id} value={m.id}>{m.code} · {m.intitule}</option>)}
+                  </select>
+                )}
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Button onClick={telechargerGpx}><Download className="h-4 w-4" aria-hidden="true" />Télécharger le GPX</Button>
                 <Button variant="outline" onClick={() => void envoyer()} disabled={envoi === "en_cours" || envoi === "envoye"}><Send className="h-4 w-4" aria-hidden="true" />Envoyer la session au serveur</Button>
@@ -386,6 +416,9 @@ export function EnregistrementRoulagePage() {
           )}
         </section>
       )}
+
+      {/* Pas pendant l'enregistrement : rien ne doit distraire du trajet. */}
+      {!enCours && <MesSessions />}
     </div>
   );
 }

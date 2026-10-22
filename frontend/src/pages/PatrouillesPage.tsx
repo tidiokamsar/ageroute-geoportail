@@ -7,6 +7,7 @@ import { useAuth } from "../lib/auth";
 import { Button } from "../components/ui/Button";
 import { MOIS, libelleMois, messageErreur, type Personne } from "../lib/exploitation";
 import type { PaginatedResult } from "../types";
+import { FicheProgramme } from "./patrouilles/FicheProgramme";
 
 /**
  * Patrouilles programmées (paragraphe 7.17, EX-03) : saisie des programmes et suivi des échéances.
@@ -183,6 +184,12 @@ export function PatrouillesPage() {
   const client = useQueryClient();
   const [formulaire, setFormulaire] = useState(false);
   const [jours, setJours] = useState<Record<string, string>>({});
+  const [fiche, setFiche] = useState<string | null>(null);
+  const personnes = useQuery({
+    queryKey: ["veille", "personnes"],
+    enabled: peutEcrire,
+    queryFn: async () => (await api.get<{ personnes: Personne[] }>("/v2/exploitation/veille/personnes")).data.personnes,
+  });
 
   const programmes = useQuery({
     queryKey: ["patrouilles", "programmes"],
@@ -215,8 +222,11 @@ export function PatrouillesPage() {
             {programmes.data!.map((p) => (
               <li key={p.id} className="rounded-lg border border-gray-200 bg-white p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="font-medium">{p.code} — {p.libelle}</span>
-                  <Echeance e={p.echeance} />
+                  <span className="font-medium">{p.code} — {p.libelle}{!p.actif ? " (suspendu)" : ""}</span>
+                  <span className="flex items-center gap-2">
+                    <Echeance e={p.echeance} />
+                    <Button size="sm" variant="outline" onClick={() => setFiche(p.id)}>Fiche</Button>
+                  </span>
                 </div>
                 <div className="text-sm text-gray-600">
                   Tous les {p.periodiciteJours} j, {libelleMois(p.moisActifs)} · {p._count.troncons} tronçon(s)
@@ -237,6 +247,7 @@ export function PatrouillesPage() {
             ))}
           </ul>
         )}
+      {fiche && <FicheProgramme id={fiche} peutEcrire={peutEcrire} personnes={personnes.data ?? []} onClose={() => setFiche(null)} />}
     </div>
   );
 }

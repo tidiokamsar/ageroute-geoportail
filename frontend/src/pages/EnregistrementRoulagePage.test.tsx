@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { violationsAccessibilite } from "../test/accessibilite";
 import { deplacer } from "../roulage";
 
@@ -26,6 +27,11 @@ vi.mock("../lib/auth", () => ({ useAuth: () => ({ user: { id: "agent-1", role: "
 vi.mock("../lib/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("../lib/api", () => ({
   api: {
+    get: vi.fn(async () => ({ data: [
+      { id: "m-1", code: "MIS-1", intitule: "RN1 Coyah", statut: "EN_COURS", assigneId: "agent-1", createurId: "chef" },
+      { id: "m-2", code: "MIS-2", intitule: "Close", statut: "TERMINEE", assigneId: "agent-1", createurId: "chef" },
+      { id: "m-3", code: "MIS-3", intitule: "Autre agent", statut: "EN_COURS", assigneId: "agent-2", createurId: "chef" },
+    ] })),
     post: vi.fn(async (url: string, corps: Record<string, unknown>) => {
       h.posts.push({ url, corps });
       if (url === "/v2/devices") return { data: { id: "appareil-1" } };
@@ -61,7 +67,7 @@ function emettre(s: number) {
 }
 
 function rendre() {
-  return render(<MemoryRouter><EnregistrementRoulagePage /></MemoryRouter>);
+  return render(<MemoryRouter><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><EnregistrementRoulagePage /></QueryClientProvider></MemoryRouter>);
 }
 
 async function demarrer() {
@@ -212,6 +218,25 @@ describe("apres l'arret", () => {
     expect(push.operations[0]).toMatchObject({ entityType: "SessionRoulage", operation: "CREATE" });
     expect(push.operations[0].payload.points).toHaveLength(5);
     expect(push.operations[0].payload.versionContrat).toBe(1);
+  });
+
+  it("rattache la session a une mission ouverte de l'agent, et seulement a celles-la", async () => {
+    await terminerSession();
+    fireEvent.click(screen.getByRole("button", { name: /Rattacher à une de mes missions/ }));
+    const choix = await screen.findByRole("combobox", { name: /Mission/ });
+    expect([...(choix as HTMLSelectElement).options].map((o) => o.value)).toEqual(["", "m-1"]);
+    fireEvent.change(choix, { target: { value: "m-1" } });
+    fireEvent.click(screen.getByRole("button", { name: /Envoyer la session au serveur/ }));
+    await screen.findByText("Session enregistrée sur le serveur.");
+    const push = h.posts[1].corps as { operations: { payload: { missionId: string | null } }[] };
+    expect(push.operations[0].payload.missionId).toBe("m-1");
+  });
+
+  it("sans choix, la session part sans mission", async () => {
+    await terminerSession();
+    fireEvent.click(screen.getByRole("button", { name: /Envoyer la session au serveur/ }));
+    await screen.findByText("Session enregistrée sur le serveur.");
+    expect((h.posts[1].corps as { operations: { payload: { missionId: string | null } }[] }).operations[0].payload.missionId).toBeNull();
   });
 
   it("un rejeu est dit comme tel : rien n'est duplique", async () => {
