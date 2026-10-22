@@ -3,6 +3,7 @@ import "./lib/garde";
 // Integration : analyserTrace contre PostGIS reel (base de rejeu locale), transaction ANNULEE.
 import { PrismaClient } from "@prisma/client";
 import { analyserTrace } from "../src/geo/trace.service";
+import { verifier, conclure } from "./lib/verdict";
 
 const prisma = new PrismaClient();
 const ROLLBACK = new Error("ROLLBACK_VOULU");
@@ -54,17 +55,16 @@ async function main() {
     "la suite hors reseau est detectee": r.horsReferentiel.length >= 1 && r.horsReferentiel.some((s) => s.longueurM > 500),
     "taux de rattachement entre 0,7 et 0,95": r.indicateurs.tauxRattachement > 0.7 && r.indicateurs.tauxRattachement < 0.95,
   };
-  console.log(ok);
   const g = avecGraphe!;
   console.log("AVEC GRAPHE parametres.graphe:", JSON.stringify(g.parametres.graphe), "| non verifiees:", g.indicateurs.transitionsNonVerifiees, "(sans graphe:", r.indicateurs.transitionsNonVerifiees + ")");
   console.log("passages avec graphe:", g.passages.map((p) => p.code));
   (ok as Record<string, boolean>)["graphe : charge depuis PostGIS, 3 troncons, tolerance 2 m"] = g.parametres.graphe?.nbTroncons === 3 && g.parametres.graphe?.toleranceFusionM === 2;
   (ok as Record<string, boolean>)["graphe : la jonction A->B est VERIFIEE (0 non verifie)"] = g.indicateurs.transitionsNonVerifiees === 0 && r.indicateurs.transitionsNonVerifiees > 0;
   (ok as Record<string, boolean>)["graphe : meme parcours, A puis B, sans le leurre C"] = eq2(g.passages.map((p) => p.code), ["TRC-A", "TRC-B"]);
-  console.log(ok);
   const verif = await prisma.$queryRawUnsafe<{ n: bigint }[]>(`SELECT count(*) AS n FROM troncons WHERE id IN ('t-trc-a','t-trc-b','t-trc-c')`);
-  console.log("fixtures restantes apres annulation:", String(verif[0].n));
-  process.exitCode = Object.values(ok).every(Boolean) && String(verif[0].n) === "0" ? 0 : 1;
+  ok["fixtures restantes apres annulation : 0"] = String(verif[0].n) === "0";
+  for (const [nom, vrai] of Object.entries(ok)) verifier(nom, vrai);
+  conclure();
 }
 function eq2(a: unknown, b: unknown) { return JSON.stringify(a) === JSON.stringify(b); }
 main().catch((e) => { console.error(e); process.exitCode = 2; }).finally(() => prisma.$disconnect());

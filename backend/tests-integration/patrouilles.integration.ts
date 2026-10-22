@@ -6,6 +6,7 @@ import { PrismaClient } from "@prisma/client";
 import {
   couvertureMission, creerProgramme, depecherVerification, engendrerMission, listerProgrammes,
 } from "../src/exploitation/patrouilles.service";
+import { verifier, conclure } from "./lib/verdict";
 
 const prisma = new PrismaClient();
 class Annulation extends Error {}
@@ -29,10 +30,10 @@ async function main() {
         code: "INT-PAT", libelle: "Integration", classeAxe: "RN", periodiciteJours: 7, moisActifs: [],
         responsableId: "u-int", troncons: ["ti-a", "ti-b"],
       }, { auteurId: "u-int" });
-      console.log("programme cree :", p.code, "itineraire :", await tx.programmeTroncon.count({ where: { programmeId: p.id } }));
+      verifier("le programme est cree avec un itineraire de 2 troncons", p.code === "INT-PAT" && (await tx.programmeTroncon.count({ where: { programmeId: p.id } })) === 2);
 
       const m = await engendrerMission(depot, p.id, { debutPrevu: new Date("2026-10-19T07:00:00Z") }, { auteurId: "u-int" });
-      console.log("mission :", m.code, m.statut, m.type);
+      verifier("la mission engendree est un BROUILLON de SURVEILLANCE codee programme + date (INT-PAT-20261019)", m.code === "INT-PAT-20261019" && m.statut === "BROUILLON" && m.type === "SURVEILLANCE", { code: m.code, statut: m.statut, type: m.type });
 
       // La mission est realisee : trace sur tout A, et cloture.
       await tx.$executeRawUnsafe(`INSERT INTO traces (id, "missionId", "userId", "debutA", geom) VALUES ('tri-1', '${m.id}', 'u-int', now(), ${geom(-13.60, -13.59)})`);
@@ -40,21 +41,26 @@ async function main() {
 
       const liste = await listerProgrammes(depot, new Date("2026-10-30T09:00:00Z"));
       const l = liste.find((x) => x.id === p.id)!;
-      console.log("echeance :", l.dernierPassage?.toISOString(), l.echeance.statut, l.echeance.joursRetard);
+      // Dernier passage le 19/10 11:00, periodicite 7 jours : echeance le 26/10 11:00 ; le 30/10 09:00, 3 j 22 h de retard.
+      verifier("le dernier passage est la fin reelle de la mission terminee", l.dernierPassage?.toISOString() === "2026-10-19T11:00:00.000Z", l.dernierPassage);
+      verifier("l'echeance est EN_RETARD de 4 jours (3 j 22 h arrondis)", l.echeance.statut === "EN_RETARD" && l.echeance.joursRetard === 4, l.echeance);
 
       const c = await couvertureMission(depot, m.id, 30);
-      console.log("couverture :", c.taux?.toFixed(3), "non vus :", c.tronconsNonVus, "hors :", Math.round(c.horsItineraireM));
+      // La trace couvre tout le premier de deux troncons de meme longueur : la moitie, plus la tolerance de 30 m qui mord sur le second.
+      verifier("la couverture est d'environ la moitie de l'itineraire (0,50 a 0,53)", c.taux !== null && c.taux >= 0.5 && c.taux <= 0.53, c.taux);
+      verifier("aucun troncon n'est entierement non vu et la trace ne sort pas de l'itineraire", c.tronconsNonVus.length === 0 && Math.round(c.horsItineraireM) === 0, { nonVus: c.tronconsNonVus, hors: c.horsItineraireM });
 
       await tx.$executeRawUnsafe(`INSERT INTO signalements_citoyens (id, "numeroPublic", "typeProbleme", statut, "updatedAt")
         VALUES ('si-1', 'SIG-INT-1', (SELECT e.enumlabel FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typname='TypeProbleme' ORDER BY e.enumsortorder LIMIT 1)::"TypeProbleme", 'NOUVEAU', now())`);
       const v = await depecherVerification(depot, "si-1", {}, { auteurId: "u-int" });
       const s = await tx.signalementCitoyen.findUnique({ where: { id: "si-1" } });
-      console.log("verification :", v.mission.code, "signalement :", s?.statut, "qualifiePar :", s?.qualifieParId);
+      verifier("la verification d'un signalement cree la mission VER-SIG-INT-1-1 et passe le signalement en qualification", v.mission.code === "VER-SIG-INT-1-1" && s?.statut === "EN_QUALIFICATION" && s?.qualifieParId === "u-int", { code: v.mission.code, statut: s?.statut });
       const v2 = await depecherVerification(depot, "si-1", {}, { auteurId: "u-int" });
-      console.log("seconde verification :", v2.mission.code, v2.statutChange);
+      verifier("une seconde verification cree une AUTRE mission (-2) sans changer de nouveau le statut", v2.mission.code === "VER-SIG-INT-1-2" && v2.statutChange === false, { code: v2.mission.code, change: v2.statutChange });
 
       const audits = await tx.auditLog.findMany({ where: { userId: "u-int" }, select: { action: true, entityType: true } });
-      console.log("audits :", audits.map((a) => `${a.action}:${a.entityType}`).join(", "));
+      const nb = (a: string, t: string) => audits.filter((x) => x.action === a && x.entityType === t).length;
+      verifier("toute ecriture est auditee : 1 programme, 3 missions, 1 signalement mis a jour, rien d'autre", nb("CREATE", "ProgrammePatrouille") === 1 && nb("CREATE", "Mission") === 3 && nb("UPDATE", "SignalementCitoyen") === 1 && audits.length === 5, audits.map((a) => `${a.action}:${a.entityType}`));
       throw new Annulation();
     }, { timeout: 60_000 });
   } catch (e) {
@@ -62,7 +68,8 @@ async function main() {
     console.log("transaction annulee");
   }
   const reste = await prisma.programmePatrouille.count({ where: { code: "INT-PAT" } });
-  console.log("programmes INT-PAT restants :", reste);
+  verifier("rien ne subsiste apres l'annulation (0 programme)", reste === 0);
+  conclure();
 }
 
-main().finally(() => prisma.$disconnect());
+main().catch((e) => { console.error(e); process.exitCode = 2; }).finally(() => prisma.$disconnect());

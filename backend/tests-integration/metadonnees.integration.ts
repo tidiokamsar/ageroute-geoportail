@@ -4,6 +4,7 @@ import "./lib/garde";
 import { PrismaClient } from "@prisma/client";
 import { CATALOGUE } from "../src/metadonnees/catalogue.referentiel";
 import { contexteDe, xmlDe } from "../src/metadonnees/metadonnees.service";
+import { verifier, conclure } from "./lib/verdict";
 
 const prisma = new PrismaClient();
 const ROLLBACK = new Error("ROLLBACK_VOULU");
@@ -71,7 +72,7 @@ async function main() {
   }
   const [{ n }] = await prisma.$queryRawUnsafe<{ n: bigint }[]>(`SELECT count(*) AS n FROM troncons WHERE id LIKE 't-md-%'`);
   ok["fixtures restantes apres annulation : 0"] = String(n) === "0";
-  console.log(Object.entries(ok).map(([k, v]) => `${v ? "OK " : "KO "} ${k}`).join("\n"));
-  process.exitCode = Object.values(ok).every(Boolean) ? 0 : 1;
+  for (const [nom, vrai] of Object.entries(ok)) verifier(nom, vrai);
+  conclure();
 }
 main().catch((e) => { console.error(e); process.exitCode = 2; }).finally(() => prisma.$disconnect());

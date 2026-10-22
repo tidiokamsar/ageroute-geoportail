@@ -5,27 +5,23 @@
 set -u
 cd "$(dirname "$0")/.."
 
-AVEC_VERDICT=(trace metadonnees geometries-invalides)
-OBSERVATION=(deviation graphe info-route patrouilles teledetection veille)
+BANCS=(trace metadonnees geometries-invalides deviation graphe info-route patrouilles teledetection veille)
 echec=0
 lignes=()
 
-lancer() { # $1 = fichier, $2 = categorie
+lancer() { # $1 = fichier
   if npx tsx "tests-integration/$1" > "/tmp/integration-$1.log" 2>&1; then
-    lignes+=("$(printf '%-44s %-14s %s' "$1" "$2" "termine sans erreur")")
+    lignes+=("$(printf '%-44s %s' "$1" "$(grep -E 'verifications reussies' "/tmp/integration-$1.log" | tail -1 || true)")")
   else
-    lignes+=("$(printf '%-44s %-14s %s' "$1" "$2" "ECHEC (voir /tmp/integration-$1.log)")")
+    lignes+=("$(printf '%-44s %s' "$1" "ECHEC (voir /tmp/integration-$1.log)")")
     echec=1
   fi
 }
 
-for b in "${AVEC_VERDICT[@]}"; do lancer "$b.integration.ts" "verdict"; done
-lancer "curseur.integration.mts" "verdict"
-for b in "${OBSERVATION[@]}"; do lancer "$b.integration.ts" "observation"; done
+for b in "${BANCS[@]}"; do lancer "$b.integration.ts"; done
+lancer "curseur.integration.mts"
 
 printf '\n%s\n' "Resultat des bancs d'integration"
 printf '%s\n' "${lignes[@]}"
-echo
-echo "Rappel : un banc « observation » imprime des valeurs et n'affirme rien ; son code de sortie 0 veut dire"
-echo "« exécuté sans exception », pas « vérifié ». Lire la sortie dans /tmp/integration-<banc>.log."
+echo "Chaque banc nomme ses verifications et sort en code 1 si une seule est fausse (lib/verdict.ts fait aussi echouer un banc qui n'en fait aucune ; curseur tient son propre decompte). Detail : /tmp/integration-<banc>.log."
 exit $echec
