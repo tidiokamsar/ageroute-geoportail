@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowDown, ArrowUp, Plus, X } from "lucide-react";
+import { ArrowDown, ArrowUp, X } from "lucide-react";
 import { api } from "../lib/api";
 import { toast } from "../lib/toast";
+import { TronconPicker } from "../components/TronconPicker";
 import { useAuth } from "../lib/auth";
 import { Button } from "../components/ui/Button";
 import { MOIS, libelleMois, messageErreur, type Personne } from "../lib/exploitation";
-import type { PaginatedResult } from "../types";
 
 /**
  * Patrouilles programmées (paragraphe 7.17, EX-03) : saisie des programmes et suivi des échéances.
@@ -67,19 +67,12 @@ function FormulaireProgramme({ onCree }: { onCree: () => void }) {
   const [periodicite, setPeriodicite] = useState("");
   const [mois, setMois] = useState<number[]>([]);
   const [responsableId, setResponsableId] = useState("");
-  const [recherche, setRecherche] = useState("");
   const [itineraire, setItineraire] = useState<TronconCourt[]>([]);
 
   const personnes = useQuery({
     queryKey: ["veille", "personnes"],
     queryFn: async () => (await api.get<{ personnes: Personne[] }>("/v2/exploitation/veille/personnes")).data.personnes,
   });
-  const resultats = useQuery({
-    queryKey: ["troncons", "recherche", recherche],
-    enabled: recherche.trim().length >= 2,
-    queryFn: async () => (await api.get<PaginatedResult<TronconCourt>>("/troncons", { params: { search: recherche.trim(), pageSize: 10 } })).data.data,
-  });
-
   const creer = useMutation({
     mutationFn: async () => (await api.post("/v2/exploitation/patrouilles/programmes", {
       code: code.trim(), libelle: libelle.trim(), classeAxe: classeAxe || null,
@@ -143,21 +136,22 @@ function FormulaireProgramme({ onCree }: { onCree: () => void }) {
       </fieldset>
 
       <div className="text-sm">
-        <label className="block">Itinéraire — rechercher un tronçon (code ou nom)
-          <input className="mt-1 w-full rounded border px-2 py-1" value={recherche} onChange={(e) => setRecherche(e.target.value)} />
-        </label>
-        {resultats.data && resultats.data.length > 0 && (
-          <ul className="mt-1 max-h-40 overflow-auto rounded border">
-            {resultats.data.filter((t) => !itineraire.some((x) => x.id === t.id)).map((t) => (
-              <li key={t.id}>
-                <button type="button" className="flex w-full items-center gap-2 px-2 py-1 text-left hover:bg-gray-50"
-                  onClick={() => setItineraire((it) => [...it, t])}>
-                  <Plus className="h-3.5 w-3.5" /> {t.code} — {t.nom}
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
+        {/* Trouver sans connaitre le code : GPS, ville ou texte (23/10 — en Guinee les
+            routes ne sont pas numerotees ; la position de l'agent retrouve le troncon). */}
+        <label htmlFor="pat-itineraire" className="block">Itinéraire — rechercher un tronçon (GPS, ville, code ou nom)</label>
+        <div className="mt-1">
+          <TronconPicker
+            id="pat-itineraire"
+            multi
+            value={null}
+            onChange={() => undefined}
+            onChoisirObjet={(t) => {
+              if (!itineraire.some((x) => x.id === t.id)) {
+                setItineraire((it) => [...it, { id: t.id, code: t.code, nom: t.nom }]);
+              }
+            }}
+          />
+        </div>
         <ol className="mt-2 space-y-1" aria-label="Itinéraire ordonné">
           {itineraire.map((t, i) => (
             <li key={t.id} className="flex items-center gap-2 rounded bg-gray-50 px-2 py-1">
