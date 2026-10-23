@@ -338,6 +338,9 @@ model User {
   perimetre            PerimetreCompte[]      @relation("PerimetreCompte")
   perimetresAccordes   PerimetreCompte[]      @relation("PerimetreAccordeur")
   outboxCrees          OutboxEvenement[]      @relation("OutboxCreateur")
+  correspondancesProposees CorrespondanceIdentifiant[] @relation("CorrespondanceProposeur")
+  correspondancesDecidees  CorrespondanceIdentifiant[] @relation("CorrespondanceReviseur")
+  versionsCorrespondance   VersionCorrespondance[]     @relation("VersionCorrespondanceAuteur")
 
   reglesConditionCreees     RegleCondition[]           @relation("RegleConditionAuteur")
   reglesConditionApprouvees RegleCondition[]           @relation("RegleConditionApprobateur")
@@ -3114,6 +3117,8 @@ model LotImport {
   @@index([statut])
   @@index([importeParId])
   @@map("lots_import")
+
+  correspondances CorrespondanceIdentifiant[]
 }
 
 /// Une ligne importee : la charge ORIGINALE est conservee avant toute transformation, pour que
@@ -3503,6 +3508,60 @@ model PerimetreCompte {
   @@id([userId, regionId])
   @@index([regionId])
   @@map("perimetres_comptes")
+}
+
+/// Journal des versions de la table de correspondance (A23, critere B12). Ajout seul (declencheur), serie
+/// sans trou : un export « a la version n » se regenere a l'identique. Voir la migration 20261026410000.
+model VersionCorrespondance {
+  version  Int      @id
+  creeLe   DateTime @default(now())
+  auteurId String
+  auteur   User     @relation("VersionCorrespondanceAuteur", fields: [auteurId], references: [id], onDelete: Restrict)
+  motif    String
+
+  ouvertes CorrespondanceIdentifiant[] @relation("CorrespondanceOuverture")
+  fermees  CorrespondanceIdentifiant[] @relation("CorrespondanceFermeture")
+
+  @@map("versions_correspondance")
+}
+
+/// Correspondance identifiant externe -> objet du Geoportail (A23, BDR_ID_CROSSWALK_SPEC.md). JAMAIS semee :
+/// aucun code de l'ONR, de L2R ni d'ANASUR n'est connu du depot. A_CONFIRMER jusqu'a une decision nominative.
+/// Ajout seul : seule la pose de `versionFermeture` est un UPDATE permis. Les contraintes (CHECK, exclusion
+/// « un identifiant source ne pointe qu'une cible a la fois ») et les declencheurs vivent dans la migration :
+/// Prisma ne sait pas les exprimer.
+model CorrespondanceIdentifiant {
+  id                    String    @id @default(uuid())
+  systemeSource         String
+  typeObjet             String
+  identifiantSource     String
+  identifiantCible      String
+  methode               String
+  score                 Decimal   @db.Decimal(4, 3)
+  tolerancesM           Json?
+  attributsCorroborants Json?
+  statut                String    @default("A_CONFIRMER")
+  proposeParId          String
+  proposePar            User      @relation("CorrespondanceProposeur", fields: [proposeParId], references: [id], onDelete: Restrict)
+  decisionReviseurId    String?
+  decisionReviseur      User?     @relation("CorrespondanceReviseur", fields: [decisionReviseurId], references: [id], onDelete: Restrict)
+  decisionLe            DateTime?
+  decisionMotif         String?
+  valideDu              DateTime  @db.Date
+  valideAu              DateTime? @db.Date
+  versionOuverture      Int
+  ouverteA              VersionCorrespondance  @relation("CorrespondanceOuverture", fields: [versionOuverture], references: [version], onDelete: Restrict)
+  versionFermeture      Int?
+  fermeeA               VersionCorrespondance? @relation("CorrespondanceFermeture", fields: [versionFermeture], references: [version], onDelete: Restrict)
+  lotImportId           String?
+  lotImport             LotImport? @relation(fields: [lotImportId], references: [id], onDelete: Restrict)
+  commentaire           String?
+  createdAt             DateTime  @default(now())
+
+  @@index([typeObjet, identifiantCible], map: "correspondances_cible_idx")
+  @@index([systemeSource, typeObjet, identifiantSource], map: "correspondances_source_idx")
+  @@index([versionOuverture, versionFermeture], map: "correspondances_versions_idx")
+  @@map("correspondances_identifiants")
 }
 
 // ===================== MOTEUR DE RISQUE ET DE PROGRAMMATION (§ 7.7, A22) =====================
