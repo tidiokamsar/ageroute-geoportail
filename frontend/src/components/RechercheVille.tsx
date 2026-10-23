@@ -49,8 +49,10 @@ export function RechercheVille({
 
   return (
     <div className={`w-full ${compact ? "" : "max-w-xs"}`}>
-      <div className="flex items-center gap-1.5">
-        <div className="relative flex-1">
+      {/* Les champs passent a la ligne quand le panneau est etroit : la ville de depart ne doit jamais etre ecrasee a zero
+          (constat du 23/10 : seule l'icone du champ restait visible). */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <div className="relative min-w-[9rem] flex-1">
           <MapPin className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500" />
           <input
             value={saisie}
@@ -85,7 +87,7 @@ export function RechercheVille({
         {villeA && (
           <>
             <ArrowRight className="h-3.5 w-3.5 shrink-0 text-gray-500" />
-            <div className="relative w-32">
+            <div className="relative min-w-[6rem] flex-1">
               <input
                 value={villeB ? villeB.nom : saisieB}
                 onChange={(e) => { setSaisieB(e.target.value); setOuvert("b"); setVilleB(null); }}

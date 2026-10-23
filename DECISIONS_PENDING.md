@@ -9,6 +9,11 @@
 >
 > Vue d'ensemble à grille uniforme (options, impacts, recommandation technique, décision attendue) :
 > [docs/pilotage/DECISIONS-SYNTHESE-ARBITRAGE.md](docs/pilotage/DECISIONS-SYNTHESE-ARBITRAGE.md).
+>
+> **23/10/2026 : conduite retenue sur délégation du DSI** pour D-01, D-02, D-06, D-07, D-09, D-10 et D-11,
+> dans [docs/pilotage/DECISIONS-PRISES-SUR-DELEGATION.md](docs/pilotage/DECISIONS-PRISES-SUR-DELEGATION.md).
+> Ce sont des choix de conduite réversibles, **pas des approbations officielles** : chaque valeur,
+> critère ou nomenclature qui relève de l'AGEROUTE ou de l'ONR reste provisoire et attendue.
 
 ---
 

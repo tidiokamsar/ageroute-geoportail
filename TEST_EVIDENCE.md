@@ -148,6 +148,8 @@ Base `replay` portant les 82 migrations, arbre `lot/03-map-matching` après fusi
 
 **Non vérifié** : CI (compte GitHub verrouillé, aucune exécution), appareil réel, données de production.
 
+**Second défaut trouvé le 23/10 (capture de la carte)** : la route `POST /api/v2/troncons-corridor/bulk-etat` (changement d'état d'un corridor, commit `d243f3c`) n'avait pas `requireAuth` : `req.user` n'était jamais posé, donc elle répondait 401 « Authentification requise » à tout le monde, y compris à un compte connecté. Le test unitaire posait le compte à la main et affirmait à tort que la route était montée derrière `requireAuth`. Elle n'avait pas non plus le contrôle territorial (A10) : un compte régional aurait pu changer l'état de tronçons hors de son périmètre. Corrigé (`requireAuth`, puis refus de tout le lot dès qu'un tronçon est hors périmètre) ; le test reproduit maintenant le contrat de `requireAuth` et couvre 401, 403 et le lot dans le périmètre (8 tests). Mise en page : le panneau (288 px) débordait de sa colonne et le champ de la ville de départ était écrasé ; vérifié dans un navigateur sur un harnais local (colonne de 221 px), **pas sur la carte réelle avec le serveur** (aucun backend lancé). La route n'a pas été éprouvée contre la base : le banc `territoire` ne la couvre pas.
+
 ## 22/10/2026 — graphe de trace (T-28), métadonnées ISO 19115 (T-29), compte des géométries invalides, bancs versionnés
 
 Toutes les lignes ci-dessous ont été exécutées et lues le 22/10/2026 sur ce poste (base de rejeu locale
