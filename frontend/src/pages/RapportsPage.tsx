@@ -11,15 +11,19 @@ import { Card, KpiCard } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { printReport } from "../lib/print";
 import type { RapportRegionLigne } from "../types";
+import { SYMBOLES } from "../features/geoportail/map/symbology";
 
 // ── Constantes ────────────────────────────────────────────────────────────────
 
+// Couleurs : celles de l'echelle d'etat (symbology.ts), la source unique. Les teintes Tailwind
+// d'origine (lime #84cc16, orange #f97316...) mesuraient 1,98:1 a 3,3:1 sur blanc, sous le seuil de 3:1
+// des elements graphiques et de 4,5:1 du texte (docs/accessibilite/CONTRASTE.md).
 const ETAT_CONFIG = [
-  { key: "kmBon",       label: "Bon",      color: "#16a34a", textColor: "text-green-700" },
-  { key: "kmMoyen",     label: "Moyen",    color: "#84cc16", textColor: "text-lime-600"  },
-  { key: "kmMauvais",   label: "Mauvais",  color: "#f97316", textColor: "text-orange-600"},
-  { key: "kmCritique",  label: "Critique", color: "#dc2626", textColor: "text-red-600"   },
-  { key: "kmNonEvalue", label: "Non éval.", color: "#9ca3af", textColor: "text-gray-400" },
+  { key: "kmBon",       label: "Bon",      color: SYMBOLES.BON.trait,        textColor: "text-etat-bon" },
+  { key: "kmMoyen",     label: "Moyen",    color: SYMBOLES.MOYEN.trait,      textColor: "text-etat-moyen" },
+  { key: "kmMauvais",   label: "Mauvais",  color: SYMBOLES.MAUVAIS.trait,    textColor: "text-etat-mauvais" },
+  { key: "kmCritique",  label: "Critique", color: SYMBOLES.CRITIQUE.trait,   textColor: "text-etat-critique" },
+  { key: "kmNonEvalue", label: "Non éval.", color: SYMBOLES.NON_EVALUE.trait, textColor: "text-etat-inconnu" },
 ] as const;
 
 type SortKey = "region" | "troncons" | "longueurKm" | "ouvrages" | "chantiersEnCours" | keyof typeof ETAT_CONFIG[number];
@@ -311,7 +315,7 @@ export function RapportsPage() {
               <XAxis dataKey="name" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
               <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={v => `${v}`} />
               <Tooltip content={<CustomBarTooltip />} cursor={{ fill: "#f3f4f6" }} />
-              <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+              <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} formatter={(v: string) => <span style={{ color: "#374151" }}>{v}</span>} />
               {ETAT_CONFIG.slice(0, 4).map(e => (
                 <Bar key={e.key} dataKey={e.label} stackId="a" fill={e.color} radius={e.key === "kmCritique" ? [3, 3, 0, 0] : [0, 0, 0, 0]} />
               ))}

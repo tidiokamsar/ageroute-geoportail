@@ -7,8 +7,9 @@ import axe from "axe-core";
  * CE QUE CETTE MESURE NE COUVRE PAS, ET QU'IL FAUT DIRE
  *
  * - Le CONTRASTE des couleurs : jsdom ne calcule ni styles en cascade ni rendu, la regle
- *   `color-contrast` y donnerait des resultats faux. Elle est desactivee ici, et le contraste
- *   reste a mesurer dans un navigateur reel.
+ *   `color-contrast` y donnerait des resultats faux. Elle est desactivee ici. Le contraste a ete
+ *   mesure dans un navigateur reel le 23/10/2026 (docs/accessibilite/CONTRASTE.md) et est garde, sans
+ *   navigateur, par src/styles/contraste.test.ts (paires de jetons et classes Tailwind de texte).
  * - Tout ce qui demande un humain : ordre de lecture pertinent, clarte des libelles, usage au
  *   lecteur d'ecran. axe trouve une partie des defauts, pas leur absence.
  *

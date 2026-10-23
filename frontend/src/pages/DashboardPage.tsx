@@ -110,7 +110,7 @@ export function DashboardPage() {
                 {data.longueurTotaleKm.toFixed(0)}{" "}
                 <span className="text-base font-semibold text-white/70">km</span>
               </p>
-              <p className="text-xs text-white/50 uppercase tracking-wider">Longueur renseignée</p>
+              <p className="text-xs text-white/60 uppercase tracking-wider">Longueur renseignée</p>
             </div>
           )}
         </div>

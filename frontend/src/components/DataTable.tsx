@@ -102,7 +102,7 @@ export function DataTable<T extends { id: string }>({
                               <ChevronDown className="h-3 w-3 text-white/80" />
                             )
                           ) : (
-                            <ChevronsUpDown className="h-3 w-3 text-white/30" />
+                            <ChevronsUpDown className="h-3 w-3 text-white/60" />
                           ))}
                       </span>
                     </th>

@@ -43,7 +43,7 @@ export function BarreOutilsCarte(p: PropsBarreOutils) {
           aria-label={p.modeDessin ? "Annuler le tracé" : "Créer un tronçon"}
           title={p.modeDessin ? "Annuler le tracé" : "Créer un tronçon"}
           className={`flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-sm font-medium shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
-            p.modeDessin ? "border-red-400 bg-red-500 text-white hover:bg-red-600" : "border-gray-200 bg-white text-navy hover:bg-gray-50"
+            p.modeDessin ? "border-red-400 bg-red-600 text-white hover:bg-red-700" : "border-gray-200 bg-white text-navy hover:bg-gray-50"
           }`}
         >
           <PenLine className="h-4 w-4" aria-hidden="true" />
@@ -113,7 +113,7 @@ function MenuMesures(p: PropsBarreOutils & { mesureActive: boolean }) {
   ];
 
   return (
-    <div ref={racine} className="relative" onKeyDown={auClavier}>
+    <div ref={racine} className="relative">
       <button
         ref={declencheur}
         type="button"
@@ -122,7 +122,7 @@ function MenuMesures(p: PropsBarreOutils & { mesureActive: boolean }) {
         aria-expanded={ouvert}
         title="Mesures : distance, surface, distance entre deux tronçons"
         onClick={() => setOuvert((o) => !o)}
-        onKeyDown={(e) => { if (e.key === "ArrowDown") { e.preventDefault(); setOuvert(true); } }}
+        onKeyDown={(e) => { if (e.key === "ArrowDown") { e.preventDefault(); setOuvert(true); } else if (e.key === "Escape" && ouvert) { setOuvert(false); } }}
         className={`flex h-9 items-center gap-1.5 rounded-lg border px-2.5 text-sm shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 ${
           p.mesureActive ? "border-navy bg-navy text-white" : "border-gray-200 bg-white text-navy hover:bg-gray-50"
         }`}
@@ -132,7 +132,7 @@ function MenuMesures(p: PropsBarreOutils & { mesureActive: boolean }) {
         <ChevronDown className="h-3 w-3" aria-hidden="true" />
       </button>
       {ouvert && (
-        <div role="menu" aria-label="Mesures" className="absolute right-0 top-full z-30 mt-1 w-72 overflow-hidden rounded-lg border border-gray-100 bg-white py-1 shadow-lg">
+        <div role="menu" aria-label="Mesures" tabIndex={-1} onKeyDown={auClavier} className="absolute right-0 top-full z-30 mt-1 w-72 overflow-hidden rounded-lg border border-gray-100 bg-white py-1 shadow-lg">
           {choix.map((c, i) => (
             <button
               key={c.cle}

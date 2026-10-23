@@ -31,6 +31,9 @@ vi.mock("./offlineDb", () => ({
   removePendingDefaut: vi.fn(async (localId: string) => { defautsLocaux.delete(localId); }),
   updatePendingPortion: vi.fn(async () => undefined),
   removePendingPortion: vi.fn(async () => undefined),
+  getAllPendingObservations: vi.fn(async () => []),
+  updatePendingObservation: vi.fn(async () => undefined),
+  removePendingObservation: vi.fn(async () => undefined),
 }));
 
 import { api } from "./api";
