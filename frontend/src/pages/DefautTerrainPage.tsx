@@ -1,9 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, CheckCircle2, CloudOff, MapPin, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { TronconPickerGeo } from "../components/TronconPickerGeo";
 import { useOfflineSync } from "../hooks/useOfflineSync";
+import { usePositionGps } from "../hooks/usePositionGps";
+import { api } from "../lib/api";
+import {
+  evaluerSommet, lireMesureServeur, lireRefusServeur, mesuresRequisesAvecContour, PRECISION_MAX_SOMMET_M, SOMMETS_MIN, usageDuContour,
+  validerContour, type MesureServeur, type SommetContour,
+} from "../lib/contourDefaut";
 import { chargerReferentielsDefautsTerrain, type MesureDefaut, type TypeCatalogueDefaut } from "../lib/defautsTerrain";
 import {
   addPendingDefaut,
@@ -22,6 +28,32 @@ const MESURES: Record<MesureDefaut, { key: keyof NonNullable<PendingDefaut["payl
   LARGEUR: { key: "largeurM", label: "Largeur", unite: "m" },
   PROFONDEUR: { key: "profondeurM", label: "Profondeur", unite: "m" },
   QUANTITE: { key: "quantiteSaisie", label: "Quantité relevée", unite: "selon le catalogue" },
+};
+
+type EmpriseDefaut = NonNullable<PendingDefaut["payload"]["emprise"]>;
+
+/** Etat du releve du contour. `ferme` : l'emprise est prete (`emprise` non nulle) ; `sommets` est vide pour une emprise reprise d'un brouillon. */
+interface ContourEtat {
+  etat: "inactif" | "en_cours" | "ferme";
+  sommets: SommetContour[];
+  emprise: EmpriseDefaut | null;
+  avertissements: string[];
+}
+const CONTOUR_VIDE: ContourEtat = { etat: "inactif", sommets: [], emprise: null, avertissements: [] };
+
+/** Ce que le SERVEUR dit du contour (apercu de sa mesure). Aucune surface n'est calculee sur le telephone. */
+type MesureContour =
+  | { etat: "aucune" }
+  | { etat: "hors_ligne" }
+  | { etat: "attente" }
+  | { etat: "mesuree"; mesure: MesureServeur }
+  | { etat: "refusee"; raison: string }
+  | { etat: "indisponible"; raison: string };
+
+const estSurface = (e: EmpriseDefaut | null) => e?.type === "Polygon" || e?.type === "MultiPolygon";
+const nombreDeSommets = (e: EmpriseDefaut): number | null => {
+  const anneau = e.type === "Polygon" ? e.coordinates[0] : null;
+  return Array.isArray(anneau) ? anneau.length - 1 : null;
 };
 
 type MesuresForm = Record<keyof NonNullable<PendingDefaut["payload"]["mesures"]>, string>;
@@ -81,11 +113,43 @@ export function DefautTerrainPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [erreurFormulaire, setErreurFormulaire] = useState("");
+  const gpsContour = usePositionGps();
+  const [contour, setContour] = useState<ContourEtat>(CONTOUR_VIDE);
+  const [refusSommet, setRefusSommet] = useState("");
+  const [mesureContour, setMesureContour] = useState<MesureContour>({ etat: "aucune" });
+  const jetonMesure = useRef(0);
 
   const typeChoisi = useMemo(
     () => catalogue.find((type) => type.code === catalogueCode) ?? null,
     [catalogue, catalogueCode],
   );
+  // Un contour FERME de surface couvre longueur et largeur (m2, m3) : meme regle que le serveur.
+  const contourDeSurface = contour.etat === "ferme" && estSurface(contour.emprise);
+  const mesuresExigees = useMemo(
+    () => (typeChoisi ? mesuresRequisesAvecContour(typeChoisi.unite, typeChoisi.mesuresRequises, contourDeSurface) : []),
+    [typeChoisi, contourDeSurface],
+  );
+
+  // Apercu de ce que le SERVEUR mesure sur le contour ferme. La valeur enregistree est recalculee par lui a la reception :
+  // cet apercu ne l'engage pas, et rien n'est calcule sur ce telephone.
+  useEffect(() => {
+    if (contour.etat !== "ferme" || !contour.emprise) { setMesureContour({ etat: "aucune" }); return; }
+    if (!online) { setMesureContour({ etat: "hors_ligne" }); return; }
+    jetonMesure.current += 1;
+    const jeton = jetonMesure.current;
+    setMesureContour({ etat: "attente" });
+    api.post("/v2/geo/metre", { geometrie: contour.emprise })
+      .then(({ data }) => {
+        if (jeton !== jetonMesure.current) return;
+        const mesure = lireMesureServeur(data);
+        setMesureContour(mesure ? { etat: "mesuree", mesure } : { etat: "indisponible", raison: "réponse inattendue" });
+      })
+      .catch((err: unknown) => {
+        if (jeton !== jetonMesure.current) return;
+        const r = lireRefusServeur(err);
+        setMesureContour(r.refus ? { etat: "refusee", raison: r.raison } : { etat: "indisponible", raison: r.raison });
+      });
+  }, [contour.etat, contour.emprise, online]);
 
   async function rafraichirQueue() {
     const items = await getAllPendingDefauts();
@@ -128,7 +192,42 @@ export function DefautTerrainPage() {
     );
   }
 
+  function commencerContour() {
+    setRefusSommet("");
+    setContour({ etat: "en_cours", sommets: [], emprise: null, avertissements: [] });
+    gpsContour.demarrer();
+  }
+
+  /** Pose le sommet « ici » : la position courante, si elle passe les controles (precision, anciennete, croisement). */
+  function poserSommet() {
+    const decision = evaluerSommet(gpsContour.position, contour.sommets, Date.now());
+    if (!decision.ok) { setRefusSommet(decision.message); return; }
+    setRefusSommet("");
+    setContour((c) => ({ ...c, sommets: [...c.sommets, decision.sommet] }));
+  }
+
+  function retirerDernierSommet() {
+    setRefusSommet("");
+    setContour((c) => ({ ...c, sommets: c.sommets.slice(0, -1) }));
+  }
+
+  function fermerContour() {
+    const r = validerContour(contour.sommets);
+    if (!r.ok) { setRefusSommet(r.message); return; }
+    setRefusSommet("");
+    gpsContour.arreter();
+    setContour({ etat: "ferme", sommets: contour.sommets, emprise: r.emprise, avertissements: r.avertissements });
+  }
+
+  /** Abandonne ou retire le contour : plus d'emprise, plus de suivi GPS du contour. */
+  function retirerContour() {
+    gpsContour.arreter();
+    setRefusSommet("");
+    setContour(CONTOUR_VIDE);
+  }
+
   function reinitialiserFormulaire() {
+    retirerContour();
     photos.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
     setPhotos([]);
     setCatalogueCode(catalogue[0]?.code ?? "");
@@ -183,6 +282,10 @@ export function DefautTerrainPage() {
     });
     photos.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
     setPhotos((item.photos ?? []).map((photo) => ({ ...photo, previewUrl: URL.createObjectURL(photo.blob) })));
+    // Le contour du brouillon est repris tel quel : corriger une autre saisie ne doit pas le faire disparaitre en silence.
+    gpsContour.arreter();
+    setRefusSommet("");
+    setContour(item.payload.emprise ? { etat: "ferme", sommets: [], emprise: item.payload.emprise, avertissements: [] } : CONTOUR_VIDE);
     setErreurFormulaire("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -256,7 +359,15 @@ export function DefautTerrainPage() {
       }
       mesuresPayload[key] = value;
     }
-    const manquantes = typeChoisi.mesuresRequises.filter((measure) => {
+    if (contour.etat === "en_cours") {
+      setErreurFormulaire("Le contour est commencé mais pas fermé : le fermer (« Fermer le contour ») ou l'abandonner avant d'enregistrer.");
+      return;
+    }
+    if (mesureContour.etat === "refusee") {
+      setErreurFormulaire(`Le serveur a refusé ce contour (${mesureContour.raison}) : le refaire ou le retirer avant d'enregistrer.`);
+      return;
+    }
+    const manquantes = mesuresExigees.filter((measure) => {
       const key = MESURES[measure].key;
       return mesuresPayload[key] === undefined;
     });
@@ -309,6 +420,8 @@ export function DefautTerrainPage() {
       ...(graviteNum !== undefined ? { gravite: graviteNum } : {}),
       ...(etendue ? { etendue } : {}),
       ...(Object.keys(mesuresPayload).length > 0 ? { mesures: mesuresPayload } : {}),
+      // Le contour part TEL QUEL (GeoJSON 4326) : aucune surface n'est jointe, le serveur la mesure en UTM.
+      ...(contour.etat === "ferme" && contour.emprise ? { emprise: contour.emprise } : {}),
     };
 
     setSubmitting(true);
@@ -450,16 +563,96 @@ export function DefautTerrainPage() {
           )}
         </fieldset>
 
+        <fieldset className="space-y-3 rounded-lg border border-gray-200 p-3">
+          <legend className="px-1 text-sm font-medium text-gray-700">Contour GPS du défaut (facultatif)</legend>
+          <p className="text-xs text-gray-500">
+            Pour un défaut qui couvre une surface : marcher autour et poser un sommet à chaque angle, puis fermer le contour. Le téléphone ne calcule aucune
+            surface : c'est le serveur qui la mesure, en projection métrique. La localisation du défaut reste à renseigner ci-dessus.
+          </p>
+          <p className="text-xs text-gray-500">
+            Un sommet n'est posé que si la précision annoncée est de ± {PRECISION_MAX_SOMMET_M} m ou mieux (seuil provisoire, non calibré sur un récepteur réel).
+            {typeChoisi ? ` ${usageDuContour(typeChoisi.unite)}` : ""}
+          </p>
+
+          {contour.etat === "inactif" && (
+            <Button type="button" variant="secondary" onClick={commencerContour} className="w-full justify-center">
+              <MapPin className="h-4 w-4" /> Commencer le contour
+            </Button>
+          )}
+
+          {contour.etat === "en_cours" && (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-700">
+                {gpsContour.erreur === "REFUSEE" ? "Autorisation de position refusée : la rouvrir dans les réglages du navigateur."
+                  : gpsContour.erreur === "INDISPONIBLE" ? "Cet appareil n'a pas de géolocalisation : le contour ne peut pas être relevé."
+                  : gpsContour.erreur === "INDETERMINEE" ? "Signal introuvable : sortir à découvert et attendre."
+                  : gpsContour.position ? `Position actuelle : précision ± ${gpsContour.position.precisionM} m${gpsContour.position.precisionM > PRECISION_MAX_SOMMET_M ? ` (au-dessus du seuil de ${PRECISION_MAX_SOMMET_M} m : attendre)` : ""}.`
+                  : "Recherche du signal…"}
+                {" "}{contour.sommets.length} sommet(s) posé(s).
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <Button type="button" variant="secondary" onClick={poserSommet} className="w-full justify-center">
+                  <MapPin className="h-4 w-4" /> Poser un sommet ici
+                </Button>
+                <Button type="button" variant="secondary" onClick={fermerContour} disabled={contour.sommets.length < SOMMETS_MIN} className="w-full justify-center">
+                  Fermer le contour
+                </Button>
+                <Button type="button" variant="ghost" onClick={retirerDernierSommet} disabled={contour.sommets.length === 0} className="w-full justify-center">
+                  Retirer le dernier sommet
+                </Button>
+                <Button type="button" variant="ghost" onClick={retirerContour} className="w-full justify-center">
+                  Abandonner le contour
+                </Button>
+              </div>
+              {contour.sommets.length < SOMMETS_MIN && <p className="text-xs text-gray-500">Il faut au moins {SOMMETS_MIN} sommets pour fermer le contour.</p>}
+              {refusSommet && <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">{refusSommet}</p>}
+              {contour.sommets.length > 0 && (
+                <ol className="max-h-32 list-decimal space-y-0.5 overflow-y-auto pl-5 text-xs text-gray-600">
+                  {contour.sommets.map((s, i) => <li key={`${s.poseLe}-${i}`}>{s.lat.toFixed(6)}, {s.lon.toFixed(6)} (± {Math.round(s.precisionM)} m)</li>)}
+                </ol>
+              )}
+            </div>
+          )}
+
+          {contour.etat === "ferme" && contour.emprise && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-green-800">
+                Contour fermé{nombreDeSommets(contour.emprise) !== null ? ` : ${nombreDeSommets(contour.emprise)} sommets` : ` (${contour.emprise.type})`}.
+                {contour.sommets.length === 0 && " Contour repris du brouillon."}
+              </p>
+              {contour.avertissements.map((a) => <p key={a} className="rounded-lg border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">{a}</p>)}
+              <div role="status" className="rounded-lg border border-gray-200 bg-gray-50 p-2 text-sm text-gray-800">
+                {mesureContour.etat === "attente" && "Mesure du contour par le serveur…"}
+                {mesureContour.etat === "hors_ligne" && "Hors ligne : la surface sera mesurée par le serveur à la synchronisation. Aucune surface n'est calculée sur ce téléphone."}
+                {mesureContour.etat === "mesuree" && (
+                  <>
+                    Surface mesurée par le serveur : <strong>{mesureContour.mesure.surfaceM2.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} m²</strong>
+                    {" "}(périmètre {mesureContour.mesure.longueurM.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} m, projection UTM EPSG:{mesureContour.mesure.epsg}).
+                    {" "}Aperçu : la valeur enregistrée est recalculée par le serveur à la réception.
+                  </>
+                )}
+                {mesureContour.etat === "refusee" && `Le serveur refuse ce contour : ${mesureContour.raison}. Le refaire ou le retirer.`}
+                {mesureContour.etat === "indisponible" && `Mesure du serveur indisponible (${mesureContour.raison}) : la surface sera mesurée à l'enregistrement.`}
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <Button type="button" variant="secondary" onClick={commencerContour} className="w-full justify-center">Refaire le contour</Button>
+                <Button type="button" variant="ghost" onClick={retirerContour} className="w-full justify-center">Retirer le contour</Button>
+              </div>
+            </div>
+          )}
+        </fieldset>
+
         {typeChoisi && mesuresAffichees.length > 0 && (
           <fieldset className="space-y-3 rounded-lg border border-gray-200 p-3">
             <legend className="px-1 text-sm font-medium text-gray-700">Mesures du défaut</legend>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {mesuresAffichees.map((measure) => {
                 const spec = MESURES[measure];
-                const required = typeChoisi.mesuresRequises.includes(measure);
+                const required = mesuresExigees.includes(measure);
+                const couvertParLeContour = !required && typeChoisi.mesuresRequises.includes(measure);
                 return (
                   <div key={measure}>
-                    <label htmlFor={`mesure-${spec.key}`} className="mb-1 block text-sm text-gray-700">{spec.label}{required ? " *" : " (facultatif)"}</label>
+                    <label htmlFor={`mesure-${spec.key}`} className="mb-1 block text-sm text-gray-700">{spec.label}{required ? " *" : couvertParLeContour ? " (couvert par le contour, facultatif)" : " (facultatif)"}</label>
                     <div className="flex items-center gap-2">
                       <input id={`mesure-${spec.key}`} type="number" min="0.001" step={measure === "NOMBRE" ? 1 : "any"} value={mesures[spec.key]} onChange={(event) => setMesures((prev) => ({ ...prev, [spec.key]: event.target.value }))} required={required} className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-3 text-base" />
                       <span className="w-28 text-xs text-gray-500">{spec.unite}</span>
