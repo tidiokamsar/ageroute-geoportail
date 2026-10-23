@@ -41,6 +41,10 @@ services:
     restart: unless-stopped
     depends_on:
       - backend
+    volumes:
+      # L'APK Android vit sur l'hote (hors archive de deploy : il survit aux publications
+      # sans etre commite dans un depot public). Mis a jour manuellement a chaque version.
+      - ./mobile:/opt/console-bdri/mobile:ro
     ports:
       - "127.0.0.1:8081:80"
     networks:
