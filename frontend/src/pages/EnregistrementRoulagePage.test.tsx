@@ -16,10 +16,30 @@ import { deplacer } from "../roulage";
  */
 
 const T0 = 1_790_000_000_000;
+/**
+ * Les codes de referentiel et les missions ci-dessous sont des DONNEES D'ESSAI : aucune n'est une valeur du
+ * referentiel reel, et l'ecran ne doit jamais en proposer d'autres que celles que le serveur (ici simule) rend.
+ */
+const REFERENTIELS_ESSAI = {
+  revetements: [{ code: "R_UN", libelle: "Revêtement essai un", actif: true }, { code: "R_RETIRE", libelle: "Revêtement retiré", actif: false }],
+  etats: [{ code: "E_UN", libelle: "État essai un", actif: true }, { code: "E_DEUX", libelle: "État essai deux", actif: true }],
+  praticabilites: [{ code: "P_UN", libelle: "Praticabilité essai un", actif: true }],
+  praticabiliteNonDefinie: false,
+};
+const MISSIONS_ESSAI = [
+  { id: "11111111-1111-4111-8111-111111111111", code: "M-MIENNE", intitule: "Patrouille assignée", statut: "EN_COURS", assigneId: "agent-1", createurId: "chef-1" },
+  { id: "22222222-2222-4222-8222-222222222222", code: "M-AUTRE", intitule: "Mission d'un autre agent", statut: "EN_COURS", assigneId: "agent-2", createurId: "chef-1" },
+  { id: "33333333-3333-4333-8333-333333333333", code: "M-ANNULEE", intitule: "Mission annulée", statut: "ANNULEE", assigneId: "agent-1", createurId: "agent-1" },
+];
+
 const h = vi.hoisted(() => ({
   posts: [] as { url: string; corps: Record<string, unknown> }[],
   reponsePush: { resultats: [{ statut: "SYNCHRONISE" }] } as unknown,
   suivi: { ok: null as ((p: unknown) => void) | null, err: null as ((e: { code: number }) => void) | null },
+  referentiels: null as unknown,
+  referentielsEchec: false,
+  missions: null as unknown,
+  missionsEchec: false,
 }));
 
 vi.mock("../lib/auth", () => ({ useAuth: () => ({ user: { id: "agent-1", role: "GESTIONNAIRE", modulesAutorises: [] } }) }));
@@ -30,6 +50,17 @@ vi.mock("../lib/api", () => ({
       h.posts.push({ url, corps });
       if (url === "/v2/devices") return { data: { id: "appareil-1" } };
       return { data: h.reponsePush };
+    }),
+    get: vi.fn(async (url: string) => {
+      if (url === "/v2/referentiels") {
+        if (h.referentielsEchec) throw new Error("reseau");
+        return { data: h.referentiels };
+      }
+      if (url === "/v2/missions") {
+        if (h.missionsEchec) throw new Error("reseau");
+        return { data: h.missions };
+      }
+      throw new Error(`GET inattendu : ${url}`);
     }),
   },
 }));
@@ -73,6 +104,10 @@ beforeEach(() => {
   h.posts.length = 0;
   h.reponsePush = { resultats: [{ statut: "SYNCHRONISE" }] };
   h.suivi.ok = null; h.suivi.err = null;
+  h.referentiels = structuredClone(REFERENTIELS_ESSAI);
+  h.referentielsEchec = false;
+  h.missions = structuredClone(MISSIONS_ESSAI);
+  h.missionsEchec = false;
   vi.useFakeTimers({ toFake: ["Date"], now: T0 });
   vi.mocked(toast.success).mockClear();
   vi.mocked(toast.error).mockClear();
@@ -233,5 +268,274 @@ describe("apres l'arret", () => {
   it("zero violation d'accessibilite en fin de session", async () => {
     await terminerSession();
     expect(await violationsAccessibilite(document.body)).toEqual([]);
+  });
+});
+
+// ------------------------------------------------------------------ qualification par segment et mission
+
+type PayloadEnvoye = { missionId: string | null; evenements: { code: string; statut: string; qualification: Record<string, string> | null }[] };
+
+/** La charge de la derniere session envoyee. */
+function chargeEnvoyee(): PayloadEnvoye {
+  const push = h.posts.filter((p) => p.url === "/v2/sync/push").at(-1);
+  if (!push) throw new Error("rien n'a ete envoye");
+  return (push.corps as { operations: { payload: PayloadEnvoye }[] }).operations[0].payload;
+}
+
+const choisir = (libelle: string, code: string) => fireEvent.change(screen.getByLabelText(libelle), { target: { value: code } });
+
+async function demarrerAvecListes() {
+  installerGeolocalisation();
+  const rendu = rendre();
+  await demarrer();
+  await screen.findByRole("option", { name: "Revêtement essai un" });
+  return rendu;
+}
+
+async function arreterEtEnvoyer() {
+  fireEvent.click(screen.getByRole("button", { name: /Arrêter/ }));
+  await screen.findByText("Enregistrement terminé");
+  fireEvent.click(screen.getByRole("button", { name: /Envoyer la session au serveur/ }));
+  await screen.findByText(/Session enregistrée|Refusée par le serveur|Pas confirmée/);
+}
+
+describe("qualification d'un segment", () => {
+  it("les trois listes ne proposent QUE les valeurs actives du serveur, avec 'Non relevé' en premier et aucune valeur choisie", async () => {
+    await demarrerAvecListes();
+    const revetement = screen.getByLabelText("Revêtement") as HTMLSelectElement;
+    expect(revetement.value).toBe("");
+    expect(Array.from(revetement.options).map((o) => o.textContent)).toEqual(["Non relevé", "Revêtement essai un"]);
+    expect(Array.from((screen.getByLabelText("État de chaussée") as HTMLSelectElement).options).map((o) => o.value)).toEqual(["", "E_UN", "E_DEUX"]);
+    expect((screen.getByLabelText("Praticabilité") as HTMLSelectElement).value).toBe("");
+    expect(screen.getByLabelText("Praticabilité")).toBeEnabled();
+  });
+
+  it("qualification choisie AVANT le debut : elle part dans l'evenement envoye, avec les codes du serveur", async () => {
+    await demarrerAvecListes();
+    for (let s = 0; s < 3; s += 1) emettre(s);
+    choisir("Revêtement", "R_UN");
+    choisir("État de chaussée", "E_DEUX");
+    fireEvent.click(screen.getByRole("button", { name: "Début d'un segment" }));
+    expect(screen.getByText(/Qualification enregistrée pour ce segment : Revêtement essai un, État essai deux/)).toBeInTheDocument();
+    for (let s = 3; s < 9; s += 1) emettre(s);
+    fireEvent.click(screen.getByRole("button", { name: "Fin du segment" }));
+    await arreterEtEnvoyer();
+    expect(chargeEnvoyee().evenements).toEqual([expect.objectContaining({ code: "SEGMENT", statut: "CLOS", qualification: { revetement: "R_UN", etat: "E_DEUX" } })]);
+  });
+
+  it("qualification choisie A LA FIN du segment (segment ouvert sans qualification) : elle qualifie CE segment", async () => {
+    await demarrerAvecListes();
+    for (let s = 0; s < 3; s += 1) emettre(s);
+    fireEvent.click(screen.getByRole("button", { name: "Début d'un segment" }));
+    expect(screen.getByText(/Qualification enregistrée pour ce segment : non qualifié/)).toBeInTheDocument();
+    for (let s = 3; s < 9; s += 1) emettre(s);
+    choisir("Praticabilité", "P_UN");
+    expect(screen.getByText(/Qualification enregistrée pour ce segment : Praticabilité essai un/)).toBeInTheDocument();
+    choisir("État de chaussée", "E_UN");
+    fireEvent.click(screen.getByRole("button", { name: "Fin du segment" }));
+    await arreterEtEnvoyer();
+    expect(chargeEnvoyee().evenements[0]).toMatchObject({ statut: "CLOS", qualification: { etat: "E_UN", praticabilite: "P_UN" } });
+  });
+
+  it("remettre un champ sur 'Non relevé' efface cette part : aucune valeur ne reste", async () => {
+    await demarrerAvecListes();
+    for (let s = 0; s < 3; s += 1) emettre(s);
+    choisir("État de chaussée", "E_UN");
+    fireEvent.click(screen.getByRole("button", { name: "Début d'un segment" }));
+    choisir("État de chaussée", "");
+    for (let s = 3; s < 9; s += 1) emettre(s);
+    fireEvent.click(screen.getByRole("button", { name: "Fin du segment" }));
+    await arreterEtEnvoyer();
+    expect(chargeEnvoyee().evenements[0].qualification).toBeNull();
+  });
+
+  it("un segment clos SANS qualification est signale : le serveur n'en tirera aucune portion", async () => {
+    await demarrerAvecListes();
+    for (let s = 0; s < 3; s += 1) emettre(s);
+    fireEvent.click(screen.getByRole("button", { name: "Début d'un segment" }));
+    for (let s = 3; s < 9; s += 1) emettre(s);
+    fireEvent.click(screen.getByRole("button", { name: "Fin du segment" }));
+    expect(screen.getByText(/1 segment\(s\) clos sans qualification : le serveur n'en tirera aucune portion/)).toBeInTheDocument();
+    await arreterEtEnvoyer();
+    expect(chargeEnvoyee().evenements[0].qualification).toBeNull();
+  });
+
+  it("la qualification NE SE REPORTE PAS sur le segment suivant : les listes reviennent sur 'Non relevé'", async () => {
+    await demarrerAvecListes();
+    for (let s = 0; s < 3; s += 1) emettre(s);
+    choisir("Revêtement", "R_UN");
+    fireEvent.click(screen.getByRole("button", { name: "Début d'un segment" }));
+    for (let s = 3; s < 9; s += 1) emettre(s);
+    fireEvent.click(screen.getByRole("button", { name: "Fin du segment" }));
+    expect((screen.getByLabelText("Revêtement") as HTMLSelectElement).value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Début d'un segment" }));
+    for (let s = 9; s < 15; s += 1) emettre(s);
+    fireEvent.click(screen.getByRole("button", { name: "Fin du segment" }));
+    await arreterEtEnvoyer();
+    expect(chargeEnvoyee().evenements.map((e) => e.qualification)).toEqual([{ revetement: "R_UN" }, null]);
+  });
+
+  it("la praticabilite reste DESACTIVEE quand le serveur n'a pas defini son vocabulaire, et le dit", async () => {
+    h.referentiels = { ...structuredClone(REFERENTIELS_ESSAI), praticabilites: [], praticabiliteNonDefinie: true };
+    await demarrerAvecListes();
+    expect(screen.getByLabelText("Praticabilité")).toBeDisabled();
+    expect(screen.getByText(/Vocabulaire non défini par AGEROUTE : ce champ reste indisponible, et aucune valeur n'a été inventée/)).toBeInTheDocument();
+    expect(Array.from((screen.getByLabelText("Praticabilité") as HTMLSelectElement).options).map((o) => o.value)).toEqual([""]);
+  });
+
+  it("sans vocabulaire (serveur injoignable, aucune copie) : listes desactivees, message clair, le segment s'enregistre sans qualification", async () => {
+    h.referentielsEchec = true;
+    installerGeolocalisation();
+    rendre();
+    await demarrer();
+    expect(await screen.findByText(/vocabulaires du serveur n'ont pas pu être chargés et aucune copie n'est gardée/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Revêtement")).toBeDisabled();
+    expect(screen.getByLabelText("État de chaussée")).toBeDisabled();
+    for (let s = 0; s < 3; s += 1) emettre(s);
+    fireEvent.click(screen.getByRole("button", { name: "Début d'un segment" }));
+    for (let s = 3; s < 9; s += 1) emettre(s);
+    fireEvent.click(screen.getByRole("button", { name: "Fin du segment" }));
+    await arreterEtEnvoyer();
+    expect(chargeEnvoyee().evenements[0].qualification).toBeNull();
+  });
+
+  it("une copie des vocabulaires gardee par un chargement precedent sert hors ligne, datee, sans rien inventer", async () => {
+    installerGeolocalisation();
+    const premier = rendre();
+    await demarrer();
+    await screen.findByRole("option", { name: "Revêtement essai un" });
+    premier.unmount();
+    h.referentielsEchec = true;
+    rendre();
+    fireEvent.click(await screen.findByRole("button", { name: /Supprimer cette session/ }));
+    await screen.findByRole("button", { name: /Démarrer l'enregistrement/ });
+    await demarrer();
+    expect(await screen.findByText(/Listes gardées sur ce téléphone depuis le/)).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "État essai un" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Revêtement retiré" })).not.toBeInTheDocument();
+  });
+
+  it("un segment ouvert EMPECHE toujours l'arret, meme qualifie : le choix clore ou abandonner reste offert", async () => {
+    await demarrerAvecListes();
+    for (let s = 0; s < 3; s += 1) emettre(s);
+    choisir("État de chaussée", "E_UN");
+    fireEvent.click(screen.getByRole("button", { name: "Début d'un segment" }));
+    for (let s = 3; s < 9; s += 1) emettre(s);
+    fireEvent.click(screen.getByRole("button", { name: /Arrêter/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Un segment est encore ouvert/);
+    expect(screen.queryByText("Enregistrement terminé")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Le clore à l'instant de l'arrêt/ }));
+    await screen.findByText("Enregistrement terminé");
+    fireEvent.click(screen.getByRole("button", { name: /Envoyer la session au serveur/ }));
+    await screen.findByText("Session enregistrée sur le serveur.");
+    expect(chargeEnvoyee().evenements[0]).toMatchObject({ statut: "CLOS_PAR_ARRET", qualification: { etat: "E_UN" } });
+  });
+
+  it("apres un redemarrage de la page, le segment ouvert garde sa qualification et la mission choisie est retrouvee", async () => {
+    installerGeolocalisation();
+    const premier = rendre();
+    await demarrer();
+    await screen.findByRole("option", { name: /M-MIENNE/ });
+    for (let s = 0; s < 3; s += 1) emettre(s);
+    choisir("Mission (facultative)", MISSIONS_ESSAI[0].id);
+    choisir("Revêtement", "R_UN");
+    fireEvent.click(screen.getByRole("button", { name: "Début d'un segment" }));
+    for (let s = 3; s < 6; s += 1) emettre(s);
+    premier.unmount();
+
+    rendre();
+    expect(await screen.findByRole("heading", { name: /Une session a été retrouvée/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Reprendre l'enregistrement/ }));
+    await screen.findByText("Enregistrement en cours");
+    expect((screen.getByLabelText("Revêtement") as HTMLSelectElement).value).toBe("R_UN");
+    expect((screen.getByLabelText("Mission (facultative)") as HTMLSelectElement).value).toBe(MISSIONS_ESSAI[0].id);
+    expect(screen.getByRole("button", { name: "Fin du segment" })).toBeInTheDocument();
+  });
+
+  it("zero violation d'accessibilite : listes de qualification, segment ouvert, mission, fin de session", async () => {
+    const { container } = await demarrerAvecListes();
+    for (let s = 0; s < 3; s += 1) emettre(s);
+    expect(await violationsAccessibilite(container)).toEqual([]);
+    choisir("Revêtement", "R_UN");
+    fireEvent.click(screen.getByRole("button", { name: "Début d'un segment" }));
+    for (let s = 3; s < 9; s += 1) emettre(s);
+    expect(await violationsAccessibilite(container)).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Fin du segment" }));
+    expect(await violationsAccessibilite(container)).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: /Arrêter/ }));
+    await screen.findByText("Enregistrement terminé");
+    expect(await violationsAccessibilite(container)).toEqual([]);
+  });
+
+  it("zero violation d'accessibilite avec la praticabilite desactivee et les vocabulaires absents", async () => {
+    h.referentielsEchec = true;
+    installerGeolocalisation();
+    const { container } = rendre();
+    await demarrer();
+    await screen.findByText(/vocabulaires du serveur n'ont pas pu être chargés/);
+    expect(await violationsAccessibilite(container)).toEqual([]);
+  });
+});
+
+describe("lien a une mission", () => {
+  it("ne propose QUE les missions assignees a l'agent ou creees par lui, jamais une annulee ni celle d'un autre", async () => {
+    await demarrerAvecListes();
+    const liste = screen.getByLabelText("Mission (facultative)") as HTMLSelectElement;
+    await screen.findByRole("option", { name: /M-MIENNE/ });
+    expect(Array.from(liste.options).map((o) => o.textContent)).toEqual(["Aucune mission", "M-MIENNE : Patrouille assignée (en cours)"]);
+    expect(liste.value).toBe("");
+  });
+
+  it("la mission choisie est transmise comme missionId de la charge", async () => {
+    await demarrerAvecListes();
+    await screen.findByRole("option", { name: /M-MIENNE/ });
+    for (let s = 0; s < 5; s += 1) emettre(s);
+    choisir("Mission (facultative)", MISSIONS_ESSAI[0].id);
+    await arreterEtEnvoyer();
+    expect(chargeEnvoyee().missionId).toBe(MISSIONS_ESSAI[0].id);
+  });
+
+  it("sans choix de mission, la charge porte missionId nul (le lien est facultatif)", async () => {
+    await demarrerAvecListes();
+    for (let s = 0; s < 5; s += 1) emettre(s);
+    await arreterEtEnvoyer();
+    expect(chargeEnvoyee().missionId).toBeNull();
+  });
+
+  it("un refus MISSION_NON_AUTORISEE est rendu avec son motif, et la mission peut etre retiree pour renvoyer", async () => {
+    h.reponsePush = { resultats: [{ statut: "REJETE", motif: "MISSION_NON_AUTORISEE" }] };
+    await demarrerAvecListes();
+    await screen.findByRole("option", { name: /M-MIENNE/ });
+    for (let s = 0; s < 5; s += 1) emettre(s);
+    choisir("Mission (facultative)", MISSIONS_ESSAI[0].id);
+    await arreterEtEnvoyer();
+    expect(screen.getByText(/Refusée par le serveur \(MISSION_NON_AUTORISEE\)/)).toBeInTheDocument();
+    expect(screen.getByLabelText("Mission (facultative)")).toBeEnabled();
+    h.reponsePush = { resultats: [{ statut: "SYNCHRONISE" }] };
+    choisir("Mission (facultative)", "");
+    fireEvent.click(screen.getByRole("button", { name: /Envoyer la session au serveur/ }));
+    await screen.findByText("Session enregistrée sur le serveur.");
+    const pushes = h.posts.filter((p) => p.url === "/v2/sync/push").map((p) => (p.corps as { operations: { payload: PayloadEnvoye }[] }).operations[0].payload.missionId);
+    expect(pushes).toEqual([MISSIONS_ESSAI[0].id, null]);
+  });
+
+  it("missions indisponibles : le lien est absent, l'ecran le dit, l'enregistrement et l'envoi continuent", async () => {
+    h.missionsEchec = true;
+    installerGeolocalisation();
+    rendre();
+    await demarrer();
+    expect(await screen.findByText(/Missions indisponibles .* la session partira sans lien à une mission/)).toBeInTheDocument();
+    for (let s = 0; s < 5; s += 1) emettre(s);
+    await arreterEtEnvoyer();
+    expect(chargeEnvoyee().missionId).toBeNull();
+  });
+
+  it("aucune mission a soi : message clair, aucune option inventee", async () => {
+    h.missions = [MISSIONS_ESSAI[1]];
+    installerGeolocalisation();
+    rendre();
+    await demarrer();
+    expect(await screen.findByText(/Aucune mission assignée à votre compte ou créée par vous/)).toBeInTheDocument();
+    expect(Array.from((screen.getByLabelText("Mission (facultative)") as HTMLSelectElement).options).map((o) => o.value)).toEqual([""]);
   });
 });

@@ -28,6 +28,7 @@ lancer "sync.integration.mts"
 lancer "conflits-sync.integration.mts"
 lancer "import.integration.mts"
 lancer "metre-defaut.integration.mts"
+lancer "contour-terrain.integration.mts"
 lancer "taches-internes.integration.mts"
 
 printf '\n%s\n' "Resultat des bancs d'integration"
