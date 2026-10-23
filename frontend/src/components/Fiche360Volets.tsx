@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
 import { messageErreur } from "../lib/exploitation";
+import { LIBELLE_ORIGINE, LIBELLE_STATUT_FICHE } from "../lib/moteurProgrammation";
 import { aujourdhui, avertissements, etiquetteJour, jourValide, resume, type ReponseCurseur } from "../lib/curseur";
 import {
   LIBELLE_STATUT_PREVISION, LIBELLE_STATUT_VALIDATION, emprise, formaterValeur, jourFr,
@@ -16,7 +17,8 @@ import {
  * **Une date d'effet absente reste absente.** « Non renseignée » n'est pas « depuis toujours ».
  * **L'etat a une date vient du curseur temporel**, la seule definition de « vrai a cette date » : le volet
  * l'appelle, il ne la recalcule pas. Il ne montre pas l'avenir (la date est bornee a aujourd'hui).
- * **Les interventions figees n'existent pas encore** (aucune table) : le volet le dit, il n'en invente aucune.
+ * **Les interventions figees sont celles que le moteur a figees** (table `fiches_intervention`) : le volet les liste avec leur
+ * statut courant et leur cycle de vie en ajout seul, il n'en invente aucune ; sans table, il le dit.
  * **Hors perimetre, rien n'est montre** : le serveur refuse (403) et l'ecran affiche ce refus.
  */
 
@@ -236,9 +238,50 @@ export function VoletProgrammation({ tronconId }: { tronconId: string }) {
         )}
       </section>
 
-      <p className="rounded border border-sky-200 bg-sky-50 p-2 text-xs text-sky-900">
-        <strong>Interventions figées : aucune donnée.</strong> {data.interventionsFigees.motif}
-      </p>
+      <InterventionsFigeesSection interventions={data.interventionsFigees} />
     </div>
+  );
+}
+
+/**
+ * Interventions figees du troncon : les fiches que le moteur de programmation a figees (table `fiches_intervention`),
+ * avec leur statut courant et l'historique de leur cycle de vie, en ajout seul. Rien n'est calcule ici : une fiche
+ * « PROVISOIRE, non approuvé » le reste, son etiquette est celle que la fiche porte. Table absente : le volet le dit.
+ */
+function InterventionsFigeesSection({ interventions }: { interventions: Programmation["interventionsFigees"] }) {
+  if (!interventions.disponible) {
+    return (
+      <p role="note" className="rounded border border-sky-200 bg-sky-50 p-2 text-xs text-sky-900">
+        <strong>Interventions figées : indisponibles.</strong> {interventions.motif}
+      </p>
+    );
+  }
+  return (
+    <section aria-labelledby="vg-figees" className="space-y-2" data-testid="interventions-figees">
+      <h3 id="vg-figees" className="text-xs font-semibold uppercase text-gray-600">Interventions figées ({interventions.total}{interventions.tronque ? `, tronquées à ${interventions.plafond}` : ""})</h3>
+      {interventions.fiches.length === 0 ? (
+        <p className="text-sm text-gray-700">Aucune intervention n'a été figée pour ce tronçon. Ce n'est pas une absence de besoin : aucun scénario du moteur de programmation n'a encore été figé pour lui.</p>
+      ) : (
+        <ul className="space-y-3">
+          {interventions.fiches.map((f) => (
+            <li key={f.id} className="space-y-1 rounded border p-2 text-sm">
+              <p>
+                <strong>{f.reference}</strong> · {f.annee} · {LIBELLE_STATUT_FICHE[f.statut] ?? f.statut} depuis le {jourFr(f.statutDepuis)}
+                {f.traitement ? ` · ${f.traitement}` : ""}{f.montantGnf !== null ? ` · ${formaterValeur(f.montantGnf, "GNF")}` : ""}
+              </p>
+              {f.etiquette && <p className="text-xs font-semibold text-amber-900">{f.etiquette}</p>}
+              <p className="text-xs text-gray-700">Paramètres {f.parametresVersion} · empreinte SHA-256 <code className="break-all">{f.empreinteSha256}</code></p>
+              <ol className="list-decimal pl-5 text-xs text-gray-800" aria-label={`Cycle de vie de ${f.reference}`}>
+                {f.historique.map((h) => (
+                  <li key={h.rang}>
+                    {h.de ? `${LIBELLE_STATUT_FICHE[h.de] ?? h.de} vers ${LIBELLE_STATUT_FICHE[h.vers] ?? h.vers}` : `Ouverte à ${LIBELLE_STATUT_FICHE[h.vers] ?? h.vers}`} · {LIBELLE_ORIGINE[h.origine] ?? h.origine} · {jourFr(h.enregistreLe)}{h.motif ? ` · ${h.motif}` : ""}
+                  </li>
+                ))}
+              </ol>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

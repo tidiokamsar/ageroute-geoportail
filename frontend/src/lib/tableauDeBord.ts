@@ -198,8 +198,20 @@ export interface VoletProgrammation {
     id: string; intitule: string; statut: string; avancementPct: number; entreprise: string;
     montantGnf: string | null; dateDebutPrevue: string | null; dateFinPrevue: string | null;
   }[];
-  interventionsFigees: { disponible: false; motif: string };
+  interventionsFigees: InterventionsFigees;
 }
+
+export interface StatutFiche { rang: number; de: string | null; vers: string; origine: string; motif: string | null; enregistreLe: string }
+
+export interface InterventionFigee {
+  id: string; reference: string; scenarioId: string; annee: number; parametresVersion: string; empreinteSha256: string; figeLe: string;
+  statut: string; rangStatut: number; statutDepuis: string; traitement: string | null; montantGnf: string | null;
+  provisoire: boolean | null; etiquette: string | null; historique: StatutFiche[];
+}
+
+export type InterventionsFigees =
+  | { disponible: true; total: number; tronque: boolean; plafond: number; fiches: InterventionFigee[] }
+  | { disponible: false; motif: string };
 
 export const LIBELLE_STATUT_VALIDATION: Record<string, string> = {
   VALIDE: "Validée", A_VALIDER: "Proposition", REJETE: "Rejetée", A_CORRIGER: "À corriger",
