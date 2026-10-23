@@ -167,9 +167,12 @@ export const LIBELLE_ORIGINE: Record<string, string> = {
 
 // ----------------------------------------------------------------------------- saisie et affichage des montants
 
+/** Espaces d'une saisie : blancs usuels, espace fine insecable (typographie francaise) et espace insecable. */
+const ESPACES = new RegExp(`[\\s${String.fromCharCode(0x202f, 0xa0)}]`, "g");
+
 /** Chiffres d'une saisie « 5 000 000 000 » ; `null` si ce n'est pas un entier de 1 a 18 chiffres. Aucune conversion en nombre. */
 export function chiffresGnf(saisie: string): string | null {
-  const s = saisie.replace(/[\s  ]/g, "");
+  const s = saisie.replace(ESPACES, "");
   if (!/^\d{1,18}$/.test(s)) return null;
   return s.replace(/^0+(?=\d)/, "");
 }
