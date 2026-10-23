@@ -1,8 +1,11 @@
 import { Router } from "express";
 import { z } from "zod";
 import { AuditAction } from "@prisma/client";
+import { requireAuth } from "../middleware/auth.middleware";
 import { requireRole } from "../middleware/rbac.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
+import { requireTerritoire } from "../middleware/territoire.middleware";
+import { regionsDe } from "../territoire/territoire.service";
 import { prisma } from "../lib/prisma";
 import { logAuditTransactionnelle } from "../utils/audit";
 
@@ -28,7 +31,9 @@ import { logAuditTransactionnelle } from "../utils/audit";
  */
 
 export const bulkEtatV2Router = Router();
-bulkEtatV2Router.use(requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"));
+// requireAuth d'abord : c'est lui qui pose `req.user`. Sans lui, requireRole repondait 401 a tout le monde, y
+// compris a un compte connecte (constat du 23/10 sur la carte : « Authentification requise »).
+bulkEtatV2Router.use(requireAuth, requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"));
 
 const corps = z.object({
   ids: z.array(z.string().min(1)).min(1).max(500),
@@ -36,7 +41,15 @@ const corps = z.object({
   motif: z.string().trim().min(5).max(500),
 }).strict();
 
-bulkEtatV2Router.post("/bulk-etat", async (req, res, next) => {
+// Controle territorial (A10) : un compte regional ne change l'etat que de troncons de son perimetre, et UN SEUL
+// troncon hors perimetre refuse tout le lot (une decision unique ne se coupe pas en deux). Corps invalide : aucune
+// region a verifier, la route rend son 400.
+const territoireCorridor = requireTerritoire(async (req) => {
+  const ids = (req.body as { ids?: unknown } | undefined)?.ids;
+  return Array.isArray(ids) && ids.every((i) => typeof i === "string") && ids.length <= 500 ? regionsDe("troncon", ids) : [];
+});
+
+bulkEtatV2Router.post("/bulk-etat", territoireCorridor, async (req, res, next) => {
   try {
     const p = corps.safeParse(req.body);
     if (!p.success) {

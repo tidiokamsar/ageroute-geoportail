@@ -58,7 +58,7 @@ export function ChangerEtatCorridor({
   const pret = etat !== "" && motif.trim().length >= 5;
 
   return (
-    <div className="inline-flex flex-col gap-1.5">
+    <div className="flex w-full flex-col gap-1.5">
       {!ouvert ? (
         <button
           type="button"
@@ -69,7 +69,7 @@ export function ChangerEtatCorridor({
           Changer l'état du corridor ({ids.length})
         </button>
       ) : (
-        <div className="rounded-lg border border-gold/60 bg-white p-3 shadow-lg space-y-2 w-72">
+        <div className="rounded-lg border border-gold/60 bg-white p-3 shadow-lg space-y-2 w-full max-w-72">
           <p className="text-xs font-semibold text-navy">
             Corridor {libelle} — {ids.length} tronçon(s)
           </p>
