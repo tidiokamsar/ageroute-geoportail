@@ -36,6 +36,7 @@ const sections = [
       { to: "/ordres-travaux", label: "Ordres de travaux" },
       { to: "/marches", label: "Marchés" },
       { to: "/programmation", label: "Programmation" },
+      { to: "/programmation/moteur", label: "Moteur de programmation", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/inspections", label: "Inspections" },
       { to: "/inspections/defauts/validation", label: "Validation des relevés", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/inspections/conflits", label: "Conflits de synchronisation", roles: ["ADMIN", "GESTIONNAIRE"] },

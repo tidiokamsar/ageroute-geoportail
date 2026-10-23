@@ -21,6 +21,7 @@ lancer() { # $1 = fichier
 for b in "${BANCS[@]}"; do lancer "$b.integration.ts"; done
 lancer "curseur.integration.mts"
 lancer "programmation.integration.mts"
+lancer "ppe.integration.mts"
 lancer "outbox.integration.mts"
 lancer "tableau-de-bord.integration.mts"
 lancer "roulage.integration.mts"

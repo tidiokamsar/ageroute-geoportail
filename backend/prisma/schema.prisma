@@ -3792,3 +3792,33 @@ model EvenementRoulagePortion {
   @@index([tronconId])
   @@map("evenements_roulage_portions")
 }
+
+/// Plan pluriannuel (PPE) minimal : 2 a 5 annees, une enveloppe SAISIE par annee, scenarios annuels
+/// chaines (methode gloutonne deterministe, aucune optimisation). Migration
+/// 20261026300000_plans_pluriannuels. Entrees et resultat canoniques, empreintes SHA-256 verifiees en
+/// base ; fige : seule la suppression logique est permise (declencheur). Aucune relation declaree
+/// (cles etrangeres en base) : le code y accede par SQL etiquete (programmation/ppe.depot.ts).
+model PlanPluriannuel {
+  id                 String    @id @default(uuid())
+  intitule           String
+  anneeDebut         Int
+  nbAnnees           Int
+  parametresId       String
+  parametresVersion  String
+  enveloppeTotaleGnf BigInt
+  perimetre          Json      @default("{}")
+  entreesCanoniques  String
+  empreinteEntrees   String
+  resultatCanonique  String
+  empreinteResultat  String
+  nbRetenus          Int
+  nbNonRetenus       Int
+  montantEngageGnf   BigInt
+  provisoire         Boolean
+  creeParId          String
+  creeLe             DateTime  @default(now())
+  deletedAt          DateTime?
+
+  @@index([anneeDebut, creeLe(sort: Desc)], map: "plans_pluriannuels_debut_idx")
+  @@map("plans_pluriannuels")
+}

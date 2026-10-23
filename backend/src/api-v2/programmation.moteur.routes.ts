@@ -6,6 +6,7 @@ import { requireRole } from "../middleware/rbac.middleware";
 import { prisma } from "../lib/prisma";
 import * as moteur from "../programmation/moteur.service";
 import * as depot from "../programmation/moteur.depot";
+import * as ppe from "../programmation/ppe.service";
 
 /**
  * `/api/v2/programmation/moteur` : le moteur de risque et de programmation (paragraphe 7.7, A22).
@@ -17,6 +18,8 @@ import * as depot from "../programmation/moteur.depot";
  *   GET  /simulations                     scenarios calcules
  *   POST /simulations                     calcule, justifie et enregistre un scenario annuel sous contrainte budgetaire
  *   GET  /simulations/:id                 le scenario complet, ligne par ligne, avec ses justifications
+ *   GET  /praticabilite                   D-02 : « non branchee : aucune valeur approuvee » ou branchee EN LECTURE
+ *   GET  /simulations/:id/praticabilite   signaux de lecture sur les lignes retenues (aucun effet sur le rang)
  *   POST /simulations/:id/rejouer         recalcule depuis les seules entrees stockees et compare octet pour octet
  *   POST /simulations/:id/supprimer       suppression LOGIQUE (refusee si une fiche figee le cite)
  *   POST /simulations/:id/fiches          fige les lignes retenues en fiches d'intervention
@@ -140,6 +143,18 @@ moteurProgrammationV2Router.post("/simulations", ecriture, async (req, res, next
 
 moteurProgrammationV2Router.get("/simulations/:id", async (req, res, next) => {
   try { res.json(await moteur.lireScenarioComplet(prisma, req.params.id)); } catch (err) { refus(err, res, next); }
+});
+
+// D-02 : la praticabilite n'est lue que si une valeur APPROUVEE existe ; sinon la reponse le dit.
+moteurProgrammationV2Router.get("/praticabilite", async (_req, res, next) => {
+  try { res.json(await ppe.statutPraticabilite(prisma)); } catch (err) { next(err); }
+});
+
+moteurProgrammationV2Router.get("/simulations/:id/praticabilite", async (req, res, next) => {
+  try {
+    const { resultat } = await moteur.lireScenarioComplet(prisma, req.params.id);
+    res.json(await ppe.alertesPraticabilite(prisma, ppe.tronconsRetenusDe(resultat)));
+  } catch (err) { refus(err, res, next); }
 });
 
 moteurProgrammationV2Router.post("/simulations/:id/rejouer", async (req, res, next) => {

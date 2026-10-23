@@ -3,6 +3,7 @@ import { render, screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { VoletPortions as Portions, VoletProgrammation as Programmation } from "../lib/tableauDeBord";
+import { violationsAccessibilite } from "../test/accessibilite";
 
 /**
  * Fiche 360, volets portion et programmation : ce que ces tests defendent.
@@ -56,7 +57,18 @@ const programmationBase: Programmation = {
   ],
   totaux: [{ statut: "RETENU", nb: 1, montantGnf: "9007199254740993" }, { statut: "PROPOSE", nb: 1, montantGnf: "500" }],
   chantiers: [{ id: "c", intitule: "Reprise radier", statut: "EN_COURS", avancementPct: 40, entreprise: "ETP", montantGnf: null, dateDebutPrevue: null, dateFinPrevue: "2026-12-31" }],
-  interventionsFigees: { disponible: false, motif: "Aucune table de fiches d'intervention : le cycle de vie n'existe que comme règle." },
+  interventionsFigees: {
+    disponible: true, total: 1, tronque: false, plafond: 100,
+    fiches: [{
+      id: "f1", reference: "FI-2027-ABCDEF1234", scenarioId: "s1", annee: 2027, parametresVersion: "prog-provisoire-1", empreinteSha256: "ab".repeat(32),
+      figeLe: "2026-10-23T10:00:00Z", statut: "PROPOSE", rangStatut: 2, statutDepuis: "2026-10-24T08:00:00Z", traitement: "rehabilitation",
+      montantGnf: "4400000000", provisoire: true, etiquette: "PROVISOIRE, non approuvé",
+      historique: [
+        { rang: 1, de: null, vers: "BROUILLON", origine: "GEOPORTAIL", motif: null, enregistreLe: "2026-10-23T10:00:01Z" },
+        { rang: 2, de: "BROUILLON", vers: "PROPOSE", origine: "GEOPORTAIL", motif: "relue", enregistreLe: "2026-10-24T08:00:00Z" },
+      ],
+    }],
+  },
 };
 
 beforeEach(() => {
@@ -163,10 +175,37 @@ describe("VoletProgrammation", () => {
     expect(ligne).toHaveTextContent("fin prévue le 31/12/2026");
   });
 
-  it("dit que les interventions figees n'existent pas encore", async () => {
+  it("liste les interventions figees avec statut courant, etiquette, empreinte et cycle de vie en ajout seul", async () => {
     rendre(<VoletProgrammation tronconId="t1" />);
-    expect(await screen.findByText("Interventions figées : aucune donnée.")).toBeInTheDocument();
-    expect(screen.getByText(/le cycle de vie n'existe que comme règle/)).toBeInTheDocument();
+    const section = await screen.findByTestId("interventions-figees");
+    expect(within(section).getByRole("heading", { name: "Interventions figées (1)" })).toBeInTheDocument();
+    expect(n(section.textContent)).toContain("FI-2027-ABCDEF1234 · 2027 · Proposée depuis le 24/10/2026 · rehabilitation · 4 400 000 000 GNF");
+    expect(within(section).getByText("PROVISOIRE, non approuvé")).toBeInTheDocument();
+    expect(within(section).getByText("ab".repeat(32))).toBeInTheDocument();
+    const cycle = within(section).getByRole("list", { name: "Cycle de vie de FI-2027-ABCDEF1234" });
+    const etapes = within(cycle).getAllByRole("listitem").map((li) => n(li.textContent));
+    expect(etapes[0]).toMatch(/^Ouverte à Brouillon · Géoportail · 23\/10\/2026$/);
+    expect(etapes[1]).toMatch(/^Brouillon vers Proposée · Géoportail · 24\/10\/2026 · relue$/);
+  });
+
+  it("aucune fiche figee : le volet dit que ce n'est pas une absence de besoin", async () => {
+    h.programmation = { ...programmationBase, interventionsFigees: { disponible: true, total: 0, tronque: false, plafond: 100, fiches: [] } };
+    rendre(<VoletProgrammation tronconId="t1" />);
+    expect(await screen.findByText(/Aucune intervention n'a été figée pour ce tronçon/)).toBeInTheDocument();
+    expect(screen.getByText(/Ce n'est pas une absence de besoin/)).toBeInTheDocument();
+  });
+
+  it("table des fiches absente : le volet le dit, il ne rend pas une liste vide", async () => {
+    h.programmation = { ...programmationBase, interventionsFigees: { disponible: false, motif: "La table des fiches d'intervention n'existe pas dans cette base." } };
+    rendre(<VoletProgrammation tronconId="t1" />);
+    expect(await screen.findByText("Interventions figées : indisponibles.")).toBeInTheDocument();
+    expect(screen.getByText(/n'existe pas dans cette base/)).toBeInTheDocument();
+  });
+
+  it("aucune violation d'accessibilite sur la liste des interventions figees", async () => {
+    const { container } = rendre(<VoletProgrammation tronconId="t1" />);
+    await screen.findByTestId("interventions-figees");
+    expect(await violationsAccessibilite(container)).toEqual([]);
   });
 
   it("aucune prevision : ce n'est pas un budget nul", async () => {

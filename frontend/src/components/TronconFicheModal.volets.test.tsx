@@ -67,6 +67,6 @@ describe("Fiche tronçon : volets de la fiche 360", () => {
     await userEvent.click(screen.getByRole("button", { name: "Programmation" }));
     expect(await screen.findByTestId("volet-programmation")).toBeInTheDocument();
     expect(h.appels).toContain("/v2/fiche-360/troncons/t1/programmation");
-    expect(screen.getByText(/Interventions figées : aucune donnée/)).toBeInTheDocument();
+    expect(screen.getByText(/Interventions figées : indisponibles/)).toBeInTheDocument();
   });
 });

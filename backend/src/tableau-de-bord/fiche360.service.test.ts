@@ -1,27 +1,42 @@
 import { describe, expect, it } from "vitest";
-import { PLAFOND_VERSIONS, voletPortions, voletProgrammation, type DepotFiche } from "./fiche360.service";
+import { PLAFOND_FICHES_FIGEES, PLAFOND_VERSIONS, voletPortions, voletProgrammation, type DepotFiche } from "./fiche360.service";
 
 /**
  * Volets portion et programmation de la fiche 360 : ce que ces tests defendent.
  *   - l'historique garde les versions REMPLACEES et ecarte les supprimees (la requete filtre deletedAt) ;
  *   - une date d'effet absente reste absente (null), jamais « depuis toujours » ;
  *   - un montant ne passe jamais par un nombre : bigint -> chaine, au-dela de 2^53 ;
- *   - les interventions figees sont declarees indisponibles, pas inventees ;
+ *   - les interventions figees sont LUES dans les fiches du moteur (statut courant, historique en ajout seul,
+ *     etiquette de la fiche), jamais inventees ; une table absente est DITE, pas rendue comme une liste vide ;
  *   - un troncon introuvable ou supprime rend null (la route repond 404).
  */
 
 const troncon = { id: "t1", code: "GN N0001", nom: "Conakry", regionId: 3 };
 
-function depot(over: { portions?: unknown[]; lignes?: unknown[]; chantiers?: unknown[]; troncon?: unknown } = {}) {
+function depot(over: { portions?: unknown[]; lignes?: unknown[]; chantiers?: unknown[]; troncon?: unknown; figees?: unknown[]; statuts?: unknown[]; erreurFigees?: unknown } = {}) {
   const requetes: Record<string, unknown>[] = [];
+  const sql: { texte: string; valeurs: unknown[] }[] = [];
   const d = {
     troncon: { findFirst: async () => (over.troncon === undefined ? troncon : over.troncon) },
     portion: { findMany: async (args: Record<string, unknown>) => { requetes.push(args); return over.portions ?? []; } },
     programmeBudgetaire: { findMany: async () => over.lignes ?? [] },
     chantier: { findMany: async () => over.chantiers ?? [] },
+    // Requete etiquetee : le pilote recoit (fragments, ...valeurs liees), jamais un texte concatene.
+    $queryRaw: async (fragments: TemplateStringsArray, ...valeurs: unknown[]) => {
+      const texte = fragments.join("?");
+      sql.push({ texte, valeurs });
+      if (over.erreurFigees) throw over.erreurFigees;
+      return /fiches_intervention_statuts/.test(texte) ? (over.statuts ?? []) : (over.figees ?? []);
+    },
   } as unknown as DepotFiche;
-  return { d, requetes };
+  return { d, requetes, sql };
 }
+
+const figee = (id: string, o: Record<string, unknown> = {}) => ({
+  id, reference: `FI-2027-${id}`, scenarioId: "s1", annee: 2027, parametresVersion: "prog-provisoire-1", empreinteSha256: "a".repeat(64),
+  figeLe: new Date("2026-10-23T10:00:00Z"), statut: "BROUILLON", rangStatut: 1, statutDepuis: new Date("2026-10-23T10:00:01Z"),
+  traitement: "rehabilitation", montantGnf: "4400000000", provisoire: true, etiquette: "PROVISOIRE, non approuvé", ...o,
+});
 
 const portion = (id: string, o: Record<string, unknown> = {}) => ({
   id, tronconId: "t1", debutM: 0, finM: 100, etat: "BON", etatRef: { libelle: "Bon" }, revetement: "BITUME",
@@ -81,11 +96,59 @@ describe("voletProgrammation", () => {
     expect(v?.totaux).toEqual([{ statut: "RETENU", nb: 2, montantGnf: "9007199254741493" }, { statut: "PROPOSE", nb: 1, montantGnf: "40" }]);
   });
 
-  it("declare les interventions figees indisponibles au lieu d'en inventer", async () => {
+  it("sans fiche figee : disponible, total zero, liste vide (la table existe, rien n'est fige pour ce troncon)", async () => {
     const v = await voletProgrammation(depot().d, "t1");
-    expect(v?.interventionsFigees.disponible).toBe(false);
-    expect(v?.interventionsFigees.motif).toMatch(/Aucune table/);
+    expect(v?.interventionsFigees).toEqual({ disponible: true, total: 0, tronque: false, plafond: 100, fiches: [] });
     expect(v?.previsions).toEqual([]);
+  });
+
+  it("rend les fiches figees du troncon avec leur statut courant, leur etiquette et l'historique du cycle de vie", async () => {
+    const { d, sql } = depot({
+      figees: [figee("f1", { statut: "APPROUVE", rangStatut: 4 }), figee("f2")],
+      statuts: [
+        { ficheId: "f1", rang: 1, de: null, vers: "BROUILLON", origine: "GEOPORTAIL", motif: null, enregistreLe: new Date("2026-10-23T10:00:01Z") },
+        { ficheId: "f1", rang: 2, de: "BROUILLON", vers: "PROPOSE", origine: "GEOPORTAIL", motif: "relu", enregistreLe: new Date("2026-10-24T08:00:00Z") },
+        { ficheId: "f2", rang: 1, de: null, vers: "BROUILLON", origine: "GEOPORTAIL", motif: null, enregistreLe: new Date("2026-10-23T10:00:01Z") },
+      ],
+    });
+    const v = await voletProgrammation(d, "t1");
+    const f = v?.interventionsFigees;
+    expect(f?.disponible).toBe(true);
+    if (!f || !f.disponible) return;
+    expect(f.fiches.map((x) => [x.reference, x.statut, x.rangStatut])).toEqual([["FI-2027-f1", "APPROUVE", 4], ["FI-2027-f2", "BROUILLON", 1]]);
+    expect(f.fiches[0]).toMatchObject({ montantGnf: "4400000000", traitement: "rehabilitation", provisoire: true, etiquette: "PROVISOIRE, non approuvé", empreinteSha256: "a".repeat(64) });
+    expect(f.fiches[0].historique.map((h) => [h.rang, h.de, h.vers, h.motif])).toEqual([[1, null, "BROUILLON", null], [2, "BROUILLON", "PROPOSE", "relu"]]);
+    expect(f.fiches[1].historique).toHaveLength(1);
+    // Les valeurs sont LIEES par le pilote, jamais concatenees dans le texte SQL.
+    expect(sql[0].valeurs).toContain("t1");
+    expect(sql[0].texte).not.toContain("'t1'");
+    expect(sql[1].valeurs[0]).toEqual(["f1", "f2"]);
+  });
+
+  it("le montant d'une fiche reste une chaine (au-dela de 2^53) et une fiche sans etiquette lisible reste nulle, pas inventee", async () => {
+    const { d } = depot({ figees: [figee("f1", { montantGnf: "9007199254740993", etiquette: null, provisoire: null })] });
+    const f = (await voletProgrammation(d, "t1"))?.interventionsFigees;
+    if (!f || !f.disponible) throw new Error("attendu : disponible");
+    expect(f.fiches[0]).toMatchObject({ montantGnf: "9007199254740993", etiquette: null, provisoire: null });
+  });
+
+  it("tronque au plafond et le dit (une fiche de plus que le plafond est lue pour le savoir)", async () => {
+    const trop = Array.from({ length: PLAFOND_FICHES_FIGEES + 1 }, (_, i) => figee(`f${i}`));
+    const f = (await voletProgrammation(depot({ figees: trop }).d, "t1"))?.interventionsFigees;
+    if (!f || !f.disponible) throw new Error("attendu : disponible");
+    expect(f.tronque).toBe(true);
+    expect(f.fiches).toHaveLength(PLAFOND_FICHES_FIGEES);
+  });
+
+  it("table des fiches absente (42P01) : le volet DIT que la migration manque, il ne rend pas une liste vide", async () => {
+    const e = Object.assign(new Error('relation "fiches_intervention_courantes" does not exist'), { meta: { code: "42P01" } });
+    const v = await voletProgrammation(depot({ erreurFigees: e }).d, "t1");
+    expect(v?.interventionsFigees.disponible).toBe(false);
+    expect((v?.interventionsFigees as { motif: string }).motif).toMatch(/n'existe pas.*20261023100000/);
+  });
+
+  it("toute autre erreur de base remonte (jamais avalee en « aucune fiche »)", async () => {
+    await expect(voletProgrammation(depot({ erreurFigees: new Error("connexion perdue") }).d, "t1")).rejects.toThrow("connexion perdue");
   });
 
   it("rend les chantiers du troncon, montant nul conserve nul", async () => {

@@ -46,6 +46,7 @@ const CelluleVeillePage = lazy(() => import("./pages/CelluleVeillePage").then((m
 const PatrouillesPage = lazy(() => import("./pages/PatrouillesPage").then((m) => ({ default: m.PatrouillesPage })));
 const InfoRoutePage = lazy(() => import("./pages/InfoRoutePage").then((m) => ({ default: m.InfoRoutePage })));
 const VeilleConfigurationPage = lazy(() => import("./pages/VeilleConfigurationPage").then((m) => ({ default: m.VeilleConfigurationPage })));
+const MoteurProgrammationPage = lazy(() => import("./pages/MoteurProgrammationPage").then((m) => ({ default: m.MoteurProgrammationPage })));
 const BaremesPage = lazy(() => import("./pages/BaremesPage").then((m) => ({ default: m.BaremesPage })));
 const TeledetectionPage = lazy(() => import("./pages/TeledetectionPage").then((m) => ({ default: m.TeledetectionPage })));
 const ControlTowerPage = lazy(() => import("./pages/ControlTowerPage").then((m) => ({ default: m.ControlTowerPage })));
@@ -122,6 +123,7 @@ const router = createBrowserRouter(
           <Route path="imports" element={<LazyPage><ImportsPage /></LazyPage>} handle={{ title: "Lots d'import" }} />
           <Route path="veille/configuration" element={<LazyPage><VeilleConfigurationPage /></LazyPage>} handle={{ title: "Configuration de la veille" }} />
           <Route path="administration/baremes" element={<LazyPage><BaremesPage /></LazyPage>} handle={{ title: "Barèmes de coût" }} />
+          <Route path="programmation/moteur" element={<LazyPage><MoteurProgrammationPage /></LazyPage>} handle={{ title: "Moteur de programmation" }} />
         </Route>
       </Route>
     </>
