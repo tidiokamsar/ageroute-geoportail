@@ -12,6 +12,9 @@ viennent de `RCI_METHOD_DECISION.md` (É-1). Toutes les autres (C de D-01, A et 
 A à C de D-07, A à C de D-09) sont **formulées ici par moi** à partir des constats de ces dossiers :
 elles n'ont été soumises à personne à l'AGEROUTE et peuvent être corrigées ou complétées.
 
+**Mise à jour du 23/10/2026.** Le DSI a délégué le choix des options ; la conduite retenue est dans
+[DECISIONS-PRISES-SUR-DELEGATION.md](DECISIONS-PRISES-SUR-DELEGATION.md). Elle ne vaut pas approbation officielle.
+
 Règle appliquée partout (V10, § A.5.11) : tant qu'une valeur n'est pas approuvée par l'autorité
 compétente, elle reste **provisoire et étiquetée**. Rien de ce qui suit n'a été décidé à la place
 de l'AGEROUTE.
