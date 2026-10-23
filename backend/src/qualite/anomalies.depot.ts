@@ -44,6 +44,12 @@ export interface ComptageFamille {
   nombre: number;
   surTotal: number | null;
   exemples: Anomalie[];
+  /**
+   * Ventilation du compte par type d'entite, quand une famille s'etend a plusieurs tables
+   * (GEOMETRIE_INVALIDE). Chaque type y figure, y compris a zero : « 0 chantier invalide » dit que
+   * la table a ete examinee.
+   */
+  parTypeEntite?: { entityType: string; nombre: number }[];
 }
 
 /**
@@ -209,19 +215,69 @@ export async function doublonsDeGeometrie(p: Portee): Promise<ComptageFamille> {
 }
 
 /**
- * Geometries invalides au sens de PostGIS.
+ * Geometries invalides au sens de PostGIS (§ 7.1), sur CINQ tables.
  *
  * MESURE DU 13/10/2026 : ZERO, sur 261 387 troncons et 1 172 ouvrages. Je m'attendais au
  * contraire apres une promotion OSM de cette ampleur. Le detecteur reste, parce que c'est
  * l'etat des donnees qui est bon, pas le risque qui a disparu : une correction geometrique
  * mal faite en introduirait.
+ *
+ * EXTENSION DU 26/10/2026 : le controle ne portait que sur les troncons. Il couvre maintenant
+ *
+ *   troncons            LineString     (existant)
+ *   chantiers           LineString     chantiers.geom
+ *   portions            LineString     portions.geom, portions COURANTES (ni remplacees ni supprimees)
+ *   limites_admin       MultiPolygon   toutes les limites ; c'est la que l'invalidite est plausible
+ *   earth_observation_products         emprise (Polygon) des produits de teledetection
+ *   ouvrages            LineString     ouvrages.geomLigne (actifs lineaires)
+ *
+ * UNE SEULE FAMILLE, `GEOMETRIE_INVALIDE`, bloquante, avec le type d'entite sur chaque exemple et la
+ * ventilation `parTypeEntite` : le rapport garde sa structure, et le meme plafond d'exemples. Une
+ * famille par table aurait multiplie les lignes du rapport pour une seule correction proposee.
+ *
+ * LES GARANTIES SONT CELLES DU DETECTEUR DES TRONCONS, POUR CHAQUE TABLE
+ *   - compte EXACT par `count(*) OVER ()` : le LIMIT plafonne les exemples, pas le diagnostic ;
+ *   - exemples plafonnes a PLAFOND_EXEMPLES, tries par identifiant (stable) ;
+ *   - perimetre par region (voir chaque detecteur), jamais d'examen national sans demande explicite ;
+ *   - une requete bornee par table, jouees EN SERIE : cinq balayages simultanes se disputeraient le pool ;
+ *   - les lignes supprimees logiquement ne comptent pas.
+ *
+ * CE QUI N'EST PAS CONTROLE, DIT ICI ET DANS LE RAPPORT (`nonCouvert`) : les geometries ponctuelles
+ * (un point n'est invalide que s'il porte une coordonnee non finie), les traces et sessions de
+ * roulage, la voirie locale, les emprises de defauts et de missions, les propositions de localisation
+ * et de teledetection. Deux contraintes de la base les gardent deja pour partie : `eo_emprise_valide`
+ * et `pt_geom_valide` (migration 20261020000000) refusent une emprise ou une detection invalide a
+ * l'ecriture ; ce detecteur est la ceinture qui reste si la contrainte manque (la production a ete
+ * construite par `db push`, voir descentes/README.md).
  */
-export async function geometriesInvalides(p: Portee): Promise<ComptageFamille> {
+interface LigneInvalide { id: string; libelle: string; raison: string; total: bigint }
+
+export interface InvalidesParType {
+  entityType: string;
+  nombre: number;
+  exemples: Anomalie[];
+}
+
+function enAnomalies(entityType: string, lignes: LigneInvalide[]): InvalidesParType {
+  return {
+    entityType,
+    nombre: lignes.length > 0 ? Number(lignes[0].total) : 0,
+    exemples: lignes.map((l) => ({
+      famille: "GEOMETRIE_INVALIDE" as const,
+      entityType,
+      entityId: l.id,
+      explication: `${l.libelle} : ${l.raison}`,
+      mesure: null,
+    })),
+  };
+}
+
+export async function invalidesTroncons(p: Portee): Promise<InvalidesParType> {
   // Le COMPTE vient de count(*) OVER (), pas de la longueur de la liste : celle-ci est plafonnee a
   // PLAFOND_EXEMPLES, et `nombre: lignes.length` annoncait 20 pour 25 geometries invalides (ou pour
   // 5 000). Une seule passe : le cout est celui de l'ancienne requete quand il n'y a aucune invalide.
-  const lignes = await prisma.$queryRaw<{ id: string; code: string; raison: string; total: bigint }[]>`
-    SELECT t.id, t.code, ST_IsValidReason(t.geom) AS raison, count(*) OVER () AS total
+  const lignes = await prisma.$queryRaw<LigneInvalide[]>`
+    SELECT t.id, t.code AS libelle, ST_IsValidReason(t.geom) AS raison, count(*) OVER () AS total
       FROM troncons t
      WHERE t."deletedAt" IS NULL AND t.geom IS NOT NULL
        AND (${p.regionId}::int IS NULL OR t."regionId" = ${p.regionId}::int)
@@ -229,17 +285,152 @@ export async function geometriesInvalides(p: Portee): Promise<ComptageFamille> {
      ORDER BY t.id
      LIMIT ${PLAFOND_EXEMPLES}
   `;
+  return enAnomalies("Troncon", lignes);
+}
+
+export async function invalidesChantiers(p: Portee): Promise<InvalidesParType> {
+  const lignes = await prisma.$queryRaw<LigneInvalide[]>`
+    SELECT c.id, left(c.intitule, 80) AS libelle, ST_IsValidReason(c.geom) AS raison, count(*) OVER () AS total
+      FROM chantiers c
+     WHERE c."deletedAt" IS NULL AND c.geom IS NOT NULL
+       AND (${p.regionId}::int IS NULL OR c."regionId" = ${p.regionId}::int)
+       AND NOT ST_IsValid(c.geom)
+     ORDER BY c.id
+     LIMIT ${PLAFOND_EXEMPLES}
+  `;
+  return enAnomalies("Chantier", lignes);
+}
+
+/** Actifs lineaires : `ouvrages.geomLigne` (l'emprise ponctuelle `geom` n'est pas examinee). */
+export async function invalidesActifsLineaires(p: Portee): Promise<InvalidesParType> {
+  const lignes = await prisma.$queryRaw<LigneInvalide[]>`
+    SELECT o.id, left(coalesce(o.code, o.nom), 80) AS libelle, ST_IsValidReason(o."geomLigne") AS raison,
+           count(*) OVER () AS total
+      FROM ouvrages o
+     WHERE o."deletedAt" IS NULL AND o."geomLigne" IS NOT NULL
+       AND (${p.regionId}::int IS NULL OR o."regionId" = ${p.regionId}::int)
+       AND NOT ST_IsValid(o."geomLigne")
+     ORDER BY o.id
+     LIMIT ${PLAFOND_EXEMPLES}
+  `;
+  return enAnomalies("Ouvrage", lignes);
+}
+
+/**
+ * Portions courantes dont la geometrie derivee est invalide. La region est celle du troncon porteur.
+ * Les versions remplacees (`remplaceeLe`) sont de l'historique : elles ne servent plus a rien.
+ */
+export async function invalidesPortions(p: Portee): Promise<InvalidesParType> {
+  const lignes = await prisma.$queryRaw<LigneInvalide[]>`
+    SELECT pt.id, 'portion de ' || t.code AS libelle, ST_IsValidReason(pt.geom) AS raison,
+           count(*) OVER () AS total
+      FROM portions pt
+      JOIN troncons t ON t.id = pt."tronconId"
+     WHERE pt."deletedAt" IS NULL AND pt."remplaceeLe" IS NULL AND pt.geom IS NOT NULL
+       AND (${p.regionId}::int IS NULL OR t."regionId" = ${p.regionId}::int)
+       AND NOT ST_IsValid(pt.geom)
+     ORDER BY pt.id
+     LIMIT ${PLAFOND_EXEMPLES}
+  `;
+  return enAnomalies("Portion", lignes);
+}
+
+/**
+ * Limites administratives (polygones). Elles n'ont pas de `regionId` : une limite appartient a une
+ * region quand elle EST la limite de niveau 1 qui porte son nom (jointure sans accents ni casse, comme
+ * `modules/qualite/qualite.routes.ts` et `chantiers.service.ts`, d'ou la dependance a `unaccent`) ou
+ * qu'elle en descend par `parentPcode`. La recursion exige un niveau STRICTEMENT croissant : un cycle de
+ * `parentPcode` dans la donnee ne peut donc pas la faire boucler.
+ */
+export async function invalidesLimitesAdmin(p: Portee): Promise<InvalidesParType> {
+  const lignes = await prisma.$queryRaw<LigneInvalide[]>`
+    WITH RECURSIVE sous_la_region(pcode, niveau) AS (
+      SELECT la.pcode, la.niveau
+        FROM limites_admin la
+        JOIN regions r ON r.id = ${p.regionId}::int
+       WHERE la.niveau = 1 AND unaccent(lower(la.nom)) = unaccent(lower(r.nom))
+      UNION ALL
+      SELECT e.pcode, e.niveau
+        FROM limites_admin e
+        JOIN sous_la_region s ON e."parentPcode" = s.pcode
+       WHERE e.niveau > s.niveau
+    )
+    SELECT la.pcode AS id, 'limite niveau ' || la.niveau || ' ' || la.nom AS libelle,
+           ST_IsValidReason(la.geom) AS raison, count(*) OVER () AS total
+      FROM limites_admin la
+     WHERE la.geom IS NOT NULL
+       AND (${p.regionId}::int IS NULL OR la.pcode IN (SELECT pcode FROM sous_la_region))
+       AND NOT ST_IsValid(la.geom)
+     ORDER BY la.pcode
+     LIMIT ${PLAFOND_EXEMPLES}
+  `;
+  return enAnomalies("LimiteAdmin", lignes);
+}
+
+/**
+ * Emprises des produits de teledetection. Un produit n'a pas de region : en portee regionale, on retient
+ * ceux dont la BOITE ENGLOBANTE recouvre la limite de niveau 1 de la region (`&&`). Ce n'est pas une
+ * intersection exacte, et c'est voulu : `ST_Intersects` sur une geometrie INVALIDE peut lever une
+ * exception de GEOS (TopologyException) et ferait echouer le controle precisement quand il y a quelque
+ * chose a trouver. La boite englobante surestime le perimetre, jamais ne le sous-estime.
+ */
+export async function invalidesEmprisesTeledetection(p: Portee): Promise<InvalidesParType> {
+  const lignes = await prisma.$queryRaw<LigneInvalide[]>`
+    SELECT e.id, e.code AS libelle, ST_IsValidReason(e.emprise) AS raison, count(*) OVER () AS total
+      FROM earth_observation_products e
+     WHERE e."deletedAt" IS NULL AND e.emprise IS NOT NULL
+       AND (${p.regionId}::int IS NULL OR EXISTS (
+             SELECT 1
+               FROM limites_admin la
+               JOIN regions r ON r.id = ${p.regionId}::int
+              WHERE la.niveau = 1 AND unaccent(lower(la.nom)) = unaccent(lower(r.nom))
+                AND la.geom && e.emprise))
+       AND NOT ST_IsValid(e.emprise)
+     ORDER BY e.id
+     LIMIT ${PLAFOND_EXEMPLES}
+  `;
+  return enAnomalies("EarthObservationProduct", lignes);
+}
+
+/**
+ * Entrelace les exemples de plusieurs listes, un par liste a tour de role, jusqu'au plafond. Sans cela,
+ * vingt troncons invalides masqueraient les chantiers et les limites : le rapport ne montre que les trois
+ * premiers exemples, et ils seraient tous des troncons.
+ */
+export function entrelacer<T>(listes: readonly (readonly T[])[], plafond: number): T[] {
+  const sortie: T[] = [];
+  for (let i = 0; sortie.length < plafond; i++) {
+    let reste = false;
+    for (const l of listes) {
+      if (i < l.length) {
+        reste = true;
+        if (sortie.length < plafond) sortie.push(l[i]);
+      }
+    }
+    if (!reste) break;
+  }
+  return sortie;
+}
+
+export async function geometriesInvalides(p: Portee): Promise<ComptageFamille> {
+  // En serie : voir l'en-tete. Chaque requete est bornee et son compte est exact.
+  const types: InvalidesParType[] = [];
+  for (const detecteur of [
+    invalidesTroncons,
+    invalidesChantiers,
+    invalidesPortions,
+    invalidesLimitesAdmin,
+    invalidesEmprisesTeledetection,
+    invalidesActifsLineaires,
+  ]) {
+    types.push(await detecteur(p));
+  }
   return {
     famille: "GEOMETRIE_INVALIDE",
-    nombre: lignes.length > 0 ? Number(lignes[0].total) : 0,
+    nombre: types.reduce((somme, t) => somme + t.nombre, 0),
     surTotal: null,
-    exemples: lignes.map((l) => ({
-      famille: "GEOMETRIE_INVALIDE" as const,
-      entityType: "Troncon",
-      entityId: l.id,
-      explication: `${l.code} : ${l.raison}`,
-      mesure: null,
-    })),
+    exemples: entrelacer(types.map((t) => t.exemples), PLAFOND_EXEMPLES),
+    parTypeEntite: types.map((t) => ({ entityType: t.entityType, nombre: t.nombre })),
   };
 }
 

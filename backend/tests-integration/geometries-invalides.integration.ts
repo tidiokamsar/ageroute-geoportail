@@ -1,6 +1,7 @@
 // Banc d'integration PostGIS : voir tests-integration/README.md. Lancer : npx tsx tests-integration/geometries-invalides.integration.ts
 import "./lib/garde";
 // Integration : geometriesInvalides contre PostGIS reel (base de rejeu locale), transaction ANNULEE.
+// Cas troncons seuls ; les cinq autres tables sont dans qualite-geometries.integration.mts.
 import { PrismaClient } from "@prisma/client";
 import { prisma as clientApp } from "../src/lib/prisma";
 import { geometriesInvalides, PLAFOND_EXEMPLES } from "../src/qualite/anomalies.depot";
@@ -14,6 +15,9 @@ async function main() {
   const N = PLAFOND_EXEMPLES + 7; // 27 invalides, pour depasser le plafond d'exemples
   try {
     await prisma.$transaction(async (tx) => {
+      // Le controle des limites administratives emploie unaccent (migration 20261026400000) ; `replay` peut ne pas
+      // l'avoir encore. Creee ici, dans la transaction annulee : rien ne reste.
+      await tx.$executeRawUnsafe(`CREATE EXTENSION IF NOT EXISTS unaccent`);
       await tx.$executeRawUnsafe(`INSERT INTO regions (nom) VALUES ('Region test invalides')`);
       const reg = `(SELECT id FROM regions WHERE nom='Region test invalides')`;
       // Deux points identiques : une LineString invalide au sens de PostGIS (« Too few points »).
