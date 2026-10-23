@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, GeoJSON, Tooltip, useMap, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, GeoJSON, Tooltip, ZoomControl, useMap, useMapEvents } from "react-leaflet";
 import type { Layer } from "leaflet";
 import type { Feature, Geometry } from "geojson";
 import MarkerClusterGroup from "react-leaflet-cluster";
 import {
-  Search, Ruler, Square, Navigation, Share2, Maximize, Minimize, ChevronDown,
+  Search, ChevronDown,
   ChevronLeft, ChevronRight,
   Route, Landmark, ShieldAlert, Construction, AlertTriangle, MapPinned, Layers as LayersIcon,
-  PenLine, Check, X, BarChart2, MapPin, Clock,
+  Check, X, BarChart2, MapPin, Clock,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useEntityMutations } from "../hooks/useEntity";
@@ -39,13 +39,15 @@ import {
   ZOOM_MINIMUM,
   type CategorieVoirie, legendeVoirie } from "./geoportail/VoirieLocaleLayer";
 import { RechercheVille } from "../components/RechercheVille";
+import { ChangerEtatCorridor } from "../components/ChangerEtatCorridor";
 import { sommetDansFiltre, tronconDansFiltre, type FiltreVille } from "../lib/villes";
 import { COUCHES_PAR_DEFAUT, coucheVisible, garderLeFocus, lireFocus, PARAM_VUE, sansFocus, VUE_COMPLETE, type FocusKind } from "../lib/focus";
 import axios from "axios";
 import { MeasureLayer, type MeasureMode } from "./geoportail/MeasureLayer";
 import { DrawTronconLayer, type DrawHandle, type DrawPhase } from "./geoportail/DrawTronconLayer";
 import { DrawTronconForm } from "./geoportail/DrawTronconForm";
-import { ExportControl } from "./geoportail/ExportControl";
+import { BarreOutilsCarte } from "./geoportail/BarreOutilsCarte";
+import { libelleTroncon } from "../lib/libelleTroncon";
 import { TOPONYMES } from "./geoportail/toponymes";
 import { ouvrageIcon, pointNoirIcon, posteIcon, chantierApproxIcon, TYPE_OUVRAGE_LABEL } from "./geoportail/symbols";
 import { TronconPicker } from "../components/TronconPicker";
@@ -394,7 +396,9 @@ export function GeoportailPage() {
     queryKey: ["dashboard", "kpis"],
     queryFn: async () => (await api.get<DashboardKpis>("/dashboard/kpis")).data,
   });
-  const { data: troncons, isLoading } = useQuery({
+  // refetchTroncons : la carte se rafraichit apres un changement d'etat de corridor
+  // (couleur des troncons = etat, le changement doit se VOIR immediatement).
+  const { data: troncons, isLoading, refetch: refetchTroncons } = useQuery({
     queryKey: ["troncons", "geo"],
     queryFn: async () => (await api.get<TronconGeoFeature[]>("/troncons/geo")).data,
   });
@@ -554,7 +558,7 @@ export function GeoportailPage() {
   );
   const libelleFocus = useMemo(() => {
     if (!focus) return "";
-    if (focus.kind === "troncon") { const t = (troncons ?? []).find((x) => x.id === focus.id); return t ? `${t.code} — ${t.nom}` : "tronçon"; }
+    if (focus.kind === "troncon") { const t = (troncons ?? []).find((x) => x.id === focus.id); return t ? libelleTroncon(t.code, t.nom) : "tronçon"; }
     if (focus.kind === "ouvrage") return (ouvrages ?? []).find((x) => x.id === focus.id)?.nom ?? "ouvrage";
     if (focus.kind === "chantier") return (chantiers ?? []).find((x) => x.id === focus.id)?.intitule ?? "chantier";
     if (focus.kind === "poste") return (postes ?? []).find((x) => x.id === focus.id)?.nom ?? "poste";
@@ -612,7 +616,7 @@ export function GeoportailPage() {
       if (t.code.toLowerCase().includes(q) || t.nom.toLowerCase().includes(q)) {
         hits.push({
           key: `troncon-${t.id}`,
-          label: `${t.code} — ${t.nom}`,
+          label: libelleTroncon(t.code, t.nom),
           sub: "Tronçon",
           onSelect: () => {
             isoler("troncon", t.id);
@@ -722,7 +726,7 @@ export function GeoportailPage() {
       .slice(0, 10 - searchResults.length)
       .map<SearchHit>((t) => ({
         key: `distant-${t.id}`,
-        label: `${t.code} — ${t.nom}`,
+        label: libelleTroncon(t.code, t.nom),
         sub: "Tronçon (hors carte)",
         // La geometrie n'est pas chargee : on ouvre la fiche, qui va la chercher.
         onSelect: () => { void ouvrirTronconPromu(t.id); },
@@ -836,7 +840,7 @@ export function GeoportailPage() {
           sidebarOpen ? "left-[19rem]" : "left-[3.25rem]"
         }`}
       >
-      <div className="pointer-events-auto flex w-80 max-w-[46%] flex-col items-center gap-2">
+      <div className="pointer-events-auto flex w-80 min-w-[9rem] max-w-[46%] shrink flex-col items-center gap-2">
         <div className="relative w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
@@ -896,6 +900,13 @@ export function GeoportailPage() {
             <X className="h-3 w-3" />
           </button>
         )}
+        {villeFiltre && canWrite(user?.role) && filteredTroncons.length > 0 && (
+          <ChangerEtatCorridor
+            ids={filteredTroncons.map((t) => t.id)}
+            libelle={`${villeFiltre.a.nom}${villeFiltre.b ? ` ↔ ${villeFiltre.b.nom}` : ""}`}
+            onApplique={() => { void refetchTroncons(); }}
+          />
+        )}
         {resultatsComplets.length > 0 && (
           <div className="w-full bg-white rounded-lg shadow-lg border border-gray-100 overflow-hidden">
             {resultatsComplets.map((hit) => (
@@ -915,79 +926,30 @@ export function GeoportailPage() {
         )}
       </div>
 
-      <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-1.5">
-        {canWrite(user?.role) && (
-          <button
-            onClick={() => {
-              if (drawMode) {
-                drawRef.current?.cancel();
-                setDrawMode(false);
-              } else {
-                setMeasureMode("off");
-                setItineraireOpen(false);
-                setDrawMode(true);
-              }
-            }}
-            className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm shadow-md font-medium ${
-              drawMode
-                ? "border-red-400 bg-red-500 text-white hover:bg-red-600"
-                : "border-gray-200 bg-white hover:bg-gray-50 text-navy"
-            }`}
-          >
-            <PenLine className="h-3.5 w-3.5" />
-            {drawMode ? "Annuler" : "Créer tronçon"}
-          </button>
-        )}
-        {/* Outils de mesure groupés */}
-        <div className="flex rounded-lg border border-gray-200 bg-white shadow-md overflow-hidden text-sm">
-          <button
-            onClick={() => setMeasureMode(measureMode === "distance" ? "off" : "distance")}
-            title="Mesurer une distance"
-            className={`flex items-center gap-1.5 px-2.5 py-2 ${measureMode === "distance" ? "bg-navy text-white" : "hover:bg-gray-50"}`}
-          >
-            <Ruler className="h-3.5 w-3.5" /><span className="hidden sm:inline">Mesurer</span>
-          </button>
-          <button
-            onClick={() => setMeasureMode(measureMode === "area" ? "off" : "area")}
-            title="Mesurer une surface"
-            className={`flex items-center gap-1.5 px-2.5 py-2 border-l border-gray-200 ${measureMode === "area" ? "bg-navy text-white" : "hover:bg-gray-50"}`}
-          >
-            <Square className="h-3.5 w-3.5" /><span className="hidden sm:inline">Surface</span>
-          </button>
-          {measureMode !== "off" && (
-            <button onClick={clearMeasure} title="Effacer la mesure" className="px-2.5 py-2 border-l border-gray-200 hover:bg-gray-50 text-gray-500">
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-        {/* Autres outils */}
-        <div className="flex rounded-lg border border-gray-200 bg-white shadow-md overflow-hidden text-sm">
-          <button
-            onClick={() => setItineraireOpen((v) => !v)}
-            title="Estimer la distance à vol d'oiseau entre deux tronçons"
-            className={`flex items-center gap-1.5 px-2.5 py-2 ${itineraireOpen ? "bg-navy text-white" : "hover:bg-gray-50"}`}
-          >
-            <Navigation className="h-3.5 w-3.5" /><span className="hidden sm:inline">Distance A–B</span>
-          </button>
-          <button
-            onClick={handleShare}
-            title="Partager la vue"
-            className="flex items-center gap-1.5 px-2.5 py-2 border-l border-gray-200 hover:bg-gray-50"
-          >
-            <Share2 className="h-3.5 w-3.5" /><span className="hidden sm:inline">{shareCopied ? "Copié ✓" : "Partager"}</span>
-          </button>
-          <div className="border-l border-gray-200">
-            <ExportControl targetRef={exportRef} />
-          </div>
-          <button
-            onClick={() => setFullscreen((v) => !v)}
-            title={fullscreen ? "Quitter le plein écran" : "Plein écran"}
-            className="flex items-center justify-center px-2.5 py-2 border-l border-gray-200 hover:bg-gray-50"
-          >
-            {fullscreen ? <Minimize className="h-3.5 w-3.5" /> : <Maximize className="h-3.5 w-3.5" />}
-          </button>
-        </div>
-      </div>
+      <BarreOutilsCarte
+        peutEcrire={canWrite(user?.role)}
+        modeDessin={drawMode}
+        onBasculerDessin={() => {
+          if (drawMode) {
+            drawRef.current?.cancel();
+            setDrawMode(false);
+          } else {
+            setMeasureMode("off");
+            setItineraireOpen(false);
+            setDrawMode(true);
+          }
+        }}
+        modeMesure={measureMode}
+        onMesure={(mode) => setMeasureMode(measureMode === mode ? "off" : mode)}
+        onEffacerMesure={clearMeasure}
+        itineraireOuvert={itineraireOpen}
+        onBasculerItineraire={() => setItineraireOpen((v) => !v)}
+        onPartager={handleShare}
+        copie={shareCopied}
+        pleinEcran={fullscreen}
+        onBasculerPleinEcran={() => setFullscreen((v) => !v)}
+        cibleExport={exportRef}
+      />
       </div>
 
       {measureMode !== "off" && (
@@ -1460,8 +1422,11 @@ export function GeoportailPage() {
           center={initialView.center}
           zoom={initialView.zoom}
           maxZoom={ZOOM_MAX}
+          zoomControl={false}
           style={{ height: "100%", width: "100%" }}
         >
+          {/* Le zoom est en bas a gauche : en haut a gauche, la recherche le recouvrait. */}
+          <ZoomControl position="bottomleft" />
           <TileLayer
             attribution={`${bm.attribution} · ${CREDIT_DONNEES}`}
             url={bm.url}
@@ -1516,7 +1481,7 @@ export function GeoportailPage() {
               onEachFeature={(feature, layer: Layer) => {
                 const t = tronconsById.get(feature.properties?.id);
                 if (!t) return;
-                layer.bindTooltip(`${t.code} — ${t.nom}`, { sticky: true });
+                layer.bindTooltip(libelleTroncon(t.code, t.nom), { sticky: true });
                 layer.on("click", () => setSelectedFeature({ kind: "troncon", data: t }));
               }}
             />
@@ -1547,7 +1512,7 @@ export function GeoportailPage() {
                   pathOptions={{ color: "#d946ef", weight: 6, opacity: 0.55, dashArray: "1 8" }}
                   eventHandlers={{ click: () => setSelectedFeature({ kind: "troncon", data: t }) }}
                 >
-                  <Tooltip sticky>⚠ {t.code} — {t.nom} ({ETAT_LABELS[t.etat]})</Tooltip>
+                  <Tooltip sticky>⚠ {libelleTroncon(t.code, t.nom)} ({ETAT_LABELS[t.etat]})</Tooltip>
                 </Polyline>
               );
             })}
