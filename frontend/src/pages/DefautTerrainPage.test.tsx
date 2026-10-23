@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 const h = vi.hoisted(() => ({
   ajoute: vi.fn(async (item: Record<string, unknown>) => { h.brouillons.push(item); }),
@@ -54,7 +55,11 @@ describe("Saisie terrain des défauts", () => {
   // couvre les postes lents ; elle n'affaiblit aucune assertion.
   it("enregistre hors-ligne les mesures, le repère et la clé locale", async () => {
     const user = userEvent.setup({ delay: null });
-    render(<MemoryRouter><DefautTerrainPage /></MemoryRouter>);
+    // Le picker géo de tronçon (recherche GPS/ville/texte) utilise react-query : le
+    // test lui fournit un client dont toutes les requêtes restent en échec silencieux
+    // (hors ligne : pas de recherche réseau, le cache du référentiel suffit).
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, enabled: false } } });
+    render(<QueryClientProvider client={qc}><MemoryRouter><DefautTerrainPage /></MemoryRouter></QueryClientProvider>);
 
     await screen.findByRole("option", { name: /Nid-de-poule/ });
     await user.click(screen.getByRole("button", { name: "Tronçon et repère" }));

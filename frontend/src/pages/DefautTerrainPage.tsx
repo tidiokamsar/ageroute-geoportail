@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, CheckCircle2, CloudOff, MapPin, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "../components/ui/Button";
+import { TronconPickerGeo } from "../components/TronconPickerGeo";
 import { useOfflineSync } from "../hooks/useOfflineSync";
 import { chargerReferentielsDefautsTerrain, type MesureDefaut, type TypeCatalogueDefaut } from "../lib/defautsTerrain";
 import {
@@ -411,11 +412,20 @@ export function DefautTerrainPage() {
             <div className="space-y-3">
               <div>
                 <label htmlFor="defaut-troncon" className="mb-1 block text-sm text-gray-700">Tronçon</label>
-                <select id="defaut-troncon" value={tronconId} onChange={(event) => setTronconId(event.target.value)} required className="w-full rounded-lg border border-gray-300 px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-navy/30">
+                {/* Trouver SANS connaître le code : par GPS (« près de moi »), par ville,
+                    ou au texte — l'agent reconnaît, le formulaire hors ligne reste la
+                    vérité (le choix présélectionne la liste du cache, jamais l'inverse). */}
+                <TronconPickerGeo
+                  onChoisir={(t) => { setModeLocalisation("troncon"); setTronconId(t.id); }}
+                />
+                <select id="defaut-troncon" value={tronconId} onChange={(event) => setTronconId(event.target.value)} required className="mt-2 w-full rounded-lg border border-gray-300 px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-navy/30">
                   <option value="">— Sélectionner —</option>
                   {troncons.map((troncon) => <option key={troncon.id} value={troncon.id}>{troncon.code} — {troncon.nom}</option>)}
                 </select>
-                {troncons.length === 0 && <p className="mt-1 text-xs text-amber-700">Aucun tronçon en cache. Utilisez le GPS ou chargez le référentiel en ligne.</p>}
+                {tronconId && !troncons.some((t) => t.id === tronconId) && (
+                  <p className="mt-1 text-xs text-amber-700">Tronçon choisi en ligne mais absent du cache hors ligne : il sera rattaché à la synchronisation.</p>
+                )}
+                {troncons.length === 0 && <p className="mt-1 text-xs text-amber-700">Aucun tronçon en cache. Utilisez la recherche ci-dessus (GPS, ville ou texte) en mode en ligne.</p>}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
