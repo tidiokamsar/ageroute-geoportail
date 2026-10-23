@@ -28,7 +28,7 @@ set -euo pipefail
 COMMIT="${1:-}"
 SHA_ATTENDU="${2:-}"
 ARCHIVE_LOCALE="${3:-}"
-ATTENDUES_EN_ATTENTE=3
+ATTENDUES_EN_ATTENTE=0
 PREMIERE_EN_ATTENTE="20261026300000_plans_pluriannuels"
 DEPOT="tidiokamsar/ageroute-geoportail"
 HORODATAGE="$(date +%Y%m%d-%H%M%S)"
@@ -111,7 +111,9 @@ comm -13 "${SAUVEGARDES}/appliquees.txt" "${SAUVEGARDES}/locales.txt" > "${SAUVE
 EN_ATTENTE=$(wc -l < "${SAUVEGARDES}/en-attente.txt")
 [ "$ORPHELINES" -eq 0 ] || arret "${ORPHELINES} migration(s) appliquee(s) sans dossier dans l'archive (voir ${SAUVEGARDES})"
 [ "$EN_ATTENTE" -eq "$ATTENDUES_EN_ATTENTE" ] || arret "${EN_ATTENTE} migrations en attente au lieu de ${ATTENDUES_EN_ATTENTE} (voir ${SAUVEGARDES}/en-attente.txt)"
-[ "$(head -1 "${SAUVEGARDES}/en-attente.txt")" = "$PREMIERE_EN_ATTENTE" ] || arret "la premiere migration en attente n'est pas ${PREMIERE_EN_ATTENTE}"
+if [ "$EN_ATTENTE" -gt 0 ]; then
+  [ "$(head -1 "${SAUVEGARDES}/en-attente.txt")" = "$PREMIERE_EN_ATTENTE" ] || arret "la premiere migration en attente n'est pas ${PREMIERE_EN_ATTENTE}"
+fi
 vert "$(wc -l < "${SAUVEGARDES}/appliquees.txt") appliquees, ${EN_ATTENTE} en attente, 0 orpheline, 0 inachevee"
 
 # ---------------------------------------------------------------------------------------------
