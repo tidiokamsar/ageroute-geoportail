@@ -133,6 +133,60 @@ describe("menu Mesures", () => {
   });
 });
 
+describe("menu Mesures : clavier et fermeture", () => {
+  async function ouvrir() {
+    render(<BarreOutilsCarte {...props()} />);
+    await userEvent.click(screen.getByRole("button", { name: "Mesures" }));
+    return screen.findByRole("menu");
+  }
+
+  it("l'ouverture place le focus sur le premier choix et annonce l'etat au declencheur", async () => {
+    await ouvrir();
+    const declencheur = screen.getByRole("button", { name: "Mesures" });
+    expect(declencheur).toHaveAttribute("aria-expanded", "true");
+    expect(declencheur).toHaveAttribute("aria-haspopup", "menu");
+    expect(screen.getAllByRole("menuitemradio")[0]).toHaveFocus();
+  });
+
+  it("Bas et Haut deplacent le focus, en boucle", async () => {
+    await ouvrir();
+    const [a, b, c] = screen.getAllByRole("menuitemradio");
+    await userEvent.keyboard("{ArrowDown}");
+    expect(b).toHaveFocus();
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}");
+    expect(a).toHaveFocus();
+    await userEvent.keyboard("{ArrowUp}");
+    expect(c).toHaveFocus();
+  });
+
+  it("Echap ferme le menu et rend le focus au declencheur", async () => {
+    await ouvrir();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Mesures" })).toHaveFocus();
+    expect(screen.getByRole("button", { name: "Mesures" })).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("un clic en dehors ferme le menu", async () => {
+    await ouvrir();
+    await userEvent.click(document.body);
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("choisir un element ferme le menu", async () => {
+    await ouvrir();
+    await userEvent.click(screen.getByText("Mesurer une surface"));
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("Bas sur le declencheur ouvre le menu sans clic", async () => {
+    render(<BarreOutilsCarte {...props()} />);
+    screen.getByRole("button", { name: "Mesures" }).focus();
+    await userEvent.keyboard("{ArrowDown}");
+    expect(await screen.findByRole("menu")).toBeInTheDocument();
+  });
+});
+
 describe("partager et plein ecran", () => {
   it("appellent leurs rappels, et le nom suit l'etat", async () => {
     const p = props();
