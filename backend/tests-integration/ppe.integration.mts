@@ -183,7 +183,10 @@ async function main() {
   // ---------- Schema
   console.log("\nMigration");
   const texte = readFileSync(MIGRATION, "utf8");
-  verifier("avant la migration, la table n'existe pas dans le clone (donc pas dans replay)", (await compter(`SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name = 'plans_pluriannuels'`)) === 0);
+  // Le clone reproduit `replay` : si `replay` porte deja la migration, la table y est (et la migration rejouee ne change rien) ;
+  // sinon elle est absente et le banc l'applique. Les deux etats sont valides, l'attendu suit l'etat de `replay`.
+  const tableDansReplay = await tableDePlansDansReplay();
+  verifier(`avant la migration, la table ${tableDansReplay ? "existe" : "n'existe pas"} dans le clone, comme dans replay`, (await compter(`SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name = 'plans_pluriannuels'`)) === (tableDansReplay ? 1 : 0));
   await sqlMulti(texte);
   let rejeu: string | null = null;
   try { await sqlMulti(texte); } catch (e) { rejeu = String((e as Error).message); }
@@ -403,19 +406,28 @@ async function main() {
   console.log("\nNon regression");
   verifier("aucun chantier, marche, ordre de travaux ni decompte n'a ete cree par un plan", (await compter(`SELECT (SELECT count(*) FROM chantiers) + (SELECT count(*) FROM marches) + (SELECT count(*) FROM ordres_travaux) + (SELECT count(*) FROM decomptes) AS n`)) === 0);
   verifier("un plan ne cree aucune fiche d'intervention (seules celles du gel annuel existent)", (await compter(`SELECT count(*)::int AS n FROM fiches_intervention`)) === gel.fiches.length);
-  verifier("la base `replay`, modele du clone, n'a recu ni fixture ni table de plans", await replayIntacte());
+  verifier("la base `replay`, modele du clone, n'a recu aucune fixture et sa table de plans est restee dans son etat de depart", await replayIntacte(tableDansReplay));
 
   conclure();
 }
 
-async function replayIntacte(): Promise<boolean> {
+async function tableDePlansDansReplay(): Promise<boolean> {
+  const c = new pg.Client({ connectionString: ORIGINE });
+  await c.connect();
+  try {
+    const r = await c.query(`SELECT count(*)::int AS n FROM information_schema.tables WHERE table_name = 'plans_pluriannuels'`);
+    return r.rows[0].n === 1;
+  } finally { await c.end(); }
+}
+
+async function replayIntacte(tableDansReplay: boolean): Promise<boolean> {
   const c = new pg.Client({ connectionString: ORIGINE });
   await c.connect();
   try {
     const r = await c.query(`SELECT (SELECT count(*) FROM users)::int AS u, (SELECT count(*) FROM troncons)::int AS t, (SELECT count(*) FROM regions)::int AS r,
                                     (SELECT count(*) FROM information_schema.tables WHERE table_name = 'plans_pluriannuels')::int AS p,
                                     (SELECT count(*) FROM referentiel_praticabilites WHERE "approuveeLe" IS NOT NULL)::int AS a`);
-    return r.rows[0].u === 0 && r.rows[0].t === 0 && r.rows[0].r === 0 && r.rows[0].p === 0 && r.rows[0].a === 0;
+    return r.rows[0].u === 0 && r.rows[0].t === 0 && r.rows[0].r === 0 && r.rows[0].p === (tableDansReplay ? 1 : 0) && r.rows[0].a === 0;
   } finally { await c.end(); }
 }
 

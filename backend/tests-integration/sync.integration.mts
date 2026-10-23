@@ -268,7 +268,8 @@ async function main() {
     local1?.description === "modifie par l'appareil B (hors ligne)" && serveur1?.description === "modifie par l'appareil A" && serveur1?.version === 2, conflit1);
   verifier("A8.1 l'operation de B est tracee CONFLIT, le conflit est non resolu", (await prisma.operationSync.findUnique({ where: { operationId: uB.operationId } }))?.statut === "CONFLIT" && conflit1?.resolution === null);
   const st = await request(app).get(`/api/v2/sync/status?appareilId=${devB.id}`).set("Authorization", `Bearer ${tAgent}`);
-  verifier("A8.1 /status de l'appareil B compte 1 conflit non resolu, a part des echecs", st.body.conflitsNonResolus === 1 && st.body.operations?.CONFLIT === 1, st.body);
+  const conflitsDeB = await prisma.$queryRawUnsafe(`SELECT "operationId", "entityType", operation, "derniereErreur" FROM operations_sync WHERE "appareilId"='${devB.id}' AND statut='CONFLIT'`);
+  verifier("A8.1 /status de l'appareil B compte 1 conflit non resolu, a part des echecs", st.body.conflitsNonResolus === 1 && st.body.operations?.CONFLIT === 1, { status: st.body, conflitsDeB });
   const rB2 = await push(tAgent, devB.id, [uB]);
   verifier("A8.1 le renvoi de l'operation en conflit REND LE CONFLIT (meme conflitId), il ne se fait pas passer pour un succes",
     resultats(rB2)[0]?.statut === "CONFLIT" && resultats(rB2)[0]?.conflitId === cB!.conflitId, rB2.body);

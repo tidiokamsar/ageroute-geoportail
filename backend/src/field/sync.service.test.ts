@@ -10,6 +10,8 @@ const h = vi.hoisted(() => ({
     actif: true,
   },
   operationExists: null as Record<string, unknown> | null,
+  /** Trace qu'une requete concurrente valide APRES la premiere lecture : visible seulement dans la transaction. */
+  traceConcurrente: null as Record<string, unknown> | null,
   defautExists: null as Record<string, unknown> | null,
   observationRead: null as Record<string, unknown> | null,
   observationCurrent: null as Record<string, unknown> | null,
@@ -50,7 +52,9 @@ vi.mock("../lib/prisma", () => ({
         throw new Prisma.PrismaClientKnownRequestError("Unique constraint failed", { code: "P2002", clientVersion: "test" });
       }
       return run({
+      $executeRaw: vi.fn(async () => 0),
       operationSync: {
+        findUnique: vi.fn(async () => h.traceConcurrente ?? h.operationExists),
         create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => { h.operationsTracees.push(data); return data; }),
         // La trace est un UPSERT : on enregistre ce qui serait cree, et on note si la ligne existait deja.
         upsert: vi.fn(async ({ create }: { create: Record<string, unknown> }) => {
@@ -119,6 +123,7 @@ const operationId = "11111111-1111-4111-8111-111111111111";
 
 beforeEach(() => {
   h.operationExists = null;
+  h.traceConcurrente = null;
   h.defautExists = null;
   h.observationRead = null;
   h.observationCurrent = null;
@@ -421,6 +426,16 @@ describe("rejeu d'une operation deja enregistree", () => {
     const r = await appliquer({ ...op(), operation: "CREATE" as const, baseVersion: null, payload: { type: "CHAUSSEE", observeA: "2026-10-08T10:00:00.000Z" } }, contexte);
     expect(r.statut).toBe("SYNCHRONISE");
     expect(h.operationsTracees).toHaveLength(1);
+  });
+
+  it("la gagnante valide entre la premiere lecture et la transaction : la perdante rend REJOUEE, sans conflit ni ecrasement de la trace", async () => {
+    // La premiere lecture ne voit rien ; l'entite existe deja (la gagnante a valide) : sans la relecture sous verrou,
+    // decider() rendrait CONFLIT / DEJA_EXISTANTE et la trace SYNCHRONISE serait ecrasee.
+    h.observationRead = { id: "observation-1", version: 1 };
+    h.traceConcurrente = { entityId: "observation-1", entityType: "Observation", statut: "SYNCHRONISE", userId: "agent-1", derniereErreur: null };
+    const r = await appliquer({ ...op(), operation: "CREATE" as const, baseVersion: null, payload: { type: "CHAUSSEE", observeA: "2026-10-08T10:00:00.000Z" } }, contexte);
+    expect(r).toMatchObject({ statut: "REJOUEE", entityId: "observation-1" });
+    expect(h.operationsTracees).toHaveLength(0);
   });
 
   it("une violation d'unicite qui persiste n'est pas avalee : elle remonte apres le seul reessai", async () => {

@@ -351,6 +351,24 @@ async function appliquerUneFois(
   const apresTransaction: { geometrieDefaut?: PreparationDefautSync } = {};
   const resultat = await prisma.$transaction(async (tx) => {
     /**
+     * Une seule requete a la fois par operationId, puis RELECTURE de la trace. La lecture de « deja traitee »
+     * plus haut et celle de la version de l'entite ne sont pas atomiques : un envoi simultane de la MEME
+     * operation (deux appareils du meme agent, reponse perdue puis renvoi) pouvait valider entre les deux. La
+     * perdante voyait alors l'entite existante sous un operationId qu'elle croyait neuf, declarait un conflit
+     * DEJA_EXISTANTE et ECRASAIT la trace SYNCHRONISE de la gagnante (constat du banc `sync`, 1 passage sur 3).
+     * Le verrou est de transaction : il tombe au commit ou a l'annulation.
+     */
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${op.operationId}))`;
+    const concurrente = await tx.operationSync.findUnique({
+      where: { operationId: op.operationId },
+      select: { entityId: true, entityType: true, statut: true, userId: true, derniereErreur: true },
+    });
+    if (concurrente && concurrente.userId === contexte.userId) {
+      const precedent = await resultatPrecedent(op.operationId, concurrente);
+      if (precedent) return precedent;
+    }
+
+    /**
      * UPSERT, et non create : une operation refusee TEMPORAIREMENT (voir `rejetRetentable`) est
      * reevaluee quand le telephone la renvoie sous la MEME cle. Sa ligne existe deja ; la
      * recreer violerait l'unicite de `operationId`, et la laisser telle quelle ferait rendre

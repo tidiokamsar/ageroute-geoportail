@@ -74,7 +74,9 @@ vi.mock("../lib/prisma", () => {
       h.ordre.push("transaction");
       const aEcrire: Record<string, unknown>[] = [];
       const tx = {
+        $executeRaw: vi.fn(async () => 0),
         operationSync: {
+          findUnique: vi.fn(async ({ where }: { where: { operationId: string } }) => h.operations.get(where.operationId) ?? null),
           create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => { aEcrire.push(data); return data; }),
           // Meme semantique que le client : le premier envoi cree la ligne (aucune ligne n'existe dans ces tests).
           upsert: vi.fn(async ({ create }: { create: Record<string, unknown> }) => { aEcrire.push(create); return create; }),
