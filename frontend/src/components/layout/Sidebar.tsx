@@ -141,7 +141,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
       <nav className="flex-1 overflow-y-auto py-4">
         {visibleSections.map((section) => (
           <div key={section.title} className="mb-5">
-            <p className="px-5 mb-2 text-[10px] font-bold tracking-wider text-white/40">{section.title}</p>
+            <p className="px-5 mb-2 text-[10px] font-bold tracking-wider text-white/60">{section.title}</p>
             {section.items.map((item) => (
               <NavLink
                 key={item.to}

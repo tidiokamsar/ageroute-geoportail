@@ -930,7 +930,7 @@ export function GeoportailPage() {
             }}
             className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm shadow-md font-medium ${
               drawMode
-                ? "border-red-400 bg-red-500 text-white hover:bg-red-600"
+                ? "border-red-400 bg-red-600 text-white hover:bg-red-700"
                 : "border-gray-200 bg-white hover:bg-gray-50 text-navy"
             }`}
           >
