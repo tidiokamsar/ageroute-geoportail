@@ -1,0 +1,31 @@
+-- EXTENSION `unaccent` : LA CHAINE DE MIGRATIONS LA REFERENCAIT SANS LA CREER
+--
+-- LE CONSTAT (22/10/2026, repris par docs/performance/MESURES-A15-A20.md § 11 et DECISIONS_PENDING.md)
+--
+-- Le code appelle `unaccent(...)` (backend/src/modules/chantiers/chantiers.service.ts, le rattachement
+-- des chantiers a leur region ; backend/src/modules/qualite/qualite.routes.ts ; plusieurs scripts
+-- d'exploitation). Aucune migration ne creait l'extension : la production l'a recue hors chaine, creee
+-- a la main. Sur une base reconstruite par les seules migrations, `GET /api/public/carte/geo` repond
+-- 500 (`function unaccent(text) does not exist`), donc la carte publique ne s'affiche pas.
+--
+-- LE CORRECTIF : `CREATE EXTENSION IF NOT EXISTS unaccent`.
+--   * En production, l'extension existe deja : l'instruction ne fait RIEN (PostgreSQL emet une
+--     notice « existe deja, ignore ») ; ni objet, ni verrou durable, ni donnee touches.
+--   * Sur une base reconstruite, elle cree l'extension dans le schema courant (public), la ou le
+--     code l'appelle sans prefixe.
+--
+-- POURQUOI UNE NOUVELLE MIGRATION ET PAS UNE CORRECTION DE L'HISTORIQUE : Prisma enregistre
+-- l'empreinte de chaque fichier de migration ; en modifier un ferait echouer le prochain
+-- `migrate deploy` en production. Cette migration est placee APRES toutes les autres : elle ne
+-- repare pas le defaut de rejeu de `decomptes` (D-10), elle ferme celui de `unaccent` seulement.
+--
+-- DROITS : `unaccent` est une extension livree avec PostgreSQL (contrib), marquee « de confiance » :
+-- le proprietaire de la base peut la creer sans etre superutilisateur. A verifier sur le serveur
+-- cible (`SELECT * FROM pg_available_extensions WHERE name = 'unaccent'`) ; sans effet si elle existe.
+--
+-- NATURE : additive, sans effet en production.
+--
+-- REVERSIBILITE : voir backend/prisma/descentes/20261026400000_extension_unaccent.sql (l'extension
+-- est laissee en place, residu declare).
+
+CREATE EXTENSION IF NOT EXISTS unaccent;

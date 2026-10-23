@@ -66,6 +66,7 @@ Chaque banc nomme ses vérifications, les compte, et sort en **code 1** si une s
 | `import` | **clone `essai_import`** ; route multipart réelle | 39 | A28 : statut par ligne, rejeu sans écriture, lot modifié, CSV hors norme, concurrence, 20 000 lignes |
 | `metre-defaut` | **clone `essai_metre`** ; applique au clone les migrations `20261024300000` et `20261024310000` | 73 | A5 : contour GPS d'un défaut mesuré en UTM, 37 figures contre un oracle écrit sans PostGIS (`lib/geodesie.ts`) |
 | `taches-internes` | **clone `essai_taches`** ; écrit puis retire des photos dans `uploads/photos` | 76 | A29 : preuves avant/après, clôture, abandon, frontière DigitalRoad, rapprochement en lecture seule |
+| `extension-unaccent` | **clone `essai_unaccent`**, créé puis détruit par le banc (il y retire `unaccent`, applique le `migration.sql` du dépôt, puis le rejoue) | 8 | migration `20261026400000` : sur une base reconstruite sans l'extension, `GET /api/public/carte/geo` répond **500** (contre-épreuve), puis **200** avec la migration ; jointure sans accents « Boke » / « Boké » ; rejeu sans effet. **Ne prouve pas** la production ni les droits du rôle de migration |
 
 Soit **739 vérifications sur 18 bancs**, toutes passantes le 22/10/2026 après la fusion des six lots d'agents
 (`bash tests-integration/run.sh`, code 0). Les bancs `roulage`, `outbox`, `programmation`, `tableau-de-bord`, `sync`,
