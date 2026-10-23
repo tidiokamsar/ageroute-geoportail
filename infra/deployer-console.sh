@@ -28,7 +28,7 @@ set -euo pipefail
 COMMIT="${1:-}"
 SHA_ATTENDU="${2:-}"
 ARCHIVE_LOCALE="${3:-}"
-ATTENDUES_EN_ATTENTE=6
+ATTENDUES_EN_ATTENTE=2
 PREMIERE_EN_ATTENTE="20261023200000_index_troncons_geom_planaire"
 DEPOT="tidiokamsar/ageroute-geoportail"
 HORODATAGE="$(date +%Y%m%d-%H%M%S)"
