@@ -22,6 +22,7 @@ import { exportV2Router } from "./export.routes";
 import { rechercheV2Router } from "./troncons-recherche.routes";
 import { perimetresV2Router } from "./perimetres.routes";
 import { moteurProgrammationV2Router } from "./programmation.moteur.routes";
+import { ppeProgrammationV2Router } from "./programmation.ppe.routes";
 import { integrationsV2Router } from "./integrations.routes";
 import { tableauDeBordV2Router, fiche360V2Router } from "./tableau-de-bord.routes";
 import { tachesInternesV2Router } from "./taches-internes.routes";
@@ -89,7 +90,8 @@ apiV2Router.use("/exploitation/info-route", infoRouteV2Router);
 apiV2Router.use("/exploitation/veille", veilleV2Router);
 apiV2Router.use("/exploitation", exploitationV2Router);
 apiV2Router.use("/teledetection", teledetectionV2Router);
-// Le moteur d'abord : `/programmation` (saisie manuelle) ne connait pas `/moteur`.
+// Le plus specifique d'abord : `/moteur` ne connait pas `/ppe`, `/programmation` (saisie manuelle) ne connait pas `/moteur`.
+apiV2Router.use("/programmation/moteur/ppe", ppeProgrammationV2Router);
 apiV2Router.use("/programmation/moteur", moteurProgrammationV2Router);
 apiV2Router.use("/programmation", programmationV2Router);
 apiV2Router.use("/baremes", baremesV2Router);
