@@ -296,7 +296,7 @@ try {
   const vg = await voletProgrammation(prisma, "tb-1");
   verifier("fiche 360, programmation de tb-1 : 3 previsions (retenue, realisee, proposee), montants en chaine, supprimee ecartee",
     vg.previsions.length === 3 && vg.totaux.find((t: { statut: string }) => t.statut === "RETENU").montantGnf === "9007199254740993" && !vg.previsions.some((p: { intitule: string }) => p.intitule === u(8)), vg.totaux);
-  verifier("fiche 360 : les interventions figees sont declarees indisponibles (aucune table), pas inventees", vg.interventionsFigees.disponible === false && /Aucune table/.test(vg.interventionsFigees.motif));
+  verifier("fiche 360 : la table des fiches existe, aucune fiche n'est figee pour tb-1 : disponible, total zero, liste vide (rien n'est invente)", vg.interventionsFigees.disponible === true && vg.interventionsFigees.total === 0 && vg.interventionsFigees.fiches.length === 0, vg.interventionsFigees);
   verifier("fiche 360 : un tronçon sans prevision rend des listes vides et un total vide", (await voletProgrammation(prisma, "tb-8")).previsions.length === 0);
 } finally {
   await prisma.$disconnect();

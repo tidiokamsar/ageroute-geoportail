@@ -157,7 +157,7 @@ export function AlertesPage() {
           <AlertCircle className="h-6 w-6 text-red-200 shrink-0" />
           <div>
             <h1 className="text-lg font-bold">Alertes Réseau</h1>
-            <p className="text-sm text-red-100/70">Tronçons et ouvrages en état dégradé nécessitant une intervention</p>
+            <p className="text-sm text-white">Tronçons et ouvrages en état dégradé nécessitant une intervention</p>
           </div>
         </div>
       </div>

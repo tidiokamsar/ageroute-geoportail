@@ -341,7 +341,7 @@ export async function figerFiches(client: Client, scenarioId: string, d: Demande
 
 export function ficheCouranteApi(f: depot.LigneFicheCourante) {
   return {
-    id: f.id, reference: f.reference, scenarioId: f.scenarioId, tronconId: f.tronconId, annee: f.annee, parametresVersion: f.parametresVersion,
+    id: f.id, reference: f.reference, scenarioId: f.scenarioId, tronconId: f.tronconId, tronconCode: f.tronconCode ?? null, annee: f.annee, parametresVersion: f.parametresVersion,
     empreinteSha256: f.empreinteSha256, figeLe: f.figeLe, figeParId: f.figeParId, statut: f.statut, rangStatut: f.rangStatut, statutDepuis: f.statutDepuis,
   };
 }

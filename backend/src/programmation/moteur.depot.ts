@@ -232,6 +232,8 @@ export interface LigneFicheDb {
 export interface LigneFicheCourante {
   id: string; reference: string; scenarioId: string; tronconId: string; annee: number; parametresVersion: string;
   empreinteSha256: string; figeLe: Date; figeParId: string; statut: string; rangStatut: number; statutDepuis: Date;
+  /** Renseigne par `listerFiches` seulement (jointure de lecture) ; absent des lectures unitaires. */
+  tronconCode?: string | null;
 }
 
 export async function insererFiche(db: Db, f: Omit<LigneFicheDb, "figeLe">): Promise<void> {
@@ -255,13 +257,16 @@ export async function lireFicheCourante(db: Db, id: string): Promise<LigneFicheC
 }
 
 export async function listerFiches(db: Db, f: { annee?: number | null; scenarioId?: string | null; statut?: string | null; limite: number; decalage: number }): Promise<{ total: number; lignes: LigneFicheCourante[] }> {
-  const annee = f.annee != null ? Prisma.sql`AND "annee" = ${f.annee}` : Prisma.empty;
-  const scenario = f.scenarioId ? Prisma.sql`AND "scenarioId" = ${f.scenarioId}` : Prisma.empty;
-  const statut = f.statut ? Prisma.sql`AND "statut" = ${f.statut}` : Prisma.empty;
-  const total = await db.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS "n" FROM "fiches_intervention_courantes" WHERE true ${annee} ${scenario} ${statut}`;
+  const annee = f.annee != null ? Prisma.sql`AND c."annee" = ${f.annee}` : Prisma.empty;
+  const scenario = f.scenarioId ? Prisma.sql`AND c."scenarioId" = ${f.scenarioId}` : Prisma.empty;
+  const statut = f.statut ? Prisma.sql`AND c."statut" = ${f.statut}` : Prisma.empty;
+  const total = await db.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS "n" FROM "fiches_intervention_courantes" c WHERE true ${annee} ${scenario} ${statut}`;
+  // Le code du troncon est joint pour la lecture humaine ; la fiche, elle, ne cite que l'identifiant.
   const lignes = await db.$queryRaw<LigneFicheCourante[]>`
-    SELECT * FROM "fiches_intervention_courantes" WHERE true ${annee} ${scenario} ${statut}
-     ORDER BY "figeLe" DESC, "id" ASC LIMIT ${f.limite} OFFSET ${f.decalage}`;
+    SELECT c.*, t."code" AS "tronconCode"
+      FROM "fiches_intervention_courantes" c LEFT JOIN "troncons" t ON t."id" = c."tronconId"
+     WHERE true ${annee} ${scenario} ${statut}
+     ORDER BY c."figeLe" DESC, c."id" ASC LIMIT ${f.limite} OFFSET ${f.decalage}`;
   return { total: total[0].n, lignes };
 }
 

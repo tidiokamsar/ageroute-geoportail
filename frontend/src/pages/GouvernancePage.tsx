@@ -226,7 +226,7 @@ export function GouvernancePage() {
               required
               value={domaine}
               onChange={(e) => setDomaine(e.target.value)}
-              className="mt-1 w-full rounded-md border-gray-300 text-sm focus:border-navy focus:ring-navy/30"
+              className="mt-1 w-full rounded-md border border-gray-300 text-sm focus:border-navy focus:ring-navy/30"
             >
               <option value="">Choisir…</option>
               {actifs.map((d) => (
@@ -244,7 +244,7 @@ export function GouvernancePage() {
               required
               value={validateurId}
               onChange={(e) => setValidateurId(e.target.value)}
-              className="mt-1 w-full rounded-md border-gray-300 text-sm focus:border-navy focus:ring-navy/30"
+              className="mt-1 w-full rounded-md border border-gray-300 text-sm focus:border-navy focus:ring-navy/30"
             >
               <option value="">Choisir…</option>
               {(validateursPossibles ?? []).map((u) => (
@@ -261,7 +261,7 @@ export function GouvernancePage() {
             <select
               value={regionId}
               onChange={(e) => setRegionId(e.target.value)}
-              className="mt-1 w-full rounded-md border-gray-300 text-sm focus:border-navy focus:ring-navy/30"
+              className="mt-1 w-full rounded-md border border-gray-300 text-sm focus:border-navy focus:ring-navy/30"
             >
               <option value="">Tout le pays</option>
               {(regions ?? []).map((r) => (

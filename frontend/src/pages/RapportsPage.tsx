@@ -11,15 +11,19 @@ import { Card, KpiCard } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { printReport } from "../lib/print";
 import type { RapportRegionLigne } from "../types";
+import { SYMBOLES } from "../features/geoportail/map/symbology";
 
 // ── Constantes ────────────────────────────────────────────────────────────────
 
+// Couleurs : celles de l'echelle d'etat (symbology.ts), la source unique. Les teintes Tailwind
+// d'origine (lime #84cc16, orange #f97316...) mesuraient 1,98:1 a 3,3:1 sur blanc, sous le seuil de 3:1
+// des elements graphiques et de 4,5:1 du texte (docs/accessibilite/CONTRASTE.md).
 const ETAT_CONFIG = [
-  { key: "kmBon",       label: "Bon",      color: "#16a34a", textColor: "text-green-700" },
-  { key: "kmMoyen",     label: "Moyen",    color: "#84cc16", textColor: "text-lime-700"  },
-  { key: "kmMauvais",   label: "Mauvais",  color: "#f97316", textColor: "text-orange-700"},
-  { key: "kmCritique",  label: "Critique", color: "#dc2626", textColor: "text-red-600"   },
-  { key: "kmNonEvalue", label: "Non éval.", color: "#9ca3af", textColor: "text-gray-500" },
+  { key: "kmBon",       label: "Bon",      color: SYMBOLES.BON.trait,        textColor: "text-etat-bon" },
+  { key: "kmMoyen",     label: "Moyen",    color: SYMBOLES.MOYEN.trait,      textColor: "text-etat-moyen" },
+  { key: "kmMauvais",   label: "Mauvais",  color: SYMBOLES.MAUVAIS.trait,    textColor: "text-etat-mauvais" },
+  { key: "kmCritique",  label: "Critique", color: SYMBOLES.CRITIQUE.trait,   textColor: "text-etat-critique" },
+  { key: "kmNonEvalue", label: "Non éval.", color: SYMBOLES.NON_EVALUE.trait, textColor: "text-etat-inconnu" },
 ] as const;
 
 type SortKey = "region" | "troncons" | "longueurKm" | "ouvrages" | "chantiersEnCours" | keyof typeof ETAT_CONFIG[number];
@@ -311,7 +315,7 @@ export function RapportsPage() {
               <XAxis dataKey="name" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
               <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={v => `${v}`} />
               <Tooltip content={<CustomBarTooltip />} cursor={{ fill: "#f3f4f6" }} />
-              <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} />
+              <Legend iconSize={8} wrapperStyle={{ fontSize: 11 }} formatter={(v: string) => <span style={{ color: "#374151" }}>{v}</span>} />
               {ETAT_CONFIG.slice(0, 4).map(e => (
                 <Bar key={e.key} dataKey={e.label} stackId="a" fill={e.color} radius={e.key === "kmCritique" ? [3, 3, 0, 0] : [0, 0, 0, 0]} />
               ))}
@@ -418,7 +422,7 @@ export function RapportsPage() {
                     <span className="flex items-center justify-end gap-1">Chantiers <SortIcon col="chantiersEnCours" active={sortKey} dir={sortDir} /></span>
                   </th>
                   <th className="py-2 px-2 text-right text-xs text-green-700 uppercase">Bon</th>
-                  <th className="py-2 px-2 text-right text-xs text-lime-700 uppercase">Moyen</th>
+                  <th className="py-2 px-2 text-right text-xs text-etat-moyen uppercase">Moyen</th>
                   <th className="py-2 px-2 text-right text-xs text-orange-700 uppercase">Mauvais</th>
                   <th className="py-2 px-2 text-right text-xs text-red-600 uppercase">Critique</th>
                   <th className="py-2 px-2 text-right text-xs text-gray-500 uppercase hidden sm:table-cell">Non éval.</th>
@@ -454,7 +458,7 @@ export function RapportsPage() {
                         }
                       </td>
                       <td className="py-2 px-2 text-right tabular-nums text-green-700">{l.kmBon > 0 ? km(l.kmBon) : <span className="text-gray-200">—</span>}</td>
-                      <td className="py-2 px-2 text-right tabular-nums text-lime-700">{l.kmMoyen > 0 ? km(l.kmMoyen) : <span className="text-gray-200">—</span>}</td>
+                      <td className="py-2 px-2 text-right tabular-nums text-etat-moyen">{l.kmMoyen > 0 ? km(l.kmMoyen) : <span className="text-gray-200">—</span>}</td>
                       <td className="py-2 px-2 text-right tabular-nums text-orange-700">{l.kmMauvais > 0 ? km(l.kmMauvais) : <span className="text-gray-200">—</span>}</td>
                       <td className="py-2 px-2 text-right tabular-nums text-red-600 font-medium">{l.kmCritique > 0 ? km(l.kmCritique) : <span className="text-gray-200">—</span>}</td>
                       <td className="py-2 px-2 text-right tabular-nums text-gray-500 hidden sm:table-cell">{l.kmNonEvalue > 0 ? km(l.kmNonEvalue) : <span className="text-gray-200">—</span>}</td>
@@ -472,7 +476,7 @@ export function RapportsPage() {
                   <td className="py-2 px-2 text-right">{totaux.ouvrages}</td>
                   <td className="py-2 px-2 text-right">{totaux.chantiersEnCours}</td>
                   <td className="py-2 px-2 text-right text-green-700">{km(totaux.kmBon)}</td>
-                  <td className="py-2 px-2 text-right text-lime-700">{km(totaux.kmMoyen)}</td>
+                  <td className="py-2 px-2 text-right text-etat-moyen">{km(totaux.kmMoyen)}</td>
                   <td className="py-2 px-2 text-right text-orange-700">{km(totaux.kmMauvais)}</td>
                   <td className="py-2 px-2 text-right text-red-600">{km(totaux.kmCritique)}</td>
                   <td className="py-2 px-2 text-right text-gray-500 hidden sm:table-cell">{km(totaux.kmNonEvalue)}</td>

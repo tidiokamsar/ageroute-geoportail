@@ -121,8 +121,8 @@ export interface PendingDefaut {
     };
     /**
      * Contour GPS du defaut (GeoJSON, longitude puis latitude en degres, SRID 4326). Le serveur le mesure en
-     * UTM (scenario A5) et en tire la quantite. AUCUN ECRAN NE LE PRODUIT ENCORE : le contrat est pret
-     * (`POST /v2/defauts`, `/v2/sync/push`), l'outil de trace GPS reste a ecrire et ne s'eprouve que sur appareil.
+     * UTM (scenario A5) et en tire la quantite. Produit par le releve a pied de `DefautTerrainPage` (contour ferme,
+     * `lib/contourDefaut.ts`) ; la file le transporte sans le modifier. Releve jamais essaye sur un telephone reel.
      */
     emprise?: { type: "LineString" | "MultiLineString" | "Polygon" | "MultiPolygon"; coordinates: unknown[] };
   };

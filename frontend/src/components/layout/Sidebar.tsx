@@ -36,6 +36,7 @@ const sections = [
       { to: "/ordres-travaux", label: "Ordres de travaux" },
       { to: "/marches", label: "Marchés" },
       { to: "/programmation", label: "Programmation" },
+      { to: "/programmation/moteur", label: "Moteur de programmation", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/inspections", label: "Inspections" },
       { to: "/inspections/missions", label: "Missions terrain" },
       { to: "/inspections/defauts/registre", label: "Registre des défauts" },
@@ -147,7 +148,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
       <nav className="flex-1 overflow-y-auto py-4">
         {visibleSections.map((section) => (
           <div key={section.title} className="mb-5">
-            <p className="px-5 mb-2 text-[10px] font-bold tracking-wider text-white/40">{section.title}</p>
+            <p className="px-5 mb-2 text-[10px] font-bold tracking-wider text-white/60">{section.title}</p>
             {section.items.map((item) => (
               <NavLink
                 key={item.to}

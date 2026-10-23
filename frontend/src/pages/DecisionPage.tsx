@@ -12,6 +12,11 @@ import {
 } from "lucide-react";
 import { api } from "../lib/api";
 import { Card } from "../components/ui/Card";
+import { assombrirPour, estHex } from "../lib/contraste";
+
+// Une couleur d'accent choisie pour un aplat (or #f5a623, cyan #0891b2) ne se lit pas en texte sur blanc
+// (2,0:1 et 3,7:1). Pour les chiffres on assombrit jusqu'a 4,5:1 ; l'aplat garde sa couleur.
+const texteLisible = (c: string) => (estHex(c) ? assombrirPour(c, "#ffffff", 4.5) : c);
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -106,10 +111,10 @@ function StatCard({ label, value, sub, color, icon: Icon }: {
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="text-[11px] font-medium uppercase tracking-widest text-gray-500">{label}</p>
-          <p className="mt-1 text-2xl font-black" style={{ color }}>{value}</p>
+          <p className="mt-1 text-2xl font-black" style={{ color: texteLisible(color) }}>{value}</p>
           {sub && <p className="mt-0.5 text-xs text-gray-500">{sub}</p>}
         </div>
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: `${color}15`, color }}>
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: `${color}15`, color: texteLisible(color) }}>
           <Icon className="h-4 w-4" />
         </span>
       </div>
@@ -317,7 +322,7 @@ function PriorisationTab({ data }: { data: DecisionData }) {
                   <span className="text-xs font-medium text-gray-700">{label}</span>
                   <p className="text-[10px] text-gray-500">{sub}</p>
                 </div>
-                <span className="text-sm font-black" style={{ color }}>{weights[key]}%</span>
+                <span className="text-sm font-black" style={{ color: texteLisible(color) }}>{weights[key]}%</span>
               </div>
               <input type="range" min={0} max={100} value={weights[key]}
                 onChange={(e) => setW(key)(Number(e.target.value))}
@@ -357,7 +362,7 @@ function PriorisationTab({ data }: { data: DecisionData }) {
               {scored.slice(0, 20).map((t, i) => (
                 <tr key={t.id} className={`hover:bg-blue-50/30 transition-colors ${i < 3 ? "border-l-2 border-l-red-400" : ""}`}>
                   <td className="px-3 py-2.5">
-                    <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${i === 0 ? "bg-red-600 text-white" : i === 1 ? "bg-orange-400 text-white" : i === 2 ? "bg-amber-400 text-white" : "bg-gray-100 text-gray-500"}`}>
+                    <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${i === 0 ? "bg-red-600 text-white" : i === 1 ? "bg-orange-700 text-white" : i === 2 ? "bg-amber-700 text-white" : "bg-gray-100 text-gray-500"}`}>
                       {i + 1}
                     </span>
                   </td>
@@ -742,11 +747,11 @@ export function DecisionPage() {
           <div className="ml-auto hidden md:flex items-center gap-6 text-right">
             <div>
               <p className="text-xl font-black">{data.kpis.pctCritique + data.kpis.pctMauvais}%</p>
-              <p className="text-[10px] text-white/50 uppercase tracking-wider">réseau dégradé</p>
+              <p className="text-[10px] text-white/60 uppercase tracking-wider">réseau dégradé</p>
             </div>
             <div>
               <p className="text-xl font-black">{data.kpis.chantiersEnRetard}</p>
-              <p className="text-[10px] text-white/50 uppercase tracking-wider">chantiers en retard</p>
+              <p className="text-[10px] text-white/60 uppercase tracking-wider">chantiers en retard</p>
             </div>
           </div>
         </div>

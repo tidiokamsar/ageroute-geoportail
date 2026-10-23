@@ -39,10 +39,35 @@ serveur (`POST /v2/sync/push`, opération `SessionRoulage`). Il est couvert par 
 
 **Ses limites, dites à l'écran :** page au premier plan et écran allumé (un navigateur ne lit pas la position écran
 éteint ; la coupure est notée comme interruption, jamais comblée) ; un passager manipule le téléphone ; aucun IRI, aucune
-photo ; la qualification de l'état de chaussée par segment n'est pas saisie sur cet écran. **Il n'a jamais tourné sur un
+photo. **Il n'a jamais tourné sur un
 téléphone en roulant** : la précision, la tenue de l'écran, la reprise après fermeture et l'API Wake Lock selon le
 navigateur sont à vérifier lors d'un premier essai, avant d'en tirer le moindre chiffre. Aucun adaptateur SQLite, plugin
 natif ni branchement dans la file `offlineSync.ts` n'est livré : l'envoi se fait à la demande, pas en file automatique.
+
+**Mise à jour du 23/10/2026 : qualification par segment et lien à une mission (agent « terrain navigateur »).** Avant
+cette date, un segment partait SANS qualification et le serveur n'en tirait aucune portion. Désormais :
+
+- **Qualification** : trois listes (revêtement, état de chaussée, praticabilité) alimentées par `GET /v2/referentiels`
+  (valeurs ACTIVES seulement, rien de pré-rempli, « Non relevé » par défaut), choisies avant le début du segment OU pendant
+  qu'il est ouvert (donc à la fin). La qualification d'un segment ouvert est posée sur CE segment à chaque changement
+  (nouvelle entrée de journal `EVT_QUALIFICATION`, méthode `SessionRoulage.qualifierEvenement`, refusée sur un segment
+  clos, abandonné ou inconnu) et survit à une fermeture de page. Rien ne se reporte d'un segment au suivant (les listes
+  reviennent sur « Non relevé »). La praticabilité reste désactivée tant que le serveur n'a pas défini son vocabulaire
+  (`praticabiliteNonDefinie`), comme `TerrainPortionsPage`. Un segment clos sans qualification est signalé à l'écran : le
+  serveur n'en tirera aucune portion. Ce sont des **choix de l'agent**, pas des mesures de l'état de la route ; chaque
+  portion reste une proposition `A_VALIDER`.
+- **Copie des vocabulaires** : la dernière réponse du serveur est gardée sur le téléphone (clé `localStorage`
+  `bdri.roulage.referentiels`, datée, affichée comme telle) pour pouvoir qualifier en zone sans réseau. Un code retiré
+  depuis ferait refuser la portion par le serveur (`CODE_REFERENTIEL_INCONNU`), la session restant sur le téléphone.
+- **Mission (facultative)** : liste des missions de `GET /v2/missions` **filtrée sur celles que le serveur acceptera**
+  (assignées à l'agent ou créées par lui : sinon `MISSION_NON_AUTORISEE` fait rejeter TOUTE la session ; la route rend
+  toutes les missions à un ADMIN ou GESTIONNAIRE) et sans les missions annulées. Le choix suit la session
+  (`localStorage` `bdri.roulage.mission.<sessionId>`), est passé à `construirePayload(etat, { missionId })`, et peut être
+  retiré pour renvoyer après un refus. Hors ligne ou serveur injoignable : pas de lien, dit à l'écran.
+- Modules purs : `frontend/src/lib/qualificationSegment.ts` (mise en forme, filtre des missions) et
+  `referentielsQualification.ts` (chargement et copie). Le noyau `roulage/` reste sans DOM (garde `noyau.garde.test.ts`).
+- Limites : la largeur de portion (`largeurM`, acceptée par le noyau et le serveur) n'est pas saisie ; un segment à cheval
+  sur une pause est impossible (la pause est refusée tant qu'un segment est ouvert, règle inchangée).
 
 ### Tests
 
@@ -51,6 +76,10 @@ natif ni branchement dans la file `offlineSync.ts` n'est livré : l'envoi se fai
 | Noyau de l'appareil | `cd frontend && npx vitest run src/roulage` | 6 fichiers, 97 tests |
 | Serveur (contrat, rattachement, service, route de synchronisation) | `cd backend && npx vitest run src/roulage src/api-v2/sync.roulage` | 4 fichiers, 72 tests |
 | Banc PostGIS | `cd backend && DATABASE_URL=<replay> bash tests-integration/run.sh` ou `npx tsx tests-integration/roulage.integration.mts` | 50 vérifications |
+| Noyau, après ajout de la qualification d'un segment ouvert (23/10/2026) | `cd frontend && npx vitest run src/roulage` | 7 fichiers, 101 tests (dont 6 dans `qualification.test.ts`) |
+| Écrans de terrain et modules purs (23/10/2026) | `cd frontend && npx vitest run src/pages/EnregistrementRoulagePage src/pages/DefautTerrainContour src/lib/contourDefaut src/lib/qualificationSegment src/roulage` | 11 fichiers, 190 tests : enregistreur 33 (dont 19 nouveaux), contour 20, `contourDefaut` 24, `qualificationSegment` 12 |
+| Banc contour GPS (23/10/2026) | `cd backend && DATABASE_URL=<replay> npx tsx tests-integration/contour-terrain.integration.mts` | 49 vérifications, environ 10 minutes sur un poste chargé (`CONTOUR_FUZZ=600` pour un essai court) |
+| Suites complètes au 23/10/2026 | `cd backend && npx vitest run` ; `cd frontend && npx vitest run` | backend 161 fichiers, 2 546 tests ; frontend 59 fichiers, 786 tests |
 | Descente de la migration | `docker cp backend/prisma ...` puis `verifier.sh --seulement 20261024100000_sessions_roulage` | 4 vérifications : descente, aller-retour, garde refusée avec données, garde autorisée |
 
 ## 2. Machine à états d'une session
@@ -221,6 +250,20 @@ version du WebView et de l'OS notées avec chaque mesure.
 | D-18 | A16, A17 | Utilisabilité en conduite : taille des boutons, retour sonore ou vibratoire, rôle du passager ; **décision de sécurité routière à prendre par AGEROUTE** (usage par le conducteur) | Essai sur route avec un opérateur | NON VÉRIFIÉ sur appareil |
 | D-19 | A17 | Un événement Début/Fin posé par un agent réel aboutit à la bonne section de route | Relevé contradictoire par PK sur des sections connues | NON VÉRIFIÉ sur appareil |
 
+Ajouts du 23/10/2026 (qualification par segment, mission, contour GPS). Tous **NON VÉRIFIÉS sur appareil** : les tests
+d'écran simulent la position, et le banc PostGIS confronte du code à PostGIS, pas un récepteur à une route.
+
+| Réf. | À vérifier | Comment le mesurer | Statut |
+|---|---|---|---|
+| D-20 | Qualification d'un segment en roulant : le passager peut-il choisir trois listes (revêtement, état, praticabilité) à temps, sans erreur de choix, sur un petit écran ? | Essai sur route avec un passager ; durée de saisie, erreurs de choix relevées par comparaison avec une relecture à l'arrêt | NON VÉRIFIÉ sur appareil |
+| D-21 | Copie des vocabulaires (`localStorage`) : survit à la fermeture du navigateur, à la purge de l'espace de stockage, au mode privé ; et la qualification reste possible en zone sans réseau | Ouvrir l'écran en ligne, couper le réseau, redémarrer le navigateur, qualifier | NON VÉRIFIÉ sur appareil |
+| D-22 | Choix de mission : survit à la reprise après fermeture de la page (même mécanisme), et la liste (`GET /v2/missions`) est complète pour un agent réel (assignée ou créée) | Compte d'agent réel, missions de test, fermeture et reprise | NON VÉRIFIÉ sur appareil |
+| D-23 | Contour GPS : le seuil de précision de 10 m pour poser un sommet est-il atteignable et pertinent sur un récepteur de téléphone d'entrée de gamme, en zone dégagée, sous couvert végétal, près de bâtiments ? | Poser des sommets à des repères de coordonnées relevées, comparer l'erreur réelle à la précision annoncée ; choisir ou ajuster `PRECISION_MAX_SOMMET_M` | NON VÉRIFIÉ sur appareil |
+| D-24 | Contour GPS : la position se rafraîchit assez vite pour que « plus de 10 s » (`AGE_MAX_POSITION_MS`) signifie vraiment « signal perdu » ; l'horodatage de la position du navigateur est celui du fix | Marcher, masquer le ciel, lire les horodatages réels de `watchPosition` | NON VÉRIFIÉ sur appareil |
+| D-25 | Contour GPS : faire le tour d'un défaut de quelques mètres produit-il un contour utile, ou plus petit que l'incertitude du GPS (l'écran avertit alors que la surface n'est pas significative) ? | Défauts de surface connue (nid-de-poule, plaque de faïençage) mesurés au mètre ruban puis relevés au GPS ; écart de surface contre le serveur | NON VÉRIFIÉ sur appareil |
+| D-26 | Contour GPS : aucune surface n'est calculée sur le téléphone ; la mesure d'aperçu du serveur s'affiche en ligne, et l'enregistrement hors ligne puis la synchronisation restituent la même surface | Relevé en zone blanche, retour en réseau, comparaison avec l'aperçu | NON VÉRIFIÉ sur appareil |
+| D-27 | Contour GPS : l'écran reste utilisable debout, en marchant (taille des boutons, lisibilité de la précision, lecteur d'écran), sans manipuler le téléphone en roulant | Essai à pied avec un agent ; la règle « jamais en roulant » reste une décision de sécurité d'AGEROUTE | NON VÉRIFIÉ sur appareil |
+
 Côté serveur, avec des **données réelles** (non couvert par la simulation) :
 
 | Réf. | À vérifier | Statut |
@@ -254,3 +297,71 @@ Côté serveur, avec des **données réelles** (non couvert par la simulation) :
   second échoue à l'écriture (contrainte d'unicité, comportement attendu, non testé) et se rejoue en `REJOUEE`.
 - Le lien portion - événement est tenu par la table `evenements_roulage_portions` ; une portion requalifiée ou
   fusionnée ensuite garde son lien vers la version d'origine (l'historique est conservé, rien n'est réécrit).
+
+## 8. Contour GPS d'un défaut surfacique (A5, métré), ajouté le 23/10/2026
+
+Le serveur acceptait déjà un contour (`emprise` GeoJSON, méthode `EMPRISE_UTM`, surface mesurée par `metre_utm`) par
+`POST /v2/defauts` et `POST /v2/sync/push` ; **aucun écran n'en produisait**. `pages/DefautTerrainPage.tsx` le fait
+désormais, sans modification du serveur ni du protocole de synchronisation.
+
+### Ce que fait l'écran
+
+1. « **Commencer le contour** » lance le suivi de position (`usePositionGps`, haute précision) et affiche la précision.
+2. « **Poser un sommet ici** » prend la position courante. **Refusé, avec sa raison, sans rien corriger** : pas de position,
+   coordonnées invalides, position de plus de 10 s (signal perdu), précision annoncée au-dessus de 10 m (ou inconnue), même
+   position que le sommet précédent, ou arête qui croiserait ou toucherait le contour déjà posé. « Retirer le dernier sommet »
+   et « Abandonner le contour » défont la saisie.
+3. « **Fermer le contour** » (actif à partir de 3 sommets) vérifie trois sommets distincts, des sommets non alignés, aucune
+   auto-intersection (la fermeture compte comme un côté, nœud papillon symétrique et demi-tour sur place compris) et en
+   tire un `Polygon` GeoJSON (longitude puis latitude, 7 décimales, sens anti-horaire, anneau fermé).
+4. **Surface : jamais calculée sur le téléphone.** En ligne, l'écran demande au serveur (`POST /v2/geo/metre`, lecture seule)
+   et affiche SA surface, son périmètre et le fuseau UTM, en disant que la valeur enregistrée est recalculée à la
+   réception. Hors ligne : « la surface sera mesurée par le serveur à la synchronisation ». Un `400` du serveur (géométrie
+   invalide) est un jugement : sa raison est affichée et l'enregistrement est bloqué jusqu'à ce que le contour soit refait ou
+   retiré. Une panne (réseau, droits) ne juge rien : le contour part quand même.
+5. **Enregistrement** : toujours par la file locale (`addPendingDefaut`), puis synchronisation immédiate si en ligne : le
+   contour traverse donc la file hors ligne dans tous les cas, sans que `offlineSync.ts` ait eu à changer (la charge
+   passe telle quelle, vérifié par `offlineSync.emprise.test.ts`). Un contour commencé mais non fermé bloque
+   l'enregistrement. Corriger un brouillon qui porte un contour **le garde**.
+6. **Mesures exigées** : pour une unité m² ou m³, un contour fermé couvre longueur et largeur (elles deviennent facultatives,
+   « couvert par le contour ») ; profondeur et nombre restent exigés ; pour un mètre linéaire ou une unité, le polygone
+   ne donne pas de quantité, la mesure saisie reste exigée et l'écran le dit. C'est une copie de la règle du serveur
+   (`mesuresCouvertesParEmprise`) : le banc `contour-terrain` la confronte au serveur pour chaque unité.
+
+### Seuils : tous PROVISOIRES, non calibrés, à décider par AGEROUTE après essai sur appareil
+
+| Constante (`frontend/src/lib/contourDefaut.ts`) | Valeur | Rôle |
+|---|---|---|
+| `PRECISION_MAX_SOMMET_M` | 10 m | précision annoncée au-delà de laquelle un sommet est refusé |
+| `AGE_MAX_POSITION_MS` | 10 000 ms | ancienneté au-delà de laquelle la position n'est plus « ici » |
+| `SOMMETS_MAX` | 200 | confort d'un contour à pied (le serveur accepte 20 000 positions) |
+| `AIRE_MIN_M2` / `ECART_ALIGNEMENT_M` | 0,01 m² / 0,02 m | sous ces valeurs, le contour est dit sans surface (aire ou alignement), uniquement pour refuser ; aucune aire n'est affichée |
+| `FACTEUR_PRECISION_EMPRISE` | 2 | si l'étendue du contour est inférieure à 2 fois la pire précision, l'écran avertit que la surface n'est pas significative (avertissement, pas un refus) |
+
+Aucun n'a été mesuré sur un récepteur réel : ils sont des choix, affichés à l'écran (le seuil de précision) et ici.
+
+### Ce que les tests prouvent, et ce qu'ils ne prouvent pas
+
+- Tests d'écran (jsdom, position **simulée**, axe-core 0 violation à chaque étape) : `DefautTerrainContour.test.tsx`.
+- Modules purs : `contourDefaut.test.ts` (validation, sommets, règle des mesures, lecture de la réponse du serveur).
+- Banc PostGIS `backend/tests-integration/contour-terrain.integration.mts` : 15 contours nommés et **4 000 polygones tirés au
+  hasard** (graine fixe) comparés à `ST_IsValid` : **0 fausse acceptation**, 0 refus pour croisement que PostGIS accepterait ;
+  les 494 sommets refusés à la pose sur 600 tirages auraient tous fait un anneau invalide ; le contour du client mesure
+  10 000 m² (carré de 100 m construit en UTM) à 0,02 % par `/v2/defauts` et `/v2/sync/push` (13 ppm mesurés : l'arrondi à
+  7 décimales, soit 1 cm par sommet) ; la règle des mesures exigées coïncide avec le serveur pour les quatre unités.
+- **Contre-épreuve** (sur des copies jetables, rien d'affaibli dans le code livré) : sans la détection de croisement, 2 tests
+  unitaires échouent et le banc relève **406 fausses acceptations sur 600** ; en jugeant l'aire avant le croisement, les
+  nœuds papillons symétriques (aire signée nulle) sont pris pour des sommets alignés et 2 tests échouent (le défaut a
+  réellement été commis puis corrigé pendant le développement) ; une qualification qui accepte un code hors référentiel fait
+  échouer 1 test ; un noyau qui n'applique pas `EVT_QUALIFICATION` au rejeu fait échouer 4 tests.
+- **Non prouvé** : tout ce qui touche un téléphone réel (D-20 à D-27) ; qu'un défaut de quelques mètres se contourne
+  utilement avec un GPS de téléphone ; le comportement de `watchPosition` selon les navigateurs.
+
+### Non livré
+
+- **Tracé ouvert (ligne)** pour un défaut linéaire (fissure, orniérage) : le serveur le sait mesurer
+  (`LineString`), l'écran ne produit que des polygones.
+- **Aucun dessin du contour** (ni carte ni schéma) : une liste des sommets posés, rien de plus.
+- La localisation du défaut (position ou tronçon) reste à renseigner séparément ; le contour ne la remplit pas.
+- La surface officielle n'est affichée qu'en ligne et avant l'enregistrement : la file hors ligne ne rapporte pas à
+  l'écran la quantité calculée à la synchronisation (`syncOneDefaut` ne conserve que l'identifiant serveur).

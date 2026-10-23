@@ -28,8 +28,8 @@ set -euo pipefail
 COMMIT="${1:-}"
 SHA_ATTENDU="${2:-}"
 ARCHIVE_LOCALE="${3:-}"
-ATTENDUES_EN_ATTENTE=1
-PREMIERE_EN_ATTENTE="20261026100000_conflit_sync_verification"
+ATTENDUES_EN_ATTENTE=3
+PREMIERE_EN_ATTENTE="20261026300000_plans_pluriannuels"
 DEPOT="tidiokamsar/ageroute-geoportail"
 HORODATAGE="$(date +%Y%m%d-%H%M%S)"
 SAUVEGARDES="/var/backups/bdri-deploiement/${HORODATAGE}"

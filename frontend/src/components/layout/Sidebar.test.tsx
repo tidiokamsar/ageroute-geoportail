@@ -40,6 +40,18 @@ describe("Sidebar : entree active", () => {
   });
 });
 
+describe("Sidebar : Moteur de programmation", () => {
+  it("figure dans Travaux pour ADMIN et GESTIONNAIRE, et sur son adresse seule « Moteur de programmation » est active (pas « Programmation »)", () => {
+    rendreA("/programmation/moteur");
+    expect(screen.getByRole("link", { name: "Moteur de programmation" })).toHaveAttribute("href", "/programmation/moteur");
+    expect(actifs()).toEqual(["Moteur de programmation"]);
+  });
+  it("sur /programmation, seule « Programmation » est active", () => {
+    rendreA("/programmation");
+    expect(actifs()).toEqual(["Programmation"]);
+  });
+});
+
 describe("Sidebar : groupe Releve terrain", () => {
   it("regroupe le releve en vehicule et les trois ecrans de saisie terrain, avec leurs adresses", () => {
     rendreA("/");

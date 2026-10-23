@@ -1020,16 +1020,16 @@ export function DetailPanel({
   // Minimized strip
   if (isMinimized) {
     return (
-      <div className="absolute right-0 top-0 h-full w-10 shadow-2xl z-[900] flex flex-col items-center py-3 gap-2 border-l border-white/10" style={{ background: "linear-gradient(180deg, #1a2942 0%, #2d4a6b 100%)" }}>
+      <div className="absolute right-0 top-0 h-full w-10 shadow-2xl z-[900] flex flex-col items-center py-3 gap-2 border-l border-white/10" style={{ background: "linear-gradient(180deg, #1a2942 0%, #2a4666 100%)" }}>
         <button onClick={() => setIsMinimized(false)} title="Afficher le panneau" className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10">
           <ChevronLeft className="h-4 w-4" />
         </button>
         <div className="flex-1 flex items-center justify-center">
-          <span className="text-white/40 text-[10px] uppercase tracking-widest" style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}>
+          <span className="text-white/70 text-[10px] uppercase tracking-widest" style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}>
             {feature.kind === "troncon" ? feature.data.nom.slice(0, 20) : feature.kind}
           </span>
         </div>
-        <button onClick={onClose} title="Fermer" className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10">
+        <button onClick={onClose} title="Fermer" className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10">
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
@@ -1039,7 +1039,7 @@ export function DetailPanel({
   return (
     <div className="absolute right-0 top-0 h-full w-[520px] bg-white shadow-2xl z-[900] flex flex-col border-l border-gray-200">
       {/* ── Header ── */}
-      <div className="relative shrink-0" style={{ background: "linear-gradient(135deg, #1a2942 0%, #2d4a6b 100%)" }}>
+      <div className="relative shrink-0" style={{ background: "linear-gradient(135deg, #1a2942 0%, #2a4666 100%)" }}>
         <div className="absolute top-3 right-3 flex items-center gap-1">
           <button onClick={() => setIsMinimized(true)} title="Réduire" className="p-1.5 rounded-lg hover:bg-white/10 text-white/70 hover:text-white">
             <ChevronRight className="h-4 w-4" />
@@ -1053,9 +1053,9 @@ export function DetailPanel({
           <div className="flex items-start gap-3">
             <div className="p-2 rounded-lg bg-white/10 text-white shrink-0 mt-0.5">{headerConfig.icon}</div>
             <div className="flex-1 min-w-0">
-              <p className="text-white/60 text-[11px] font-medium uppercase tracking-wider mb-0.5">{headerConfig.subtitle}</p>
+              <p className="text-white/70 text-[11px] font-medium uppercase tracking-wider mb-0.5">{headerConfig.subtitle}</p>
               <h2 className="text-white font-semibold text-base leading-tight pr-8">{headerConfig.title}</h2>
-              {headerConfig.meta && <p className="text-white/50 text-xs mt-1">{headerConfig.meta}</p>}
+              {headerConfig.meta && <p className="text-white/70 text-xs mt-1">{headerConfig.meta}</p>}
             </div>
           </div>
 
@@ -1084,7 +1084,7 @@ export function DetailPanel({
 
         {/* Action buttons */}
         <div className="flex items-center gap-1 px-4 pb-3 border-t border-white/10 pt-2.5">
-          <button onClick={printFiche} title="Imprimer" className="flex items-center gap-1 text-white/60 hover:text-white text-[11px] px-2 py-1 rounded hover:bg-white/10">
+          <button onClick={printFiche} title="Imprimer" className="flex items-center gap-1 text-white/70 hover:text-white text-[11px] px-2 py-1 rounded hover:bg-white/10">
             <Printer className="h-3 w-3" /> Imprimer
           </button>
           {canEdit && feature.kind === "troncon" && !isEditing && (
@@ -1102,7 +1102,7 @@ export function DetailPanel({
                   onZoomTo([mid[1], mid[0]]);
                 } catch {/* */ }
               }}
-              className="flex items-center gap-1 text-white/60 hover:text-white text-[11px] px-2 py-1 rounded hover:bg-white/10"
+              className="flex items-center gap-1 text-white/70 hover:text-white text-[11px] px-2 py-1 rounded hover:bg-white/10"
             >
               <ZoomIn className="h-3 w-3" /> Zoom
             </button>
@@ -1110,13 +1110,13 @@ export function DetailPanel({
           {onZoomTo && (feature.kind === "ouvrage" || feature.kind === "poste" || feature.kind === "pointNoir") && (
             <button
               onClick={() => { const d = feature.data as { lat: number; lon: number }; if (d.lat && d.lon) onZoomTo([d.lat, d.lon]); }}
-              className="flex items-center gap-1 text-white/60 hover:text-white text-[11px] px-2 py-1 rounded hover:bg-white/10"
+              className="flex items-center gap-1 text-white/70 hover:text-white text-[11px] px-2 py-1 rounded hover:bg-white/10"
             >
               <ZoomIn className="h-3 w-3" /> Zoom
             </button>
           )}
           {feature.kind === "troncon" && (
-            <button onClick={() => exportGeoJSON(feature.data)} className="flex items-center gap-1 text-white/60 hover:text-white text-[11px] px-2 py-1 rounded hover:bg-white/10">
+            <button onClick={() => exportGeoJSON(feature.data)} className="flex items-center gap-1 text-white/70 hover:text-white text-[11px] px-2 py-1 rounded hover:bg-white/10">
               <Download className="h-3 w-3" /> GeoJSON
             </button>
           )}

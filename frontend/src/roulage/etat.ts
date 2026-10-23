@@ -178,6 +178,15 @@ export function appliquerEntree(etat: EtatSession, entree: CorpsEntree & { seq: 
       break;
     }
 
+    case "EVT_QUALIFICATION": {
+      const ev = etat.evenements.find((x) => x.id === entree.id);
+      if (!ev) return "EVENEMENT_INCONNU";
+      if (ev.statut !== "OUVERT") return "EVENEMENT_NON_OUVERT";
+      ev.qualification = entree.qualification ? { ...entree.qualification } : null;
+      noter(etat, entree.tMs);
+      break;
+    }
+
     case "PAUSE":
       if (etat.statut !== "EN_COURS") return "PAUSE_HORS_COURS";
       etat.statut = "EN_PAUSE";

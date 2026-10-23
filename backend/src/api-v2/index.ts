@@ -24,9 +24,11 @@ import { rechercheV2Router } from "./troncons-recherche.routes";
 import { bulkEtatV2Router } from "./troncons-bulk-etat.routes";
 import { perimetresV2Router } from "./perimetres.routes";
 import { moteurProgrammationV2Router } from "./programmation.moteur.routes";
+import { ppeProgrammationV2Router } from "./programmation.ppe.routes";
 import { integrationsV2Router } from "./integrations.routes";
 import { tableauDeBordV2Router, fiche360V2Router } from "./tableau-de-bord.routes";
 import { tachesInternesV2Router } from "./taches-internes.routes";
+import { correspondancesV2Router } from "./correspondances.routes";
 
 /**
  * `/api/v2` — la nouvelle surface d'API.
@@ -92,7 +94,8 @@ apiV2Router.use("/exploitation/info-route", infoRouteV2Router);
 apiV2Router.use("/exploitation/veille", veilleV2Router);
 apiV2Router.use("/exploitation", exploitationV2Router);
 apiV2Router.use("/teledetection", teledetectionV2Router);
-// Le moteur d'abord : `/programmation` (saisie manuelle) ne connait pas `/moteur`.
+// Le plus specifique d'abord : `/moteur` ne connait pas `/ppe`, `/programmation` (saisie manuelle) ne connait pas `/moteur`.
+apiV2Router.use("/programmation/moteur/ppe", ppeProgrammationV2Router);
 apiV2Router.use("/programmation/moteur", moteurProgrammationV2Router);
 apiV2Router.use("/programmation", programmationV2Router);
 apiV2Router.use("/baremes", baremesV2Router);
@@ -105,6 +108,7 @@ apiV2Router.use("/integrations", integrationsV2Router);
 apiV2Router.use("/tableau-de-bord", tableauDeBordV2Router);
 apiV2Router.use("/fiche-360", fiche360V2Router);
 apiV2Router.use("/taches-internes", tachesInternesV2Router);
+apiV2Router.use("/correspondances", correspondancesV2Router);
 
 /**
  * Inventaire de la surface v2, pour qu'un client sache ce qui existe reellement.
@@ -115,7 +119,7 @@ apiV2Router.use("/taches-internes", tachesInternesV2Router);
 apiV2Router.get("/", (_req, res) => {
   res.json({
     version: "v2",
-    domaines: ["geo", "sync", "devices", "missions", "roulage", "observations", "defauts", "field", "portions", "referentiels", "qualite", "reseau", "imports", "exploitation", "teledetection", "programmation", "baremes", "perimetres", "integrations", "tableau-de-bord", "fiche-360", "taches-internes"],
+    domaines: ["geo", "sync", "devices", "missions", "roulage", "observations", "defauts", "field", "portions", "referentiels", "qualite", "reseau", "imports", "exploitation", "teledetection", "programmation", "baremes", "perimetres", "integrations", "tableau-de-bord", "fiche-360", "taches-internes", "correspondances"],
     aVenir: [
       "auth", "tracks",
       "assets", "offline", "intelligence", "ai",

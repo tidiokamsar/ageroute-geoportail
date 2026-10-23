@@ -20,6 +20,22 @@ rien changé, les miennes là où ils n'avaient rien changé, A5 fusionnée en g
 
 ## 22/10/2026 (nuit) — apports de la branche `lot/17-consignes-dt` (DT-2, DT-4 à DT-8)
 
+### Fusion de `lot/03-map-matching` à `01ef5dd` (23/10, soir)
+
+Huit conflits. **Doublon retiré** : la ligne principale rattache déjà la session de roulage à une mission (`c31b5de`, chargé à
+l'ouverture, avec qualification par segment) ; mon rattachement (DT-9) et ses deux tests sont retirés, « Mes sessions envoyées »
+reste. Contraste : la ligne principale a son propre garde-fou mesuré en navigateur (`styles/contraste.test.ts`) ; les deux
+coexistent et passent ; ses jetons d'état sont pris dans `RapportsPage.tsx` (y compris trois cellules « moyen » restées en
+`lime-700`, 4,40:1), le `texteLisible` de `DecisionPage.tsx` est combiné avec mes `gray-500`. Matrice fusionnée ligne à ligne
+(A5, 7.13, 7.14). `api-v2/index.ts`, `tests-integration/run.sh` : ajouts des deux côtés gardés.
+
+| Commande | Résultat |
+|---|---|
+| `verifier.sh --strict --garder` | **83 migrations, 290 vérifications, 0 échec**, 0 sans descente |
+| `infra/ci/bancs-sql.sh` sur la base de référence (détruite ensuite) | **17 bancs, 0 échec** |
+| `npx vitest run` backend | **2 771 passés** (174 fichiers) ; `tsc` 0 erreur |
+| `npx vitest run` frontend (seul) | **1 024 passés** (84 fichiers, 0 échec, les deux garde-fous de contraste compris) ; `tsc` 0 erreur ; lint 0 erreur, 5 avertissements |
+
 ### Fusion de `lot/03-map-matching` à `49efc17` (23/10, après-midi)
 
 Conflits : `App.tsx` et `Sidebar.tsx` (ajouts des deux côtés, gardés) ; `GeoportailPage.tsx` (barre d'outils déplacée dans
@@ -114,6 +130,23 @@ Exécuté et lu le 22/10/2026 après la fusion `437908f` (partie E, A10, CI/S-4)
 | Régressions trouvées par la fusion | — | 3 tests de la date d'effet des portions échouaient (le contrôle territorial interroge la base) : perimètre neutralisé dans le test ; 1 test dépassait 30 s sous charge : délai porté à 90 s |
 
 **La CI GitHub n'a pas tourné** (compte bloqué pour facturation) : elle n'est ni réussie ni échouée au sens des tests.
+
+## 23/10/2026 — intégration de la vague 2 et correction de la course de synchronisation (T-41)
+
+Base `replay` portant les 82 migrations, arbre `lot/03-map-matching` après fusion des cinq branches.
+
+| Contrôle | Résultat mesuré |
+|---|---|
+| Backend `tsc`, `prisma validate` | sans erreur |
+| Backend `vitest` | 169 fichiers, 2 661 tests, tous réussis (avant le test ajouté ci-dessous) |
+| Frontend `tsc`, `vite build` | sans erreur |
+| Frontend `vitest` | 72 fichiers, 954 tests, tous réussis |
+| Frontend `eslint` | 0 erreur après correction de `tailwind.config.js`, 5 avertissements existants |
+| Bancs SQL (`tests-integration/run.sh`) | 28 bancs ; `ppe` 80/80 et `sync` 67/67 après correction, les 26 autres réussis |
+
+**Défaut trouvé par le banc, corrigé** : deux envois simultanés de la même opération (deux appareils d'un même agent) pouvaient valider entre la lecture « déjà traitée » et la lecture de la version de l'entité. La perdante déclarait alors un conflit `DEJA_EXISTANTE` et écrasait la trace `SYNCHRONISE` de la gagnante. Correction dans `backend/src/field/sync.service.ts` : verrou de transaction par `operationId` puis relecture de la trace. Avant : 3 échecs sur 7 passages du banc ; après : 8 passages consécutifs sans échec, un test unitaire ajouté. Un aléa se prouve mal par l'absence d'échec : 8 réussites sont un indice, pas une garantie.
+
+**Non vérifié** : CI (compte GitHub verrouillé, aucune exécution), appareil réel, données de production.
 
 ## 22/10/2026 — graphe de trace (T-28), métadonnées ISO 19115 (T-29), compte des géométries invalides, bancs versionnés
 

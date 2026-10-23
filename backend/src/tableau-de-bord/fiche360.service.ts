@@ -9,13 +9,102 @@
  * `/api/v2/portions/a-la-date`) en est la seule definition de « vrai a cette date ». Le volet l'appelle
  * tel quel, pour ne pas avoir deux definitions qui divergeraient au premier changement de regle.
  *
- * LES INTERVENTIONS FIGEES N'EXISTENT PAS ENCORE : `programmation/cycle-vie.noyau.ts` est une regle sans
- * table. Le volet le dit (`interventionsFigees.disponible: false`) et n'invente aucune fiche d'intervention.
+ * LES INTERVENTIONS FIGEES sont lues dans `fiches_intervention_courantes` (migration 20261023100000) : les fiches
+ * que le moteur de programmation a FIGEES pour ce troncon, avec leur statut courant et l'historique complet de
+ * leur cycle de vie (table en ajout seul). Le volet ne calcule rien et n'invente aucune fiche. Si la table
+ * n'existe pas (migration non appliquee), il le dit (`disponible: false`) au lieu de rendre une liste vide muette.
+ * Une fiche figee est une decision de programmation PROVISOIRE tant que ses parametres ne sont pas approuves : le
+ * volet reprend l'etiquette que la fiche porte elle-meme.
  */
 
 import type { PrismaClient } from "@prisma/client";
 
-export type DepotFiche = Pick<PrismaClient, "troncon" | "portion" | "programmeBudgetaire" | "chantier">;
+export type DepotFiche = Pick<PrismaClient, "troncon" | "portion" | "programmeBudgetaire" | "chantier" | "$queryRaw">;
+
+/** Au-dela, la liste des fiches figees d'un troncon est tronquee et le dit. */
+export const PLAFOND_FICHES_FIGEES = 100;
+
+export interface StatutFiche {
+  rang: number; de: string | null; vers: string; origine: string; motif: string | null; enregistreLe: string;
+}
+
+export interface InterventionFigee {
+  id: string;
+  reference: string;
+  scenarioId: string;
+  annee: number;
+  parametresVersion: string;
+  /** SHA-256 du texte canonique de la fiche : sa « version figee ». */
+  empreinteSha256: string;
+  figeLe: string;
+  statut: string;
+  rangStatut: number;
+  statutDepuis: string;
+  traitement: string | null;
+  montantGnf: string | null;
+  provisoire: boolean | null;
+  etiquette: string | null;
+  /** Cycle de vie complet, en ajout seul, du plus ancien au plus recent. */
+  historique: StatutFiche[];
+}
+
+export type InterventionsFigees =
+  | { disponible: true; total: number; tronque: boolean; plafond: number; fiches: InterventionFigee[] }
+  | { disponible: false; motif: string };
+
+interface LigneFigee {
+  id: string; reference: string; scenarioId: string; annee: number; parametresVersion: string; empreinteSha256: string; figeLe: Date;
+  statut: string; rangStatut: number; statutDepuis: Date; traitement: string | null; montantGnf: string | null; provisoire: boolean | null; etiquette: string | null;
+}
+interface LigneStatutFiche {
+  ficheId: string; rang: number; de: string | null; vers: string; origine: string; motif: string | null; enregistreLe: Date;
+}
+
+/** La table des fiches n'existe pas encore dans cette base (migration non appliquee) : code PostgreSQL 42P01. */
+function tableAbsente(e: unknown): boolean {
+  const meta = (e as { meta?: { code?: string; message?: string } } | null)?.meta;
+  const msg = String((e as Error | null)?.message ?? "") + String(meta?.message ?? "");
+  return meta?.code === "42P01" || (/fiches_intervention/.test(msg) && /does not exist|n'existe pas|42P01/.test(msg));
+}
+
+export async function interventionsFigeesDuTroncon(depot: DepotFiche, tronconId: string): Promise<InterventionsFigees> {
+  let lignes: LigneFigee[];
+  let statuts: LigneStatutFiche[];
+  try {
+    lignes = await depot.$queryRaw<LigneFigee[]>`
+      SELECT c."id", c."reference", c."scenarioId", c."annee", c."parametresVersion", c."empreinteSha256", c."figeLe",
+             c."statut", c."rangStatut", c."statutDepuis",
+             f."contenuCanonique"::jsonb -> 'traitement' -> 'traitement' ->> 'code' AS "traitement",
+             f."contenuCanonique"::jsonb -> 'cout' ->> 'montantGnf' AS "montantGnf",
+             (f."contenuCanonique"::jsonb ->> 'provisoire')::boolean AS "provisoire",
+             f."contenuCanonique"::jsonb ->> 'etiquette' AS "etiquette"
+        FROM "fiches_intervention_courantes" c
+        JOIN "fiches_intervention" f ON f."id" = c."id"
+       WHERE c."tronconId" = ${tronconId}
+       ORDER BY c."figeLe" DESC, c."id" ASC
+       LIMIT ${PLAFOND_FICHES_FIGEES + 1}`;
+    const gardees = lignes.slice(0, PLAFOND_FICHES_FIGEES);
+    statuts = gardees.length === 0 ? [] : await depot.$queryRaw<LigneStatutFiche[]>`
+      SELECT "ficheId", "rang", "de", "vers", "origine", "motif", "enregistreLe"
+        FROM "fiches_intervention_statuts" WHERE "ficheId" = ANY(${gardees.map((l) => l.id)}::text[])
+       ORDER BY "ficheId" ASC, "rang" ASC`;
+  } catch (e) {
+    if (tableAbsente(e)) {
+      return { disponible: false, motif: "La table des fiches d'intervention n'existe pas dans cette base (migration 20261023100000 non appliquée) : aucune intervention figée n'est connue." };
+    }
+    throw e;
+  }
+  const tronque = lignes.length > PLAFOND_FICHES_FIGEES;
+  const fiches: InterventionFigee[] = lignes.slice(0, PLAFOND_FICHES_FIGEES).map((l) => ({
+    id: l.id, reference: l.reference, scenarioId: l.scenarioId, annee: l.annee, parametresVersion: l.parametresVersion,
+    empreinteSha256: l.empreinteSha256, figeLe: l.figeLe.toISOString(), statut: l.statut, rangStatut: l.rangStatut,
+    statutDepuis: l.statutDepuis.toISOString(), traitement: l.traitement, montantGnf: l.montantGnf, provisoire: l.provisoire, etiquette: l.etiquette,
+    historique: statuts.filter((s) => s.ficheId === l.id).map((s) => ({
+      rang: s.rang, de: s.de, vers: s.vers, origine: s.origine, motif: s.motif, enregistreLe: s.enregistreLe.toISOString(),
+    })),
+  }));
+  return { disponible: true, total: fiches.length, tronque, plafond: PLAFOND_FICHES_FIGEES, fiches };
+}
 
 /** Au-dela, l'historique est tronque et le dit. Choix de protection, non mesure sur un troncon reel. */
 export const PLAFOND_VERSIONS = 500;
@@ -108,16 +197,17 @@ export interface VoletProgrammation {
     id: string; intitule: string; statut: string; avancementPct: number; entreprise: string;
     montantGnf: string | null; dateDebutPrevue: string | null; dateFinPrevue: string | null;
   }[];
-  interventionsFigees: { disponible: false; motif: string };
+  interventionsFigees: InterventionsFigees;
 }
 
 export async function voletProgrammation(depot: DepotFiche, tronconId: string): Promise<VoletProgrammation | null> {
   const troncon = await depot.troncon.findFirst({ where: { id: tronconId, deletedAt: null }, select: { id: true, code: true, regionId: true } });
   if (!troncon) return null;
 
-  const [lignes, chantiers] = await Promise.all([
+  const [lignes, chantiers, interventionsFigees] = await Promise.all([
     depot.programmeBudgetaire.findMany({ where: { tronconId, deletedAt: null }, orderBy: [{ annee: "asc" }, { priorite: "asc" }, { createdAt: "asc" }] }),
     depot.chantier.findMany({ where: { tronconId, deletedAt: null }, orderBy: [{ createdAt: "desc" }], take: 100 }),
+    interventionsFigeesDuTroncon(depot, tronconId),
   ]);
 
   const parStatut = new Map<string, { nb: number; montant: bigint }>();
@@ -138,9 +228,6 @@ export async function voletProgrammation(depot: DepotFiche, tronconId: string): 
       montantGnf: c.montantGnf === null ? null : c.montantGnf.toString(),
       dateDebutPrevue: jour(c.dateDebutPrevue), dateFinPrevue: jour(c.dateFinPrevue),
     })),
-    interventionsFigees: {
-      disponible: false,
-      motif: "Aucune table de fiches d'intervention : le cycle de vie (brouillon à évalué) n'existe que comme règle (programmation/cycle-vie.noyau.ts). Aucune intervention figée ni transmise n'est connue de cette base.",
-    },
+    interventionsFigees,
   };
 }
