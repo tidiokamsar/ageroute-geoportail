@@ -132,6 +132,8 @@ qualiteV2Router.get(
             : null,
           correctionProposee: CORRECTION_PROPOSEE[f.famille],
           exemples: f.exemples.slice(0, 3),
+          // Ventilation par type d'entite quand la famille couvre plusieurs tables (GEOMETRIE_INVALIDE).
+          ...(f.parTypeEntite ? { parTypeEntite: f.parTypeEntite } : {}),
         }))
         // Les familles a zero sont CONSERVEES : « zero geometrie invalide » est une
         // information, et la masquer laisserait croire que le controle n'a pas tourne.
@@ -155,6 +157,10 @@ qualiteV2Router.get(
           + " demande une vue materialisee qui n'existe pas.",
           "Les doublons sont detectes sur l'egalite BINAIRE des geometries : deux traces"
           + " identiques de representation differente ne sont pas vus.",
+          "La validite des geometries est controlee sur les troncons, les chantiers, les portions"
+          + " courantes, les limites administratives, les emprises de teledetection et les actifs"
+          + " lineaires (ouvrages.geomLigne). Les points, la voirie locale, les traces et sessions"
+          + " de roulage, les emprises de defauts et de missions ne le sont pas.",
         ],
       });
     } catch (err) {

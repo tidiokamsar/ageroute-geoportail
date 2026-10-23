@@ -45,13 +45,14 @@ vi.mock("../middleware/rbac.middleware", () => ({
 const h = vi.hoisted(() => ({
   appels: [] as { nom: string; portee: unknown; extra?: unknown }[],
   familles: {} as Record<string, { nombre: number; surTotal: number | null }>,
+  parType: {} as Record<string, { entityType: string; nombre: number }[]>,
 }));
 
 function detecteur(nom: string, famille: string) {
   return async (portee: unknown, extra?: unknown) => {
     h.appels.push({ nom, portee, extra });
     const f = h.familles[famille] ?? { nombre: 0, surTotal: null };
-    return { famille, nombre: f.nombre, surTotal: f.surTotal, exemples: [] };
+    return { famille, nombre: f.nombre, surTotal: f.surTotal, exemples: [], ...(h.parType[famille] ? { parTypeEntite: h.parType[famille] } : {}) };
   };
 }
 
@@ -80,6 +81,7 @@ beforeEach(() => {
   compte.role = "GESTIONNAIRE";
   h.appels.length = 0;
   h.familles = {};
+  h.parType = {};
 });
 
 describe("La portee, qui est une question de cout", () => {
@@ -151,6 +153,16 @@ describe("Ce que le rapport rend", () => {
     expect(r.body.familles.every((f: { nombre: number }) => f.nombre === 0)).toBe(true);
   });
 
+  it("expose la ventilation par type d'entite quand la famille couvre plusieurs tables, et seulement alors", async () => {
+    h.familles = { GEOMETRIE_INVALIDE: { nombre: 5, surTotal: null } };
+    h.parType = { GEOMETRIE_INVALIDE: [{ entityType: "Troncon", nombre: 2 }, { entityType: "LimiteAdmin", nombre: 3 }] };
+    const r = await request(app()).get("/api/v2/qualite/anomalies?regionId=7");
+    const geo = r.body.familles.find((f: { famille: string }) => f.famille === "GEOMETRIE_INVALIDE");
+    expect(geo.parTypeEntite).toEqual([{ entityType: "Troncon", nombre: 2 }, { entityType: "LimiteAdmin", nombre: 3 }]);
+    const autre = r.body.familles.find((f: { famille: string }) => f.famille === "DOUBLON");
+    expect(autre).not.toHaveProperty("parTypeEntite");
+  });
+
   it("met les BLOQUANTES en tete, quel que soit leur nombre", async () => {
     // Trois geometries invalides passent avant 200 000 champs sans provenance : les
     // premieres cassent des requetes, les seconds empechent seulement de conclure.
@@ -186,7 +198,8 @@ describe("Ce que le rapport rend", () => {
   it("DIT CE QU'IL NE COUVRE PAS", async () => {
     // Un rapport qui taira ses propres trous se lit comme exhaustif.
     const r = await request(app()).get("/api/v2/qualite/anomalies?regionId=7");
-    expect(r.body.nonCouvert).toHaveLength(3);
+    expect(r.body.nonCouvert).toHaveLength(4);
+    expect(r.body.nonCouvert.join(" ")).toMatch(/limites administratives, les emprises de teledetection/);
     expect(r.body.nonCouvert.join(" ")).toMatch(/precision de la couche de limites/);
     expect(r.body.nonCouvert.join(" ")).toMatch(/egalite BINAIRE/);
   });
