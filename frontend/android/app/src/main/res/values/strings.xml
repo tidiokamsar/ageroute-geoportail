@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">BDRI AGEROUTE</string>
+    <string name="title_activity_main">BDRI AGEROUTE</string>
+    <string name="package_name">gn.ageroute.bdri</string>
+    <string name="custom_url_scheme">gn.ageroute.bdri</string>
+</resources>
