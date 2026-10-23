@@ -59,6 +59,9 @@ vi.mock("./offlineDb", () => ({
   getAllPending: vi.fn(async () => [...base.values()]),
   getAllPendingDefauts: vi.fn(async () => [...defautsLocaux.values()]),
   getAllPendingPortions: vi.fn(async () => [...portionsLocales.values()]),
+  getAllPendingObservations: vi.fn(async () => []),
+  updatePendingObservation: vi.fn(async () => undefined),
+  removePendingObservation: vi.fn(async () => undefined),
   updatePendingInspection: vi.fn(async (item: { localId: string }) => {
     base.set(item.localId, item as Record<string, unknown>);
   }),
@@ -462,5 +465,43 @@ describe("Synchronisation hors-ligne des portions", () => {
     await syncPendingOfflineData();
     expect(pushs(api)).toHaveLength(0);
     expect(portionsLocales.size).toBe(1);
+  });
+});
+
+describe("Un CONFLIT rendu pour un défaut : il reste en file, marqué, jamais compté comme un échec", () => {
+  const id = "bbbb1111-1111-4111-8111-111111111111";
+  function deposer() {
+    defautsLocaux.set(id, {
+      localId: id, ownerUserId: "u1", status: "pending", createdAt: "2026-10-08T10:00:00.000Z",
+      payload: { catalogueCode: "NID_POULE", lat: 9.5, lon: -13.7, constateA: "2026-10-08T10:00:00.000Z" },
+    });
+  }
+
+  it("marque `conflit` avec l'identifiant du conflit, sans compter de tentative, et ne le retire pas", async () => {
+    deposer();
+    reponsePush = { statut: "CONFLIT", motif: "DEJA_EXISTANTE", conflitId: "conflit-7" };
+    await syncPendingOfflineData();
+    const restant = defautsLocaux.get(id);
+    expect(restant).toMatchObject({ status: "conflit", conflitId: "conflit-7", motifConflit: "DEJA_EXISTANTE" });
+    expect(String(restant?.errorMessage)).toMatch(/Un responsable doit trancher/);
+    expect(restant?.tentatives).toBeUndefined();
+  });
+
+  it("reste en conflit au renvoi suivant (huit passes), jamais abandonné", async () => {
+    deposer();
+    reponsePush = { statut: "CONFLIT", motif: "DEJA_EXISTANTE", conflitId: "conflit-7" };
+    for (let i = 0; i < 8; i++) await syncPendingOfflineData();
+    expect(defautsLocaux.get(id)).toMatchObject({ status: "conflit", conflitId: "conflit-7" });
+  });
+
+  it("un responsable retient le serveur : le défaut passe `abandonnee` avec ce motif, et reste visible", async () => {
+    deposer();
+    reponsePush = { statut: "CONFLIT", motif: "DEJA_EXISTANTE", conflitId: "conflit-7" };
+    await syncPendingOfflineData();
+    reponsePush = { statut: "REJETE", motif: "CONFLIT_RESOLU_VERSION_SERVEUR" };
+    await syncPendingOfflineData();
+    const restant = defautsLocaux.get(id);
+    expect(restant?.status).toBe("abandonnee");
+    expect(String(restant?.errorMessage)).toMatch(/version du serveur/);
   });
 });
