@@ -14,9 +14,9 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
  * vrai telephone et la perte de reseau reelle ne s'eprouvent que sur un appareil. Le magasin
  * local est ici un Map, comme dans `offlineSync.test.ts`.
  *
- * Il n'existe pas de file locale pour le type « Observation » : la file terrain remonte des
- * inspections, des defauts et des portions. Les 50 saisies ci-dessous sont donc des defauts et
- * des portions, qui passent par le meme protocole `/v2/sync/push` que les observations.
+ * Ce fichier porte les 50 saisies en DEFAUTS et en PORTIONS. La file locale d'OBSERVATIONS (livree
+ * ensuite) est eprouvee dans `offlineSync.observations.test.ts`, avec un serveur simule qui applique les
+ * regles du vrai protocole.
  */
 
 type Panne = "aucune" | "coupure" | "reponse_perdue" | "erreur_serveur";
@@ -67,6 +67,9 @@ vi.mock("./offlineDb", () => ({
   getAllPending: vi.fn(async () => []),
   getAllPendingDefauts: vi.fn(async () => [...defautsLocaux.values()]),
   getAllPendingPortions: vi.fn(async () => [...portionsLocales.values()]),
+  getAllPendingObservations: vi.fn(async () => []),
+  updatePendingObservation: vi.fn(async () => undefined),
+  removePendingObservation: vi.fn(async () => undefined),
   updatePendingInspection: vi.fn(async () => undefined),
   removePendingInspection: vi.fn(async () => undefined),
   updatePendingDefaut: vi.fn(async (i: { localId: string }) => { defautsLocaux.set(i.localId, i as Record<string, unknown>); }),

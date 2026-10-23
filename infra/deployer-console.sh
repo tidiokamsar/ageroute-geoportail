@@ -15,7 +15,7 @@
 #   4. compteurs de reference releves
 #   5. historique des migrations : 0 inachevee, 0 orpheline, 17 en attente exactement
 #   6. une descente pour chaque migration en attente
-#   7. aucun index GiST deja present sur les colonnes que 20261020020000 et 20261023200000 indexent
+#   7. aucun index GiST deja present sur les colonnes que 20261020020000 indexe
 #   8. empreintes des .env ; archive verifiee ; migrations ESSAYEES sur une copie restauree
 #   9. confirmation humaine, puis extraction, construction, migrations
 #  10. controles d'apres : compteurs, sante, audit, 401, .env inchanges
@@ -28,8 +28,8 @@ set -euo pipefail
 COMMIT="${1:-}"
 SHA_ATTENDU="${2:-}"
 ARCHIVE_LOCALE="${3:-}"
-ATTENDUES_EN_ATTENTE=4
-PREMIERE_EN_ATTENTE="20261024100000_sessions_roulage"
+ATTENDUES_EN_ATTENTE=1
+PREMIERE_EN_ATTENTE="20261026100000_conflit_sync_verification"
 DEPOT="tidiokamsar/ageroute-geoportail"
 HORODATAGE="$(date +%Y%m%d-%H%M%S)"
 SAUVEGARDES="/var/backups/bdri-deploiement/${HORODATAGE}"
@@ -134,15 +134,22 @@ if grep -qx "20261020020000_index_gist_complets" "${SAUVEGARDES}/en-attente.txt"
 else
   vert "20261020020000 n est pas en attente : ses index vivent deja (deploiement precedent), la garde ne la concerne plus"
 fi
-# Meme garde pour l'index GiST PLANAIRE de troncons.geom (20261023200000, A15 et A20 ; la migration
-# elle-meme demande cette verification). L'index existant
-# porte sur l'expression `(geom)::geography` et ne compte pas : seul un GiST sur `geom` nu ferait
-# doublon. La base de production a ete construite par `db push` : un tel index peut y exister sous
-# un autre nom.
+
+# ---------------------------------------------------------------------------------------------
+etape "7b. Garde-fous des migrations de performance (index planaire, recherche trigramme)"
+# 20261023200000 pose un index GiST PLANAIRE sur troncons.geom ; 20261023210000 cree l'extension pg_trgm et
+# deux index GIN. Ces trois index se construisent SANS CONCURRENCE : l'ecriture sur `troncons` est bloquee le
+# temps de la construction (secondes, sur environ 261 000 lignes). Les gardes ne parlent que si la migration
+# correspondante est vraiment en attente.
 if grep -qx "20261023200000_index_troncons_geom_planaire" "${SAUVEGARDES}/en-attente.txt"; then
-  DOUBLONS=$(psql_prod "SELECT string_agg(indexname, ', ') FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'troncons' AND indexdef ~* 'USING gist \(geom\)'")
-  [ -z "$DOUBLONS" ] || arret "index GiST planaire deja present sur troncons.geom (${DOUBLONS}) : la migration 20261023200000 creerait un doublon, a examiner avant de deployer"
-  vert "aucun GiST planaire sur troncons.geom : la migration 20261023200000 ne cree pas de doublon"
+  PLANAIRE=$(psql_prod "SELECT string_agg(indexname, ', ') FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'troncons' AND indexname <> 'troncons_geom_gist' AND indexdef ILIKE '%USING gist (geom)%'")
+  [ -z "$PLANAIRE" ] || arret "un index GiST planaire existe deja sur troncons.geom (${PLANAIRE}) : la migration 20261023200000 creerait un doublon, a examiner avant de deployer"
+  vert "aucun index GiST planaire prealable sur troncons.geom"
+fi
+if grep -qx "20261023210000_recherche_troncons_trigramme" "${SAUVEGARDES}/en-attente.txt"; then
+  TRGM=$(psql_prod "SELECT count(*) FROM pg_available_extensions WHERE name = 'pg_trgm'")
+  [ "$TRGM" = "1" ] || arret "l'extension pg_trgm n'est pas disponible dans cette base : 20261023210000 echouerait"
+  vert "extension pg_trgm disponible"
 fi
 
 # ---------------------------------------------------------------------------------------------

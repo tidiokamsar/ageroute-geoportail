@@ -20,6 +20,8 @@ import { teledetectionV2Router } from "./teledetection.routes";
 import { programmationV2Router } from "./programmation.routes";
 import { baremesV2Router } from "./baremes.routes";
 import { exportV2Router } from "./export.routes";
+import { rechercheV2Router } from "./troncons-recherche.routes";
+import { bulkEtatV2Router } from "./troncons-bulk-etat.routes";
 import { perimetresV2Router } from "./perimetres.routes";
 import { moteurProgrammationV2Router } from "./programmation.moteur.routes";
 import { integrationsV2Router } from "./integrations.routes";
@@ -95,6 +97,9 @@ apiV2Router.use("/programmation/moteur", moteurProgrammationV2Router);
 apiV2Router.use("/programmation", programmationV2Router);
 apiV2Router.use("/baremes", baremesV2Router);
 apiV2Router.use("/export", exportV2Router);
+apiV2Router.use("/troncons-recherche", rechercheV2Router);
+// Le chemin specifique d'abord : bulk-etat vit sous le meme espace que la recherche.
+apiV2Router.use("/troncons-corridor", bulkEtatV2Router);
 apiV2Router.use("/perimetres", perimetresV2Router);
 apiV2Router.use("/integrations", integrationsV2Router);
 apiV2Router.use("/tableau-de-bord", tableauDeBordV2Router);

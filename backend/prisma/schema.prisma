@@ -1766,6 +1766,11 @@ model ConflitSync {
   resoluParId String?
   resoluA     DateTime?
 
+  /// Demande de verification : ne tranche pas, le conflit reste ouvert (migration 20261026100000).
+  verificationDemandeeA     DateTime?
+  verificationDemandeeParId String?
+  verificationMotif         String?
+
   createdAt DateTime @default(now())
 
   @@index([entityType, entityId])

@@ -1,6 +1,7 @@
-// Stockage local des inspections, défauts et portions saisis hors-ligne (IndexedDB
-// natif, sans dépendance). La version 2 ajoute le magasin des défauts, la version 3
-// celui des portions, en conservant à chaque fois les magasins déjà remplis.
+// Stockage local des inspections, défauts, portions et observations saisis hors-ligne
+// (IndexedDB natif, sans dépendance). La version 2 ajoute le magasin des défauts, la
+// version 3 celui des portions, la version 4 celui des observations, en conservant à chaque
+// fois les magasins déjà remplis.
 //
 // POURQUOI LA MIGRATION EST ADDITIVE, Y COMPRIS ICI
 //
@@ -9,11 +10,12 @@
 // terrain perdue ne se refait pas : il faudrait y retourner. `onupgradeneeded` ne crée
 // donc que les magasins absents.
 
-const DB_NAME = "bdri-offline";
-const DB_VERSION = 3;
+export const DB_NAME = "bdri-offline";
+const DB_VERSION = 4;
 const INSPECTIONS_STORE = "pending_inspections";
 const DEFAUTS_STORE = "pending_defauts";
 const PORTIONS_STORE = "pending_portions";
+const OBSERVATIONS_STORE = "pending_observations";
 
 export interface PendingInspection {
   localId: string;
@@ -134,9 +136,76 @@ export interface PendingDefaut {
     capturedA: string;
   }[];
   createdAt: string;
-  status: "pending" | "error" | "abandonnee";
+  /** `conflit` : le serveur a rendu CONFLIT, un responsable doit trancher; la saisie reste en file. */
+  status: "pending" | "error" | "abandonnee" | "conflit";
   errorMessage?: string;
   tentatives?: number;
+  /** Conflit ouvert côté serveur (rendu par `/v2/sync/push`), pour que l'agent puisse le citer. */
+  conflitId?: string;
+  motifConflit?: string;
+}
+
+/**
+ * Valeurs du champ `type` d'une observation, telles que le serveur les accepte
+ * (`backend/src/field/observation-sync-payload.ts`). Une valeur inventée ici serait refusée, définitivement.
+ */
+export const TYPES_OBSERVATION = [
+  "DEGRADATION", "CHAUSSEE", "ASSAINISSEMENT", "SIGNALISATION", "OUVRAGE",
+  "SECURITE", "TRAFIC", "ENVIRONNEMENT", "CHANTIER", "INCIDENT", "AUTRE",
+] as const;
+export type TypeObservation = (typeof TYPES_OBSERVATION)[number];
+export const GRAVITES_OBSERVATION = ["FAIBLE", "MOYENNE", "FORTE"] as const;
+export type GraviteObservation = (typeof GRAVITES_OBSERVATION)[number];
+
+/**
+ * Observation saisie hors ligne, en attente de remontée par `POST /v2/sync/push` (CREATE).
+ *
+ * Le contenu de `payload` est EXACTEMENT celui que le serveur accepte, et rien d'autre : son schéma est
+ * strict, une clé de plus ferait refuser l'opération en entier. Auteur, statut, version et validation sont
+ * posés par le serveur, jamais par le téléphone.
+ */
+export interface PendingObservation {
+  /**
+   * UUID généré une seule fois, à la saisie. Il sert d'`operationId` (clé d'idempotence serveur) ET
+   * d'`entityId` : il ne change jamais d'une tentative à l'autre, c'est ce qui rend les rejeux inoffensifs.
+   */
+  localId: string;
+  /** Compte qui a saisi ce brouillon; les files restent cloisonnées par utilisateur. */
+  ownerUserId?: string;
+  /** Identifiant serveur obtenu après création idempotente. */
+  serverId?: string;
+  payload: {
+    type: TypeObservation;
+    gravite?: GraviteObservation | null;
+    description?: string | null;
+    missionId?: string | null;
+    tronconId?: string | null;
+    ouvrageId?: string | null;
+    chantierId?: string | null;
+    pk?: number | null;
+    lat?: number | null;
+    lon?: number | null;
+    precisionM?: number | null;
+    /** Date du CONSTAT (ISO 8601), pas de l'envoi. */
+    observeA: string;
+  };
+  createdAt: string;
+  /**
+   * `pending`    jamais envoyée, ou envoyée sans réponse
+   * `error`      le serveur a répondu par une erreur qui peut passer; on réessaie
+   * `abandonnee` plus retentée : refus définitif, ou trop d'échecs consécutifs. VISIBLE, jamais effacée.
+   * `conflit`    le serveur a rendu CONFLIT : un responsable doit trancher. VISIBLE, jamais effacée.
+   */
+  status: "pending" | "error" | "abandonnee" | "conflit";
+  errorMessage?: string;
+  tentatives?: number;
+  /**
+   * `true` quand le serveur a refusé DÉFINITIVEMENT (pas de `reessayerDansMs`). Sans ce drapeau, un refus
+   * que rien ne changera reviendrait à chaque retour de réseau et la file ne se viderait jamais.
+   */
+  refusDefinitif?: boolean;
+  conflitId?: string;
+  motifConflit?: string;
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -152,6 +221,11 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains(PORTIONS_STORE)) {
         db.createObjectStore(PORTIONS_STORE, { keyPath: "localId" });
+      }
+      // Version 4 : observations. ADDITIF, comme les précédentes : aucun magasin existant n'est
+      // supprimé ni recréé, une observation de terrain non remontée ne se refait pas.
+      if (!db.objectStoreNames.contains(OBSERVATIONS_STORE)) {
+        db.createObjectStore(OBSERVATIONS_STORE, { keyPath: "localId" });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -254,6 +328,49 @@ export async function removePendingPortion(localId: string): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(PORTIONS_STORE, "readwrite");
     tx.objectStore(PORTIONS_STORE).delete(localId);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+  db.close();
+}
+
+export async function addPendingObservation(item: PendingObservation): Promise<void> {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(OBSERVATIONS_STORE, "readwrite");
+    tx.objectStore(OBSERVATIONS_STORE).put(item);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+  db.close();
+}
+
+export async function getAllPendingObservations(): Promise<PendingObservation[]> {
+  const db = await openDb();
+  const items = await new Promise<PendingObservation[]>((resolve, reject) => {
+    const tx = db.transaction(OBSERVATIONS_STORE, "readonly");
+    const req = tx.objectStore(OBSERVATIONS_STORE).getAll();
+    req.onsuccess = () => resolve(req.result as PendingObservation[]);
+    req.onerror = () => reject(req.error);
+  });
+  db.close();
+  return items;
+}
+
+export async function updatePendingObservation(item: PendingObservation): Promise<void> {
+  return addPendingObservation(item);
+}
+
+/**
+ * Retire une observation de la file. Ne s'appelle que sur la confirmation du serveur (SYNCHRONISE ou
+ * REJOUEE) : un refus, un conflit ou une erreur ne retirent JAMAIS l'observation.
+ */
+export async function removePendingObservation(localId: string): Promise<void> {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(OBSERVATIONS_STORE, "readwrite");
+    tx.objectStore(OBSERVATIONS_STORE).delete(localId);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });

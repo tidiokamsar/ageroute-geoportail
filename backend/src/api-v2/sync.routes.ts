@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
@@ -8,6 +9,7 @@ import { appliquer, statutAppareil, TYPES_ACCEPTES, OPERATIONS_ACCEPTEES } from 
 import { preparerPayloadObservationSync } from "../field/observation-sync-payload";
 import { perimetreDe } from "../territoire/territoire.service";
 import { verdictOperationSync } from "../territoire/territoire.v2";
+import { peutArbitrer, resolutionsPossibles } from "../field/conflits";
 
 /**
  * `/api/v2/sync` — remontee et redescente des donnees de terrain.
@@ -367,6 +369,173 @@ syncV2Router.post("/resolve", requireAuth, requireModuleAccess("inspections"), a
     if (err instanceof ResolutionConflitConcurrente) {
       return res.status(409).json({ message: err.message });
     }
+    return next(err);
+  }
+});
+
+export const CONFLITS_MAX = 200;
+
+/**
+ * @openapi
+ * /api/v2/sync/conflits:
+ *   get:
+ *     summary: Liste les conflits de synchronisation OUVERTS, avec les deux versions
+ *     description: >
+ *       Reserve aux responsables (ADMIN, GESTIONNAIRE) et limite a leur perimetre territorial. Chaque
+ *       conflit porte la version du telephone (`payloadLocal`) ET celle du serveur au moment du conflit
+ *       (`payloadServeur`), plus ce que l'arbitrage permet (`resolutionsPossibles`). Ne modifie rien.
+ *     tags: [Sync v2]
+ */
+syncV2Router.get("/conflits", requireAuth, requireModuleAccess("inspections"), async (req, res, next) => {
+  try {
+    const user = req.user!;
+    if (!peutArbitrer(user.role)) {
+      return res.status(403).json({ message: "Seul un gestionnaire ou un administrateur consulte les conflits de synchronisation." });
+    }
+    const { limite } = z.object({
+      limite: z.coerce.number().int().min(1).max(CONFLITS_MAX).default(100),
+    }).parse(req.query);
+
+    // Les conflits ouverts sont peu nombreux par nature (chacun attend une decision) : on lit large, puis on
+    // restreint au perimetre de l'arbitre. Le plafond de lecture evite qu'une accumulation anormale ne
+    // charge toute la table ; `tronque` le dit au lieu de le taire.
+    const lus = await prisma.conflitSync.findMany({
+      where: { resolution: null },
+      orderBy: { createdAt: "asc" },
+      take: 500,
+    });
+    const operations = await prisma.operationSync.findMany({
+      where: { operationId: { in: lus.map((c) => c.operationId) } },
+      select: { operationId: true, operation: true, userId: true, appareilId: true, derniereErreur: true, tentatives: true },
+    });
+    const operationDe = new Map(operations.map((o) => [o.operationId, o]));
+    const perimetre = await perimetreDe(user);
+
+    const visibles = [];
+    for (const conflit of lus) {
+      const operation = operationDe.get(conflit.operationId);
+      const verdict = await verdictOperationSync(perimetre, {
+        entityType: conflit.entityType, operation: operation?.operation ?? "CREATE",
+        entityId: conflit.entityId, payload: conflit.payloadLocal,
+      });
+      if (verdict.ok) visibles.push(conflit);
+    }
+    const page = visibles.slice(0, limite);
+
+    const [agents, appareils, verifications] = page.length === 0 ? [[], [], []] : await Promise.all([
+      prisma.user.findMany({
+        where: { id: { in: [...new Set(page.map((c) => operationDe.get(c.operationId)?.userId).filter((v): v is string => !!v))] } },
+        select: { id: true, nomComplet: true },
+      }),
+      prisma.appareil.findMany({
+        where: { id: { in: [...new Set(page.map((c) => operationDe.get(c.operationId)?.appareilId).filter((v): v is string => !!v))] } },
+        select: { id: true, nom: true, plateforme: true },
+      }),
+      // Colonnes ajoutees par la migration 20261026100000, lues en SQL etiquete : elles ne dependent pas de la
+      // regeneration du client Prisma.
+      prisma.$queryRaw<{ id: string; verificationDemandeeA: Date | null; verificationDemandeeParId: string | null; verificationMotif: string | null }[]>`
+        SELECT "id", "verificationDemandeeA", "verificationDemandeeParId", "verificationMotif"
+        FROM "conflits_sync" WHERE "id" IN (${Prisma.join(page.map((c) => c.id))})`,
+    ]);
+    const agentDe = new Map(agents.map((a) => [a.id, a.nomComplet]));
+    const appareilDe = new Map(appareils.map((a) => [a.id, a]));
+    const verificationDe = new Map(verifications.map((v) => [v.id, v]));
+
+    return res.json({
+      conflits: page.map((conflit) => {
+        const operation = operationDe.get(conflit.operationId);
+        const verification = verificationDe.get(conflit.id);
+        return {
+          id: conflit.id,
+          operationId: conflit.operationId,
+          entityType: conflit.entityType,
+          entityId: conflit.entityId,
+          operation: operation?.operation ?? null,
+          motif: operation?.derniereErreur ?? null,
+          creeLe: conflit.createdAt.toISOString(),
+          agent: operation ? { id: operation.userId, nomComplet: agentDe.get(operation.userId) ?? null } : null,
+          appareil: operation ? (() => {
+            const a = appareilDe.get(operation.appareilId);
+            return a ? { id: a.id, nom: a.nom, plateforme: a.plateforme } : null;
+          })() : null,
+          // Les DEUX versions. Rien n'est fusionne, rien n'est omis.
+          payloadLocal: conflit.payloadLocal,
+          payloadServeur: conflit.payloadServeur,
+          resolutionsPossibles: resolutionsPossibles(conflit.entityType, operation?.operation ?? null),
+          verificationDemandee: verification?.verificationDemandeeA
+            ? {
+                le: verification.verificationDemandeeA.toISOString(),
+                parId: verification.verificationDemandeeParId,
+                motif: verification.verificationMotif,
+              }
+            : null,
+        };
+      }),
+      total: visibles.length,
+      tronque: lus.length === 500 || visibles.length > limite,
+    });
+  } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * @openapi
+ * /api/v2/sync/conflits/{id}/verification:
+ *   post:
+ *     summary: Demande une verification sur un conflit, sans le trancher
+ *     description: >
+ *       Le conflit reste ouvert : les deux versions sont conservees, l'operation du telephone reste en
+ *       CONFLIT. La demande consigne qui, quand et pourquoi, et est auditee. Une seule demande par conflit.
+ *     tags: [Sync v2]
+ */
+syncV2Router.post("/conflits/:id/verification", requireAuth, requireModuleAccess("inspections"), async (req, res, next) => {
+  try {
+    const user = req.user!;
+    if (!peutArbitrer(user.role)) {
+      return res.status(403).json({ message: "Seul un gestionnaire ou un administrateur demande une vérification." });
+    }
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const corps = z.object({
+      motif: z.string().trim().min(3).max(1000),
+    }).strict().parse(req.body);
+
+    const conflit = await prisma.conflitSync.findUnique({ where: { id } });
+    if (!conflit) return res.status(404).json({ message: "Conflit introuvable" });
+    if (conflit.resolution) return res.status(409).json({ message: "Conflit déjà tranché", resolution: conflit.resolution });
+
+    const operation = await prisma.operationSync.findUnique({
+      where: { operationId: conflit.operationId },
+      select: { operation: true },
+    });
+    const verdict = await verdictOperationSync(await perimetreDe(user), {
+      entityType: conflit.entityType, operation: operation?.operation ?? "CREATE",
+      entityId: conflit.entityId, payload: conflit.payloadLocal,
+    });
+    if (!verdict.ok) return res.status(403).json({ message: verdict.motif, code: verdict.code });
+
+    const demandee = await prisma.$transaction(async (tx) => {
+      // Revendication : seule une demande SUR UN CONFLIT ENCORE OUVERT ET JAMAIS DEMANDEE passe. Deux
+      // requetes simultanees ne produisent donc qu'une ecriture et qu'une ligne d'audit.
+      const n = await tx.$executeRaw`
+        UPDATE "conflits_sync"
+        SET "verificationDemandeeA" = now(), "verificationDemandeeParId" = ${user.id}, "verificationMotif" = ${corps.motif}
+        WHERE "id" = ${conflit.id} AND "resolution" IS NULL AND "verificationDemandeeA" IS NULL`;
+      if (n !== 1) return false;
+      await logAuditTransactionnelle(tx, {
+        userId: user.id,
+        action: "UPDATE",
+        entityType: "ConflitSync",
+        entityId: conflit.id,
+        after: { verificationDemandee: true, motif: corps.motif, entityType: conflit.entityType, entityId: conflit.entityId },
+        ipAddress: req.ip,
+      });
+      return true;
+    }, { timeout: 60_000 });
+
+    if (!demandee) return res.status(409).json({ message: "Une vérification est déjà demandée sur ce conflit, ou il vient d'être tranché." });
+    return res.status(201).json({ conflitId: conflit.id, verificationDemandee: true, resolution: null });
+  } catch (err) {
     return next(err);
   }
 });

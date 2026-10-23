@@ -41,7 +41,10 @@ export function ExportControl({ targetRef }: { targetRef: React.RefObject<HTMLEl
     <div className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm shadow hover:bg-gray-50"
+        className="flex h-9 items-center px-2.5 text-sm hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Exporter la vue en image ou en PDF"
         disabled={busy}
       >
         {busy ? "Export..." : "Exporter ▾"}
