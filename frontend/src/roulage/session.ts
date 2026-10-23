@@ -43,6 +43,7 @@ export type RefusSession =
   | "EVENEMENT_DEJA_OUVERT"
   | "EVENEMENT_INCONNU"
   | "EVENEMENT_NON_OUVERT"
+  | "QUALIFICATION_INVALIDE"
   | "FIN_AVANT_DEBUT"
   | "DUREE_NULLE"
   | "DUREE_TROP_COURTE"
@@ -52,6 +53,22 @@ export type RefusSession =
 
 export type Refus = { ok: false; refus: RefusSession; message: string };
 const refuser = (refus: RefusSession, message: string): Refus => ({ ok: false, refus, message });
+
+/** Memes bornes que le schema zod du serveur (`backend/src/roulage/contrat.ts`) : un code de referentiel de 1 a 64 caracteres, une largeur de 0 a 100 m. */
+function verifierQualification(q: Qualification | null | undefined): Refus | null {
+  if (q === null || q === undefined) return null;
+  for (const champ of ["revetement", "etat", "praticabilite"] as const) {
+    const v = q[champ];
+    if (v !== null && v !== undefined && (typeof v !== "string" || v.length < 1 || v.length > 64)) {
+      return refuser("QUALIFICATION_INVALIDE", `Le champ ${champ} de la qualification doit etre un code de referentiel de 1 a 64 caracteres.`);
+    }
+  }
+  const l = q.largeurM;
+  if (l !== null && l !== undefined && (typeof l !== "number" || !Number.isFinite(l) || l <= 0 || l > 100)) {
+    return refuser("QUALIFICATION_INVALIDE", "La largeur de la qualification doit etre un nombre de metres entre 0 (exclu) et 100.");
+  }
+  return null;
+}
 
 export interface OptionsSession {
   horloge: Horloge;
@@ -252,7 +269,7 @@ export class SessionRoulage {
     const etat = this.etatInterne;
     if (etat.statut === "ARRETEE") return refuser("SESSION_ARRETEE", "La session est arretee.");
     if (etat.statut !== "EN_COURS") return refuser("SESSION_NON_EN_COURS", "La session est en pause : reprendre avant d'ouvrir un evenement.");
-    const invalide = this.verifierCodeEtNote(code, options.note);
+    const invalide = this.verifierCodeEtNote(code, options.note) ?? verifierQualification(options.qualification);
     if (invalide) return invalide;
     if (etat.evenements.some((x) => x.statut === "OUVERT" && x.code === code)) {
       return refuser("EVENEMENT_DEJA_OUVERT", `Un evenement ${code} est deja ouvert : le clore ou l'abandonner d'abord.`);
@@ -292,6 +309,24 @@ export class SessionRoulage {
     const r = this.preparerCloture(ev, tMs, "CLOS");
     if (!r.ok) return r;
     this.ecrire(r.corps);
+    return { ok: true, evenement: ev };
+  }
+
+  /**
+   * Pose (ou remplace, ou efface avec `null`) la qualification d'un evenement ENCORE OUVERT : l'agent peut la
+   * saisir au debut du segment, ou a la fin, quand il a vu la section. Elle est journalisee comme tout changement.
+   * Un evenement clos, abandonne ou inconnu n'est pas modifiable : une qualification posee apres coup sur un
+   * evenement deja envoye ou clos reecrirait ce qui a ete decide sur place.
+   */
+  qualifierEvenement(id: string, qualification: Qualification | null): { ok: true; evenement: EvenementLineaire } | Refus {
+    const etat = this.etatInterne;
+    if (etat.statut === "ARRETEE") return refuser("SESSION_ARRETEE", "La session est arretee.");
+    const ev = etat.evenements.find((x) => x.id === id);
+    if (!ev) return refuser("EVENEMENT_INCONNU", "Evenement inconnu.");
+    if (ev.statut !== "OUVERT") return refuser("EVENEMENT_NON_OUVERT", "Cet evenement n'est plus ouvert : sa qualification ne change plus.");
+    const invalide = verifierQualification(qualification);
+    if (invalide) return invalide;
+    this.ecrire({ type: "EVT_QUALIFICATION", id, qualification, tMs: this.opts.horloge.maintenantMs() });
     return { ok: true, evenement: ev };
   }
 

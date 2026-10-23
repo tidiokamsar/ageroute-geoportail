@@ -16,7 +16,7 @@
  */
 import type { ParametresRoulage } from "./parametres";
 import type {
-  Alerte, CauseInterruption, EchantillonGnss, EvenementLineaire, Marqueur, MotifRejet, Repere, Trou, TypeAlerte,
+  Alerte, CauseInterruption, EchantillonGnss, EvenementLineaire, Marqueur, MotifRejet, Qualification, Repere, Trou, TypeAlerte,
 } from "./types";
 
 /** Version du format du journal. A incrementer a toute modification incompatible des entrees. */
@@ -36,6 +36,12 @@ export type CorpsEntree =
       distanceDirecteM: number | null; avertissements: string[];
     }
   | { type: "EVT_ABANDON"; id: string; tMs: number; motif: string }
+  /**
+   * Qualification posee ou corrigee sur un evenement ENCORE OUVERT (saisie a la fin du segment, ou changement
+   * d'avis en cours de route). Ajoutee apres la version 1 sans en changer la forme : un journal ecrit avant cet
+   * ajout se rejoue a l'identique, et seul un journal qui la contient est inconnu des anciennes versions.
+   */
+  | { type: "EVT_QUALIFICATION"; id: string; qualification: Qualification | null; tMs: number }
   | { type: "PAUSE"; tMs: number }
   | { type: "REPRISE"; tMs: number }
   | { type: "INTERRUPTION_DEBUT"; cause: CauseInterruption; tMs: number }

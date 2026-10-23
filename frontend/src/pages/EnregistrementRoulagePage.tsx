@@ -14,6 +14,11 @@ import {
   construirePayload, horlogeSysteme, interpreterReponse, operationPourSynchronisation, SessionRoulage,
   type EtatSession, type ResumeSession,
 } from "../roulage";
+import {
+  construireQualification, libelleMission, libelleQualification, memeQualification, saisieDepuisQualification, SAISIE_VIDE,
+  valeursActives, type MissionListee, type SaisieQualification,
+} from "../lib/qualificationSegment";
+import { chargerMissionsDeLAgent, chargerVocabulairesQualification, type VocabulairesChargement } from "../lib/referentielsQualification";
 
 /**
  * Enregistrer un releve en roulant, DANS LE NAVIGATEUR (paragraphe 7.13).
@@ -21,6 +26,15 @@ import {
  * CE QUE CET ECRAN FAIT : il lit la position du telephone, la confie au noyau de roulage (filtre de precision,
  * trous, segments, journal pour reprendre apres un redemarrage), laisse poser des REPERES et des SEGMENTS
  * (debut / fin), puis exporte la trace en GPX ou envoie la session au serveur.
+ *
+ * QUALIFIER UN SEGMENT : l'agent choisit revetement, etat de chaussee et praticabilite parmi les valeurs ACTIVES du
+ * referentiel du serveur (`GET /v2/referentiels`, comme `TerrainPortionsPage`), au debut du segment ou pendant qu'il
+ * est ouvert (donc a la fin). Rien n'est pre-rempli, rien n'est reporte d'un segment au suivant, la praticabilite
+ * reste desactivee tant que le serveur n'en a pas defini le vocabulaire. Sans qualification, le serveur ne cree
+ * aucune portion : l'ecran le dit. C'est ce que l'agent a CHOISI qui est envoye, pas une mesure de l'etat de la route.
+ *
+ * LIEN A UNE MISSION (facultatif) : parmi les missions assignees a l'agent ou creees par lui (le serveur refuse
+ * toute la session pour une autre). Le choix suit la session (il survit a la reprise apres fermeture de la page).
  *
  * CE QU'IL NE FAIT PAS, ET QUE LA PAGE DIT : il ne tourne qu'au PREMIER PLAN avec l'ecran ALLUME (limite du
  * navigateur : l'application native, hors de portee ici, n'a pas cette limite) ; il ne mesure ni l'IRI ni
@@ -31,6 +45,16 @@ import {
 const CODE_REPERE = "POINT_A_VERIFIER";
 const CODE_SEGMENT = "SEGMENT";
 
+const cleMission = (sessionId: string) => `bdri.roulage.mission.${sessionId}`;
+function lireMissionGardee(sessionId: string): string {
+  try { return localStorage.getItem(cleMission(sessionId)) ?? ""; } catch { return ""; }
+}
+function garderMission(sessionId: string, missionId: string): void {
+  try {
+    if (missionId) localStorage.setItem(cleMission(sessionId), missionId); else localStorage.removeItem(cleMission(sessionId));
+  } catch { /* le choix reste valable pour cet ecran, pas apres une fermeture */ }
+}
+
 type Phase = "repos" | "en_cours" | "pause" | "arretee";
 
 interface Vue {
@@ -38,13 +62,15 @@ interface Vue {
   resume: ResumeSession | null;
   precisionM: number | null;
   segmentOuvert: boolean;
+  /** Segments clos SANS qualification : le serveur n'en tirera aucune portion. */
+  segmentsSansQualification: number;
   ecranMaintenu: boolean | null;
   gnssIndisponible: boolean;
   permissionRefusee: boolean;
 }
 
 const VUE_VIDE: Vue = {
-  phase: "repos", resume: null, precisionM: null, segmentOuvert: false, ecranMaintenu: null, gnssIndisponible: false, permissionRefusee: false,
+  phase: "repos", resume: null, precisionM: null, segmentOuvert: false, segmentsSansQualification: 0, ecranMaintenu: null, gnssIndisponible: false, permissionRefusee: false,
 };
 
 function phaseDe(etat: Readonly<EtatSession>): Phase {
@@ -66,6 +92,7 @@ async function obtenirAppareil(userId: string): Promise<string> {
 
 export function EnregistrementRoulagePage() {
   const { user } = useAuth();
+  const userId = user?.id;
   const session = useRef<SessionRoulage | null>(null);
   const stockage = useRef<StockageJournal | null>(null);
   const veille = useRef<VerrouEcran | null>(null);
@@ -76,6 +103,24 @@ export function EnregistrementRoulagePage() {
   const [interrompue, setInterrompue] = useState<{ positions: number; arretee: boolean } | null>(null);
   const [envoi, setEnvoi] = useState<"aucun" | "en_cours" | "envoye" | "echec">("aucun");
   const [messageEnvoi, setMessageEnvoi] = useState("");
+  const [vocab, setVocab] = useState<VocabulairesChargement | null>(null);
+  const [saisie, setSaisie] = useState<SaisieQualification>(SAISIE_VIDE);
+  const [missions, setMissions] = useState<MissionListee[] | null | "chargement">("chargement");
+  const [missionId, setMissionId] = useState("");
+
+  // Vocabulaires de qualification et missions : demandes a l'ouverture (en ligne, avant de partir). Un echec n'empeche
+  // pas d'enregistrer : les segments partent alors sans qualification, et l'ecran le dit.
+  useEffect(() => {
+    let vivant = true;
+    void chargerVocabulairesQualification().then((v) => { if (vivant) setVocab(v); });
+    return () => { vivant = false; };
+  }, []);
+  useEffect(() => {
+    let vivant = true;
+    if (!userId) return undefined;
+    void chargerMissionsDeLAgent(userId).then((m) => { if (vivant) setMissions(m); });
+    return () => { vivant = false; };
+  }, [userId]);
 
   const rafraichir = useCallback((surcharge: Partial<Vue> = {}) => {
     const s = session.current;
@@ -88,6 +133,7 @@ export function EnregistrementRoulagePage() {
       resume: s.resume(),
       precisionM: dernier?.precisionM ?? null,
       segmentOuvert: etat.evenements.some((e) => e.statut === "OUVERT" && e.code === CODE_SEGMENT),
+      segmentsSansQualification: etat.evenements.filter((e) => e.code === CODE_SEGMENT && (e.statut === "CLOS" || e.statut === "CLOS_PAR_ARRET") && !e.qualification).length,
       ...surcharge,
     }));
   }, []);
@@ -102,6 +148,10 @@ export function EnregistrementRoulagePage() {
       const r = SessionRoulage.rejouer(entrees, { horloge: horlogeSysteme(), genererId: () => crypto.randomUUID(), journal: stockageOuvert().ajouter });
       if (!r.ok) return;
       session.current = r.session;
+      // Les listes (segment ouvert) et la mission reviennent telles qu'elles etaient a la fermeture de la page.
+      const ouvert = r.session.etat.evenements.find((e) => e.statut === "OUVERT" && e.code === CODE_SEGMENT);
+      setSaisie(saisieDepuisQualification(ouvert?.qualification));
+      setMissionId(lireMissionGardee(r.session.etat.sessionId));
       setInterrompue({ positions: r.session.etat.echantillons.length, arretee: r.session.etat.statut === "ARRETEE" });
       rafraichir();
     }).catch(() => undefined);
@@ -167,6 +217,9 @@ export function EnregistrementRoulagePage() {
     session.current = r.session;
     setInterrompue(null);
     setEnvoi("aucun");
+    // Rien ne vient de la session precedente : ni qualification, ni mission.
+    setSaisie(SAISIE_VIDE);
+    setMissionId("");
     rafraichir();
     await demarrerSuivi();
   }
@@ -182,11 +235,37 @@ export function EnregistrementRoulagePage() {
 
   async function oublier() {
     arreterSuivi();
+    if (session.current) garderMission(session.current.etat.sessionId, "");
     await stockageOuvert().vider();
     session.current = null;
     setInterrompue(null);
     setEnvoi("aucun");
+    setSaisie(SAISIE_VIDE);
+    setMissionId("");
     setVue(VUE_VIDE);
+  }
+
+  function choisirMission(id: string) {
+    setMissionId(id);
+    if (session.current) garderMission(session.current.etat.sessionId, id);
+  }
+
+  /**
+   * Une liste de qualification change. Segment OUVERT : la qualification de ce segment est mise a jour tout de suite
+   * (saisie a la fin du segment, ou changement d'avis), et journalisee. Pas de segment ouvert : elle servira au
+   * PROCHAIN segment. Un champ remis sur « Non relevé » efface cette part de la qualification : aucune valeur ne reste.
+   */
+  function changerQualification(champ: keyof SaisieQualification, valeur: string) {
+    const suivante = { ...saisie, [champ]: valeur };
+    setSaisie(suivante);
+    const s = session.current;
+    const ouvert = s?.etat.evenements.find((e) => e.statut === "OUVERT" && e.code === CODE_SEGMENT);
+    if (!s || !ouvert) return;
+    const q = construireQualification(suivante, vocab?.refs ?? null);
+    if (memeQualification(q, ouvert.qualification)) return;
+    const r = s.qualifierEvenement(ouvert.id, q);
+    if (!r.ok) toast.error(r.message);
+    rafraichir();
   }
 
   function poserRepere() {
@@ -203,8 +282,10 @@ export function EnregistrementRoulagePage() {
       const ouvert = s.etat.evenements.find((e) => e.statut === "OUVERT" && e.code === CODE_SEGMENT);
       const r = ouvert ? s.finEvenement(ouvert.id) : null;
       if (r && !r.ok) toast.error(r.message);
+      // Segment clos : la qualification ne se reporte pas sur le suivant, l'agent la rechoisit.
+      else setSaisie(SAISIE_VIDE);
     } else {
-      const r = s.debutEvenement(CODE_SEGMENT, { note: note.trim() || null });
+      const r = s.debutEvenement(CODE_SEGMENT, { note: note.trim() || null, qualification: construireQualification(saisie, vocab?.refs ?? null) });
       if (!r.ok) toast.error(r.message); else setNote("");
     }
     rafraichir();
@@ -239,7 +320,7 @@ export function EnregistrementRoulagePage() {
   async function envoyer() {
     const s = session.current;
     if (!s || !user) return;
-    const p = construirePayload(s.etat);
+    const p = construirePayload(s.etat, { missionId: missionId || null });
     if (!p.ok) {
       setEnvoi("echec");
       setMessageEnvoi(p.refus === "TROP_PEU_DE_POINTS" ? "Moins de deux positions retenues : rien à envoyer." : "La session n'est pas terminée.");
@@ -269,6 +350,8 @@ export function EnregistrementRoulagePage() {
   const enCours = vue.phase === "en_cours" || vue.phase === "pause";
   const dureeS = session.current ? Math.max(0, Math.round(((session.current.etat.finMs ?? Date.now()) - session.current.etat.debutMs) / 1000)) : 0;
   const stockageMemoire = stockage.current?.nature === "memoire";
+  // Lue dans la SESSION, pas dans les listes : ce qu'on affiche est ce qui sera envoye.
+  const qualificationOuverte = session.current?.etat.evenements.find((e) => e.statut === "OUVERT" && e.code === CODE_SEGMENT)?.qualification ?? null;
 
   return (
     <div className="space-y-6">
@@ -339,6 +422,32 @@ export function EnregistrementRoulagePage() {
             {r.rejetsTotal} position(s) écartée(s) (précision insuffisante, saut ou doublon) · {r.trous} trou(s) de signal · {r.marqueurs} repère(s) · {r.evenementsClos} segment(s) clos
             {vue.ecranMaintenu === false && enCours ? " · l'écran n'est PAS maintenu allumé par ce navigateur : le garder allumé à la main" : ""}
           </p>
+          {vue.segmentsSansQualification > 0 && (
+            <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+              {vue.segmentsSansQualification} segment(s) clos sans qualification : le serveur n'en tirera aucune portion (rien n'est deviné). Seuls les segments qualifiés deviennent des portions proposées, à valider par un tiers.
+            </p>
+          )}
+
+          {(enCours || vue.phase === "arretee") && (
+            <div className="max-w-xl">
+              <label htmlFor="mission" className="block text-sm font-medium">Mission (facultative)</label>
+              <select
+                id="mission" value={missionId} onChange={(e) => choisirMission(e.target.value)}
+                disabled={envoi === "en_cours" || envoi === "envoye"}
+                className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              >
+                <option value="">Aucune mission</option>
+                {missionId && !(Array.isArray(missions) && missions.some((m) => m.id === missionId)) && <option value={missionId}>Mission déjà choisie (hors liste)</option>}
+                {Array.isArray(missions) && missions.map((m) => <option key={m.id} value={m.id}>{libelleMission(m)}</option>)}
+              </select>
+              <p className="mt-1 text-xs text-gray-600">
+                {missions === "chargement" ? "Chargement des missions…"
+                  : missions === null ? "Missions indisponibles (hors ligne ou serveur injoignable) : la session partira sans lien à une mission."
+                  : missions.length === 0 ? "Aucune mission assignée à votre compte ou créée par vous : la session partira sans lien à une mission."
+                  : "Seules les missions qui vous sont assignées ou que vous avez créées sont proposées : le serveur refuse tout le relevé pour une autre."}
+              </p>
+            </div>
+          )}
 
           {enCours && (
             <>
@@ -346,6 +455,50 @@ export function EnregistrementRoulagePage() {
                 <label htmlFor="note" className="block text-sm font-medium">Note (facultative, pour le prochain repère ou segment)</label>
                 <input id="note" value={note} maxLength={500} onChange={(e) => setNote(e.target.value)} className="mt-1 w-full max-w-xl rounded-md border border-gray-300 px-3 py-2 text-sm" />
               </div>
+              <fieldset className="max-w-xl rounded-lg border border-gray-300 bg-white p-3">
+                <legend className="px-1 text-sm font-medium">Qualification du segment</legend>
+                <p className="text-xs text-gray-600">
+                  {vue.segmentOuvert
+                    ? "Segment ouvert : ce que vous choisissez ici qualifie CE segment, à tout moment jusqu'à sa fin."
+                    : "À choisir avant le début du segment, ou pendant qu'il est ouvert. Rien n'est reporté d'un segment au suivant."}
+                  {" "}Ce sont des choix de l'agent, pas des mesures : chaque portion reste une proposition à valider.
+                </p>
+                {vocab && vocab.refs === null && (
+                  <p role="status" className="mt-2 text-xs text-amber-800">
+                    Les vocabulaires du serveur n'ont pas pu être chargés et aucune copie n'est gardée sur ce téléphone : les segments seront enregistrés sans qualification. Ouvrir cet écran avec du réseau avant de partir.
+                  </p>
+                )}
+                {vocab?.enCache && vocab.copieDuLe && (
+                  <p role="status" className="mt-2 text-xs text-gray-600">
+                    Listes gardées sur ce téléphone depuis le {new Date(vocab.copieDuLe).toLocaleString("fr-FR")} (réseau indisponible à l'ouverture). Un code retiré depuis ferait refuser la portion par le serveur, avec le motif.
+                  </p>
+                )}
+                {[
+                  { champ: "revetement" as const, id: "q-revetement", libelle: "Revêtement", valeurs: vocab?.refs?.revetements, desactive: !vocab?.refs },
+                  { champ: "etat" as const, id: "q-etat", libelle: "État de chaussée", valeurs: vocab?.refs?.etats, desactive: !vocab?.refs },
+                  { champ: "praticabilite" as const, id: "q-praticabilite", libelle: "Praticabilité", valeurs: vocab?.refs?.praticabilites, desactive: !vocab?.refs || vocab.refs.praticabiliteNonDefinie },
+                ].map((c) => (
+                  <div key={c.champ} className="mt-2">
+                    <label htmlFor={c.id} className="block text-sm">{c.libelle}</label>
+                    <select
+                      id={c.id} value={saisie[c.champ]} onChange={(e) => changerQualification(c.champ, e.target.value)}
+                      disabled={c.desactive}
+                      className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm disabled:bg-gray-100"
+                    >
+                      <option value="">Non relevé</option>
+                      {valeursActives(c.valeurs).map((v) => <option key={v.code} value={v.code}>{v.libelle}</option>)}
+                    </select>
+                    {c.champ === "praticabilite" && vocab?.refs?.praticabiliteNonDefinie && (
+                      <p className="mt-1 text-xs text-amber-800">Vocabulaire non défini par AGEROUTE : ce champ reste indisponible, et aucune valeur n'a été inventée.</p>
+                    )}
+                  </div>
+                ))}
+                {vue.segmentOuvert && (
+                  <p className="mt-2 text-xs text-gray-700" aria-live="polite">
+                    Qualification enregistrée pour ce segment : {libelleQualification(qualificationOuverte, vocab?.refs ?? null)}.
+                  </p>
+                )}
+              </fieldset>
               <div className="flex flex-wrap gap-2">
                 <Button onClick={poserRepere} disabled={vue.phase !== "en_cours"}><Flag className="h-4 w-4" aria-hidden="true" />Poser un repère ici</Button>
                 <Button variant="outline" onClick={basculerSegment} disabled={vue.phase !== "en_cours"}>
