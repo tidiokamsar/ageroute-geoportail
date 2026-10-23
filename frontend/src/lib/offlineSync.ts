@@ -14,15 +14,26 @@ import {
   type PendingDefaut,
   type PendingInspection,
   type PendingPortion,
+  type PendingObservation,
   getAllPendingPortions,
   updatePendingPortion,
   removePendingPortion,
+  getAllPendingObservations,
+  updatePendingObservation,
+  removePendingObservation,
 } from "./offlineDb";
 
 type Listener = () => void;
-type SyncState = { pendingCount: number; syncing: boolean };
+/**
+ * `pendingCount` : tout ce que la file locale porte encore pour ce compte, quel que soit son statut.
+ * `conflitCount` : dont les saisies en CONFLIT (un responsable doit trancher; elles restent en file).
+ * `abandonCount` : dont les saisies ABANDONNEES (refus définitif ou trop d'échecs; elles restent visibles).
+ */
+type SyncState = { pendingCount: number; syncing: boolean; conflitCount: number; abandonCount: number };
 const listeners = new Set<Listener>();
 let pendingCount = 0;
+let conflitCount = 0;
+let abandonCount = 0;
 let syncing = false;
 let utilisateurSyncId: string | null = null;
 let appareilVolatile: { userId: string; id: string } | null = null;
@@ -37,7 +48,7 @@ export function configurerUtilisateurSync(userId: string | null) {
 // n'a pas change (sinon React redemande un rendu a l'infini -> "Maximum update depth
 // exceeded", erreur #185). On memorise donc l'objet et on n'en recree un que si une des
 // deux valeurs a reellement change.
-let cachedState: SyncState = { pendingCount, syncing };
+let cachedState: SyncState = { pendingCount, syncing, conflitCount, abandonCount };
 
 function emit() {
   listeners.forEach((l) => l());
@@ -49,23 +60,31 @@ export function subscribeSync(cb: Listener) {
 }
 
 export function getSyncState(): SyncState {
-  if (cachedState.pendingCount !== pendingCount || cachedState.syncing !== syncing) {
-    cachedState = { pendingCount, syncing };
+  if (
+    cachedState.pendingCount !== pendingCount || cachedState.syncing !== syncing
+    || cachedState.conflitCount !== conflitCount || cachedState.abandonCount !== abandonCount
+  ) {
+    cachedState = { pendingCount, syncing, conflitCount, abandonCount };
   }
   return cachedState;
 }
 
 export async function refreshPendingCount() {
-  const [inspections, defauts, portions] = await Promise.all([
-    getAllPending(), getAllPendingDefauts(), getAllPendingPortions(),
+  const [inspections, defauts, portions, observations] = await Promise.all([
+    getAllPending(), getAllPendingDefauts(), getAllPendingPortions(), getAllPendingObservations(),
   ]);
-  // Les trois files comptent ensemble : l'agent veut savoir COMBIEN il lui reste a
+  // Les quatre files comptent ensemble : l'agent veut savoir COMBIEN il lui reste a
   // remonter, pas de quel type. Un compteur par type l'obligerait a additionner.
-  pendingCount = utilisateurSyncId
-    ? inspections.filter((item) => item.ownerUserId === utilisateurSyncId).length
-      + defauts.filter((item) => item.ownerUserId === utilisateurSyncId).length
-      + portions.filter((item) => item.ownerUserId === utilisateurSyncId).length
-    : 0;
+  const miens = <T extends { ownerUserId?: string }>(items: T[]) =>
+    utilisateurSyncId ? items.filter((item) => item.ownerUserId === utilisateurSyncId) : [];
+  const tous: { status?: string }[] = [
+    ...miens(inspections), ...miens(defauts), ...miens(portions), ...miens(observations),
+  ];
+  pendingCount = tous.length;
+  // Les conflits et les abandons sont comptes A PART, et restent dans le total : une saisie en conflit
+  // n'est pas partie, elle attend. Les sortir du compteur la ferait disparaitre de l'ecran de l'agent.
+  conflitCount = tous.filter((item) => item.status === "conflit").length;
+  abandonCount = tous.filter((item) => item.status === "abandonnee").length;
   emit();
 }
 
@@ -196,6 +215,49 @@ async function syncOne(item: PendingInspection): Promise<boolean> {
   }
 }
 
+/** Un resultat de `/v2/sync/push` pour une operation, tel que le protocole le rend (rien d'invente). */
+interface ResultatPush {
+  statut?: string;
+  entityId?: string;
+  motif?: string;
+  conflitId?: string;
+  reessayerDansMs?: number;
+}
+
+export const MOTIF_CONFLIT_TRANCHE_SERVEUR = "CONFLIT_RESOLU_VERSION_SERVEUR";
+
+/**
+ * Ce que l'appareil retient d'une operation que le serveur a mise en CONFLIT, ou tranchee depuis.
+ *
+ * CONFLIT : la saisie RESTE EN FILE, marquee `conflit`, avec l'identifiant du conflit. Elle n'est ni
+ * retiree (la retirer ferait croire a l'agent que sa version a ete retenue, alors qu'un responsable doit
+ * encore trancher) ni comptee comme un echec (reessayer ne changera rien tant que personne n'a tranche).
+ * Elle est quand meme RENVOYEE a chaque synchronisation : c'est ainsi que l'appareil apprend la decision.
+ *
+ * REJETE / CONFLIT_RESOLU_VERSION_SERVEUR : un responsable a retenu la version du serveur. La saisie est
+ * marquee `abandonnee` et reste visible, avec ce motif. Elle n'est pas effacee pour autant : la version du
+ * telephone reste conservee cote serveur, dans le conflit.
+ */
+function marquageConflit(r: ResultatPush | undefined): {
+  status: "conflit" | "abandonnee"; errorMessage: string; conflitId?: string; motifConflit?: string;
+} | null {
+  if (r?.statut === "CONFLIT") {
+    return {
+      status: "conflit",
+      conflitId: r.conflitId,
+      motifConflit: r.motif,
+      errorMessage: `Conflit de synchronisation${r.motif ? ` (${r.motif})` : ""} : le serveur porte déjà une version différente. Un responsable doit trancher. Cette saisie est conservée sur ce téléphone.`,
+    };
+  }
+  if (r?.statut === "REJETE" && r.motif === MOTIF_CONFLIT_TRANCHE_SERVEUR) {
+    return {
+      status: "abandonnee",
+      errorMessage: "Un responsable a retenu la version du serveur : cette saisie n'a pas été retenue. Elle reste ici, et sa version est conservée côté serveur.",
+    };
+  }
+  return null;
+}
+
 function deviceStorageKey(userId: string) {
   return `bdri.sync.device.${userId}`;
 }
@@ -277,7 +339,13 @@ async function syncOneDefaut(item: PendingDefaut, userId: string): Promise<boole
       const reponse = await pousserCreation(userId, "Defaut", etat.localId, etat.payload);
       if (!reponse) return false;
       const { data } = reponse;
-      const resultat = data?.resultats?.[0] as { statut?: string; entityId?: string; motif?: string } | undefined;
+      const resultat = data?.resultats?.[0] as ResultatPush | undefined;
+      const conflit = marquageConflit(resultat);
+      if (conflit) {
+        // CONFLIT : la saisie reste en file, marquee. `item` et non `etat` : un conflit n'est pas un echec.
+        await updatePendingDefaut({ ...item, ...conflit });
+        return false;
+      }
       if (!resultat || !["SYNCHRONISE", "REJOUEE"].includes(resultat.statut ?? "") || !resultat.entityId) {
         throw new Error(resultat?.motif ?? "Le serveur n'a pas confirmé la synchronisation du défaut.");
       }
@@ -303,6 +371,8 @@ async function syncOneDefaut(item: PendingDefaut, userId: string): Promise<boole
     await removePendingDefaut(item.localId);
     return true;
   } catch (err) {
+    // Une saisie en conflit ne redevient pas « erreur » parce qu'un reseau a coupe pendant la verification.
+    if (item.status === "conflit" && estErreurReseau(err)) return false;
     const message = messageErreur(err);
     const aProgresse = (!item.serverId && !!etat.serverId) || (etat.photos?.length ?? 0) < (item.photos?.length ?? 0);
     const echecsConsecutifs = aProgresse ? 0 : estErreurReseau(err) ? (item.tentatives ?? 0) : tentatives;
@@ -380,6 +450,86 @@ async function syncOnePortion(item: PendingPortion, userId: string): Promise<boo
   }
 }
 
+/**
+ * Synchronise une observation saisie hors ligne (`POST /v2/sync/push`, entityType `Observation`, CREATE).
+ *
+ * MEME DISCIPLINE QUE LES PORTIONS ET LES DEFAUTS, ET QUATRE REGLES QUI NE SE NEGOCIENT PAS
+ *
+ * 1. La cle d'idempotence est `localId`, genere une fois a la saisie : operationId ET entityId. Une
+ *    reponse perdue puis un renvoi donnent `REJOUEE` cote serveur, jamais un doublon.
+ * 2. L'observation ne quitte la file QUE sur `SYNCHRONISE` ou `REJOUEE`. Un refus, un conflit, une erreur
+ *    HTTP ou un reseau muet la laissent en file : une saisie de terrain perdue ne se refait pas.
+ * 3. Refus definitif ou temporaire, c'est LE SERVEUR qui le dit : `reessayerDansMs` absent d'un `REJETE`
+ *    signale un refus definitif (l'observation est marquee `abandonnee`, avec le motif, et reste visible).
+ *    Le client ne devine pas.
+ * 4. Un reseau muet ne compte pas dans le plafond de tentatives (voir `estErreurReseau`), et une saisie en
+ *    CONFLIT ne devient jamais « erreur » parce qu'un reseau a coupe.
+ */
+async function syncOneObservation(item: PendingObservation, userId: string): Promise<boolean> {
+  if (item.status === "abandonnee") return false;
+  const tentatives = (item.tentatives ?? 0) + 1;
+  try {
+    const reponse = await pousserCreation(userId, "Observation", item.localId, item.payload);
+    if (!reponse) return false;
+    const resultat = reponse.data?.resultats?.[0] as ResultatPush | undefined;
+
+    if (resultat && ["SYNCHRONISE", "REJOUEE"].includes(resultat.statut ?? "")) {
+      await removePendingObservation(item.localId);
+      return true;
+    }
+
+    const conflit = marquageConflit(resultat);
+    if (conflit) {
+      await updatePendingObservation({
+        ...item,
+        ...conflit,
+        // Un conflit n'est pas un echec : le compteur n'avance pas. Une decision `serveur` est definitive.
+        refusDefinitif: conflit.status === "abandonnee" ? true : undefined,
+      });
+      return false;
+    }
+
+    const definitif = resultat?.statut === "REJETE" && !resultat.reessayerDansMs;
+    if (definitif) {
+      await updatePendingObservation({
+        ...item,
+        tentatives,
+        status: "abandonnee",
+        refusDefinitif: true,
+        errorMessage: `Refusé : ${resultat?.motif ?? "motif non précisé"}. Cette saisie ne passera pas en l'état.`,
+      });
+      return false;
+    }
+    throw new Error(resultat?.motif ?? "Le serveur n'a pas confirmé la synchronisation de l'observation.");
+  } catch (err) {
+    if (item.status === "conflit" && estErreurReseau(err)) return false;
+    const message = messageErreur(err);
+    const comptees = estErreurReseau(err) ? (item.tentatives ?? 0) : tentatives;
+    const abandonnee = comptees >= MAX_TENTATIVES;
+    await updatePendingObservation({
+      ...item,
+      tentatives: comptees,
+      status: abandonnee ? "abandonnee" : item.status === "conflit" ? "conflit" : "error",
+      errorMessage: abandonnee
+        ? `${message} (abandon après ${comptees} échecs consécutifs)`
+        : message,
+    });
+    return false;
+  }
+}
+
+/**
+ * Remet une observation abandonnee en file, apres que l'agent a lu le motif et agi (perimetre elargi,
+ * mission reaffectee). Ne touche jamais une saisie en conflit : un responsable doit trancher.
+ */
+export async function relancerObservation(item: PendingObservation): Promise<void> {
+  if (item.status !== "abandonnee") return;
+  await updatePendingObservation({
+    ...item, status: "pending", tentatives: 0, refusDefinitif: undefined, errorMessage: undefined,
+  });
+  await refreshPendingCount();
+}
+
 export async function syncPendingOfflineData(): Promise<void> {
   if (syncing) return;
   if (!navigator.onLine || !utilisateurSyncId) return;
@@ -410,6 +560,15 @@ export async function syncPendingOfflineData(): Promise<void> {
       if (utilisateurSyncId !== userId) break;
       if (item.ownerUserId !== userId) continue;
       await syncOnePortion(item, userId);
+    }
+
+    // Les plus anciennes d'abord : l'ordre de saisie est celui du terrain, pas celui des cles.
+    const observations = (await getAllPendingObservations())
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.localId.localeCompare(b.localId));
+    for (const item of observations) {
+      if (utilisateurSyncId !== userId) break;
+      if (item.ownerUserId !== userId) continue;
+      await syncOneObservation(item, userId);
     }
   } finally {
     syncing = false;

@@ -59,6 +59,9 @@ vi.mock("./offlineDb", () => ({
   getAllPending: vi.fn(async () => [...base.values()]),
   getAllPendingDefauts: vi.fn(async () => [...defautsLocaux.values()]),
   getAllPendingPortions: vi.fn(async () => [...portionsLocales.values()]),
+  getAllPendingObservations: vi.fn(async () => []),
+  updatePendingObservation: vi.fn(async () => undefined),
+  removePendingObservation: vi.fn(async () => undefined),
   updatePendingInspection: vi.fn(async (item: { localId: string }) => {
     base.set(item.localId, item as Record<string, unknown>);
   }),

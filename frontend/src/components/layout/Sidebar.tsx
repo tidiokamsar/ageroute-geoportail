@@ -38,6 +38,7 @@ const sections = [
       { to: "/programmation", label: "Programmation" },
       { to: "/inspections", label: "Inspections" },
       { to: "/inspections/defauts/validation", label: "Validation des relevés", roles: ["ADMIN", "GESTIONNAIRE"] },
+      { to: "/inspections/conflits", label: "Conflits de synchronisation", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/inspections/defauts/catalogue", label: "Catalogue des défauts", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/imports", label: "Lots d'import", roles: ["ADMIN", "GESTIONNAIRE"] },
     ],
@@ -50,6 +51,7 @@ const sections = [
       { to: "/inspections/terrain", label: "Inspection terrain" },
       { to: "/inspections/terrain/defauts", label: "Défauts terrain" },
       { to: "/inspections/terrain/portions", label: "Portions terrain" },
+      { to: "/inspections/terrain/observations", label: "Observations terrain" },
     ],
   },
   {
