@@ -27,6 +27,8 @@ import {
 } from "../lib/qualificationSegment";
 import { chargerMissionsDeLAgent, chargerVocabulairesQualification, type VocabulairesChargement } from "../lib/referentielsQualification";
 import { chargerReferentielsDefautsTerrain, etatPackMission, type EtatPack } from "../lib/defautsTerrain";
+import { evaluerCompletude } from "../roulage/completude";
+import { indiceIrregularite, type EchantillonAccel } from "../roulage/indices";
 
 /**
  * Enregistrer un releve en roulant, DANS LE NAVIGATEUR (paragraphe 7.13).
@@ -157,6 +159,11 @@ export function EnregistrementRoulagePage() {
   // Pack de mission (phase 2 SMART FIELD) : ce qui est sur le telephone AVANT de partir.
   const [pack, setPack] = useState<EtatPack>(() => etatPackMission());
   const [packEnCours, setPackEnCours] = useState(false);
+  // Phase 3 : l'accelerometre est un module OPTIONNEL que l'agent active avant de partir.
+  // Les echantillons ne quittent jamais le telephone : seul l'INDICE agrege part avec
+  // l'envoi de session, et il porte le mot « experimental ».
+  const [accelActif, setAccelActif] = useState(false);
+  const accelEchantillons = useRef<EchantillonAccel[]>([]);
 
   // Vocabulaires de qualification et missions : demandes a l'ouverture (en ligne, avant de partir). Un echec n'empeche
   // pas d'enregistrer : les segments partent alors sans qualification, et l'ecran le dit.
@@ -223,7 +230,25 @@ export function EnregistrementRoulagePage() {
     if (suivi.current !== null) { navigator.geolocation.clearWatch(suivi.current); suivi.current = null; }
     void veille.current?.liberer();
     veille.current = null;
+    accelEchantillons.current = [];
   }, []);
+
+  /** Phase 3 : lecture de l'accelerometre vertical, ACTIF seulement si l'agent l'a
+   *  active. Chaque echantillon reste local ; l'indice agrege seul est affiche. */
+  useEffect(() => {
+    if (!accelActif || typeof window === "undefined" || !("DeviceMotionEvent" in window)) return undefined;
+    const ecouter = (e: DeviceMotionEvent) => {
+      const acc = e.accelerationIncludingGravity;
+      if (acc && typeof acc.z === "number" && Number.isFinite(acc.z)) {
+        // gravite ~9.81 soustraite : le pic est ce qui reste.
+        accelEchantillons.current.push({ tMs: Date.now(), zMs2: acc.z - 9.81 });
+        // Plafond memoire : 30 min a 10 Hz = 18 000 ; on garde la fin.
+        if (accelEchantillons.current.length > 18_000) accelEchantillons.current = accelEchantillons.current.slice(-9_000);
+      }
+    };
+    window.addEventListener("devicemotion", ecouter);
+    return () => window.removeEventListener("devicemotion", ecouter);
+  }, [accelActif]);
 
   const demarrerSuivi = useCallback(async () => {
     if (!("geolocation" in navigator)) { toast.error("Ce navigateur ne donne pas la position."); return; }
@@ -494,6 +519,13 @@ export function EnregistrementRoulagePage() {
   const dureeTotaleMs = etatBrut ? Math.max(0, finOuMaintenant - etatBrut.debutMs) : 0;
   const dureePausesMs = etatBrut ? etatBrut.pauses.reduce((n, p) => n + Math.max(0, (p.finMs ?? finOuMaintenant) - p.debutMs), 0) : 0;
   const qualite = r ? qualiteTrace(r, dureeTotaleMs) : null;
+  // Phase 5 : profil de completude — calcule sur l'ETAT de session, pas sur la vue.
+  const profilCompletude = useMemo(() => (etatBrut ? evaluerCompletude({
+    echantillons: etatBrut.echantillons, trous: etatBrut.trous, interruptions: etatBrut.interruptions,
+    pauses: etatBrut.pauses, debutMs: etatBrut.debutMs, finMs: etatBrut.finMs, precisionFiableM: 15,
+  }) : null), [etatBrut]);
+  // Phase 3 : indice agrege (recalcule au rendu : pur, borne, sans memoire croissante).
+  const indiceAccel = useMemo(() => indiceIrregularite(accelEchantillons.current), [vue.phase]);
   const etatVue = etatSessionVue({ phase: vue.phase, vide, gpsInterrompu: vue.gnssIndisponible || vue.permissionRefusee, envoi });
   const libelleEtat = LIBELLES_ETAT[etatVue];
   // La trace n'est reconstruite que lorsqu'une position est ajoutee, pas a chaque rafraichissement d'une seconde.
@@ -576,10 +608,17 @@ export function EnregistrementRoulagePage() {
             <li>{vocab ? "✅" : "⬜"} Vocabulaires de qualification {vocab?.copieDuLe ? `(copie du ${new Date(vocab.copieDuLe).toLocaleString("fr-FR")})` : vocab?.refs ? "" : " — absents"}</li>
             <li>{stockageEstime ? `✅ Place occupée sur l'appareil : ${stockageEstime.usageMo.toFixed(0)} Mo` : "⬜ Place sur l'appareil : inconnue"}</li>
           </ul>
-          <div className="mt-3">
+          <div className="mt-3 flex flex-wrap items-center gap-3">
             <Button type="button" variant="secondary" disabled={packEnCours} onClick={() => void telechargerPack()}>
               <Download className="h-4 w-4" aria-hidden="true" /> {packEnCours ? "Téléchargement…" : (pack.troncons > 0 ? "Actualiser le pack" : "Télécharger le pack de mission")}
             </Button>
+            <label className="flex items-center gap-2 text-sm text-gray-700" title="Module optionnel : les pics d'accélération deviennent un indice expérimental, jamais un défaut confirmé. Les mesures ne quittent pas le téléphone.">
+              <input
+                type="checkbox" checked={accelActif}
+                onChange={(e) => setAccelActif(e.target.checked)}
+              />
+              Mesurer les irrégularités (accéléromètre)
+            </label>
           </div>
         </Card>
       )}
@@ -705,6 +744,27 @@ export function EnregistrementRoulagePage() {
               </>
             )}
           </dl>
+          {vue.phase === "arretee" && profilCompletude && (
+            <section aria-labelledby="completude" className="rounded-lg border border-gray-200 bg-white p-3">
+              <h3 id="completude" className="text-sm font-semibold text-navy">Complétude du relevé</h3>
+              <dl className="mt-2 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+                <div><dt className="text-xs text-gray-600">Trace valide</dt><dd className="font-semibold">{profilCompletude.traceKm.toLocaleString("fr-FR")} km</dd></div>
+                <div><dt className="text-xs text-gray-600">Positions fiables</dt><dd className="font-semibold">{profilCompletude.fiables}/{profilCompletude.echantillons}</dd></div>
+                <div><dt className="text-xs text-gray-600">Couverture (réf. 60 km/h)</dt><dd className="font-semibold">{Math.round(profilCompletude.couvertureTrace * 100)} %</dd></div>
+                <div><dt className="text-xs text-gray-600">Interruptions</dt><dd className="font-semibold">{profilCompletude.interruptions} · {Math.round(profilCompletude.interruptionsMs / 60_000)} min</dd></div>
+              </dl>
+              <ul className="mt-2 space-y-1 text-xs text-amber-800">
+                {profilCompletude.avertissements.map((a) => <li key={a}>· {a}</li>)}
+              </ul>
+            </section>
+          )}
+          {vue.phase === "arretee" && indiceAccel && !indiceAccel.capteurAbsent && indiceAccel.totalPics > 0 && (
+            <section aria-labelledby="indice" className="rounded-lg border border-gray-200 bg-white p-3">
+              <h3 id="indice" className="text-sm font-semibold text-navy">Indice d'irrégularité ({indiceAccel.version})</h3>
+              <p className="mt-1 text-sm">{indiceAccel.totalPics} pic(s) d'accélération sur {indiceAccel.fenetres.length} fenêtre(s) de 30 s.</p>
+              <p className="mt-1 text-xs text-amber-800">{indiceAccel.avertissement}</p>
+            </section>
+          )}
           <p className="text-xs text-gray-600">La distance est une estimation faite sur les positions retenues, sans rapprochement au réseau routier : ce n'est pas une mesure exacte.</p>
           <p className="text-xs text-gray-600">
             {r.rejetsTotal} position(s) écartée(s) (précision insuffisante, saut ou doublon) · {r.trous} trou(s) de signal · {r.marqueurs} repère(s) · {r.evenementsClos} segment(s) clos
