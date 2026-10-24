@@ -12,9 +12,6 @@ import { MemoryRouter } from "react-router-dom";
  * tronqué. La page ne doit PAS ressembler à un écran vierge (qui ferait croire à une
  * perte), elle doit nommer le problème.
  */
-const h = vi.hoisted(() => ({
-  journal: [] as unknown[],
-}));
 vi.mock("../lib/roulageHote", async (importOriginal) => {
   const reel = await importOriginal<typeof import("../lib/roulageHote")>();
   const stockage = reel.stockageMemoire();
