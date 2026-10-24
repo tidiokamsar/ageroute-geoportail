@@ -5,6 +5,7 @@ import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { toast } from "../lib/toast";
 import { Button } from "../components/ui/Button";
+import { Card } from "../components/ui/Card";
 import { libelleDuree, libelleKm } from "../lib/releve";
 import {
   demanderStockagePersistant, estimerStockage, etatPermissionGps, garderEcranAllume, nomFichierGpx, ouvrirStockage, positionVersEchantillon, versGpx,
@@ -25,6 +26,7 @@ import {
   valeursActives, type MissionListee, type SaisieQualification,
 } from "../lib/qualificationSegment";
 import { chargerMissionsDeLAgent, chargerVocabulairesQualification, type VocabulairesChargement } from "../lib/referentielsQualification";
+import { chargerReferentielsDefautsTerrain, etatPackMission, type EtatPack } from "../lib/defautsTerrain";
 
 /**
  * Enregistrer un releve en roulant, DANS LE NAVIGATEUR (paragraphe 7.13).
@@ -152,6 +154,9 @@ export function EnregistrementRoulagePage() {
   // l'appareil, et l'agent choisit en connaissance de cause.
   const [repriseRefusee, setRepriseRefusee] = useState<string | null>(null);
   const [missionId, setMissionId] = useState("");
+  // Pack de mission (phase 2 SMART FIELD) : ce qui est sur le telephone AVANT de partir.
+  const [pack, setPack] = useState<EtatPack>(() => etatPackMission());
+  const [packEnCours, setPackEnCours] = useState(false);
 
   // Vocabulaires de qualification et missions : demandes a l'ouverture (en ligne, avant de partir). Un echec n'empeche
   // pas d'enregistrer : les segments partent alors sans qualification, et l'ecran le dit.
@@ -291,6 +296,23 @@ export function EnregistrementRoulagePage() {
     void envoyer();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enLigne, envoi, envoiRetentable]);
+
+  async function telechargerPack() {
+    setPackEnCours(true);
+    try {
+      const refs = await chargerReferentielsDefautsTerrain();
+      await chargerVocabulairesQualification();
+      await demanderStockagePersistant();
+      const etat = etatPackMission();
+      setPack(etat);
+      if (!navigator.onLine) toast.error("Hors ligne : rien n'a pu être téléchargé.");
+      else toast.success(`Mission prête : ${refs.troncons.length} tronçons, ${refs.catalogue.length} types de défauts en cache.`);
+    } catch {
+      toast.error("Téléchargement du pack impossible : réessayez en ligne.");
+    } finally {
+      setPackEnCours(false);
+    }
+  }
 
   async function demarrer() {
     await stockageOuvert().vider();
@@ -543,6 +565,23 @@ export function EnregistrementRoulagePage() {
             </Button>
           </div>
         </section>
+      )}
+      {!session.current && !interrompue && (
+        <Card>
+          <h2 className="font-semibold flex items-center gap-2"><Download className="h-4 w-4" aria-hidden="true" /> Préparer la mission (avant de partir)</h2>
+          <p className="mt-1 text-xs text-gray-500">En ligne, ici : téléchargez ce dont la session aura besoin hors réseau. Ce qui est sur le téléphone :</p>
+          <ul className="mt-2 space-y-1 text-sm" aria-label="État de la préparation">
+            <li>{pack.troncons > 0 ? "✅" : "⬜"} Référentiel des tronçons : <strong>{pack.troncons}</strong>{pack.tronconsLe ? ` (copie du ${new Date(pack.tronconsLe).toLocaleString("fr-FR")})` : " — aucun"}</li>
+            <li>{pack.catalogue > 0 ? "✅" : "⬜"} Catalogue des défauts : <strong>{pack.catalogue}</strong> type(s)</li>
+            <li>{vocab ? "✅" : "⬜"} Vocabulaires de qualification {vocab?.copieDuLe ? `(copie du ${new Date(vocab.copieDuLe).toLocaleString("fr-FR")})` : vocab?.refs ? "" : " — absents"}</li>
+            <li>{stockageEstime ? `✅ Place occupée sur l'appareil : ${stockageEstime.usageMo.toFixed(0)} Mo` : "⬜ Place sur l'appareil : inconnue"}</li>
+          </ul>
+          <div className="mt-3">
+            <Button type="button" variant="secondary" disabled={packEnCours} onClick={() => void telechargerPack()}>
+              <Download className="h-4 w-4" aria-hidden="true" /> {packEnCours ? "Téléchargement…" : (pack.troncons > 0 ? "Actualiser le pack" : "Télécharger le pack de mission")}
+            </Button>
+          </div>
+        </Card>
       )}
       {interrompue && (
         <section aria-labelledby="reprise" className="rounded-lg border border-gray-300 bg-white p-4 text-sm">
