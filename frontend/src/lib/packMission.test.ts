@@ -11,7 +11,7 @@ const h = vi.hoisted(() => ({
 }));
 vi.mock("./api", () => ({
   api: {
-    get: vi.fn(async (url: string, { params }: { params: Record<string, unknown> } = { params: {} }) => {
+    get: vi.fn(async (_url: string, { params }: { params: Record<string, unknown> } = { params: {} }) => {
       const page = Number(params.page ?? 1);
       const lot = h.pages[page - 1] ?? [];
       return { data: { data: lot, total: h.pages.reduce((n, l) => n + l.length, 0) } };
