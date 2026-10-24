@@ -1,11 +1,10 @@
 # Journaux bornes (23/10) : sans rotation, les logs de conteneurs ont rempli le disque
 # (1,4 Go sur un seul conteneur) et bloquaient chaque deploiement a la garde des 15 %.
 x-logging: &logging-defaut
-  logging:
-    driver: json-file
-    options:
-      max-size: "50m"
-      max-file: "3"
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
 
 services:
   db:
