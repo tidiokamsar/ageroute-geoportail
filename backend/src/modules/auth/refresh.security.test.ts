@@ -75,7 +75,22 @@ vi.mock("../../utils/jwt", async () => {
   return { ...real, ...jwt };
 });
 vi.mock("../../config/env", () => ({ env: { JWT_REFRESH_EXPIRES_IN: "7d", NODE_ENV: "development" } }));
-vi.mock("../../utils/audit", () => ({ logAudit: vi.fn() }));
+vi.mock("../../utils/audit", () => {
+  const logAudit = vi.fn();
+  // Les deux chemins transactionnels delegent au MEME espion. Les assertions existantes
+  // continuent ainsi d'observer exactement les memes parametres, et verifient donc le
+  // chemin reel — notamment celle qui exige qu'aucun jeton brut n'atteigne l'audit.
+  return {
+    logAudit,
+    construireAudit: vi.fn((p: Record<string, unknown>) => {
+      logAudit(p);
+      return { __audit: p };
+    }),
+    logAuditTransactionnelle: vi.fn(async (_tx: unknown, p: Record<string, unknown>) => {
+      logAudit(p);
+    }),
+  };
+});
 vi.mock("../../utils/password", () => ({ verifyPassword: vi.fn(async () => true), hashPassword: vi.fn(async () => "h") }));
 
 import { refresh, logout, logoutAll, revokeAllForUser, login } from "./auth.service";

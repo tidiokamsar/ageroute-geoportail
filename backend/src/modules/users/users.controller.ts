@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
+import { z } from "zod";
 import { usersService } from "./users.service";
 import { userCreateSchema, userUpdateSchema, userResetPasswordSchema } from "./users.schema";
 import { parseListQuery } from "../../lib/list-query";
@@ -35,5 +36,21 @@ export async function resetPasswordHandler(req: Request, res: Response, next: Ne
     const { password } = userResetPasswordSchema.parse(req.body);
     await usersService.resetPassword(req.params.id, password, req.user.id);
     res.status(204).send();
+  } catch (err) { next(err); }
+}
+
+/** Les onze profils du paragraphe 5, avec ce qui reste a arbitrer sur chacun. */
+export async function listProfilsHandler(_req: Request, res: Response, next: NextFunction) {
+  try {
+    const { PROFILS_METIER } = await import("../../lib/profils");
+    res.json(PROFILS_METIER);
+  } catch (err) { next(err); }
+}
+
+export async function appliquerProfilHandler(req: Request, res: Response, next: NextFunction) {
+  try {
+    if (!req.user) throw new ApiError(401, "Authentification requise");
+    const { profil } = z.object({ profil: z.string().min(1).max(64) }).strict().parse(req.body);
+    res.json(await usersService.appliquerProfil(req.params.id, profil, req.user.id));
   } catch (err) { next(err); }
 }

@@ -173,7 +173,7 @@ async function main() {
             },
           }),
         ),
-      ], { timeout: 300_000, maxWait: 60_000 });
+      ]);
       ecrits += lot.length;
     }
     console.log(`  ${b.region_nom.padEnd(16)} ${String(modifies.length).padStart(7)} rattaches`);

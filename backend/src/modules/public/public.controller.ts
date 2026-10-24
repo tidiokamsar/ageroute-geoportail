@@ -64,11 +64,30 @@ export function toleranceSelonZoom(zoom: unknown): number {
   return 0;
 }
 
+/**
+ * Chiffres apres la virgule des coordonnees, selon la tolerance de simplification.
+ *
+ * Une geometrie simplifiee a T degres n'a pas besoin de coordonnees plus fines que T : on garde un
+ * chiffre de moins que la puissance de dix de T (T = 0,002 -> 4 chiffres, soit 11 m ; T = 0,0005 ->
+ * 5 chiffres, 1,1 m ; T = 0,0001 -> 6 chiffres, 0,11 m). Sans simplification (zoom 16 et au-dela, la
+ * forme exacte), aucun arrondi : 9 chiffres, le defaut de PostGIS.
+ *
+ * Mesure du 23/10/2026 sur le jeu synthetique : voir docs/performance/MESURES-A15-A20.md.
+ */
+export function decimalesSelonZoom(zoom: unknown): number {
+  const t = toleranceSelonZoom(zoom);
+  if (t === 0) return 9;
+  if (t >= 0.002) return 4;
+  if (t >= 0.0005) return 5;
+  return 6;
+}
+
 export async function carteGeoHandler(req: Request, res: Response, next: NextFunction) {
   try {
     const simplification = toleranceSelonZoom(req.query.zoom);
+    const decimales = decimalesSelonZoom(req.query.zoom);
     const [troncons, pointsNoirs, chantiers, ouvrages, reseau] = await Promise.all([
-      tronconsService.listGeo({ simplification }) as Promise<TronconGeoRow[]>,
+      tronconsService.listGeo({ simplification, decimales }) as Promise<TronconGeoRow[]>,
       pointsNoirsService.listGeo() as Promise<PointNoirGeoRow[]>,
       chantiersService.listGeo() as Promise<ChantierGeoRow[]>,
       /**

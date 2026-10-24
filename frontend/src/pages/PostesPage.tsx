@@ -120,6 +120,7 @@ export function PostesPage() {
 
   return (
     <EntityListPage<Poste>
+      exportTable="postes"
       endpoint="postes"
       title="Postes de péage & pesage"
       subtitle="Gestion des points de contrôle routier"

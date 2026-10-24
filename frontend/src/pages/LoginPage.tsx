@@ -68,6 +68,10 @@ export function LoginPage() {
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
             className="text-center text-xl tracking-[0.4em] font-mono"
+            // Nom accessible : le texte indicatif seul n'est pas annonce comme un libelle.
+            aria-label="Code de vérification à 6 chiffres"
+            // Focus voulu : cet ecran n'apparait qu'apres le mot de passe, et n'a qu'un champ.
+            // eslint-disable-next-line jsx-a11y/no-autofocus
             autoFocus
             required
           />

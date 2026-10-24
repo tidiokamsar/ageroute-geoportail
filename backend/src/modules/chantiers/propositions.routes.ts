@@ -5,6 +5,7 @@ import { requireAuth } from "../../middleware/auth.middleware";
 import { requireRole } from "../../middleware/rbac.middleware";
 import { requireModuleAccess } from "../../middleware/module-access.middleware";
 import { deriveChantierGeom } from "../../lib/geo";
+import { territoirePropositionLocalisation } from "../../territoire/territoire.v1";
 
 export const propositionsRouter = Router();
 
@@ -91,6 +92,7 @@ propositionsRouter.post(
   requireAuth,
   requireRole("ADMIN", "GESTIONNAIRE"),
   requireModuleAccess("chantiers"),
+  territoirePropositionLocalisation,
   async (req, res, next) => {
     try {
       const parsed = decisionSchema.safeParse(req.body ?? {});

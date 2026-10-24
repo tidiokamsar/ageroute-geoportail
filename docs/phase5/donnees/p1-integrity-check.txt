@@ -1,5 +1,5 @@
 Test des migrations P1 — 2026-09-02 10:11
-repertoire : /home/agergec/phase5/migrations
+repertoire : $HOME/phase5/migrations
 migrations P1 :
   - 20260902140000_p1_soft_delete_decomptes_bailleurs
   - 20260902141000_p1_ot_photos_soft_delete

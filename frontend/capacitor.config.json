@@ -1,0 +1,8 @@
+{
+  "appId": "gn.ageroute.bdri",
+  "appName": "BDRI AGEROUTE",
+  "webDir": "dist",
+  "server": {
+    "url": "https://carte.ageroute.gov.gn"
+  }
+}

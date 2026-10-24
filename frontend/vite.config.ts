@@ -21,10 +21,14 @@ export default defineConfig({
         // Isole les grosses dependances tierces dans des chunks dedies : elles ne
         // changent quasiment jamais, donc restent en cache navigateur d'un deploiement
         // a l'autre meme quand seul le code applicatif change.
+        //
+        // `recharts` et `jspdf`/`html2canvas` n'ont PAS de chunk manuel (retires le 23/10/2026).
+        // Avec `charts` et `pdf` nommes ici, Rollup les rattachait au chunk d'entree comme
+        // dependances statiques : la carte publique (/carte), servie a des visiteurs en 3G, telechargeait
+        // 278 Ko gzip de graphiques et de PDF dont elle ne se sert pas (mesure : docs/performance/
+        // MESURES-A15-A20.md). Laisses a Rollup, ils ne sont charges que par les pages qui les importent.
         manualChunks: {
-          charts: ["recharts"],
           maps: ["leaflet", "react-leaflet", "react-leaflet-cluster"],
-          pdf: ["jspdf", "html2canvas"],
           "react-vendor": ["react", "react-dom", "react-router-dom"],
         },
       },

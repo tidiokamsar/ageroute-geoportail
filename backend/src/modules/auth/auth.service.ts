@@ -4,7 +4,7 @@ import { signAccessToken, signRefreshToken, verifyRefreshToken, signTwoFaChallen
 import { generateTotpSecret, buildOtpauthUrl, verifyTotpCode } from "../../utils/totp";
 import { hashRefreshToken, newRefreshTokenId } from "../../utils/tokens";
 import { ApiError } from "../../middleware/error.middleware";
-import { logAudit } from "../../utils/audit";
+import { logAudit, construireAudit } from "../../utils/audit";
 import { env } from "../../config/env";
 
 const MAX_FAILED_ATTEMPTS = 5;
@@ -74,7 +74,7 @@ function refreshExpiryDate(): Date {
   return new Date(Date.now() + amount * ms);
 }
 
-async function issueSession(user: { id: string; role: string; email: string; nomComplet: string; modulesAutorises?: string[] }, ipAddress?: string) {
+async function issueSession(user: { id: string; role: string; email: string; nomComplet: string; modulesAutorises?: string[]; peutDeleguerValidation?: boolean }, ipAddress?: string) {
   const accessToken = signAccessToken({ sub: user.id, role: user.role as never, email: user.email });
   const refreshToken = signRefreshToken(user.id);
   const tokenId = newRefreshTokenId();
@@ -94,12 +94,34 @@ async function issueSession(user: { id: string; role: string; email: string; nom
     prisma.user.update({ where: { id: user.id }, data: { derniereConnexion: new Date(), failedLoginAttempts: 0, lockedUntil: null } }),
   ]);
 
+  /**
+   * LOGIN ET LES DEUX LOGIN_FAILED RESTENT VOLONTAIREMENT FAIL-SOFT.
+   *
+   * Ce n'est pas un oubli de la migration de l'ADR 11. Une transaction existe pourtant
+   * juste au-dessus et l'audit pourrait la rejoindre.
+   *
+   * Mais la consequence serait qu'une panne d'`audit_logs` REFUSE TOUTE CONNEXION — y
+   * compris celle des administrateurs qui devraient venir la reparer. Le remede serait
+   * pire que le mal : une trace de connexion perdue se constate et se rattrape, un
+   * systeme ferme a cause de son journal ne se repare pas de l'interieur.
+   *
+   * Pour les deux LOGIN_FAILED, il n'y a de surcroit AUCUNE ecriture metier a rejoindre :
+   * faire echouer la requete transformerait un 401 en 500, et apprendrait quelque chose a
+   * qui sonde les comptes.
+   *
+   * Le compromis est assume et VISIBLE : chaque echec incremente
+   * `echecsAuditDepuisDemarrage`, que `/api/health` expose.
+   */
   await logAudit({ userId: user.id, action: "LOGIN", entityType: "User", entityId: user.id, ipAddress });
 
   return {
     accessToken,
     refreshToken,
-    user: { id: user.id, email: user.email, nomComplet: user.nomComplet, role: user.role, modulesAutorises: user.modulesAutorises ?? [] },
+    user: {
+      id: user.id, email: user.email, nomComplet: user.nomComplet, role: user.role,
+      modulesAutorises: user.modulesAutorises ?? [],
+      peutDeleguerValidation: user.peutDeleguerValidation ?? false,
+    },
   };
 }
 
@@ -174,35 +196,47 @@ export async function verifyTwoFaLogin(challengeToken: string, code: string, ipA
 // la difference avec une course legitime (double-clic, retry), donc on refuse
 // les deux — le frontend deduplique deja ses refresh concurrents.
 async function revoquerFamilleCompromise(familyId: string, userId: string | null, tokenId?: string, ipAddress?: string) {
-  await prisma.refreshToken.updateMany({
-    where: { familyId, revokedAt: null },
-    data: { revokedAt: new Date() },
-  });
-  await logAudit({
-    userId,
-    action: "SECURITY_EVENT",
-    entityType: "RefreshToken",
-    entityId: tokenId ?? familyId,
-    ipAddress,
-    after: { evenement: "REFRESH_TOKEN_REUSE", familyId },
-  });
+  // UNE REVOCATION DE SECURITE NE PASSE PLUS SANS TRACE.
+  //
+  // C'est la reponse a un vol de jeton presume. Revoquer une famille entiere sans
+  // l'inscrire ferait disparaitre l'incident : plus rien ne dirait qu'il a eu lieu, ni
+  // depuis quelle adresse.
+  await prisma.$transaction([
+    prisma.refreshToken.updateMany({
+      where: { familyId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    }),
+    construireAudit({
+      userId,
+      action: "SECURITY_EVENT",
+      entityType: "RefreshToken",
+      entityId: tokenId ?? familyId,
+      ipAddress,
+      after: { evenement: "REFRESH_TOKEN_REUSE", familyId },
+    }),
+  ]);
 }
 
 /** Révoque TOUTES les sessions refresh d'un utilisateur (logout global,
  *  changement de mot de passe, verrouillage, desactivation). */
 export async function revokeAllForUser(userId: string, motif: string, actorId?: string, ipAddress?: string) {
-  await prisma.refreshToken.updateMany({
-    where: { userId, revokedAt: null },
-    data: { revokedAt: new Date() },
-  });
-  await logAudit({
-    userId: actorId ?? userId,
-    action: "SECURITY_EVENT",
-    entityType: "RefreshToken",
-    entityId: userId,
-    ipAddress,
-    after: { evenement: "REFRESH_TOKENS_REVOKED", userId, motif },
-  });
+  // Couper toutes les sessions d'un compte se trace AVEC son motif, ou ne se fait pas :
+  // sans le motif, on ne distingue plus un changement de mot de passe d'un verrouillage
+  // apres incident.
+  await prisma.$transaction([
+    prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    }),
+    construireAudit({
+      userId: actorId ?? userId,
+      action: "SECURITY_EVENT",
+      entityType: "RefreshToken",
+      entityId: userId,
+      ipAddress,
+      after: { evenement: "REFRESH_TOKENS_REVOKED", userId, motif },
+    }),
+  ]);
 }
 
 export async function refresh(token: string, ipAddress?: string) {
@@ -311,8 +345,10 @@ export async function confirmTwoFa(userId: string, code: string) {
     throw new ApiError(401, "Code invalide. Vérifiez l'heure de votre appareil et réessayez.");
   }
 
-  await prisma.user.update({ where: { id: userId }, data: { totpEnabled: true } });
-  await logAudit({ userId, action: "UPDATE", entityType: "User", entityId: userId, after: { totpEnabled: true } });
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: userId }, data: { totpEnabled: true } }),
+    construireAudit({ userId, action: "UPDATE", entityType: "User", entityId: userId, after: { totpEnabled: true } }),
+  ]);
 }
 
 export async function disableTwoFa(userId: string, password: string) {
@@ -320,6 +356,11 @@ export async function disableTwoFa(userId: string, password: string) {
   if (!user || !(await verifyPassword(user.passwordHash, password))) {
     throw new ApiError(401, "Mot de passe incorrect.");
   }
-  await prisma.user.update({ where: { id: userId }, data: { totpEnabled: false, totpSecret: null } });
-  await logAudit({ userId, action: "UPDATE", entityType: "User", entityId: userId, after: { totpEnabled: false } });
+  // DESACTIVER la seconde authentification est le plus sensible des deux gestes : c'est
+  // par la qu'une reprise de compte commencerait. Il ne doit exister aucun chemin ou cela
+  // se produise sans trace.
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: userId }, data: { totpEnabled: false, totpSecret: null } }),
+    construireAudit({ userId, action: "UPDATE", entityType: "User", entityId: userId, after: { totpEnabled: false } }),
+  ]);
 }

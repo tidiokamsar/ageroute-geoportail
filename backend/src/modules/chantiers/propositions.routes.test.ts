@@ -2,6 +2,13 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import express from "express";
 import request from "supertest";
 
+// Controle territorial (A10) : compte NATIONAL ici, le sujet de ce fichier est ailleurs. Le
+// controle lui-meme est eprouve par territoire/*.test.ts et api-v2/perimetres.routes.test.ts.
+vi.mock("../../territoire/territoire.service", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  perimetreDe: async () => ({ national: true }),
+}));
+
 /**
  * Propositions de localisation : une proposition n'est jamais une localisation.
  *

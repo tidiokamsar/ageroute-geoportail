@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import QRCode from "qrcode";
-import { ShieldCheck, ShieldOff, KeyRound } from "lucide-react";
+import { ShieldCheck, ShieldOff, KeyRound, Smartphone } from "lucide-react";
 import { api } from "../lib/api";
 import { Card } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
@@ -66,6 +66,42 @@ export function SecuritePage() {
         </div>
       </div>
 
+      {/* Application mobile : l'APK natif (coque Capacitor) et la PWA servent le meme
+          compte ; l'installation terrain est un geste de DSI, propose depuis ici. */}
+      <Card>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-2">
+            <Smartphone className="h-5 w-5 text-navy mt-0.5" />
+            <div>
+              <h3 className="text-sm font-semibold text-navy">Application mobile terrain (Android)</h3>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Rechercher les tronçons par GPS, ville ou nom ; défauts avec photos, hors ligne ;
+                relevé en roulage. Deux façons de l'installer :
+              </p>
+              <ol className="list-decimal list-inside text-xs text-gray-600 mt-2 space-y-1">
+                <li>
+                  <span className="font-medium">PWA — recommandé :</span> ouvrir{" "}
+                  <span className="font-mono">carte.ageroute.gov.gn</span> dans Chrome du téléphone,
+                  menu ⋮ → « Ajouter à l'écran d'accueil ». Toujours à jour.
+                </li>
+                <li>
+                  <span className="font-medium">APK — installation directe :</span>{" "}
+                  <a
+                    href="/mobile/bdri-console-terrain.apk"
+                    download
+                    className="font-semibold text-navy underline hover:text-navy/70"
+                  >
+                    télécharger bdri-console-terrain.apk
+                  </a>{" "}
+                  puis l'ouvrir sur le téléphone (autoriser « sources inconnues »). Version debug ;
+                  la version signée suivra la procédure de diffusion.
+                </li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </Card>
+
       <Card>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
@@ -82,8 +118,8 @@ export function SecuritePage() {
         {me.totpEnabled ? (
           showDisableForm ? (
             <div className="space-y-2 pt-2 border-t border-gray-100">
-              <label className="block text-xs font-medium text-gray-600">Confirmez votre mot de passe pour désactiver la 2FA</label>
-              <Input type="password" value={disablePassword} onChange={(e) => setDisablePassword(e.target.value)} />
+              <label htmlFor="securite-page-champ-1" className="block text-xs font-medium text-gray-600">Confirmez votre mot de passe pour désactiver la 2FA</label>
+              <Input id="securite-page-champ-1" type="password" value={disablePassword} onChange={(e) => setDisablePassword(e.target.value)} />
               <div className="flex gap-2">
                 <Button variant="danger" onClick={() => disable.mutate()} disabled={disable.isPending || !disablePassword}>
                   {disable.isPending ? "..." : "Désactiver la 2FA"}

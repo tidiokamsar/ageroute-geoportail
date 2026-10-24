@@ -73,8 +73,25 @@ export async function meHandler(req: Request, res: Response, next: NextFunction)
   try {
     if (!req.user) throw new ApiError(401, "Authentification requise");
     const { prisma } = await import("../../lib/prisma");
-    const dbUser = await prisma.user.findUnique({ where: { id: req.user.id }, select: { totpEnabled: true, nomComplet: true, modulesAutorises: true } });
-    res.json({ user: { ...req.user, totpEnabled: dbUser?.totpEnabled ?? false, nomComplet: dbUser?.nomComplet, modulesAutorises: dbUser?.modulesAutorises ?? [] } });
+    // `peutDeleguerValidation` remonte dans la session : sans lui, l'interface ne peut
+    // pas montrer l'ecran de designation a la Direction Technique, qui n'est pas ADMIN.
+    // C'est une information d'habilitation sur SON PROPRE compte, pas une donnee d'autrui.
+    const dbUser = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        totpEnabled: true, nomComplet: true, modulesAutorises: true,
+        peutDeleguerValidation: true,
+      },
+    });
+    res.json({
+      user: {
+        ...req.user,
+        totpEnabled: dbUser?.totpEnabled ?? false,
+        nomComplet: dbUser?.nomComplet,
+        modulesAutorises: dbUser?.modulesAutorises ?? [],
+        peutDeleguerValidation: dbUser?.peutDeleguerValidation ?? false,
+      },
+    });
   } catch (err) {
     next(err);
   }

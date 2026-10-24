@@ -7,6 +7,7 @@ import {
 import { api } from "../lib/api";
 import { KpiCard, Card } from "../components/ui/Card";
 import { LongueurReseauCard } from "../components/LongueurReseauCard";
+import { IndicateursControles } from "../components/IndicateursControles";
 import { ETAT_COLORS } from "./geoportail/types";
 import type { ActivityEntry, DashboardKpis } from "../types";
 
@@ -109,7 +110,7 @@ export function DashboardPage() {
                 {data.longueurTotaleKm.toFixed(0)}{" "}
                 <span className="text-base font-semibold text-white/70">km</span>
               </p>
-              <p className="text-xs text-white/50 uppercase tracking-wider">Longueur renseignée</p>
+              <p className="text-xs text-white/60 uppercase tracking-wider">Longueur renseignée</p>
             </div>
           )}
         </div>
@@ -147,6 +148,46 @@ export function DashboardPage() {
           <KpiCard label="Documents" value={data.documentsCount} icon={<FileText className="h-5 w-5" />} accent="#64748b" />
         </Link>
       </div>
+
+      {/* ── Périmètre, portions validées, qualité des valeurs ──────────────────
+          Le tableau de bord ignorait les portions homogènes (la vérité de l'état, D6) et la
+          qualité des valeurs : il annonçait un état du réseau fondé sur des imports. Et il ne
+          disait pas son dénominateur. Les deux sont dits ici, avant les graphiques. */}
+      {data.perimetre && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="font-semibold">{data.perimetre.libelle}</p>
+          <p className="text-xs">{data.perimetre.avertissement}</p>
+        </div>
+      )}
+      {(data.portions || data.qualite) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {data.portions && (
+            <Link to="/portions/validation">
+              <KpiCard
+                label="Portions validées (état constaté)"
+                value={data.portions.validees}
+                sub={data.portions.avertissement ?? `${data.portions.kmValides.toLocaleString("fr-FR")} km d'état constaté sur le terrain`}
+                icon={<Route className="h-5 w-5" />}
+                accent={data.portions.validees === 0 ? "#b45309" : "#15803d"}
+              />
+            </Link>
+          )}
+          {data.qualite && (
+            <Link to="/qualite">
+              <KpiCard
+                label="Valeurs observées sur le terrain"
+                value={data.qualite.parStatut.find((q) => q.statut === "OBSERVED")?.total ?? 0}
+                sub={`sur ${data.qualite.total.toLocaleString("fr-FR")} valeurs qualifiées — le reste est importé non vérifié, dérivé, en conflit ou inconnu`}
+                icon={<Gauge className="h-5 w-5" />}
+                accent="#0f766e"
+              />
+            </Link>
+          )}
+        </div>
+      )}
+
+      {/* Indicateurs du registre : périmètre affiché, rapprochement avec la requête de contrôle (A12). */}
+      <IndicateursControles />
 
       {/* ── Bandeau alerte ────────────────────────────────────────────────── */}
       {data.alertesCount > 0 && (

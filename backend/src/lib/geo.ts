@@ -2,7 +2,11 @@ import { prisma } from "./prisma";
 
 // Tables dont la colonne "geom" est un Point(4326) ecrite/lue via SQL brut
 // (Prisma ne sait pas manipuler les colonnes Unsupported("geometry...")).
-const ALLOWED_TABLES = new Set(["ouvrages", "points_noirs", "postes"]);
+const ALLOWED_TABLES = new Set(["ouvrages", "points_noirs", "postes", "defauts"]);
+
+// Tables dont la colonne "geom" est une LineString(4326). Liste separee : ecrire une
+// ligne la ou un point est attendu passerait les types SQL et casserait l'affichage.
+const LIGNE_TABLES = new Set(["portions"]);
 
 export async function setPointGeom(table: string, id: string, lat: number, lon: number): Promise<void> {
   if (!ALLOWED_TABLES.has(table)) throw new Error(`Table non autorisee pour setPointGeom: ${table}`);
@@ -88,4 +92,90 @@ export async function deriveGeomFromTroncon(table: string, id: string, tronconId
     pk
   );
   return result > 0;
+}
+
+/**
+ * Place un point depuis une abscisse locale en mètres, sans exiger de PK de route.
+ * Contrairement à `deriveGeomFromTroncon`, cette interpolation suit directement la
+ * longueur géographique du segment et ne dépend d'aucune calibration de PK.
+ */
+export async function deriveGeomFromTronconAbscisse(
+  table: string,
+  id: string,
+  tronconId: string,
+  abscisseM: number
+): Promise<boolean> {
+  if (!ALLOWED_TABLES.has(table)) throw new Error(`Table non autorisee pour deriveGeomFromTronconAbscisse: ${table}`);
+  if (!Number.isFinite(abscisseM) || abscisseM < 0) return false;
+
+  const result = await prisma.$executeRawUnsafe(
+    `UPDATE ${table} pt
+     SET geom = ST_LineInterpolatePoint(t.geom, $3 / NULLIF(ST_Length(t.geom::geography), 0))
+     FROM troncons t
+     WHERE pt.id = $1 AND t.id = $2
+       AND t.geom IS NOT NULL
+       AND ST_GeometryType(t.geom) = 'ST_LineString'
+       AND $3 <= ST_Length(t.geom::geography)`,
+    id,
+    tronconId,
+    abscisseM
+  );
+  return result > 0;
+}
+
+/**
+ * Derive la LIGNE d'une portion entre deux abscisses locales, dans une transaction.
+ *
+ * POURQUOI `ST_LineSubstring` ET DES FRACTIONS
+ *
+ * `ST_LineSubstring` prend des fractions de la longueur planaire. L'abscisse, elle, est
+ * definie par `geo/appariement.ts` comme `ST_LineLocatePoint(...) * ST_Length(geom::geography)`,
+ * c'est-a-dire fraction x longueur geodesique. Diviser par cette MEME longueur rend donc
+ * la fraction exacte par construction, et non une approximation : les deux sens
+ * s'appuient sur la meme reference.
+ *
+ * POURQUOI UN CLIENT DE TRANSACTION EN PARAMETRE
+ *
+ * Une portion inseree sans sa geometrie, ou une geometrie posee sans sa portion, laisserait
+ * la carte et la table en desaccord. Les deux doivent tomber ensemble, donc l'appelant
+ * fournit son `tx`. C'est la difference avec `deriveGeomFromTronconAbscisse`, ecrit avant
+ * que quoi que ce soit n'en ait besoin dans une transaction.
+ *
+ * Rend `false` quand rien n'a ete ecrit : geometrie de reference absente, bornes hors du
+ * trace, ou longueur nulle. L'appelant decide quoi en faire — ici, une portion sans
+ * geometrie reste parfaitement valide, puisque ce sont les ABSCISSES qui font autorite.
+ */
+export async function deriveLigneFromTronconAbscisses(
+  tx: { $executeRawUnsafe(sql: string, ...args: unknown[]): Promise<number> },
+  table: string,
+  id: string,
+  tronconId: string,
+  debutM: number,
+  finM: number
+): Promise<boolean> {
+  if (!LIGNE_TABLES.has(table)) {
+    throw new Error(`Table non autorisee pour deriveLigneFromTronconAbscisses: ${table}`);
+  }
+  if (!Number.isFinite(debutM) || !Number.isFinite(finM) || debutM < 0 || finM <= debutM) {
+    return false;
+  }
+
+  const n = await tx.$executeRawUnsafe(
+    `UPDATE ${table} p
+        SET geom = ST_LineSubstring(
+              t.geom,
+              LEAST(1, GREATEST(0, $3 / NULLIF(ST_Length(t.geom::geography), 0))),
+              LEAST(1, GREATEST(0, $4 / NULLIF(ST_Length(t.geom::geography), 0)))
+            )
+       FROM troncons t
+      WHERE p.id = $1 AND t.id = $2
+        AND t.geom IS NOT NULL
+        AND ST_GeometryType(t.geom) = 'ST_LineString'
+        AND ST_Length(t.geom::geography) > 0`,
+    id,
+    tronconId,
+    debutM,
+    finM
+  );
+  return n > 0;
 }

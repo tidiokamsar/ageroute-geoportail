@@ -1,6 +1,34 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-vi.mock("../utils/audit", () => ({ logAudit: vi.fn() }));
+vi.mock("../utils/audit", () => {
+  const logAudit = vi.fn();
+  // `logAuditTransactionnelle` delegue au MEME espion : les assertions de ce fichier
+  // continuent d'observer exactement les memes parametres, desormais sur le seul chemin
+  // qui existe. La branche fail-soft a ete supprimee le 13/10/2026 — elle etait devenue
+  // du code mort, et un code mort de cette nature est un piege.
+  return {
+    logAudit,
+    construireAudit: vi.fn((p: Record<string, unknown>) => {
+      logAudit(p);
+      return { __audit: p };
+    }),
+    logAuditTransactionnelle: vi.fn(async (_tx: unknown, p: Record<string, unknown>) => {
+      logAudit(p);
+    }),
+  };
+});
+
+/**
+ * `createPhotoService` ecrit desormais la liste ET sa trace dans une meme transaction :
+ * son option `auditTransactionnel` a disparu, la branche fail-soft etant devenue du code
+ * mort. La forme TABLEAU suffit ici — l'audit n'enregistre qu'un nom de fichier, pas une
+ * ligne de base, donc il n'y a aucune fidelite a restaurer.
+ */
+vi.mock("./prisma", () => ({
+  prisma: {
+    $transaction: vi.fn(async (ops: unknown[]) => Promise.all(ops as Promise<unknown>[])),
+  },
+}));
 
 import { createPhotoService } from "./photos";
 import { logAudit } from "../utils/audit";
