@@ -1,7 +1,17 @@
+# Journaux bornes (23/10) : sans rotation, les logs de conteneurs ont rempli le disque
+# (1,4 Go sur un seul conteneur) et bloquaient chaque deploiement a la garde des 15 %.
+x-logging: &logging-defaut
+  logging:
+    driver: json-file
+    options:
+      max-size: "50m"
+      max-file: "3"
+
 services:
   db:
     image: postgis/postgis:17-3.5
     restart: unless-stopped
+    logging: *logging-defaut
     environment:
       POSTGRES_USER: bdri_app
       POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
@@ -19,6 +29,7 @@ services:
   backend:
     build: ./backend
     restart: unless-stopped
+    logging: *logging-defaut
     depends_on:
       db:
         condition: service_healthy
@@ -39,6 +50,7 @@ services:
   frontend:
     build: ./frontend
     restart: unless-stopped
+    logging: *logging-defaut
     depends_on:
       - backend
     volumes:
@@ -68,3 +80,4 @@ networks:
     external: true
   proxy:
     external: true
+
