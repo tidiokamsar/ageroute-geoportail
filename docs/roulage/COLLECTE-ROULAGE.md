@@ -82,6 +82,85 @@ cette date, un segment partait SANS qualification et le serveur n'en tirait aucu
 | Suites complètes au 23/10/2026 | `cd backend && npx vitest run` ; `cd frontend && npx vitest run` | backend 161 fichiers, 2 546 tests ; frontend 59 fichiers, 786 tests |
 | Descente de la migration | `docker cp backend/prisma ...` puis `verifier.sh --seulement 20261024100000_sessions_roulage` | 4 vérifications : descente, aller-retour, garde refusée avec données, garde autorisée |
 
+## Mise à jour du 24/10/2026 : l'écran « Enregistrer en roulant » repris point par point
+
+Cette section répond à la demande d'amélioration du module (prompt du 24/10). **Rien de ce qui suit n'a été
+essayé sur un téléphone en roulant** : la tenue du GPS écran éteint, la précision réelle et la batterie restent
+à mesurer (voir la liste « à vérifier sur appareil » plus haut). Les preuves sont des tests automatisés en
+simulation et un contrôle visuel de la carte dans un navigateur.
+
+### Diagnostic de l'état initial
+
+| Constat | Cause dans le code | Traitement |
+|---|---|---|
+| Une session « terminée, pas envoyée, 0 position » était proposée comme une session normale | `demarrer()` écrit la session dans le journal **avant** la première position ; sans signal, refus de permission ou arrêt immédiat, le journal ne contient que `DEMARRAGE`. À la réouverture, la carte « session retrouvée » ne regardait pas le nombre de positions ; l'écran terminé offrait GPX et envoi, l'envoi échouant ensuite sur « moins de deux positions » | Une session sans position est **dite vide** (écran de fin et carte de reprise), sans GPX ni envoi, avec « Recommencer ». Jamais présentée comme un relevé |
+| Une session **envoyée** redevenait « pas encore envoyée » après un rechargement | L'état d'envoi n'était gardé qu'en mémoire de la page | La confirmation du serveur est retenue sur l'appareil (`bdri.roulage.envoi.<session>`), écrite **seulement après** la réponse du serveur |
+| « Supprimer sans envoyer » effaçait sans demander | Appel direct de `oublier()` | Confirmation explicite (« Oui, supprimer » / « Non, la garder ») pour toute session qui porte des positions non confirmées |
+| La session retrouvée et son écran de contrôle s'affichaient ensemble, comme si elle enregistrait | Aucune condition sur `interrompue` | L'écran de session n'est montré qu'après le choix de l'agent (reprendre, voir, supprimer) |
+| Aucune carte, aucune vitesse, aucun état réseau ou de stockage | Absents | Voir ci-dessous |
+| L'envoi échoué faute de réseau demandait un geste | Envoi « à la demande » seulement | Rejeu automatique, une fois par retour du réseau, pour un échec retentable ; un refus définitif du serveur n'est pas rejoué |
+
+### Ce qui est livré
+
+- **Préparation** : intitulé (facultatif, gardé sur le téléphone avec la session), profil de précision (standard 50 m,
+  strict 20 m, tolérant 100 m : seuils de départ **provisoires**, recopiés dans la charge avec `provenanceParametres`),
+  contrôles avant départ (permission GPS lue sans la demander, réseau, part du stockage utilisée ; alerte à 80 %).
+  Le stockage persistant est demandé au démarrage ; sa réponse n'est pas garantie et rien n'est promis à l'écran.
+- **Enregistrement** : carte (`CarteTraceRoulage`, une polyligne par segment : un trou n'est jamais relié, cercle de
+  précision seulement si la précision est annoncée, recentrage désactivable), état de bout en bout (préparation,
+  enregistrement, pause, signal GPS interrompu, terminée vide, à envoyer, envoi en cours, envoyée et confirmée, envoi
+  non confirmé), puces GPS / réseau / conservation, vitesse GPS (« non communiquée » si absente), dernière position
+  valide, précision. Confirmation à la fermeture de l'onglet pendant l'enregistrement. « Mettre en pause et quitter »
+  garde la session pour la reprise.
+- **Fin de session** : résumé (distance estimée, durée totale, durée effective hors pauses et trous, positions valides,
+  interruptions et trous, pauses), qualité de trace indicative avec ses raisons (seuils provisoires, non calibrés,
+  **pas une mesure d'exactitude**), carte de la trace, rappel que la distance est estimée sans rapprochement au réseau.
+- **Fichiers** : `frontend/src/lib/releveVue.ts` (profils, qualité, états, confirmation d'envoi), `releveVue.test.ts`,
+  `lib/roulageHote.ts` (permission, estimation du stockage, persistance), `components/CarteTraceRoulage.tsx`,
+  `pages/EnregistrementRoulagePage.tsx` et son test. **Aucune migration, aucun changement d'API** : le contrat
+  `SessionRoulage` et `POST /v2/sync/push` sont inchangés.
+
+### Réponses aux exigences du prompt qui ne demandaient pas de code nouveau
+
+- **Idempotence et réponse ambiguë.** Une session est une opération identifiée par son `sessionId` (`operationId`) :
+  la renvoyer, après une réponse perdue par exemple, rend « déjà enregistrée » sans doublon (banc PostGIS `roulage` et
+  `sync`, voir `TEST_EVIDENCE.md`). Le renvoi **est** la vérification de l'état distant ; il n'existe pas de route de
+  lecture séparée et je n'en ai pas ajouté. La session locale n'est jamais effacée par un envoi réussi : seul l'agent la
+  supprime.
+- **Droits et audit.** Inchangés et déjà côté serveur : la synchronisation rattache la session à son auteur et à son
+  appareil, refuse une mission qui n'est pas celle de l'agent (`MISSION_NON_AUTORISEE`) et le périmètre territorial
+  (A10), et audite l'écriture.
+- **Rattachement au réseau.** Fait par le serveur (HMM de trace existant), pas par l'écran : route et tronçon ne sont
+  pas saisis. Les portions ne naissent que de segments qualifiés par l'agent, en `A_VALIDER`. Une trace GPS ne crée ni
+  tronçon ni route, et n'est pas une inspection validée. Aucun IRI n'est calculé.
+
+### Limites restantes, dites sans détour
+
+- **Une seule session locale à la fois.** Le journal est unique : tant qu'une session n'est pas envoyée ou supprimée, on
+  n'en démarre pas une autre. Aucune donnée n'est donc écrasée, mais il n'y a pas de file de plusieurs sessions
+  terminées. Une file multi-sessions exige un changement de schéma IndexedDB ; non fait.
+- **Arrière-plan.** Un navigateur ne lit pas la position écran verrouillé ou onglet masqué : la coupure est notée comme
+  interruption et le trou n'est jamais comblé (comportement inchangé, dit à l'écran). L'enregistrement continu exige la
+  coque Android (Capacitor, présente dans le dépôt) avec un service de premier plan : **non éprouvé sur appareil**.
+  Quand un navigateur ne dit pas l'état de la permission GPS, l'écran affiche « sera demandée au démarrage » (je n'ai pas vérifié lesquels, aucun iOS n'étant disponible).
+- **Distance.** Une seule distance est exposée : celle des positions **retenues**. La distance sur les positions
+  brutes n'existe pas (le noyau ne garde que les compteurs des positions écartées) et celle estimée sur le réseau routier
+  vient du serveur après envoi. Je ne les affiche pas.
+- **Intitulé** : gardé sur le téléphone et dans l'écran, **non transmis au serveur** (le contrat de la session ne porte
+  pas ce champ ; l'y ajouter est un changement de contrat que je n'ai pas fait).
+- **Seuils** de qualité, profils de précision et alerte de stockage : choix de départ non calibrés.
+- **Mémoire sur collecte longue** : le noyau garde tous les échantillons retenus (7 200 pour 2 h à 1 Hz, mesuré en
+  simulation par le banc de roulage) ; la carte ne reconstruit sa trace que lorsqu'une position est ajoutée. Pas de
+  mesure de mémoire sur appareil.
+
+### Tests de cette mise à jour
+
+| Suite | Résultat du 24/10/2026 |
+|---|---|
+| `cd frontend && npx vitest run src/lib/releveVue src/lib/roulageHote src/roulage src/pages/EnregistrementRoulagePage` | 10 fichiers, 181 tests réussis (écran : 47, dont 14 nouveaux : session vide, suppression confirmée, envoi retenu, carte et trous, vitesse, état GPS, profil, hors ligne puis rejeu) |
+| Frontend complet | 73 fichiers, 989 tests réussis ; `tsc`, `eslint` sans erreur ; build réussi |
+| Carte | contrôle visuel dans un navigateur (deux polylignes, cercle de précision, marqueur, tuiles chargées). Leaflet ne tourne pas sous jsdom : les tests d'écran remplacent la carte par un témoin qui expose segments, points et position |
+
 ## 2. Machine à états d'une session
 
 ```

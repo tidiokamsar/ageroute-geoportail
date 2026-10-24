@@ -64,12 +64,20 @@ vi.mock("../lib/api", () => ({
     }),
   },
 }));
+// Leaflet a besoin d'un vrai navigateur (mesures, canvas) : la carte est remplacee par un temoin qui expose ce qu'elle recoit.
+vi.mock("../components/CarteTraceRoulage", () => ({
+  CarteTraceRoulage: (p: { segments: unknown[][]; position: [number, number] | null }) => (
+    <div data-testid="carte-trace" data-segments={p.segments.length} data-points={p.segments.reduce((n, s) => n + s.length, 0)} data-position={p.position ? p.position.join(",") : ""} />
+  ),
+}));
 vi.mock("../lib/roulageHote", async (importOriginal) => {
   const reel = await importOriginal<typeof import("../lib/roulageHote")>();
   const stockage = reel.stockageMemoire();
   return {
     ...reel,
     ouvrirStockage: () => stockage,
+    // Le stockage en memoire est partage par tout le fichier : chaque test repart d'un telephone vide.
+    viderStockageEssai: () => stockage.vider(),
     garderEcranAllume: async () => ({ actif: true, liberer: async () => undefined }),
   };
 });
@@ -100,7 +108,8 @@ async function demarrer() {
   await screen.findByText("Enregistrement en cours");
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await (await import("../lib/roulageHote") as unknown as { viderStockageEssai: () => Promise<void> }).viderStockageEssai();
   h.posts.length = 0;
   h.reponsePush = { resultats: [{ statut: "SYNCHRONISE" }] };
   h.suivi.ok = null; h.suivi.err = null;
@@ -173,10 +182,10 @@ describe("enregistrement", () => {
     fireEvent.click(screen.getByRole("button", { name: /Arrêter/ }));
     const choix = await screen.findByRole("alert");
     expect(choix).toHaveTextContent(/Un segment est encore ouvert/);
-    expect(screen.queryByText("Enregistrement terminé")).not.toBeInTheDocument();
+    expect(screen.queryByText("Terminée, à envoyer")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Le clore à l'instant de l'arrêt/ }));
-    expect(await screen.findByText("Enregistrement terminé")).toBeInTheDocument();
+    expect(await screen.findByText("Terminée, à envoyer")).toBeInTheDocument();
   });
 
   it("la pause suspend la prise de segment, la reprise la rend", async () => {
@@ -225,7 +234,7 @@ describe("apres l'arret", () => {
     await demarrer();
     for (let s = 0; s < 5; s += 1) emettre(s);
     fireEvent.click(screen.getByRole("button", { name: /Arrêter/ }));
-    await screen.findByText("Enregistrement terminé");
+    await screen.findByText("Terminée, à envoyer");
   }
 
   it("exporte la trace en GPX", async () => {
@@ -238,7 +247,7 @@ describe("apres l'arret", () => {
 
   it("envoie la session comme une operation SessionRoulage et confirme", async () => {
     await terminerSession();
-    fireEvent.click(screen.getByRole("button", { name: /Envoyer la session au serveur/ }));
+    fireEvent.click(screen.getByRole("button", { name: /(Envoyer|Renvoyer) la session/ }));
     expect(await screen.findByText("Session enregistrée sur le serveur.")).toBeInTheDocument();
     expect(h.posts.map((p) => p.url)).toEqual(["/v2/devices", "/v2/sync/push"]);
     const push = h.posts[1].corps as { appareilId: string; operations: { entityType: string; operation: string; payload: { points: unknown[]; versionContrat: number } }[] };
@@ -252,17 +261,17 @@ describe("apres l'arret", () => {
   it("un rejeu est dit comme tel : rien n'est duplique", async () => {
     h.reponsePush = { resultats: [{ statut: "REJOUEE" }] };
     await terminerSession();
-    fireEvent.click(screen.getByRole("button", { name: /Envoyer la session au serveur/ }));
+    fireEvent.click(screen.getByRole("button", { name: /(Envoyer|Renvoyer) la session/ }));
     expect(await screen.findByText(/déjà enregistrée sur le serveur : rien n'a été dupliqué/)).toBeInTheDocument();
   });
 
   it("un refus du serveur est rendu avec son motif, et la session reste sur le telephone", async () => {
     h.reponsePush = { resultats: [{ statut: "REJETE", motif: "HORS_TERRITOIRE" }] };
     await terminerSession();
-    fireEvent.click(screen.getByRole("button", { name: /Envoyer la session au serveur/ }));
+    fireEvent.click(screen.getByRole("button", { name: /(Envoyer|Renvoyer) la session/ }));
     const msg = await screen.findByText(/Refusée par le serveur \(HORS_TERRITOIRE\)/);
     expect(msg).toHaveTextContent(/reste sur ce téléphone/);
-    expect(screen.getByRole("button", { name: /Envoyer la session au serveur/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /(Envoyer|Renvoyer) la session/ })).toBeEnabled();
   });
 
   it("zero violation d'accessibilite en fin de session", async () => {
@@ -294,8 +303,8 @@ async function demarrerAvecListes() {
 
 async function arreterEtEnvoyer() {
   fireEvent.click(screen.getByRole("button", { name: /Arrêter/ }));
-  await screen.findByText("Enregistrement terminé");
-  fireEvent.click(screen.getByRole("button", { name: /Envoyer la session au serveur/ }));
+  await screen.findByText("Terminée, à envoyer");
+  fireEvent.click(screen.getByRole("button", { name: /(Envoyer|Renvoyer) la session/ }));
   await screen.findByText(/Session enregistrée|Refusée par le serveur|Pas confirmée/);
 }
 
@@ -407,7 +416,7 @@ describe("qualification d'un segment", () => {
     premier.unmount();
     h.referentielsEchec = true;
     rendre();
-    fireEvent.click(await screen.findByRole("button", { name: /Supprimer cette session/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Recommencer/ }));
     await screen.findByRole("button", { name: /Démarrer l'enregistrement/ });
     await demarrer();
     expect(await screen.findByText(/Listes gardées sur ce téléphone depuis le/)).toBeInTheDocument();
@@ -423,10 +432,10 @@ describe("qualification d'un segment", () => {
     for (let s = 3; s < 9; s += 1) emettre(s);
     fireEvent.click(screen.getByRole("button", { name: /Arrêter/ }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/Un segment est encore ouvert/);
-    expect(screen.queryByText("Enregistrement terminé")).not.toBeInTheDocument();
+    expect(screen.queryByText("Terminée, à envoyer")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Le clore à l'instant de l'arrêt/ }));
-    await screen.findByText("Enregistrement terminé");
-    fireEvent.click(screen.getByRole("button", { name: /Envoyer la session au serveur/ }));
+    await screen.findByText("Terminée, à envoyer");
+    fireEvent.click(screen.getByRole("button", { name: /(Envoyer|Renvoyer) la session/ }));
     await screen.findByText("Session enregistrée sur le serveur.");
     expect(chargeEnvoyee().evenements[0]).toMatchObject({ statut: "CLOS_PAR_ARRET", qualification: { etat: "E_UN" } });
   });
@@ -463,7 +472,7 @@ describe("qualification d'un segment", () => {
     fireEvent.click(screen.getByRole("button", { name: "Fin du segment" }));
     expect(await violationsAccessibilite(container)).toEqual([]);
     fireEvent.click(screen.getByRole("button", { name: /Arrêter/ }));
-    await screen.findByText("Enregistrement terminé");
+    await screen.findByText("Terminée, à envoyer");
     expect(await violationsAccessibilite(container)).toEqual([]);
   });
 
@@ -513,7 +522,7 @@ describe("lien a une mission", () => {
     expect(screen.getByLabelText("Mission (facultative)")).toBeEnabled();
     h.reponsePush = { resultats: [{ statut: "SYNCHRONISE" }] };
     choisir("Mission (facultative)", "");
-    fireEvent.click(screen.getByRole("button", { name: /Envoyer la session au serveur/ }));
+    fireEvent.click(screen.getByRole("button", { name: /(Envoyer|Renvoyer) la session/ }));
     await screen.findByText("Session enregistrée sur le serveur.");
     const pushes = h.posts.filter((p) => p.url === "/v2/sync/push").map((p) => (p.corps as { operations: { payload: PayloadEnvoye }[] }).operations[0].payload.missionId);
     expect(pushes).toEqual([MISSIONS_ESSAI[0].id, null]);
@@ -537,5 +546,198 @@ describe("lien a une mission", () => {
     await demarrer();
     expect(await screen.findByText(/Aucune mission assignée à votre compte ou créée par vous/)).toBeInTheDocument();
     expect(Array.from((screen.getByLabelText("Mission (facultative)") as HTMLSelectElement).options).map((o) => o.value)).toEqual([""]);
+  });
+});
+
+describe("session vide (aucune position)", () => {
+  it("arretee sans position : explication claire, jamais presentee comme un releve, ni GPX ni envoi", async () => {
+    installerGeolocalisation();
+    rendre();
+    await demarrer();
+    fireEvent.click(screen.getByRole("button", { name: /Arrêter/ }));
+    expect(await screen.findByText("Terminée sans aucune position")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(/Aucune position valide n'a été enregistrée/);
+    expect(screen.getByRole("alert")).toHaveTextContent(/Ce n'est pas un relevé/);
+    expect(screen.queryByRole("button", { name: /Télécharger le GPX/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /(Envoyer|Renvoyer) la session/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("Résumé du relevé")).not.toBeInTheDocument();
+    expect(h.posts).toHaveLength(0);
+  });
+
+  it("« Recommencer » repart d'une preparation propre, sans rien de la session vide", async () => {
+    installerGeolocalisation();
+    rendre();
+    await demarrer();
+    fireEvent.click(screen.getByRole("button", { name: /Arrêter/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Recommencer/ }));
+    expect(await screen.findByRole("button", { name: /Démarrer l'enregistrement/ })).toBeInTheDocument();
+  });
+
+  it("une session vide retrouvee apres rechargement est dite vide, avec « Recommencer » et sans reprise ni envoi", async () => {
+    installerGeolocalisation();
+    const premier = rendre();
+    await demarrer();
+    premier.unmount();
+    rendre();
+    const carte = await screen.findByRole("region", { name: /Une session a été retrouvée/ });
+    expect(carte).toHaveTextContent(/aucune position/);
+    expect(screen.getByRole("button", { name: /Recommencer/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Reprendre l'enregistrement/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Supprimer cette session/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("suppression et envoi confirme", () => {
+  async function terminer() {
+    installerGeolocalisation();
+    const rendu = rendre();
+    await demarrer();
+    for (let s = 0; s < 5; s += 1) emettre(s);
+    fireEvent.click(screen.getByRole("button", { name: /Arrêter/ }));
+    await screen.findByText("Terminée, à envoyer");
+    return rendu;
+  }
+
+  it("supprimer une session non envoyee demande une confirmation explicite : « Non » la garde", async () => {
+    await terminer();
+    fireEvent.click(screen.getByRole("button", { name: /Supprimer sans envoyer/ }));
+    const dialogue = await screen.findByRole("alertdialog");
+    expect(dialogue).toHaveTextContent(/5 position\(s\) n'ont pas été confirmées par le serveur et seront perdues/);
+    fireEvent.click(screen.getByRole("button", { name: /Non, la garder/ }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getByText("Résumé du relevé")).toBeInTheDocument();
+  });
+
+  it("« Oui, supprimer » efface la session et revient a la preparation", async () => {
+    await terminer();
+    fireEvent.click(screen.getByRole("button", { name: /Supprimer sans envoyer/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Oui, supprimer/ }));
+    expect(await screen.findByRole("button", { name: /Démarrer l'enregistrement/ })).toBeInTheDocument();
+  });
+
+  it("le resume donne distance, durees, positions, interruptions et qualite, et rappelle que la distance est estimee", async () => {
+    await terminer();
+    const resume = screen.getByRole("region", { name: /Résumé du relevé/ });
+    expect(resume).toHaveTextContent(/Distance estimée/);
+    expect(resume).toHaveTextContent(/Durée totale/);
+    expect(resume).toHaveTextContent(/Durée effective d'enregistrement/);
+    expect(resume).toHaveTextContent(/Positions valides\s*5/);
+    expect(resume).toHaveTextContent(/Trace de bonne qualité/);
+    expect(screen.getByText(/n'est pas une mesure exacte/)).toBeInTheDocument();
+  });
+
+  it("un envoi confirme est retenu : apres rechargement, la session est dite DEJA envoyee, plus « a envoyer »", async () => {
+    const rendu = await terminer();
+    fireEvent.click(screen.getByRole("button", { name: /(Envoyer|Renvoyer) la session/ }));
+    await screen.findByText("Session enregistrée sur le serveur.");
+    expect(screen.getByText("Envoyée et confirmée par le serveur")).toBeInTheDocument();
+    rendu.unmount();
+    rendre();
+    const carte = await screen.findByRole("region", { name: /Une session a été retrouvée/ });
+    expect(carte).toHaveTextContent(/déjà confirmée par le serveur/);
+    expect(carte).not.toHaveTextContent(/pas encore envoyée/);
+    expect(screen.getByRole("button", { name: /Nouveau relevé/ })).toBeInTheDocument();
+  });
+
+  it("une session NON confirmee reste « pas encore envoyee » apres rechargement, et se supprime avec confirmation", async () => {
+    h.reponsePush = { resultats: [{ statut: "REJETE", motif: "HORS_TERRITOIRE" }] };
+    const rendu = await terminer();
+    fireEvent.click(screen.getByRole("button", { name: /(Envoyer|Renvoyer) la session/ }));
+    await screen.findByText(/Refusée par le serveur/);
+    rendu.unmount();
+    rendre();
+    const carte = await screen.findByRole("region", { name: /Une session a été retrouvée/ });
+    expect(carte).toHaveTextContent(/pas encore envoyée/);
+    fireEvent.click(screen.getByRole("button", { name: /Supprimer cette session/ }));
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent(/Cette action est définitive/);
+  });
+});
+
+describe("carte, etats et preparation", () => {
+  it("la carte recoit la trace et la position ; un trou de signal reste deux segments, jamais relies", async () => {
+    installerGeolocalisation();
+    rendre();
+    await demarrer();
+    for (let s = 0; s < 3; s += 1) emettre(s);
+    expect(screen.getByTestId("carte-trace")).toHaveAttribute("data-segments", "1");
+    // 120 s sans position : bien au-dela de la coupure de segment (30 s).
+    for (let s = 120; s < 123; s += 1) emettre(s);
+    const carte = screen.getByTestId("carte-trace");
+    expect(carte).toHaveAttribute("data-segments", "2");
+    expect(carte).toHaveAttribute("data-points", "6");
+    expect(carte.getAttribute("data-position")).toMatch(/^9\.6\d+,-13\.\d+$/);
+  });
+
+  it("affiche vitesse GPS, precision, derniere position et les etats GPS / reseau / conservation", async () => {
+    installerGeolocalisation();
+    rendre();
+    await demarrer();
+    emettre(0);
+    emettre(1);
+    expect(screen.getByText("Vitesse GPS").nextSibling).toHaveTextContent("36 km/h");
+    expect(screen.getByText("Précision actuelle").nextSibling).toHaveTextContent("8 m");
+    expect(screen.getByText("Dernière position valide").nextSibling).toHaveTextContent(/à l'instant/);
+    const etats = screen.getByRole("list", { name: /États du GPS, du réseau et de la conservation/ });
+    expect(etats).toHaveTextContent(/GPS : signal reçu/);
+    expect(etats).toHaveTextContent(/Réseau : en ligne/);
+    expect(etats).toHaveTextContent(/Conservation : /);
+  });
+
+  it("une vitesse non communiquee n'est pas inventee", async () => {
+    installerGeolocalisation();
+    rendre();
+    await demarrer();
+    act(() => { h.suivi.ok?.({ timestamp: T0, coords: { latitude: 9.64, longitude: -13.6, accuracy: 8, speed: null, heading: null, altitude: null } }); });
+    expect(screen.getByText("Vitesse GPS").nextSibling).toHaveTextContent("non communiquée");
+  });
+
+  it("le GPS perdu change l'etat affiche, sans effacer la trace deja collectee", async () => {
+    installerGeolocalisation();
+    rendre();
+    await demarrer();
+    for (let s = 0; s < 3; s += 1) emettre(s);
+    act(() => { h.suivi.err?.({ code: 2 }); });
+    expect(await screen.findByText("Signal GPS interrompu")).toBeInTheDocument();
+    expect(screen.getByTestId("carte-trace")).toHaveAttribute("data-points", "3");
+  });
+
+  it("la preparation propose intitule, profil de precision et controles avant depart ; le profil strict part avec la session", async () => {
+    installerGeolocalisation();
+    rendre();
+    expect(screen.getByRole("region", { name: /Préparer le relevé/ })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Intitulé (facultatif)"), { target: { value: "RN1 Coyah - Kindia" } });
+    fireEvent.click(screen.getByRole("radio", { name: /Strict/ }));
+    expect(screen.getByLabelText("Contrôles avant le départ")).toBeInTheDocument();
+    await demarrer();
+    expect(screen.getByText("RN1 Coyah - Kindia")).toBeInTheDocument();
+    for (let s = 0; s < 3; s += 1) emettre(s);
+    fireEvent.click(screen.getByRole("button", { name: /Arrêter/ }));
+    await screen.findByText("Terminée, à envoyer");
+    fireEvent.click(screen.getByRole("button", { name: /(Envoyer|Renvoyer) la session/ }));
+    await screen.findByText("Session enregistrée sur le serveur.");
+    const push = h.posts[h.posts.length - 1].corps as { operations: { payload: { parametres: { precisionMaxM: number } } }[] };
+    expect(push.operations[0].payload.parametres.precisionMaxM).toBe(20);
+  });
+});
+
+describe("hors ligne", () => {
+  it("un envoi qui echoue faute de reseau garde la session et est rejoue SEUL au retour du reseau, une fois", async () => {
+    installerGeolocalisation();
+    rendre();
+    await demarrer();
+    for (let s = 0; s < 4; s += 1) emettre(s);
+    fireEvent.click(screen.getByRole("button", { name: /Arrêter/ }));
+    await screen.findByText("Terminée, à envoyer");
+    const { api } = await import("../lib/api");
+    vi.mocked(api.post).mockRejectedValueOnce(new Error("reseau"));
+    act(() => { window.dispatchEvent(new Event("offline")); });
+    fireEvent.click(screen.getByRole("button", { name: /(Envoyer|Renvoyer) la session/ }));
+    expect(await screen.findByText(/Envoi impossible \(réseau\)/)).toBeInTheDocument();
+    expect(screen.getByText("Envoi non confirmé")).toBeInTheDocument();
+    expect(screen.getByText(/Un nouvel envoi sera tenté automatiquement au retour du réseau/)).toBeInTheDocument();
+    expect(h.posts.filter((p) => p.url === "/v2/sync/push")).toHaveLength(0);
+    act(() => { window.dispatchEvent(new Event("online")); });
+    expect(await screen.findByText("Session enregistrée sur le serveur.")).toBeInTheDocument();
+    expect(h.posts.filter((p) => p.url === "/v2/sync/push")).toHaveLength(1);
   });
 });

@@ -1,15 +1,21 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
-import { AlertTriangle, Download, Flag, MapPin, Pause, Play, Send, Square } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { AlertTriangle, Download, Flag, LogOut, MapPin, Pause, Play, RotateCcw, Send, Square, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { toast } from "../lib/toast";
 import { Button } from "../components/ui/Button";
 import { libelleDuree, libelleKm } from "../lib/releve";
 import {
-  garderEcranAllume, nomFichierGpx, ouvrirStockage, positionVersEchantillon, versGpx,
-  type StockageJournal, type VerrouEcran,
+  demanderStockagePersistant, estimerStockage, etatPermissionGps, garderEcranAllume, nomFichierGpx, ouvrirStockage, positionVersEchantillon, versGpx,
+  type EtatPermissionGps, type StockageJournal, type VerrouEcran,
 } from "../lib/roulageHote";
+import {
+  dureeEffectiveMs, etatSessionVue, LIBELLES_ETAT, lireEnvoiConfirme, noterEnvoiConfirme, oublierEnvoi, PROFILS_PRECISION, profilParCode,
+  qualiteTrace, segmentsPourCarte, sessionVide, stockageProche, vitesseKmH,
+  type CodeProfil, type EstimationStockage,
+} from "../lib/releveVue";
+import { CarteTraceRoulage } from "../components/CarteTraceRoulage";
 import {
   construirePayload, horlogeSysteme, interpreterReponse, operationPourSynchronisation, SessionRoulage,
   type EtatSession, type ResumeSession,
@@ -36,6 +42,11 @@ import { chargerMissionsDeLAgent, chargerVocabulairesQualification, type Vocabul
  * LIEN A UNE MISSION (facultatif) : parmi les missions assignees a l'agent ou creees par lui (le serveur refuse
  * toute la session pour une autre). Le choix suit la session (il survit a la reprise apres fermeture de la page).
  *
+ * SESSION VIDE : une session terminee sans aucune position retenue n'est JAMAIS presentee comme un releve (aucune trace,
+ * rien a envoyer) : l'ecran l'explique et propose de recommencer. Un envoi confirme par le serveur est retenu sur
+ * l'appareil, pour qu'un rechargement ne le presente plus comme « pas encore envoye ». Aucune suppression d'une session
+ * qui porte des positions ne se fait sans confirmation, et un envoi echoue sur reseau est rejoue seul au retour du reseau.
+ *
  * CE QU'IL NE FAIT PAS, ET QUE LA PAGE DIT : il ne tourne qu'au PREMIER PLAN avec l'ecran ALLUME (limite du
  * navigateur : l'application native, hors de portee ici, n'a pas cette limite) ; il ne mesure ni l'IRI ni
  * l'etat de la chaussee ; il ne prend pas de photo. Rien n'a ete mesure sur un vrai telephone : la latence du
@@ -53,6 +64,27 @@ function garderMission(sessionId: string, missionId: string): void {
   try {
     if (missionId) localStorage.setItem(cleMission(sessionId), missionId); else localStorage.removeItem(cleMission(sessionId));
   } catch { /* le choix reste valable pour cet ecran, pas apres une fermeture */ }
+}
+
+const cleIntitule = (sessionId: string) => `bdri.roulage.intitule.${sessionId}`;
+function lireIntitule(sessionId: string): string {
+  try { return localStorage.getItem(cleIntitule(sessionId)) ?? ""; } catch { return ""; }
+}
+function garderIntitule(sessionId: string, intitule: string): void {
+  try { if (intitule) localStorage.setItem(cleIntitule(sessionId), intitule); else localStorage.removeItem(cleIntitule(sessionId)); } catch { /* sans effet sur la collecte */ }
+}
+
+/** Etat du reseau, suivi sans jamais le supposer meilleur qu'il n'est : `navigator.onLine` vrai ne prouve pas l'acces au serveur. */
+function useEnLigne(): boolean {
+  const [enLigne, setEnLigne] = useState(() => (typeof navigator === "undefined" ? true : navigator.onLine !== false));
+  useEffect(() => {
+    const monter = () => setEnLigne(true);
+    const couper = () => setEnLigne(false);
+    window.addEventListener("online", monter);
+    window.addEventListener("offline", couper);
+    return () => { window.removeEventListener("online", monter); window.removeEventListener("offline", couper); };
+  }, []);
+  return enLigne;
 }
 
 type Phase = "repos" | "en_cours" | "pause" | "arretee";
@@ -93,6 +125,8 @@ async function obtenirAppareil(userId: string): Promise<string> {
 export function EnregistrementRoulagePage() {
   const { user } = useAuth();
   const userId = user?.id;
+  const navigate = useNavigate();
+  const enLigne = useEnLigne();
   const session = useRef<SessionRoulage | null>(null);
   const stockage = useRef<StockageJournal | null>(null);
   const veille = useRef<VerrouEcran | null>(null);
@@ -100,7 +134,14 @@ export function EnregistrementRoulagePage() {
   const [vue, setVue] = useState<Vue>(VUE_VIDE);
   const [note, setNote] = useState("");
   const [choixArret, setChoixArret] = useState(false);
-  const [interrompue, setInterrompue] = useState<{ positions: number; arretee: boolean } | null>(null);
+  const [interrompue, setInterrompue] = useState<{ positions: number; arretee: boolean; envoyeLe: string | null } | null>(null);
+  const [profil, setProfil] = useState<CodeProfil>("standard");
+  const [intitule, setIntitule] = useState("");
+  const [permissionGps, setPermissionGps] = useState<EtatPermissionGps>("inconnue");
+  const [stockageEstime, setStockageEstime] = useState<EstimationStockage | null>(null);
+  const [suivreCarte, setSuivreCarte] = useState(true);
+  const [confirmerSuppression, setConfirmerSuppression] = useState(false);
+  const [envoiRetentable, setEnvoiRetentable] = useState(false);
   const [envoi, setEnvoi] = useState<"aucun" | "en_cours" | "envoye" | "echec">("aucun");
   const [messageEnvoi, setMessageEnvoi] = useState("");
   const [vocab, setVocab] = useState<VocabulairesChargement | null>(null);
@@ -121,6 +162,14 @@ export function EnregistrementRoulagePage() {
     void chargerMissionsDeLAgent(userId).then((m) => { if (vivant) setMissions(m); });
     return () => { vivant = false; };
   }, [userId]);
+
+  // Controle prealable : autorisation de position et place disponible. Lecture seule, rien n'est demande ici.
+  useEffect(() => {
+    let vivant = true;
+    void etatPermissionGps().then((e) => { if (vivant) setPermissionGps(e); });
+    void estimerStockage().then((e) => { if (vivant) setStockageEstime(e); });
+    return () => { vivant = false; };
+  }, []);
 
   const rafraichir = useCallback((surcharge: Partial<Vue> = {}) => {
     const s = session.current;
@@ -152,7 +201,10 @@ export function EnregistrementRoulagePage() {
       const ouvert = r.session.etat.evenements.find((e) => e.statut === "OUVERT" && e.code === CODE_SEGMENT);
       setSaisie(saisieDepuisQualification(ouvert?.qualification));
       setMissionId(lireMissionGardee(r.session.etat.sessionId));
-      setInterrompue({ positions: r.session.etat.echantillons.length, arretee: r.session.etat.statut === "ARRETEE" });
+      setIntitule(lireIntitule(r.session.etat.sessionId));
+      const envoyeLe = lireEnvoiConfirme(r.session.etat.sessionId);
+      if (envoyeLe) setEnvoi("envoye");
+      setInterrompue({ positions: r.session.etat.echantillons.length, arretee: r.session.etat.statut === "ARRETEE", envoyeLe });
       rafraichir();
     }).catch(() => undefined);
     return () => { vivant = false; };
@@ -210,13 +262,48 @@ export function EnregistrementRoulagePage() {
     return () => { window.clearInterval(t); arreterSuivi(); };
   }, [rafraichir, arreterSuivi]);
 
+  // Une session qui enregistre ne doit pas se perdre par un geste malheureux (fermeture de l'onglet, retour arriere) :
+  // le navigateur demande confirmation. La session est de toute facon gardee sur l'appareil ; ceci evite le trou de trace.
+  useEffect(() => {
+    function avantFermeture(e: BeforeUnloadEvent) {
+      if (session.current?.etat.statut !== "EN_COURS") return;
+      e.preventDefault();
+      e.returnValue = "";
+    }
+    window.addEventListener("beforeunload", avantFermeture);
+    return () => window.removeEventListener("beforeunload", avantFermeture);
+  }, []);
+
+  // Retour du reseau : une session terminee dont l'envoi a echoue FAUTE DE RESEAU est renvoyee une fois, sans geste. Un
+  // renvoi est sans danger (meme operationId : le serveur repond « deja enregistree »). Un refus definitif n'est pas rejoue.
+  const envoiAutoPour = useRef<string | null>(null);
+  useEffect(() => {
+    // Un nouveau passage hors ligne ré-arme la reprise automatique : une seule tentative par retour du réseau.
+    if (!enLigne) { envoiAutoPour.current = null; return; }
+    const s = session.current;
+    if (!s || s.etat.statut !== "ARRETEE" || envoi !== "echec" || !envoiRetentable) return;
+    if (envoiAutoPour.current === s.etat.sessionId) return;
+    envoiAutoPour.current = s.etat.sessionId;
+    void envoyer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enLigne, envoi, envoiRetentable]);
+
   async function demarrer() {
     await stockageOuvert().vider();
-    const r = SessionRoulage.demarrer({ horloge: horlogeSysteme(), genererId: () => crypto.randomUUID(), journal: stockageOuvert().ajouter, agentRef: user?.id ?? null });
+    const r = SessionRoulage.demarrer({
+      horloge: horlogeSysteme(), genererId: () => crypto.randomUUID(), journal: stockageOuvert().ajouter, agentRef: user?.id ?? null,
+      parametres: profilParCode(profil).parametres,
+    });
     if (!r.ok) { toast.error(r.erreurs.join(" ")); return; }
     session.current = r.session;
+    garderIntitule(r.session.etat.sessionId, intitule.trim());
+    // Demande au navigateur de ne pas purger la session si l'appareil manque de place ; sans effet garanti, rien n'est promis.
+    void demanderStockagePersistant();
+    void estimerStockage().then(setStockageEstime);
     setInterrompue(null);
     setEnvoi("aucun");
+    setConfirmerSuppression(false);
+    setSuivreCarte(true);
     // Rien ne vient de la session precedente : ni qualification, ni mission.
     setSaisie(SAISIE_VIDE);
     setMissionId("");
@@ -235,8 +322,15 @@ export function EnregistrementRoulagePage() {
 
   async function oublier() {
     arreterSuivi();
-    if (session.current) garderMission(session.current.etat.sessionId, "");
+    if (session.current) {
+      const id = session.current.etat.sessionId;
+      garderMission(id, "");
+      garderIntitule(id, "");
+      oublierEnvoi(id);
+    }
     await stockageOuvert().vider();
+    setConfirmerSuppression(false);
+    setIntitule("");
     session.current = null;
     setInterrompue(null);
     setEnvoi("aucun");
@@ -305,6 +399,15 @@ export function EnregistrementRoulagePage() {
     rafraichir();
   }
 
+  /** Pose la session en pause (journalisee, donc retrouvee), libere le GPS et quitte l'ecran : aucune position n'est perdue. */
+  function enregistrerEtQuitter() {
+    const s = session.current;
+    if (s && s.etat.statut === "EN_COURS") s.mettreEnPause();
+    arreterSuivi();
+    rafraichir();
+    navigate("/inspections/releve");
+  }
+
   function telechargerGpx() {
     const s = session.current;
     if (!s) return;
@@ -327,21 +430,26 @@ export function EnregistrementRoulagePage() {
       return;
     }
     setEnvoi("en_cours");
+    setEnvoiRetentable(false);
     try {
       const appareilId = await obtenirAppareil(user.id);
       const { data } = await api.post("/v2/sync/push", { appareilId, operations: [operationPourSynchronisation(p.payload)] });
       const suite = interpreterReponse(data?.resultats?.[0]);
       if (suite.action === "RETIRER_DE_LA_FILE") {
+        // Retenu sur l'appareil SEULEMENT apres la confirmation du serveur.
+        noterEnvoiConfirme(s.etat.sessionId);
         setEnvoi("envoye");
         setMessageEnvoi(suite.rejeu ? "Cette session était déjà enregistrée sur le serveur : rien n'a été dupliqué." : "Session enregistrée sur le serveur.");
       } else {
         setEnvoi("echec");
+        setEnvoiRetentable(suite.action !== "ABANDONNER");
         setMessageEnvoi(suite.action === "ABANDONNER"
           ? `Refusée par le serveur (${suite.motif}). La session reste sur ce téléphone ; le GPX peut être téléchargé.`
           : `Pas confirmée (${suite.motif}). On peut réessayer ; la session reste sur ce téléphone.`);
       }
     } catch {
       setEnvoi("echec");
+      setEnvoiRetentable(true);
       setMessageEnvoi("Envoi impossible (réseau). La session reste sur ce téléphone : réessayer plus tard, ou télécharger le GPX.");
     }
   }
@@ -352,6 +460,23 @@ export function EnregistrementRoulagePage() {
   const stockageMemoire = stockage.current?.nature === "memoire";
   // Lue dans la SESSION, pas dans les listes : ce qu'on affiche est ce qui sera envoye.
   const qualificationOuverte = session.current?.etat.evenements.find((e) => e.statut === "OUVERT" && e.code === CODE_SEGMENT)?.qualification ?? null;
+  const etatBrut = session.current?.etat ?? null;
+  const dernierEchantillon = etatBrut?.echantillons[etatBrut.echantillons.length - 1] ?? null;
+  const vide = r ? sessionVide(r) : false;
+  const finOuMaintenant = etatBrut ? (etatBrut.finMs ?? Date.now()) : 0;
+  const dureeTotaleMs = etatBrut ? Math.max(0, finOuMaintenant - etatBrut.debutMs) : 0;
+  const dureePausesMs = etatBrut ? etatBrut.pauses.reduce((n, p) => n + Math.max(0, (p.finMs ?? finOuMaintenant) - p.debutMs), 0) : 0;
+  const qualite = r ? qualiteTrace(r, dureeTotaleMs) : null;
+  const etatVue = etatSessionVue({ phase: vue.phase, vide, gpsInterrompu: vue.gnssIndisponible || vue.permissionRefusee, envoi });
+  const libelleEtat = LIBELLES_ETAT[etatVue];
+  // La trace n'est reconstruite que lorsqu'une position est ajoutee, pas a chaque rafraichissement d'une seconde.
+  const nombreEchantillons = r?.echantillons ?? 0;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const segmentsCarte = useMemo(() => segmentsPourCarte(session.current?.etat.echantillons ?? []), [nombreEchantillons, vue.phase]);
+  const positionCarte: [number, number] | null = dernierEchantillon ? [dernierEchantillon.lat, dernierEchantillon.lon] : null;
+  const vitesse = vitesseKmH(dernierEchantillon?.vitesseMs);
+  const ageDernierMs = dernierEchantillon && vue.phase !== "arretee" ? Math.max(0, Date.now() - dernierEchantillon.tMs) : null;
+  const tonClasse = { neutre: "border-gray-300 bg-white text-gray-900", ok: "border-green-300 bg-green-50 text-green-900", attention: "border-amber-300 bg-amber-50 text-amber-950", erreur: "border-red-300 bg-red-50 text-red-900" }[libelleEtat.ton];
 
   return (
     <div className="space-y-6">
@@ -393,31 +518,126 @@ export function EnregistrementRoulagePage() {
       {interrompue && (
         <section aria-labelledby="reprise" className="rounded-lg border border-gray-300 bg-white p-4 text-sm">
           <h2 id="reprise" className="font-semibold">Une session a été retrouvée sur ce téléphone</h2>
-          <p className="mt-1">{interrompue.positions} position(s) enregistrée(s){interrompue.arretee ? ", session terminée mais pas encore envoyée" : ", session interrompue (page fermée ou téléphone redémarré)"}.</p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {!interrompue.arretee && <Button onClick={() => void reprendreInterrompue()}><Play className="h-4 w-4" aria-hidden="true" />Reprendre l'enregistrement</Button>}
-            {interrompue.arretee && <Button onClick={() => setInterrompue(null)}>Voir la session</Button>}
-            <Button variant="outline" onClick={() => void oublier()}>Supprimer cette session</Button>
-          </div>
-          {!interrompue.arretee && <p className="mt-2 text-xs text-gray-600">Le temps écoulé depuis la dernière position sera noté comme une interruption : on ne sait pas où le véhicule est passé.</p>}
+          {interrompue.positions === 0 ? (
+            <>
+              <p className="mt-1" role="status">
+                Cette session ne contient <strong>aucune position</strong> : le GPS n'a rien enregistré avant l'arrêt ou la fermeture de la page. Ce n'est pas un relevé, il n'y a rien à envoyer.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button onClick={() => void oublier()}><RotateCcw className="h-4 w-4" aria-hidden="true" />Recommencer</Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="mt-1">
+                {interrompue.positions} position(s) enregistrée(s)
+                {interrompue.arretee
+                  ? interrompue.envoyeLe ? `, session terminée et déjà confirmée par le serveur le ${new Date(interrompue.envoyeLe).toLocaleString("fr-FR")}` : ", session terminée mais pas encore envoyée"
+                  : ", session interrompue (page fermée ou téléphone redémarré)"}.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {!interrompue.arretee && <Button onClick={() => void reprendreInterrompue()}><Play className="h-4 w-4" aria-hidden="true" />Reprendre l'enregistrement</Button>}
+                {interrompue.arretee && <Button onClick={() => setInterrompue(null)}>Voir la session</Button>}
+                {interrompue.envoyeLe
+                  ? <Button variant="outline" onClick={() => void oublier()}><RotateCcw className="h-4 w-4" aria-hidden="true" />Nouveau relevé</Button>
+                  : <Button variant="outline" onClick={() => setConfirmerSuppression(true)}><Trash2 className="h-4 w-4" aria-hidden="true" />Supprimer cette session</Button>}
+              </div>
+              {!interrompue.arretee && <p className="mt-2 text-xs text-gray-600">Le temps écoulé depuis la dernière position sera noté comme une interruption : on ne sait pas où le véhicule est passé.</p>}
+              {confirmerSuppression && (
+                <div role="alertdialog" aria-labelledby="conf-titre" className="mt-3 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-950">
+                  <p id="conf-titre" className="font-semibold">Supprimer cette session ?</p>
+                  <p className="mt-1">{interrompue.positions} position(s) {interrompue.envoyeLe ? "" : "qui n'ont pas été envoyées au serveur "}seront perdues de ce téléphone. Cette action est définitive.</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button size="sm" variant="danger" onClick={() => void oublier()}>Oui, supprimer</Button>
+                    <Button size="sm" variant="outline" onClick={() => setConfirmerSuppression(false)}>Non, la garder</Button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </section>
       )}
 
       {vue.phase === "repos" && !interrompue && (
-        <Button size="lg" onClick={() => void demarrer()}><MapPin className="h-4 w-4" aria-hidden="true" />Démarrer l'enregistrement</Button>
+        <section aria-labelledby="preparation" className="max-w-xl space-y-4 rounded-lg border border-gray-300 bg-white p-4">
+          <h2 id="preparation" className="text-lg font-semibold">Préparer le relevé</h2>
+          <div>
+            <label htmlFor="intitule" className="block text-sm font-medium">Intitulé (facultatif)</label>
+            <input id="intitule" value={intitule} maxLength={120} onChange={(e) => setIntitule(e.target.value)} placeholder="Ex. : RN1 Coyah – Kindia, reconnaissance"
+              className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm" />
+            <p className="mt-1 text-xs text-gray-600">Gardé sur ce téléphone avec la session ; la route et le tronçon sont retrouvés par le serveur à partir de la trace, la mission se choisit ci-dessous.</p>
+          </div>
+          <fieldset>
+            <legend className="text-sm font-medium">Profil de précision</legend>
+            <div className="mt-1 space-y-1">
+              {PROFILS_PRECISION.map((pr) => (
+                <label key={pr.code} className="flex items-start gap-2 text-sm">
+                  <input type="radio" name="profil" value={pr.code} checked={profil === pr.code} onChange={() => setProfil(pr.code)} className="mt-1" />
+                  <span><strong>{pr.libelle}</strong> : {pr.explication}</span>
+                </label>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-gray-600">Seuils de départ provisoires, non calibrés sur un téléphone. Le profil choisi est enregistré avec la session.</p>
+          </fieldset>
+          <dl className="grid grid-cols-1 gap-2 text-sm sm:grid-cols-3" aria-label="Contrôles avant le départ">
+            <div className="rounded-md border border-gray-200 p-2">
+              <dt className="text-xs text-gray-600">Position (GPS)</dt>
+              <dd className={permissionGps === "refusee" ? "font-semibold text-red-800" : ""}>
+                {permissionGps === "accordee" ? "Autorisée" : permissionGps === "refusee" ? "Refusée : l'autoriser dans le navigateur" : permissionGps === "a_demander" ? "Sera demandée au démarrage" : "Sera demandée au démarrage"}
+              </dd>
+            </div>
+            <div className="rounded-md border border-gray-200 p-2">
+              <dt className="text-xs text-gray-600">Réseau</dt>
+              <dd className={enLigne ? "" : "font-semibold text-amber-900"}>{enLigne ? "En ligne" : "Hors ligne : la session sera gardée sur le téléphone"}</dd>
+            </div>
+            <div className="rounded-md border border-gray-200 p-2">
+              <dt className="text-xs text-gray-600">Stockage du téléphone</dt>
+              <dd className={stockageProche(stockageEstime) ? "font-semibold text-red-800" : ""}>
+                {stockageEstime === null ? "Non communiqué par le navigateur" : stockageProche(stockageEstime) ? `Presque plein (${Math.round(stockageEstime.part * 100)} %) : libérer de la place avant de partir` : `${Math.round(stockageEstime.part * 100)} % utilisé`}
+              </dd>
+            </div>
+          </dl>
+          <Button size="lg" onClick={() => void demarrer()}><MapPin className="h-4 w-4" aria-hidden="true" />Démarrer l'enregistrement</Button>
+        </section>
       )}
 
-      {(enCours || vue.phase === "arretee") && r && (
+      {/* Tant qu'une session retrouvee attend le choix de l'agent (reprendre, voir, supprimer), son ecran n'est pas montre : il laisserait croire qu'elle enregistre. */}
+      {!interrompue && (enCours || vue.phase === "arretee") && r && (
         <section aria-labelledby="etat" className="space-y-4">
-          <h2 id="etat" className="text-lg font-semibold">
-            {vue.phase === "en_cours" ? "Enregistrement en cours" : vue.phase === "pause" ? "En pause" : "Enregistrement terminé"}
-          </h2>
+          <h2 id="etat" className={`rounded-lg border px-3 py-2 text-lg font-semibold ${tonClasse}`}>{libelleEtat.libelle}</h2>
+          {intitule.trim() !== "" && <p className="text-sm text-gray-700">{intitule.trim()}</p>}
+          <ul className="flex flex-wrap gap-2 text-xs" aria-label="États du GPS, du réseau et de la conservation">
+            <li className={`rounded-full border px-2 py-1 ${vue.permissionRefusee || vue.gnssIndisponible ? "border-red-300 bg-red-50 text-red-900" : "border-gray-300 bg-white"}`}>
+              GPS : {vue.permissionRefusee ? "refusé" : vue.gnssIndisponible ? "signal perdu" : vue.phase === "arretee" ? "arrêté" : dernierEchantillon ? "signal reçu" : "en attente du premier signal"}
+            </li>
+            <li className={`rounded-full border px-2 py-1 ${enLigne ? "border-gray-300 bg-white" : "border-amber-300 bg-amber-50 text-amber-950"}`}>Réseau : {enLigne ? "en ligne" : "hors ligne"}</li>
+            <li className="rounded-full border border-gray-300 bg-white px-2 py-1">
+              Conservation : {envoi === "envoye" ? "confirmée par le serveur" : stockageMemoire ? "mémoire de la page seulement" : "sur ce téléphone, pas encore envoyée"}
+            </li>
+            {stockageProche(stockageEstime) && <li className="rounded-full border border-red-300 bg-red-50 px-2 py-1 text-red-900">Stockage presque plein</li>}
+          </ul>
+          {vue.phase !== "arretee" && (
+            <>
+              <CarteTraceRoulage segments={segmentsCarte} position={positionCarte} precisionM={vue.precisionM} suivre={suivreCarte} />
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={suivreCarte} onChange={(e) => setSuivreCarte(e.target.checked)} />
+                Centrer la carte sur ma position
+              </label>
+            </>
+          )}
           <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="rounded-lg border border-gray-200 bg-white p-3"><dt className="text-xs text-gray-600">Durée</dt><dd className="text-lg font-semibold">{libelleDuree(dureeS)}</dd></div>
-            <div className="rounded-lg border border-gray-200 bg-white p-3"><dt className="text-xs text-gray-600">Distance</dt><dd className="text-lg font-semibold">{libelleKm(r.distanceM)}</dd></div>
+            <div className="rounded-lg border border-gray-200 bg-white p-3"><dt className="text-xs text-gray-600">Distance estimée</dt><dd className="text-lg font-semibold">{libelleKm(r.distanceM)}</dd></div>
             <div className="rounded-lg border border-gray-200 bg-white p-3"><dt className="text-xs text-gray-600">Positions retenues</dt><dd className="text-lg font-semibold">{r.echantillons}</dd></div>
             <div className="rounded-lg border border-gray-200 bg-white p-3"><dt className="text-xs text-gray-600">Précision actuelle</dt><dd className="text-lg font-semibold">{vue.precisionM === null ? "inconnue" : `${Math.round(vue.precisionM)} m`}</dd></div>
+            {vue.phase !== "arretee" && (
+              <>
+                <div className="rounded-lg border border-gray-200 bg-white p-3"><dt className="text-xs text-gray-600">Vitesse GPS</dt><dd className="text-lg font-semibold">{vitesse === null ? "non communiquée" : `${Math.round(vitesse)} km/h`}</dd></div>
+                <div className="rounded-lg border border-gray-200 bg-white p-3"><dt className="text-xs text-gray-600">Dernière position valide</dt><dd className="text-lg font-semibold">{ageDernierMs === null ? "aucune" : ageDernierMs < 2000 ? "à l'instant" : `il y a ${libelleDuree(Math.round(ageDernierMs / 1000))}`}</dd></div>
+              </>
+            )}
           </dl>
+          <p className="text-xs text-gray-600">La distance est une estimation faite sur les positions retenues, sans rapprochement au réseau routier : ce n'est pas une mesure exacte.</p>
           <p className="text-xs text-gray-600">
             {r.rejetsTotal} position(s) écartée(s) (précision insuffisante, saut ou doublon) · {r.trous} trou(s) de signal · {r.marqueurs} repère(s) · {r.evenementsClos} segment(s) clos
             {vue.ecranMaintenu === false && enCours ? " · l'écran n'est PAS maintenu allumé par ce navigateur : le garder allumé à la main" : ""}
@@ -508,7 +728,9 @@ export function EnregistrementRoulagePage() {
                   ? <Button variant="outline" onClick={() => { session.current?.mettreEnPause(); rafraichir(); }}><Pause className="h-4 w-4" aria-hidden="true" />Pause</Button>
                   : <Button variant="outline" onClick={() => { session.current?.reprendre(); rafraichir(); }}><Play className="h-4 w-4" aria-hidden="true" />Reprendre</Button>}
                 <Button variant="danger" onClick={() => arreter("REFUSER")}><Square className="h-4 w-4" aria-hidden="true" />Arrêter</Button>
+                <Button variant="ghost" onClick={enregistrerEtQuitter}><LogOut className="h-4 w-4" aria-hidden="true" />Mettre en pause et quitter</Button>
               </div>
+              <p className="text-xs text-gray-600">« Mettre en pause et quitter » garde la session sur ce téléphone : au retour sur cet écran, elle est proposée à la reprise, le temps écoulé étant noté comme une interruption.</p>
               {choixArret && (
                 <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
                   <p>Un segment est encore ouvert. Le clore à l'instant de l'arrêt revient à décider où il se termine : à vous de choisir.</p>
@@ -522,19 +744,60 @@ export function EnregistrementRoulagePage() {
             </>
           )}
 
-          {vue.phase === "arretee" && (
+          {vue.phase === "arretee" && vide && (
             <div className="space-y-3">
+              <p role="alert" className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900">
+                <strong>Aucune position valide n'a été enregistrée.</strong> Ce n'est pas un relevé : il n'y a ni trace, ni distance, et rien à envoyer. Causes fréquentes : l'autorisation de position a été refusée, le signal GPS n'est pas arrivé (intérieur, tunnel, GPS coupé), ou l'enregistrement a été arrêté trop tôt. Sortir à l'air libre, vérifier que le GPS est activé en haute précision, puis recommencer.
+              </p>
+              <Button onClick={() => void oublier()}><RotateCcw className="h-4 w-4" aria-hidden="true" />Recommencer</Button>
+            </div>
+          )}
+
+          {vue.phase === "arretee" && !vide && r && qualite && (
+            <div className="space-y-3">
+              <section aria-labelledby="resume" className="rounded-lg border border-gray-300 bg-white p-4 text-sm">
+                <h3 id="resume" className="font-semibold">Résumé du relevé</h3>
+                <dl className="mt-2 grid grid-cols-1 gap-x-6 gap-y-1 sm:grid-cols-2">
+                  <div className="flex justify-between gap-2"><dt className="text-gray-600">Distance estimée</dt><dd>{libelleKm(r.distanceM)}</dd></div>
+                  <div className="flex justify-between gap-2"><dt className="text-gray-600">Durée totale</dt><dd>{libelleDuree(Math.round(dureeTotaleMs / 1000))}</dd></div>
+                  <div className="flex justify-between gap-2"><dt className="text-gray-600">Durée effective d'enregistrement</dt><dd>{libelleDuree(Math.round(dureeEffectiveMs(dureeTotaleMs, r, dureePausesMs) / 1000))}</dd></div>
+                  <div className="flex justify-between gap-2"><dt className="text-gray-600">Positions valides</dt><dd>{r.echantillons}</dd></div>
+                  <div className="flex justify-between gap-2"><dt className="text-gray-600">Interruptions et trous de signal</dt><dd>{r.interruptions} · {r.trous}</dd></div>
+                  <div className="flex justify-between gap-2"><dt className="text-gray-600">Pauses</dt><dd>{r.pauses}</dd></div>
+                </dl>
+                <p className={`mt-3 rounded-md border px-3 py-2 ${qualite.niveau === "bonne" ? "border-green-300 bg-green-50 text-green-900" : qualite.niveau === "moyenne" ? "border-amber-300 bg-amber-50 text-amber-950" : "border-red-300 bg-red-50 text-red-900"}`}>
+                  <strong>{qualite.libelle}.</strong> {qualite.raisons.join(" ")} <span className="text-xs">(Indicatif : seuils provisoires, non calibrés ; ce n'est pas une mesure de l'exactitude de la position.)</span>
+                </p>
+                <div className="mt-3">
+                  <CarteTraceRoulage segments={segmentsCarte} position={null} precisionM={null} suivre={false} />
+                </div>
+              </section>
               <div className="flex flex-wrap gap-2">
                 <Button onClick={telechargerGpx}><Download className="h-4 w-4" aria-hidden="true" />Télécharger le GPX</Button>
-                <Button variant="outline" onClick={() => void envoyer()} disabled={envoi === "en_cours" || envoi === "envoye"}><Send className="h-4 w-4" aria-hidden="true" />Envoyer la session au serveur</Button>
-                <Button variant="ghost" onClick={() => void oublier()} disabled={envoi !== "envoye" && envoi !== "aucun" && envoi !== "echec"}>
-                  {envoi === "envoye" ? "Nouveau relevé" : "Supprimer sans envoyer"}
+                <Button variant="outline" onClick={() => void envoyer()} disabled={envoi === "en_cours" || envoi === "envoye"}>
+                  <Send className="h-4 w-4" aria-hidden="true" />{envoi === "echec" ? "Renvoyer la session" : "Envoyer la session au serveur"}
                 </Button>
+                {envoi === "envoye"
+                  ? <Button variant="ghost" onClick={() => void oublier()}><RotateCcw className="h-4 w-4" aria-hidden="true" />Nouveau relevé</Button>
+                  : <Button variant="ghost" onClick={() => setConfirmerSuppression(true)} disabled={envoi === "en_cours"}><Trash2 className="h-4 w-4" aria-hidden="true" />Supprimer sans envoyer</Button>}
               </div>
-              {envoi !== "aucun" && envoi !== "en_cours" && (
-                <p role="status" className={`rounded-lg border p-3 text-sm ${envoi === "envoye" ? "border-green-300 bg-green-50 text-green-900" : "border-red-300 bg-red-50 text-red-900"}`}>{messageEnvoi}</p>
+              {confirmerSuppression && envoi !== "envoye" && (
+                <div role="alertdialog" aria-labelledby="conf-titre-2" className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-950">
+                  <p id="conf-titre-2" className="font-semibold">Supprimer cette session sans l'envoyer ?</p>
+                  <p className="mt-1">{r.echantillons} position(s) n'ont pas été confirmées par le serveur et seront perdues de ce téléphone. Cette action est définitive. Télécharger le GPX d'abord permet d'en garder une copie.</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Button size="sm" variant="danger" onClick={() => void oublier()}>Oui, supprimer</Button>
+                    <Button size="sm" variant="outline" onClick={() => setConfirmerSuppression(false)}>Non, la garder</Button>
+                  </div>
+                </div>
               )}
-              <p className="text-xs text-gray-600">Le fichier GPX peut ensuite être analysé dans <Link className="underline" to="/inspections/releve">Relevé en véhicule</Link> : tronçons parcourus, parties hors référentiel, indicateurs de qualité.</p>
+              {envoi === "en_cours" && <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">Envoi en cours : la session reste sur ce téléphone jusqu'à la confirmation du serveur.</p>}
+              {envoi !== "aucun" && envoi !== "en_cours" && (
+                <p role="status" className={`rounded-lg border p-3 text-sm ${envoi === "envoye" ? "border-green-300 bg-green-50 text-green-900" : "border-red-300 bg-red-50 text-red-900"}`}>
+                  {messageEnvoi}{envoi === "echec" && envoiRetentable && !enLigne ? " Un nouvel envoi sera tenté automatiquement au retour du réseau." : ""}
+                </p>
+              )}
+              <p className="text-xs text-gray-600">Le fichier GPX peut ensuite être analysé dans <Link className="underline" to="/inspections/releve">Relevé en véhicule</Link> : tronçons parcourus, parties hors référentiel, indicateurs de qualité. Une trace GPS n'est pas une inspection validée.</p>
             </div>
           )}
         </section>
