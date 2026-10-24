@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { violationsAccessibilite } from "../test/accessibilite";
 import { deplacer } from "../roulage";
@@ -78,6 +78,8 @@ vi.mock("../lib/roulageHote", async (importOriginal) => {
     ouvrirStockage: () => stockage,
     // Le stockage en memoire est partage par tout le fichier : chaque test repart d'un telephone vide.
     viderStockageEssai: () => stockage.vider(),
+    // Acces brut pour SEMER un journal dans les tests (reprise refusee, phase 1 SMART FIELD).
+    stockageBrut: stockage,
     garderEcranAllume: async () => ({ actif: true, liberer: async () => undefined }),
   };
 });

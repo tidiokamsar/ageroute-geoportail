@@ -147,6 +147,10 @@ export function EnregistrementRoulagePage() {
   const [vocab, setVocab] = useState<VocabulairesChargement | null>(null);
   const [saisie, setSaisie] = useState<SaisieQualification>(SAISIE_VIDE);
   const [missions, setMissions] = useState<MissionListee[] | null | "chargement">("chargement");
+  // Un journal retrouve mais INREJOUABLE (version incompatible, debut absent) n'est jamais
+  // ignore en silence (phase 1 SMART FIELD) : la raison est dite, les donnees restent sur
+  // l'appareil, et l'agent choisit en connaissance de cause.
+  const [repriseRefusee, setRepriseRefusee] = useState<string | null>(null);
   const [missionId, setMissionId] = useState("");
 
   // Vocabulaires de qualification et missions : demandes a l'ouverture (en ligne, avant de partir). Un echec n'empeche
@@ -195,7 +199,7 @@ export function EnregistrementRoulagePage() {
     void stockageOuvert().toutes().then((entrees) => {
       if (!vivant || entrees.length === 0) return;
       const r = SessionRoulage.rejouer(entrees, { horloge: horlogeSysteme(), genererId: () => crypto.randomUUID(), journal: stockageOuvert().ajouter });
-      if (!r.ok) return;
+      if (!r.ok) { if (vivant) setRepriseRefusee(r.raison); return; }
       session.current = r.session;
       // Les listes (segment ouvert) et la mission reviennent telles qu'elles etaient a la fermeture de la page.
       const ouvert = r.session.etat.evenements.find((e) => e.statut === "OUVERT" && e.code === CODE_SEGMENT);
@@ -329,6 +333,7 @@ export function EnregistrementRoulagePage() {
       oublierEnvoi(id);
     }
     await stockageOuvert().vider();
+    setRepriseRefusee(null);
     setConfirmerSuppression(false);
     setIntitule("");
     session.current = null;
@@ -515,6 +520,30 @@ export function EnregistrementRoulagePage() {
         </p>
       )}
 
+      {/* Phase 1 SMART FIELD : un journal retrouve mais injouable est DIT — raison, donnees
+          gardees sur l'appareil, choix explicite. Jamais un ecran vide qui ressemble a une perte. */}
+      {repriseRefusee && !session.current && !interrompue && (
+        <section aria-labelledby="reprise-refusee" className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm">
+          <h2 id="reprise-refusee" className="font-semibold">Une session est sur ce téléphone, mais elle ne peut pas être rouverte</h2>
+          <p className="mt-1 text-gray-700">
+            {repriseRefusee === "VERSION_JOURNAL_INCONNUE"
+              ? "Le journal a été écrit par une version de l'application incompatible avec celle d'aujourd'hui."
+              : "Le journal est incomplet : son début n'a pas été retrouvé."}{" "}
+            Les données sont <strong>toujours sur cet appareil</strong>, rien n'a été envoyé ni supprimé.
+          </p>
+          <p className="mt-1 text-xs text-gray-500">
+            Si ces données comptent, ne les effacez pas : contactez la DSI avec la mention « journal de roulage {repriseRefusee === "VERSION_JOURNAL_INCONNUE" ? "version incompatible" : "début absent"} ».
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button type="button" variant="danger" onClick={() => { void oublier(); }}>
+              Effacer ce journal (données perdues)
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => setRepriseRefusee(null)}>
+              Décider plus tard
+            </Button>
+          </div>
+        </section>
+      )}
       {interrompue && (
         <section aria-labelledby="reprise" className="rounded-lg border border-gray-300 bg-white p-4 text-sm">
           <h2 id="reprise" className="font-semibold">Une session a été retrouvée sur ce téléphone</h2>
