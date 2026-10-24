@@ -39,7 +39,7 @@ const CLASSE_META: Record<ClasseRoute, { short: string; label: string; pill: str
  * signale — mais une page de consultation ne doit pas s'effondrer parce qu'une valeur
  * lui est inconnue. Elle affiche ce qu'elle recoit.
  */
-const REPLI_CLASSE = { short: "?", label: "Classe inconnue", pill: "bg-gray-100 text-gray-500" };
+const REPLI_CLASSE = { short: "?", label: "Classe inconnue", pill: "bg-gray-100 text-gray-600" };
 
 const REVETEMENT_LABELS: Record<string, string> = {
   BITUME: "Bitume", TERRE: "Terre", LATERITE: "Latérite", PAVE: "Pavé",
@@ -65,7 +65,7 @@ function CodeCell({ code, onOpen }: { code: string; onOpen: () => void }) {
         onClick={onOpen}
         className={`text-left font-mono leading-tight hover:underline focus:outline-none ${
           isTech
-            ? "text-[11px] text-gray-400"
+            ? "text-[11px] text-gray-500"
             : "text-sm font-semibold text-navy"
         }`}
       >
@@ -95,11 +95,11 @@ function PkCell({ pkDebut, pkFin, onEdit, canEdit }: {
 }) {
   if (pkDebut === 0 && pkFin === 0) {
     return (
-      <span className="flex items-center gap-1.5 text-[11px] text-orange-500 font-medium whitespace-nowrap">
+      <span className="flex items-center gap-1.5 text-[11px] text-orange-700 font-medium whitespace-nowrap">
         <AlertTriangle className="h-3 w-3 shrink-0" />
         Non renseigné
         {canEdit && (
-          <button onClick={onEdit} className="underline text-orange-600 hover:text-orange-800 ml-0.5">
+          <button onClick={onEdit} className="underline text-orange-700 hover:text-orange-800 ml-0.5">
             Renseigner
           </button>
         )}
@@ -261,7 +261,7 @@ export function TronconsPage() {
             PK manquant
           </button>
           {topAxis && (
-            <span className="text-xs text-gray-400 self-center ml-1 whitespace-nowrap">
+            <span className="text-xs text-gray-500 self-center ml-1 whitespace-nowrap">
               <span className="text-gray-500 font-medium">{topAxis.axis}</span>
               {" : "}{topAxis.count} segments regroupés
             </span>

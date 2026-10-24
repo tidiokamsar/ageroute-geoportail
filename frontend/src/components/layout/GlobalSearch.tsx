@@ -52,7 +52,7 @@ export function GlobalSearch() {
                 setOpen(false);
               }}
             >
-              <span className="text-[10px] uppercase text-gray-400 mr-2">{TYPE_LABELS[r.type] ?? r.type}</span>
+              <span className="text-[10px] uppercase text-gray-500 mr-2">{TYPE_LABELS[r.type] ?? r.type}</span>
               {r.label}
             </button>
           ))}

@@ -45,7 +45,7 @@ const APPARENCE: Record<
   DERIVED: { icone: Calculator, classe: "bg-sky-50 text-sky-700 ring-sky-200" },
   CONFLICTING: { icone: XCircle, classe: "bg-red-50 text-red-700 ring-red-200" },
   UNKNOWN: { icone: HelpCircle, classe: "bg-gray-100 text-gray-600 ring-gray-200" },
-  ABSENT: { icone: HelpCircle, classe: "bg-gray-100 text-gray-500 ring-gray-200" },
+  ABSENT: { icone: HelpCircle, classe: "bg-gray-100 text-gray-600 ring-gray-200" },
 };
 
 export function QualiteBadge({ qualite }: { qualite: QualiteChamp | null | undefined }) {

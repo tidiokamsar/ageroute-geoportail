@@ -10,6 +10,13 @@ descendantes : ces scripts sont ecrits a la main, un par migration, et nommes d'
 refusent de s'executer. Toutes ont ete executees par le banc `verifier.sh` : 238 verifications, 0
 echec. Voir « Ce que le banc prouve, et ce qu'il ne prouve pas » avant de s'y fier.
 
+> **Branche `lot/17-consignes-dt`, 22/10/2026 (nuit)** : cette branche ajoute une migration,
+> `20261025120000_teledetection_coherence_complements`, reversible ; elle rend a l'identique la
+> fonction et la vue de `20261022020000`. Deux autres ont ete retirees aux fusions, la ligne
+> principale portant le meme objet : `20261025100000_metre_emprise_utm` (valeur d'enumeration de
+> `20261024300000`) et `20261025110000_index_geom_troncons` (index `troncons_geom_gist` de
+> `20261023200000` ; sa descente aurait supprime l'index de l'autre). Decompte et banc : voir `TEST_EVIDENCE.md`.
+
 | Famille | Migrations | Ce que fait la descente |
 |---|---|---|
 | Ajout de colonnes, de tables, d'index | la grande majorite | retire ce que la migration a ajoute, apres une **garde** (voir plus bas) |

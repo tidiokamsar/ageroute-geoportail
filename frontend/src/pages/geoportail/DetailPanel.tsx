@@ -99,7 +99,7 @@ function StatCard({ label, value, color = "#1a2942", sub }: { label: string; val
       <span className="absolute inset-y-0 left-0 w-1 rounded-l-lg" style={{ backgroundColor: color }} />
       <p className="text-[10px] text-gray-500 leading-tight">{label}</p>
       <p className="text-base font-bold text-navy">{value}</p>
-      {sub && <p className="text-[10px] text-gray-400">{sub}</p>}
+      {sub && <p className="text-[10px] text-gray-500">{sub}</p>}
     </div>
   );
 }
@@ -108,7 +108,7 @@ function CopyButton({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
-      className="ml-1 inline-flex items-center text-gray-400 hover:text-navy"
+      className="ml-1 inline-flex items-center text-gray-500 hover:text-navy"
       onClick={() => { navigator.clipboard.writeText(value); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
     >
       {copied ? <Check className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
@@ -161,7 +161,7 @@ function AuditEntry({ action, auteur, createdAt, before, after }: {
       <div className="pb-4">
         <div className="flex items-start justify-between gap-2">
           <span className="text-sm font-medium text-navy">{action}</span>
-          <span className="text-[11px] text-gray-400 shrink-0">{fmtDate(createdAt)}</span>
+          <span className="text-[11px] text-gray-500 shrink-0">{fmtDate(createdAt)}</span>
         </div>
         <p className="text-xs text-gray-500">{auteur}</p>
         {hasDetails && (
@@ -653,7 +653,7 @@ export function DetailPanel({
             <SectionTitle icon={<Wrench className="h-3.5 w-3.5" />} title="Caractéristiques de chaussée" />
             <InfoRow label="Revêtement" value={REVETEMENT_LABELS[d.revetement ?? ""] ?? d.revetement} />
             <InfoRow label="Trafic moyen journalier" value={d.traficMoyenJma ? `${d.traficMoyenJma.toLocaleString("fr-FR")} véh/j` : "—"} />
-            <div className="mt-3 p-3 rounded-lg bg-gray-50 border border-dashed border-gray-200 text-xs text-gray-400 text-center">
+            <div className="mt-3 p-3 rounded-lg bg-gray-50 border border-dashed border-gray-200 text-xs text-gray-500 text-center">
               Largeur chaussée, nbre de voies, drainage, vitesse de référence… — à compléter dans une prochaine version
             </div>
             <SectionTitle icon={<Layers className="h-3.5 w-3.5" />} title="Géométrie" />
@@ -669,7 +669,7 @@ export function DetailPanel({
               >
                 <Download className="h-3 w-3" /> GeoJSON
               </button>
-              <button className="flex items-center gap-1.5 text-xs text-gray-400 border border-gray-200 rounded-lg px-3 py-1.5 cursor-not-allowed" title="Bientôt disponible">
+              <button className="flex items-center gap-1.5 text-xs text-gray-500 border border-gray-200 rounded-lg px-3 py-1.5 cursor-not-allowed" title="Bientôt disponible">
                 <Download className="h-3 w-3" /> Shapefile (bientôt)
               </button>
             </div>
@@ -710,7 +710,7 @@ export function DetailPanel({
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-medium text-navy">{ETAT_LABELS[insp.etatObserve]}</p>
                         <p className="text-[11px] text-gray-500 truncate">{insp.inspecteur?.nomComplet} · {fmtDate(insp.dateInspection)}</p>
-                        {insp.defautsConstates && <p className="text-[11px] text-gray-400 truncate">{insp.defautsConstates}</p>}
+                        {insp.defautsConstates && <p className="text-[11px] text-gray-500 truncate">{insp.defautsConstates}</p>}
                       </div>
                     </div>
                   ))}
@@ -720,7 +720,7 @@ export function DetailPanel({
                 <div className="space-y-1.5">
                   {fiche.inspections.slice(0, 6).reverse().map((insp, i) => (
                     <div key={i} className="flex items-center gap-2">
-                      <span className="text-[10px] text-gray-400 w-20 text-right">{new Date(insp.dateInspection).toLocaleDateString("fr-FR", { month: "short", year: "2-digit" })}</span>
+                      <span className="text-[10px] text-gray-500 w-20 text-right">{new Date(insp.dateInspection).toLocaleDateString("fr-FR", { month: "short", year: "2-digit" })}</span>
                       <div className="flex-1 h-3 rounded bg-gray-100 overflow-hidden">
                         <div className="h-full rounded" style={{ width: "100%", backgroundColor: ETAT_COLORS[insp.etatObserve] }} />
                       </div>
@@ -741,7 +741,7 @@ export function DetailPanel({
           <div>
             <SectionTitle icon={<Landmark className="h-3.5 w-3.5" />} title={`Ouvrages d'art (${ouvrages.length})`} />
             {ouvrages.length === 0 ? (
-              <p className="text-sm text-gray-400 italic mb-3">Aucun ouvrage référencé sur ce tronçon</p>
+              <p className="text-sm text-gray-500 italic mb-3">Aucun ouvrage référencé sur ce tronçon</p>
             ) : (
               <div className="space-y-1.5 mb-4">
                 {ouvrages.map((o) => (
@@ -758,7 +758,7 @@ export function DetailPanel({
             )}
             <SectionTitle icon={<Building2 className="h-3.5 w-3.5" />} title={`Postes péage/pesage (${postes.length})`} />
             {postes.length === 0 ? (
-              <p className="text-sm text-gray-400 italic mb-3">Aucun poste</p>
+              <p className="text-sm text-gray-500 italic mb-3">Aucun poste</p>
             ) : (
               <div className="space-y-1 mb-4">
                 {postes.map((p) => (
@@ -771,14 +771,14 @@ export function DetailPanel({
             )}
             <SectionTitle icon={<ShieldAlert className="h-3.5 w-3.5" />} title={`Points noirs (${pns.length})`} />
             {pns.length === 0 ? (
-              <p className="text-sm text-gray-400 italic">Aucun point noir</p>
+              <p className="text-sm text-gray-500 italic">Aucun point noir</p>
             ) : (
               <div className="space-y-1">
                 {pns.map((p) => (
                   <div key={p.id} className="flex items-center gap-2 p-2 rounded bg-gray-50 border border-gray-100">
                     <span className={`h-2 w-2 rounded-full ${p.gravite === "FORTE" ? "bg-red-500" : p.gravite === "MOYENNE" ? "bg-orange-400" : "bg-yellow-400"}`} />
                     <p className="text-xs text-navy truncate flex-1">{p.description}</p>
-                    <span className="text-[10px] text-gray-400">{p.gravite}</span>
+                    <span className="text-[10px] text-gray-500">{p.gravite}</span>
                   </div>
                 ))}
               </div>
@@ -809,7 +809,7 @@ export function DetailPanel({
                       <span className="text-xs text-gray-500 shrink-0">{c.avancementPct}%</span>
                     </div>
                     {c.entreprise && <p className="text-[11px] text-gray-500">{c.entreprise}</p>}
-                    {c.montantGnf && <p className="text-[11px] text-gray-400">{Number(c.montantGnf).toLocaleString("fr-FR")} GNF</p>}
+                    {c.montantGnf && <p className="text-[11px] text-gray-500">{Number(c.montantGnf).toLocaleString("fr-FR")} GNF</p>}
                   </div>
                 ))}
               </div>
@@ -980,8 +980,8 @@ export function DetailPanel({
   }
 
   function renderDocuments() {
-    if (!docs) return <p className="text-sm text-gray-400 py-4 text-center">Chargement…</p>;
-    if (docs.length === 0) return <p className="text-sm text-gray-400 italic">Aucun document lié</p>;
+    if (!docs) return <p className="text-sm text-gray-500 py-4 text-center">Chargement…</p>;
+    if (docs.length === 0) return <p className="text-sm text-gray-500 italic">Aucun document lié</p>;
     const TYPE_LABELS: Record<string, string> = {
       ARRETE: "Arrêté", CAHIER_CHARGES: "Cahier des charges", CAHIER_ENGAGEMENT: "Cahier d'engagement", AUTRE: "Autre",
     };
@@ -1005,7 +1005,7 @@ export function DetailPanel({
 
   function renderHistorique() {
     const entries = auditData?.data ?? [];
-    if (entries.length === 0) return <p className="text-sm text-gray-400 italic py-4 text-center">Aucun historique disponible</p>;
+    if (entries.length === 0) return <p className="text-sm text-gray-500 italic py-4 text-center">Aucun historique disponible</p>;
     return (
       <div className="mt-2">
         {entries.map((e) => (
@@ -1178,7 +1178,7 @@ export function DetailPanel({
                 <CopyButton value={`${feature.data.lat.toFixed(5)}, ${feature.data.lon.toFixed(5)}`} />
               </span>
             </div>
-            <p className="text-[11px] text-gray-400 mt-2">Repère à titre indicatif, non géré par AGEROUTE. Source : OpenStreetMap (ODbL).</p>
+            <p className="text-[11px] text-gray-500 mt-2">Repère à titre indicatif, non géré par AGEROUTE. Source : OpenStreetMap (ODbL).</p>
           </div>
         )}
 
@@ -1192,7 +1192,7 @@ export function DetailPanel({
             <InfoRow label="Région" value={feature.data.region ?? "—"} />
             <InfoRow label="Observations" value={feature.data.observations} />
             {feature.data.approximate && (
-              <p className="text-[11px] text-gray-400 mt-2">📍 Position approximative — centre de la région</p>
+              <p className="text-[11px] text-gray-500 mt-2">📍 Position approximative — centre de la région</p>
             )}
             {canEdit && (
               <div className="mt-4 pt-4 border-t border-gray-100 space-y-3">
@@ -1224,7 +1224,7 @@ export function DetailPanel({
           </Button>
           <Button size="sm" variant="ghost" onClick={() => setIsEditing(false)}>Annuler</Button>
           <div className="flex-1" />
-          <span className="text-[11px] text-amber-600 italic">Mode édition</span>
+          <span className="text-[11px] text-amber-700 italic">Mode édition</span>
         </div>
       ) : (
           feature.kind !== "toponyme" && (
@@ -1252,7 +1252,7 @@ export function DetailPanel({
               </button>
             )}
             <div className="flex-1" />
-            <button onClick={() => setIsMinimized(true)} title="Réduire" className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1.5">
+            <button onClick={() => setIsMinimized(true)} title="Réduire" className="text-xs text-gray-500 hover:text-gray-600 px-2 py-1.5">
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
             <button onClick={onClose} className="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5">Fermer</button>

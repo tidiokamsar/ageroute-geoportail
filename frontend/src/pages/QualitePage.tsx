@@ -247,7 +247,7 @@ export function QualitePage() {
               moyenne des autres statuts la masquerait. */}
           <div className="rounded-lg border border-slate-200 bg-white p-4">
             <div className="flex items-start gap-3">
-              <CalendarOff className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden />
+              <CalendarOff className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" aria-hidden />
               <div>
                 <p className="text-sm font-semibold text-navy">
                   {data.fraicheur.pct.toLocaleString("fr-FR")} % des valeurs portent une date de constat
@@ -293,7 +293,7 @@ export function QualitePage() {
                     <td className="px-4 py-3">
                       <Barre c={c} />
                       {c.total === 0 && (
-                        <p className="mt-1 text-[11px] italic text-slate-400">
+                        <p className="mt-1 text-[11px] italic text-slate-500">
                           Aucune ligne de qualité — on ne sait rien de ce champ.
                         </p>
                       )}

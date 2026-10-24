@@ -88,7 +88,7 @@ function Regles() {
       {!regles.data?.length ? <p className="text-sm text-amber-800">Aucune règle saisie.</p> : (
         <ul className="divide-y text-sm">
           {regles.data.map((r) => (
-            <li key={r.id} className={`flex flex-wrap items-center justify-between gap-2 py-1 ${r.actif ? "" : "text-gray-400"}`}>
+            <li key={r.id} className={`flex flex-wrap items-center justify-between gap-2 py-1 ${r.actif ? "" : "text-gray-500"}`}>
               <span>{libelleType(r.typeCode)} · {LIBELLE_MODE[r.mode]} · niveau {r.niveau} après {r.delaiMinutes} min{r.actif ? "" : " (désactivée)"}</span>
               {r.actif && <Button size="sm" variant="ghost" onClick={() => desactiver.mutate(r.id)}>Désactiver</Button>}
             </li>

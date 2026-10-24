@@ -1,3 +1,4 @@
+import { tuilesRouter } from "./tuiles/tuiles.routes";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -145,6 +146,9 @@ export function createApp() {
   app.use("/api/search", searchRouter);
   app.use("/api/documents", documentsRouter);
   app.use("/api/photos", photosRouter);
+  // Tuiles vectorielles AVANT le routeur public : elles ont leur propre plafond de debit, plus
+  // large (un ecran de carte en demande une vingtaine a chaque deplacement).
+  app.use("/api/public/tuiles", tuilesRouter);
   app.use("/api/public", publicRouter);
 
   /**

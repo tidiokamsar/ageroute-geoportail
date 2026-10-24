@@ -29,11 +29,11 @@ function formatSize(bytes: number): string {
 function FileTypeIcon({ fileName, mimeType }: { fileName: string; mimeType: string }) {
   const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
   if (mimeType.startsWith("image/") || ["jpg", "jpeg", "png", "webp"].includes(ext)) {
-    return <ImageIcon className="h-4 w-4 text-purple-500" />;
+    return <ImageIcon className="h-4 w-4 text-purple-700" />;
   }
-  if (ext === "pdf") return <FileText className="h-4 w-4 text-red-500" />;
-  if (["doc", "docx"].includes(ext)) return <FileSpreadsheet className="h-4 w-4 text-blue-500" />;
-  return <FileIcon className="h-4 w-4 text-gray-400" />;
+  if (ext === "pdf") return <FileText className="h-4 w-4 text-red-600" />;
+  if (["doc", "docx"].includes(ext)) return <FileSpreadsheet className="h-4 w-4 text-blue-700" />;
+  return <FileIcon className="h-4 w-4 text-gray-500" />;
 }
 
 function FilterSelect({ value, onChange, children }: {
@@ -53,7 +53,7 @@ function FilterSelect({ value, onChange, children }: {
       >
         {children}
       </select>
-      <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+      <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-500" />
     </div>
   );
 }
@@ -145,7 +145,7 @@ export function DocumentsPage() {
       {/* Ligne 1 : recherche + bouton ajouter */}
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -191,7 +191,7 @@ export function DocumentsPage() {
 
       {/* Count */}
       <div className="flex items-center justify-end px-1">
-        <span className="text-sm text-gray-400">
+        <span className="text-sm text-gray-500">
           {(data?.total ?? 0).toLocaleString("fr-FR")} document{(data?.total ?? 0) !== 1 ? "s" : ""}
         </span>
       </div>
@@ -220,9 +220,9 @@ export function DocumentsPage() {
               ))}
             {!isLoading && data?.data.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-12 text-center text-gray-400">
+                <td colSpan={7} className="px-4 py-12 text-center text-gray-500">
                   <div className="flex flex-col items-center gap-2">
-                    <Inbox className="h-8 w-8 text-gray-300" />
+                    <Inbox className="h-8 w-8 text-gray-500" />
                     <span>Aucun document.</span>
                   </div>
                 </td>
@@ -241,12 +241,12 @@ export function DocumentsPage() {
                     <button
                       onClick={() => downloadViaApi(`/documents/${d.id}/download`, d.fileName)}
                       title="Télécharger"
-                      className="h-7 w-7 flex items-center justify-center rounded-md text-gray-400 hover:text-navy hover:bg-navy/5 transition-colors"
+                      className="h-7 w-7 flex items-center justify-center rounded-md text-gray-500 hover:text-navy hover:bg-navy/5 transition-colors"
                     >
                       <Download className="h-3.5 w-3.5" />
                     </button>
                     {writable && (
-                      <button onClick={() => handleDelete(d.id)} title="Supprimer" className="h-7 w-7 flex items-center justify-center rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors">
+                      <button onClick={() => handleDelete(d.id)} title="Supprimer" className="h-7 w-7 flex items-center justify-center rounded-md text-gray-500 hover:text-red-500 hover:bg-red-50 transition-colors">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     )}

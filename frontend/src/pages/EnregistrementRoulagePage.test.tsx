@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { violationsAccessibilite } from "../test/accessibilite";
 import { deplacer } from "../roulage";
 
@@ -92,7 +93,7 @@ function emettre(s: number) {
 }
 
 function rendre() {
-  return render(<MemoryRouter><EnregistrementRoulagePage /></MemoryRouter>);
+  return render(<MemoryRouter><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><EnregistrementRoulagePage /></QueryClientProvider></MemoryRouter>);
 }
 
 async function demarrer() {

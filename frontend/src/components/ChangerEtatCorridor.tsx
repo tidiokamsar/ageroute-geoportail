@@ -110,7 +110,7 @@ export function ChangerEtatCorridor({
               Fermer
             </Button>
           </div>
-          <p className="text-[11px] text-gray-400">Chaque tronçon garde son état d'avant dans l'audit, avec votre motif.</p>
+          <p className="text-[11px] text-gray-500">Chaque tronçon garde son état d'avant dans l'audit, avec votre motif.</p>
         </div>
       )}
     </div>

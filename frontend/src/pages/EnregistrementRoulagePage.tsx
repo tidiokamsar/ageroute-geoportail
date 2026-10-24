@@ -5,6 +5,7 @@ import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { toast } from "../lib/toast";
 import { Button } from "../components/ui/Button";
+import { MesSessions } from "./roulage/MesSessions";
 import { libelleDuree, libelleKm } from "../lib/releve";
 import {
   garderEcranAllume, nomFichierGpx, ouvrirStockage, positionVersEchantillon, versGpx,
@@ -539,6 +540,9 @@ export function EnregistrementRoulagePage() {
           )}
         </section>
       )}
+
+      {/* Pas pendant l'enregistrement : rien ne doit distraire du trajet. */}
+      {!enCours && <MesSessions />}
     </div>
   );
 }

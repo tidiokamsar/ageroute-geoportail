@@ -10,7 +10,9 @@ import request from "supertest";
  *   - un passage engendre est une mission SURVEILLANCE ordinaire, BROUILLON, citant son programme ;
  *   - la depeche de verification qualifie un signalement NOUVEAU une seule fois, dans la
  *     transaction, et refuse un signalement deja qualifie ;
- *   - chaque ecriture est auditee.
+ *   - chaque ecriture est auditee ;
+ *   - un programme se lit avec ses passages, se modifie (rythme, responsable, actif) sans toucher a son
+ *     itineraire, et se retire logiquement avec un motif.
  */
 
 const compte = { id: "u-gest", role: "GESTIONNAIRE" };
@@ -35,11 +37,15 @@ vi.mock("../lib/prisma", () => {
       const p = { id: `p-${h.programmes.length + 1}`, actif: true, deletedAt: null, ...data, troncons: data.troncons.create.map((t) => t.tronconId) };
       h.programmes.push(p); return p;
     },
+    update: async ({ where, data }: { where: { id: string }; data: Ligne }) => {
+      const p = h.programmes.find((x) => x.id === where.id)!; Object.assign(p, data); return p;
+    },
   };
   const mission = {
     findFirst: async ({ where }: { where: { id: string } }) => h.missions.find((m) => m.id === where.id) ?? null,
-    findMany: async ({ where }: { where: { code: { startsWith: string } } }) =>
-      h.missions.filter((m) => String(m.code).startsWith(where.code.startsWith)).map((m) => ({ code: m.code })),
+    findMany: async ({ where }: { where: { code?: { startsWith: string }; programmeId?: string } }) => where.programmeId
+      ? h.missions.filter((m) => m.programmeId === where.programmeId)
+      : h.missions.filter((m) => String(m.code).startsWith(where.code!.startsWith)).map((m) => ({ code: m.code })),
     create: async ({ data }: { data: Ligne }) => { const m = { id: `m-${h.missions.length + 1}`, statut: "BROUILLON", ...data }; h.missions.push(m); return m; },
     groupBy: async () => h.missions
       .filter((m) => m.programmeId && (m.statut === "TERMINEE" || m.statut === "SYNC_EN_ATTENTE") && m.finReelle)
@@ -205,5 +211,41 @@ describe("Depeche de verification", () => {
     expect((await request(app).post(`${base}/signalements/s9/verification`).send({})).status).toBe(404);
     expect(h.missions).toHaveLength(0);
     expect(h.audits).toHaveLength(0);
+  });
+});
+
+describe("Fiche, modification et retrait d'un programme", () => {
+  beforeEach(async () => { await request(app).post(`${base}/programmes`).send(programme); h.audits.length = 0; });
+
+  it("la fiche rend l'itineraire et les passages", async () => {
+    h.missions.push({ id: "m-x", code: "PAT-RN1-1", programmeId: "p-1", statut: "TERMINEE", debutPrevu: new Date("2026-10-01"), finReelle: new Date("2026-10-01") });
+    const r = await request(app).get(`${base}/programmes/p-1`);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ code: "PAT-RN1", troncons: ["t-a", "t-b"] });
+    expect(r.body.passages).toHaveLength(1);
+    expect(r.body.dernierPassage).toBeTruthy();
+    expect((await request(app).get(`${base}/programmes/p-9`)).status).toBe(404);
+  });
+  it("modifie le rythme et suspend, audite avant/apres ; refuse l'itineraire et une periodicite hors bornes", async () => {
+    const r = await request(app).patch(`${base}/programmes/p-1`).send({ periodiciteJours: 14, actif: false });
+    expect(r.status).toBe(200);
+    expect(h.programmes[0]).toMatchObject({ periodiciteJours: 14, actif: false, troncons: ["t-a", "t-b"] });
+    expect(h.audits.at(-1)).toMatchObject({ action: "UPDATE", entityType: "ProgrammePatrouille", before: { periodiciteJours: 7, actif: true } });
+    expect((await request(app).patch(`${base}/programmes/p-1`).send({ troncons: ["t-c"] })).status).toBe(400);
+    expect((await request(app).patch(`${base}/programmes/p-1`).send({ periodiciteJours: 0 })).body.code).toBe("PERIODICITE_INVALIDE");
+  });
+  it("un LECTEUR ne modifie ni ne retire", async () => {
+    compte.role = "LECTEUR";
+    expect((await request(app).patch(`${base}/programmes/p-1`).send({ actif: false })).status).toBe(403);
+    expect((await request(app).post(`${base}/programmes/p-1/retrait`).send({ motif: "fin de saison" })).status).toBe(403);
+  });
+  it("le retrait exige un motif, est logique et audite ; le programme disparait de la liste", async () => {
+    expect((await request(app).post(`${base}/programmes/p-1/retrait`).send({})).status).toBe(400);
+    const r = await request(app).post(`${base}/programmes/p-1/retrait`).send({ motif: "axe confie a la DR" });
+    expect(r.status).toBe(200);
+    expect(h.programmes[0].deletedAt).toBeTruthy();
+    expect(h.programmes).toHaveLength(1);
+    expect(h.audits.at(-1)).toMatchObject({ action: "DELETE", after: { motif: "axe confie a la DR" } });
+    expect((await request(app).get(`${base}/programmes`)).body.programmes).toHaveLength(0);
   });
 });

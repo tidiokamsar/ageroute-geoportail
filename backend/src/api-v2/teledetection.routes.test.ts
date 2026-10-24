@@ -21,7 +21,7 @@ vi.mock("../middleware/auth.middleware", () => ({
 }));
 
 type Ligne = Record<string, unknown>;
-const h = vi.hoisted(() => ({ produits: [] as Ligne[], propositions: [] as Ligne[], missions: [] as Ligne[], audits: [] as Ligne[], raw: [] as unknown[][], erreurBase: null as string | null }));
+const h = vi.hoisted(() => ({ produits: [] as Ligne[], propositions: [] as Ligne[], missions: [] as Ligne[], audits: [] as Ligne[], raw: [] as unknown[][], erreurBase: null as string | null, lignesCoherence: [] as Ligne[] }));
 
 vi.mock("../lib/prisma", () => {
   const earthObservationProduct = {
@@ -50,7 +50,7 @@ vi.mock("../lib/prisma", () => {
   const tx = {
     earthObservationProduct, propositionTeledetection, mission, auditLog,
     $executeRaw: async (...a: unknown[]) => { if (h.erreurBase) throw new Error(h.erreurBase); h.raw.push(a); return 1; },
-    $queryRaw: async () => [],
+    $queryRaw: async (sql: TemplateStringsArray) => (sql.join("?").includes("coherence_teledetection") ? h.lignesCoherence : []),
   };
   return { prisma: { ...tx, $transaction: async (fn: (t: unknown) => Promise<unknown>) => fn(tx) } };
 });
@@ -168,5 +168,23 @@ describe("Verdict du terrain et verification", () => {
   });
   it("refuse un filtre de statut inconnu", async () => {
     expect((await request(app).get(`${base}/propositions?statut=PROBABLE`)).status).toBe(400);
+  });
+});
+
+describe("Coherence", () => {
+  it("rend les anomalies de la vue avec leur gravite, bloquantes d'abord ; lisible par tout compte", async () => {
+    compte.role = "LECTEUR";
+    h.lignesCoherence = [
+      { propositionId: "pr-2", regle: "MISSION_SANS_VERDICT", detail: "VER-1 TERMINEE" },
+      { propositionId: "pr-1", regle: "HORS_EMPRISE_PRODUIT", detail: "S1" },
+      { propositionId: "pr-3", regle: "REGLE_INCONNUE", detail: null },
+    ];
+    const r = await request(app).get(`${base}/coherence`);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ bloquantes: 2, aExaminer: 1, tronquee: false });
+    expect(r.body.anomalies.map((a: { regle: string; gravite: string }) => `${a.regle}:${a.gravite}`)).toEqual([
+      "HORS_EMPRISE_PRODUIT:BLOQUANTE", "REGLE_INCONNUE:BLOQUANTE", "MISSION_SANS_VERDICT:A_EXAMINER",
+    ]);
+    h.lignesCoherence = [];
   });
 });

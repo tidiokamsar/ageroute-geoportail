@@ -132,7 +132,7 @@ export function BaremesPage() {
         </p>
 
         {isLoading ? (
-          <p className="text-sm text-gray-400">Chargement…</p>
+          <p className="text-sm text-gray-500">Chargement…</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -175,7 +175,7 @@ export function BaremesPage() {
                             inputMode="decimal" placeholder="6.5"
                             className="w-20 rounded-lg border border-gray-200 px-2 py-1.5 text-sm tabular-nums" />
                         </td>
-                        <td className="py-2 pr-3 text-right text-gray-400" colSpan={2}>
+                        <td className="py-2 pr-3 text-right text-gray-500" colSpan={2}>
                           <div className="flex justify-end gap-1.5">
                             <Button
                               disabled={!editionValide || modifier.isPending}
@@ -192,7 +192,7 @@ export function BaremesPage() {
                         <td className="py-2 pr-3 text-right text-gray-700 tabular-nums whitespace-nowrap">{formatGnf(l.coutKmGnf)}</td>
                         <td className="py-2 pr-3 text-right text-gray-600 tabular-nums">{l.anneeReference ?? "—"}</td>
                         <td className="py-2 pr-3 text-right text-gray-600 tabular-nums">{l.largeurChausseeM ?? "—"}</td>
-                        <td className="py-2 pr-3 text-right text-gray-400 tabular-nums">v{l.version}</td>
+                        <td className="py-2 pr-3 text-right text-gray-500 tabular-nums">v{l.version}</td>
                         <td className="py-2 pr-3">
                           {l.approuveLe ? (
                             <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-semibold text-green-700">

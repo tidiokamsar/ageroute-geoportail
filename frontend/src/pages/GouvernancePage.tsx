@@ -9,6 +9,7 @@ import { toast } from "../lib/toast";
 import { useConfirm } from "../hooks/useConfirm";
 import { useAuth } from "../lib/auth";
 import type { Region, User } from "../types";
+import { PerimetresTerritoriaux } from "./gouvernance/PerimetresTerritoriaux";
 
 /**
  * Désignation des validateurs (§35 du cahier : « un validateur est désigné pour chaque
@@ -250,7 +251,7 @@ export function GouvernancePage() {
                 <option key={u.id} value={u.id}>{u.nomComplet} — {u.role}</option>
               ))}
             </select>
-            <span className="mt-1 block text-xs text-gray-400">
+            <span className="mt-1 block text-xs text-gray-500">
               Seuls les comptes qui peuvent valider sont proposés, et jamais vous-même.
             </span>
           </label>
@@ -272,7 +273,7 @@ export function GouvernancePage() {
           <label className="text-sm text-gray-700">
             Fin (facultative)
             <Input type="date" value={finLe} onChange={(e) => setFinLe(e.target.value)} className="mt-1" />
-            <span className="mt-1 block text-xs text-gray-400">
+            <span className="mt-1 block text-xs text-gray-500">
               Sans date, la désignation n'a pas de terme — c'est un choix, pas un oubli.
             </span>
           </label>
@@ -298,11 +299,11 @@ export function GouvernancePage() {
       <section className="rounded-lg border border-gray-200 bg-white overflow-hidden">
         <h2 className="px-4 py-2 text-sm font-medium text-gray-800 border-b border-gray-100">
           Désignations
-          <span className="ml-2 text-xs font-normal text-gray-400">
+          <span className="ml-2 text-xs font-normal text-gray-500">
             révoquées et échues comprises — des validations ont été rendues sous leur autorité
           </span>
         </h2>
-        {isLoading && <p className="px-4 py-3 text-sm text-gray-400">Chargement…</p>}
+        {isLoading && <p className="px-4 py-3 text-sm text-gray-500">Chargement…</p>}
         {delegations?.length === 0 && (
           <p className="px-4 py-3 text-sm text-gray-500">
             Aucune désignation. Tout gestionnaire valide donc sur l'ensemble des domaines.
@@ -325,12 +326,12 @@ export function GouvernancePage() {
                     {" · depuis "}{new Date(d.debutLe).toLocaleDateString("fr-FR")}
                     {d.finLe && ` jusqu'au ${new Date(d.finLe).toLocaleDateString("fr-FR")}`}
                   </p>
-                  {d.motif && <p className="text-xs text-gray-400 mt-0.5">{d.motif}</p>}
+                  {d.motif && <p className="text-xs text-gray-500 mt-0.5">{d.motif}</p>}
                 </div>
                 {!d.revoqueeLe && (
                   <button
                     title="Révoquer"
-                    className="h-7 w-7 shrink-0 flex items-center justify-center rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                    className="h-7 w-7 shrink-0 flex items-center justify-center rounded-md text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
                     onClick={async () => {
                       if (await confirm(
                         "Révoquer cette désignation ? La ligne est conservée avec sa date : des validations ont pu être rendues sous son autorité.",
@@ -346,6 +347,8 @@ export function GouvernancePage() {
           })}
         </ul>
       </section>
+
+      {user?.role === "ADMIN" && <PerimetresTerritoriaux />}
 
       {dialog}
     </div>
