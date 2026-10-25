@@ -164,6 +164,10 @@ function BailleursTab() {
   function openEdit(b: Bailleur) { setEditing(b); setNom(b.nom); setType(b.type); setError(null); setModalOpen(true); }
   function closeModal() { setModalOpen(false); setEditing(null); }
 
+  // Saisie differente de ce qui est enregistre (ou du formulaire vierge a l'ajout) : fermer
+  // demande alors confirmation.
+  const sale = () => (editing ? nom !== editing.nom || type !== editing.type : nom !== "" || type !== "autre");
+
   const TYPE_LABEL: Record<string, string> = { etat: "État", multilateral: "Multilatéral", bilateral: "Bilatéral", autre: "Autre" };
 
   return (
@@ -198,7 +202,7 @@ function BailleursTab() {
         </div>
       )}
 
-      <Modal open={modalOpen} onClose={closeModal} title={editing ? `Modifier — ${editing.nom}` : "Nouveau bailleur"}>
+      <Modal open={modalOpen} onClose={closeModal} title={editing ? `Modifier — ${editing.nom}` : "Nouveau bailleur"} sale={sale}>
         <div className="space-y-3">
           {error && <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{error}</div>}
           <div>

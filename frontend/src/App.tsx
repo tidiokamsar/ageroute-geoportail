@@ -113,6 +113,12 @@ const router = createBrowserRouter(
         <Route element={<AppLayout />}>
           <Route path="utilisateurs" element={<LazyPage><UsersPage /></LazyPage>} handle={{ title: "Utilisateurs" }} />
           <Route path="administration" element={<LazyPage><AdministrationPage /></LazyPage>} handle={{ title: "Administration" }} />
+        </Route>
+      </Route>
+      {/* Designation des validateurs : ADMIN ou compte portant `peutDeleguerValidation`,
+          comme le serveur (delegations.controller.ts) et comme le lien du menu. */}
+      <Route element={<ProtectedRoute roles={["ADMIN"]} ouvertAuxDelegants />}>
+        <Route element={<AppLayout />}>
           <Route path="gouvernance" element={<LazyPage><GouvernancePage /></LazyPage>} handle={{ title: "Désignation des validateurs" }} />
         </Route>
       </Route>

@@ -196,8 +196,8 @@ export function DocumentsPage() {
         </span>
       </div>
 
-      <div className="rounded-xl bg-white shadow-sm border border-gray-100 overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="rounded-xl bg-white shadow-sm border border-gray-100 overflow-x-auto">
+        <table className="w-full min-w-[36rem] text-sm">
           <thead className="bg-gray-50/80 text-gray-500 text-xs uppercase">
             <tr>
               <th className="text-left px-4 py-3 w-8"></th>

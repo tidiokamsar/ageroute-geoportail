@@ -18,7 +18,15 @@ function ModuleAccessDenied() {
   );
 }
 
-export function ProtectedRoute({ roles }: { roles?: Role[] }) {
+/**
+ * `ouvertAuxDelegants` : la route reste accessible a un compte qui porte le droit de
+ * designer un validateur (`peutDeleguerValidation`), meme sans role de la liste. Sert
+ * uniquement a `/gouvernance`, dont les routes serveur (delegations.controller.ts) exigent
+ * « ADMIN ou peutDeleguerValidation » : la Direction Technique est GESTIONNAIRE, voyait le
+ * lien du menu et etait renvoyee vers « / ». Ne jamais l'activer pour une route que le
+ * serveur reserve au role.
+ */
+export function ProtectedRoute({ roles, ouvertAuxDelegants = false }: { roles?: Role[]; ouvertAuxDelegants?: boolean }) {
   const { user, loading } = useAuth();
   const location = useLocation();
 
@@ -28,7 +36,8 @@ export function ProtectedRoute({ roles }: { roles?: Role[] }) {
   // le geoportail a tout le monde. Un lien profond vers un module reste renvoye vers
   // /login, ou l'utilisateur se connecte avec son compte pour acceder au reste.
   if (!user) return <Navigate to={location.pathname === "/" ? "/carte" : "/login"} replace />;
-  if (roles && !roles.includes(user.role)) return <Navigate to="/" replace />;
+  const delegantAutorise = ouvertAuxDelegants && user.peutDeleguerValidation === true;
+  if (roles && !roles.includes(user.role) && !delegantAutorise) return <Navigate to="/" replace />;
 
   const moduleKey = moduleForPath(location.pathname);
   if (moduleKey && !hasModuleAccess(user.modulesAutorises, user.role, moduleKey)) {

@@ -140,7 +140,8 @@ export function TeledetectionPage() {
         <h2 className="font-semibold">Précision mesurée contre le terrain</h2>
         <p className="text-xs text-gray-500">Confirmées ÷ (confirmées + infirmées). Vide tant qu'aucun verdict n'existe : une méthode jamais jugée n'a pas de précision.</p>
         {!precision.data?.length ? <p className="mt-2 text-sm text-gray-500">Aucune proposition déposée.</p> : (
-          <table className="mt-2 w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="mt-2 w-full min-w-[28rem] text-sm">
             <thead><tr className="text-left text-gray-500"><th>Type</th><th>Méthode</th><th>À vérifier</th><th>Confirmées</th><th>Infirmées</th><th>Précision</th></tr></thead>
             <tbody>
               {precision.data.map((l) => (
@@ -151,6 +152,7 @@ export function TeledetectionPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </section>
 

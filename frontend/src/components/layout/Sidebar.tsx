@@ -40,6 +40,9 @@ const sections = [
       { to: "/inspections", label: "Inspections" },
       { to: "/inspections/defauts/validation", label: "Validation des relevés", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/inspections/a-controler", label: "Points à contrôler", roles: ["ADMIN", "GESTIONNAIRE"] },
+      // Route ouverte a tout compte connecte (App.tsx) : pas de filtre de role ici non plus. Seul lien
+      // jusque-la : la carte « Portions validees » du tableau de bord.
+      { to: "/portions/validation", label: "Validation des portions" },
       { to: "/inspections/conflits", label: "Conflits de synchronisation", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/inspections/defauts/catalogue", label: "Catalogue des défauts", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/imports", label: "Lots d'import", roles: ["ADMIN", "GESTIONNAIRE"] },
