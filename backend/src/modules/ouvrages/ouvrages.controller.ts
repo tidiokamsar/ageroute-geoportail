@@ -52,7 +52,10 @@ export async function deleteHandler(req: Request, res: Response, next: NextFunct
   } catch (err) { next(err); }
 }
 export async function geolocateHandler(req: Request, res: Response, next: NextFunction) {
-  try { res.json(await ouvragesService.geolocateFromTroncon(req.params.id)); } catch (err) { next(err); }
+  try {
+    if (!req.user) throw new ApiError(401, "Authentification requise");
+    res.json(await ouvragesService.geolocateFromTroncon(req.params.id, req.user.id, req.ip));
+  } catch (err) { next(err); }
 }
 export async function addPhotoHandler(req: Request, res: Response, next: NextFunction) {
   // Distingue « jamais enregistree » de « enregistree puis probleme ailleurs » :

@@ -41,12 +41,14 @@ async function update(id: string, data: { lat?: number; lon?: number } & Record<
   return updated;
 }
 
-async function geolocateFromTroncon(id: string) {
+async function geolocateFromTroncon(id: string, userId: string, ipAddress?: string) {
   const item = await base.getById(id) as { tronconId?: string | null; pk?: number | null };
   if (!item.tronconId || item.pk == null) {
     throw new ApiError(400, "Ce point noir doit avoir un tronçon rattaché et un PK pour être géolocalisé automatiquement.");
   }
-  const ok = await deriveGeomFromTroncon("points_noirs", id, item.tronconId, item.pk);
+  const ok = await deriveGeomFromTroncon("points_noirs", id, item.tronconId, item.pk, {
+    userId, entityType: "PointNoir", ipAddress,
+  });
   if (!ok) throw new ApiError(400, "Géolocalisation impossible : tracé du tronçon indisponible.");
   return getPointLatLon("points_noirs", id);
 }

@@ -165,10 +165,31 @@ async function assigner(id: string, data: { assigneAId: string; priorite?: strin
   const cible = await prisma.user.findFirst({ where: { id: data.assigneAId, actif: true } });
   if (!cible) throw new ApiError(404, "Utilisateur cible introuvable ou inactif");
 
-  const updated = await prisma.ordreTravaux.update({
-    where: { id },
-    data: { assigneAId: data.assigneAId, priorite: data.priorite as never, dateEcheance: data.dateEcheance, statut: "ASSIGNE" },
-    include,
+  // L'assignation decide QUI doit intervenir : elle etait tracee seulement dans la frise
+  // metier (otHistorique), qui n'est pas le journal d'audit. La trace d'audit, avec
+  // l'ancien et le nouveau responsable, rejoint la transaction de la mutation.
+  const updated = await prisma.$transaction(async (tx) => {
+    const ligne = await tx.ordreTravaux.update({
+      where: { id },
+      data: { assigneAId: data.assigneAId, priorite: data.priorite as never, dateEcheance: data.dateEcheance, statut: "ASSIGNE" },
+      include,
+    });
+    await logAuditTransactionnelle(tx, {
+      userId, action: "UPDATE", entityType: "OrdreTravaux", entityId: id,
+      before: {
+        statut: before.statut,
+        assigneAId: before.assigneAId,
+        priorite: before.priorite,
+        dateEcheance: before.dateEcheance,
+      },
+      after: {
+        statut: "ASSIGNE",
+        assigneAId: data.assigneAId,
+        priorite: ligne.priorite,
+        dateEcheance: ligne.dateEcheance,
+      },
+    });
+    return ligne;
   });
   await pushHistorique(id, `Assigné à ${cible.nomComplet}`, userId, { ancienStatut: before.statut, nouveauStatut: "ASSIGNE" });
   return updated;

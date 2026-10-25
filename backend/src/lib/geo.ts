@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { logAuditTransactionnelle } from "../utils/audit";
 
 // Tables dont la colonne "geom" est un Point(4326) ecrite/lue via SQL brut
 // (Prisma ne sait pas manipuler les colonnes Unsupported("geometry...")).
@@ -72,9 +73,76 @@ export async function deriveChantierGeom(
  * fiches historiques qui ont un tronconId/pk mais jamais recu de coordonnees GPS directes.
  * Retourne true si une position a ete posee, false sinon (pas de geom troncon, etc.).
  */
-export async function deriveGeomFromTroncon(table: string, id: string, tronconId: string, pk: number): Promise<boolean> {
+export async function deriveGeomFromTroncon(
+  table: string,
+  id: string,
+  tronconId: string,
+  pk: number,
+  audit?: AuditGeomParams
+): Promise<boolean> {
   if (!ALLOWED_TABLES.has(table)) throw new Error(`Table non autorisee pour deriveGeomFromTroncon: ${table}`);
-  const result = await prisma.$executeRawUnsafe(
+
+  // Sans `audit`, comportement historique inchange (appelants hors requete utilisateur :
+  // creation de defauts a la synchronisation, ou l'auteur est trace ailleurs).
+  if (!audit) return (await executerDerivationPk(prisma, table, id, tronconId, pk)) > 0;
+
+  // Avec `audit` : lecture avant, ecriture, lecture apres et trace dans UNE transaction.
+  // La geometrie d'un actif commande la carte ; la remplacer sans auteur ni avant/apres
+  // manquait la regle 3 d'AGENTS.md. Une panne d'audit annule la geolocalisation.
+  return prisma.$transaction(async (tx) => {
+    const avant = await lirePosition(tx, table, id);
+    const n = await executerDerivationPk(tx, table, id, tronconId, pk);
+    if (n === 0) return false;
+    const apres = await lirePosition(tx, table, id);
+    await logAuditTransactionnelle(tx, {
+      userId: audit.userId,
+      action: "UPDATE",
+      entityType: audit.entityType,
+      entityId: id,
+      ipAddress: audit.ipAddress,
+      before: { geom: avant },
+      after: { geom: apres, geolocalisation: "derivee du tracé du tronçon", tronconId, pk },
+    });
+    return true;
+  });
+}
+
+/** Qui a demande la derivation, pour la trace d'audit. */
+export interface AuditGeomParams {
+  userId: string;
+  /** Nom du modele audite (`Ouvrage`, `Poste`, `PointNoir`). */
+  entityType: string;
+  ipAddress?: string;
+}
+
+type ExecuteurSql = {
+  $executeRawUnsafe(sql: string, ...args: unknown[]): Promise<number>;
+};
+type LecteurSql = {
+  $queryRawUnsafe<T = unknown>(sql: string, ...args: unknown[]): Promise<T>;
+};
+
+async function lirePosition(
+  client: LecteurSql,
+  table: string,
+  id: string
+): Promise<{ lat: number; lon: number } | null> {
+  // `table` a deja ete validee contre ALLOWED_TABLES par l'appelant.
+  const rows = await client.$queryRawUnsafe<{ lat: number; lon: number }[]>(
+    `SELECT ST_Y(geom) AS lat, ST_X(geom) AS lon FROM ${table} WHERE id = $1 AND geom IS NOT NULL`,
+    id
+  );
+  return rows[0] ?? null;
+}
+
+async function executerDerivationPk(
+  client: ExecuteurSql,
+  table: string,
+  id: string,
+  tronconId: string,
+  pk: number
+): Promise<number> {
+  return client.$executeRawUnsafe(
     `UPDATE ${table} pt
      SET geom = ST_LineInterpolatePoint(t.geom, frac.f)
      FROM troncons t,
@@ -91,7 +159,6 @@ export async function deriveGeomFromTroncon(table: string, id: string, tronconId
     tronconId,
     pk
   );
-  return result > 0;
 }
 
 /**

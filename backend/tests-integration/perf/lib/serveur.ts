@@ -12,6 +12,10 @@ import zlib from "node:zlib";
 import type { AddressInfo } from "node:net";
 import type { Express } from "express";
 
+// Le plafond global de /api/v2 (1200 requetes par minute et par adresse) fausserait une mesure de debit : le banc vient d'une seule
+// adresse. A poser AVANT le premier import de `config/env` ; si l'environnement est deja charge, exporter RATE_LIMIT_V2_MAX=0 a la main.
+process.env.RATE_LIMIT_V2_MAX ??= "0";
+
 export interface Reponse {
   statut: number;
   /** Octets du corps tels que transferes (gzip si `encodage` = gzip). */

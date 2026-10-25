@@ -35,6 +35,7 @@ import { errorHandler, notFoundHandler } from "./middleware/error.middleware";
 import { requireAuth } from "./middleware/auth.middleware";
 import { requireRole } from "./middleware/rbac.middleware";
 import { verifyOrigin } from "./middleware/origin.middleware";
+import { limiteurRefresh, limiteurApiV2 } from "./middleware/rate-limit.middleware";
 import cookieParser from "cookie-parser";
 import fs from "fs";
 import { UPLOAD_DIR } from "./middleware/upload-document.middleware";
@@ -105,6 +106,11 @@ export function createApp() {
     "/api/auth/2fa/login-verify",
     rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: "Trop de tentatives, reessayez plus tard" } })
   );
+  // Rejeu en boucle d'un jeton de rafraichissement : voir middleware/rate-limit.middleware.ts.
+  app.use(
+    "/api/auth/refresh",
+    limiteurRefresh({ max: env.RATE_LIMIT_REFRESH_MAX, fenetreMs: env.RATE_LIMIT_REFRESH_FENETRE_MIN * 60 * 1000 })
+  );
 
   // Sonde d'etat : voir modules/health. Elle repondait "ok" sans rien verifier,
   // donc "ok" meme base arretee.
@@ -152,7 +158,9 @@ export function createApp() {
    * interne et la carte embarquee de DigitalRoad, hebergee sur un domaine SharePoint
    * qu'on ne redeploie pas au meme rythme. Les pages migrent une par une.
    */
-  app.use("/api/v2", apiV2Router);
+  // Plafond global genereux, configurable : il doit laisser passer la file de synchronisation
+  // d'un agent de terrain (voir middleware/rate-limit.middleware.ts).
+  app.use("/api/v2", limiteurApiV2({ max: env.RATE_LIMIT_V2_MAX, fenetreMs: env.RATE_LIMIT_V2_FENETRE_SEC * 1000 }), apiV2Router);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

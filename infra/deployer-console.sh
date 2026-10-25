@@ -13,12 +13,21 @@
 #   2. sauvegarde du jour, et sa RESTAURABILITE (pg_restore -l)
 #   3. espace disque > 15 % libre
 #   4. compteurs de reference releves
-#   5. historique des migrations : 0 inachevee, 0 orpheline, 17 en attente exactement
+#   5. historique des migrations : 0 inachevee, 0 orpheline, et EXACTEMENT ATTENDUES_EN_ATTENTE
+#      en attente (0 a la derniere modification de ce fichier : un deploiement sans migration)
 #   6. une descente pour chaque migration en attente
 #   7. aucun index GiST deja present sur les colonnes que 20261020020000 indexe
 #   8. empreintes des .env ; archive verifiee ; migrations ESSAYEES sur une copie restauree
 #   9. confirmation humaine, puis extraction, construction, migrations
 #  10. controles d'apres : compteurs, sante, audit, 401, .env inchanges
+#
+# CONSTANTES A RENSEIGNER A CHAQUE DEPLOIEMENT QUI APPORTE DES MIGRATIONS (ci-dessous) :
+#   ATTENDUES_EN_ATTENTE  nombre exact de migrations absentes de la production. Le script refuse
+#                         tout autre nombre (etape 5). A 0, il refuse aussi d'appliquer une
+#                         migration neuve : un deploiement qui en apporte DOIT donc changer ce nombre.
+#   PREMIERE_EN_ATTENTE   nom du dossier de la premiere migration en attente (ordre alphabetique).
+#                         Controlee seulement quand ATTENDUES_EN_ATTENTE > 0 ; a 0, elle est ignoree
+#                         (sa valeur actuelle est celle d'une vague anterieure, sans effet).
 #
 # AUCUN RETOUR ARRIERE AUTOMATIQUE : si un controle d'apres echoue, le script s'arrete et
 # affiche la procedure ; la decision revient a l'humain. Aucun secret n'est affiche.
@@ -28,12 +37,12 @@ set -euo pipefail
 COMMIT="${1:-}"
 SHA_ATTENDU="${2:-}"
 ARCHIVE_LOCALE="${3:-}"
-ATTENDUES_EN_ATTENTE=0
+ATTENDUES_EN_ATTENTE=1
 # Seuil de disque libre en %. Defaut 15. L'operateur peut le passer consciemment
 # (ex. SEUIL_DISQUE=13) quand il a verifie le besoin transient du build (~1,6 Go :
 # dump, code-avant, couches d'image) et que l'arrondi de df arrete a tort.
 SEUIL_DISQUE="${SEUIL_DISQUE:-15}"
-PREMIERE_EN_ATTENTE="20261026300000_plans_pluriannuels"
+PREMIERE_EN_ATTENTE="20261027100000_medias_observation_analyse"
 DEPOT="tidiokamsar/ageroute-geoportail"
 HORODATAGE="$(date +%Y%m%d-%H%M%S)"
 SAUVEGARDES="/var/backups/bdri-deploiement/${HORODATAGE}"

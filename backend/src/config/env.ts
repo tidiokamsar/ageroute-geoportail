@@ -43,6 +43,15 @@ const envSchema = z.object({
     .default(PLAFOND_PHOTOS_PAR_OBJET_DEFAUT),
   PHOTOS_PLAFOND_DISQUE_MIO: z.coerce.number().int().min(0)
     .default(PLAFOND_DISQUE_MIO_DEFAUT),
+
+  // Limitation de debit, PAR ADRESSE (derriere Traefik, `trust proxy` = 1 lit X-Forwarded-For).
+  // Zero desactive le plafond concerne, sur le meme principe que les plafonds photos : une
+  // variable mal saisie ne doit pas couper la collecte de tout un pays. Voir
+  // middleware/rate-limit.middleware.ts pour le raisonnement des valeurs par defaut.
+  RATE_LIMIT_REFRESH_MAX: z.coerce.number().int().min(0).default(60),
+  RATE_LIMIT_REFRESH_FENETRE_MIN: z.coerce.number().int().min(1).default(15),
+  RATE_LIMIT_V2_MAX: z.coerce.number().int().min(0).default(1200),
+  RATE_LIMIT_V2_FENETRE_SEC: z.coerce.number().int().min(1).default(60),
 });
 
 const parsed = envSchema.safeParse(process.env);

@@ -13,8 +13,8 @@ import {
  * divergence serait invisible : chaque route continuerait de passer ses propres tests
  * pendant que l'une appliquerait une regle que l'autre ignore.
  *
- * Ce depot vient precisement de trouver une copie de ce genre : `field/observations.regles`
- * portait un second `validationPermise` avec son propre `ROLES_VALIDATEURS`, teste
+ * Ce depot a precisement trouve une copie de ce genre : l'ancien module de regles des
+ * observations (supprime depuis) portait un second `validationPermise` avec son propre `ROLES_VALIDATEURS`, teste
  * isolement et utilise par personne. Elle n'avait pas la verification de delegation.
  *
  * ON NE FILTRE PAS SUR LE VALIDATEUR, ET C'EST ESSENTIEL

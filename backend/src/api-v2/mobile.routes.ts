@@ -4,6 +4,7 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { requireAuth } from "../middleware/auth.middleware";
+import { logAudit } from "../utils/audit";
 
 /**
  * Application mobile terrain (APK) : téléchargement RÉSERVÉ aux comptes connectés.
@@ -61,10 +62,25 @@ mobileV2Router.get("/apk/info", async (_req, res, next) => {
   } catch (err) { next(err); }
 });
 
-mobileV2Router.get("/apk", async (_req, res, next) => {
+mobileV2Router.get("/apk", async (req, res, next) => {
   try {
     const f = await lireFichier();
     if (!f) { res.status(404).json({ error: "L'application mobile n'est pas publiée sur ce serveur." }); return; }
+    // Qui telecharge l'APK ? La politique d'acces (tout compte connecte) n'est pas
+    // changee ici, mais le geste doit se tracer : c'est une version DEBUG, et si une copie
+    // repackagee circule, le journal est le seul moyen de dire qui l'a obtenue et quand.
+    // Aucune action d'audit dediee n'existe (et l'enum Prisma n'est pas etendu ici) :
+    // SECURITY_EVENT, deja utilise pour les actes de securite hors mutation metier, porte
+    // l'evenement. logAudit est fail-soft : une panne de journal ne bloque pas le
+    // telechargement, mais incremente le compteur de /api/health.
+    await logAudit({
+      userId: req.user?.id ?? null,
+      action: "SECURITY_EVENT",
+      entityType: "ApplicationMobile",
+      entityId: NOM_APK,
+      ipAddress: req.ip,
+      after: { evenement: "APK_TELECHARGE", fichier: NOM_APK, tailleOctets: f.taille, modifieLe: f.modifieLe.toISOString() },
+    });
     res.setHeader("Content-Type", "application/vnd.android.package-archive");
     res.setHeader("Content-Length", String(f.taille));
     res.setHeader("Content-Disposition", `attachment; filename="${NOM_APK}"`);

@@ -15,9 +15,10 @@ import type { Portion } from "../reseau/portions";
  *
  * La tentation etait de projeter le payload directement en `prisma.portion.create`, comme
  * un premier jet l'aurait fait. Cela aurait double les regles, et c'est exactement ainsi
- * qu'un chemin finit par accepter ce que l'autre refuse — `field/observations.regles.ts`
- * portait deja un duplicata de la regle de validation qui avait DIVERGE, `MOTIF_REQUIS`
- * contre `COMMENTAIRE_REQUIS`.
+ * qu'un chemin finit par accepter ce que l'autre refuse — un ancien module de regles des
+ * observations (supprime depuis, jamais importe que par son propre test) portait deja un
+ * duplicata de la regle de validation qui avait DIVERGE, `MOTIF_REQUIS` contre
+ * `COMMENTAIRE_REQUIS`.
  *
  * TROIS CHOSES QUE LE TELEPHONE NE DECIDE PAS
  *

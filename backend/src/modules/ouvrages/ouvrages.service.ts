@@ -45,12 +45,14 @@ async function update(id: string, data: { lat?: number; lon?: number } & Record<
   return updated;
 }
 
-async function geolocateFromTroncon(id: string) {
+async function geolocateFromTroncon(id: string, userId: string, ipAddress?: string) {
   const item = await base.getById(id) as { tronconId?: string | null; pk?: number | null };
   if (!item.tronconId || item.pk == null) {
     throw new ApiError(400, "Cet ouvrage doit avoir un tronçon rattaché et un PK pour être géolocalisé automatiquement.");
   }
-  const ok = await deriveGeomFromTroncon("ouvrages", id, item.tronconId, item.pk);
+  const ok = await deriveGeomFromTroncon("ouvrages", id, item.tronconId, item.pk, {
+    userId, entityType: "Ouvrage", ipAddress,
+  });
   if (!ok) throw new ApiError(400, "Géolocalisation impossible : tracé du tronçon indisponible.");
   return getPointLatLon("ouvrages", id);
 }
