@@ -14,7 +14,7 @@
 > test, une migration, une mesure ou un point d'API.
 
 **Dressée le 14/10/2026** contre le prompt maître V10 lu en entier. Tests de référence :
-backend **1 246 passés**, frontend **304 passés**, 0 échec, TypeScript sans erreur.
+backend **1 246 passés**, frontend **304 passés**, 0 échec, TypeScript sans erreur (chiffres du 14/10, périmés). Derniers chiffres consignés dans `TEST_EVIDENCE.md` : backend **169 fichiers, 2 661 tests** (23/10/2026, dernière suite backend complète consignée), frontend **80 fichiers, 1 029 tests** (25/10/2026), `tsc` sans erreur des deux côtés.
 
 ---
 
@@ -55,7 +55,7 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 | **A29** | Tâches internes avec preuves avant/après ; rapprochement en lecture | **TP** | **TI-01 livré** : `taches_internes`, 9 contraintes `CHECK`, 22 assertions SQL. « Une tâche clôturée possède des preuves avant/après » est tenu **par la base**, pas par une consigne. La frontière DigitalRoad est tenue par l'**absence des colonnes**, avec un garde-fou de 17 tests qui échoue si un montant apparaît. **TI-02 bloqué** (aucune donnée DigitalRoad, B-11), TI-03 fait (`DATA_SOURCE_OF_TRUTH.md`) **Mise à jour du 22/10 (soir)** : Service et route `/api/v2/taches-internes` (preuves avant/après, clôture qui dit ce qui manque, abandon motivé, frontière DigitalRoad refusée, `GET /rapprochement` en lecture seule), banc 76/76. TI-02 financier bloqué (B-11). |
 | **A30** | Détection satellitaire → proposition localisée, précision mesurée | **TP** | **la chaîne aval est faite et éprouvée en base** : registre des produits (licence, provenance, incertitude obligatoires), propositions localisées et figées, rattachement au tronçon à tolérance explicite (11,1 m rattaché, ~555 m non, à 50 m), verdict du terrain unique, précision par méthode **nulle sans verdict** (`observation_terre.test.sql`, 15 assertions). **Cohérence tenue en base (T-27)** : détection hors de l'emprise de son produit ou de sa référence refusée, référence non antérieure refusée, vue `coherence_teledetection` vide (`teledetection_coherence.test.sql`, 7 assertions ; noyau et routes 34 tests). **Banc de performance** à volume de production **synthétique** (261 387 segments) : rattachement par l'index GiST, 3,5 ms par proposition dont 0,4 ms de contrôle (`observation_terre.bench.sql`). **Manque l'amont** : aucune image, aucun moteur de changement, sources à choisir (`EARTH_OBSERVATION_PLAN.md`) |
 
-**Bilan : 9 TT, 8 TP, 6 PA, 2 NT, 2 BL, 3 AB.** Aucune case « à vérifier ».
+**Bilan : 8 TT, 10 TP, 10 PA, 1 BL, 1 EA** (30 scénarios A1 à A30, recompté le 25/10/2026 sur le tableau ci-dessus ; aucun NT ni AB parmi eux). Aucune case « à vérifier ».
 
 ---
 
@@ -106,7 +106,7 @@ C'est la matrice qui compte : elle est mesurable, et le mandat en fait la porte 
 **Trois limites, et les dire fait partie du travail.**
 
 **Les tests sont locaux.** Le § G l'exige : « ne présente pas des tests locaux comme des tests de
-production ». Les 1 439 tests tournent sur mon poste et en CI ; **aucun parcours n'a été éprouvé
+production ». Les tests (2 661 backend le 23/10/2026 et 1 029 frontend le 25/10/2026, d'après `TEST_EVIDENCE.md`) tournent sur le poste de travail ; la CI GitHub n'a jamais tourné (compte bloqué pour facturation, même fichier) ; **aucun parcours n'a été éprouvé
 sur un appareil Android**, et aucun sur une base de développement — il n'en existe pas.
 
 **Le critère A2 mesure la décision, pas la géométrie.** Les distances et orientations du jeu
