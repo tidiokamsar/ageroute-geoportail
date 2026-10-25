@@ -519,3 +519,25 @@ chaque compte à un périmètre : c'est une donnée d'organisation, à fournir p
 hors de ses régions (403). Sans rattachement, un compte reste national, comme avant, et
 `GET /api/v2/perimetres` en donne le nombre. **Il ne manque que la donnée** : la liste des comptes et
 de leurs régions. Le choix A / B / C sur la validation du patrimoine existant reste ouvert.
+
+## D-12 Avis sur les inspections : faut-il un validateur désigné par région ? (BDRI, lot F)
+
+**Constat.** Le 25/10/2026, une inspection peut recevoir l'avis d'un responsable
+(`POST /api/v2/inspections/:id/validation`) : mêmes règles que la validation du patrimoine
+(rôle ADMIN ou GESTIONNAIRE, pas d'auto-validation, refus motivé, `VALIDE` et `REJETE`
+terminaux), journal `validations`. **Aucun domaine de délégation** n'existe pour les inspections :
+n'importe quel gestionnaire du périmètre peut donner l'avis.
+
+**Pourquoi ce n'est pas fait.** Désigner un validateur par région passe par l'énumération
+`DomaineValidation`. Y ajouter `INSPECTION` se fait par `ALTER TYPE ... ADD VALUE`, que PostgreSQL ne
+sait **pas** défaire : la migration serait irréversible, et les consignes l'interdisent sans
+autorisation explicite.
+
+| Option | Effet | Risque |
+|---|---|---|
+| **A. Garder l'avis sans délégation** (état actuel) | tout gestionnaire du périmètre tranche | pas de responsable nommé par région |
+| **B. Ajouter `INSPECTION` à `DomaineValidation`** | délégation par région, comme les défauts et portions | migration irréversible (valeur d'énumération définitive) |
+| **C. Faire bloquer la propagation de l'état observé jusqu'à l'avis** | l'état d'un tronçon ne change qu'après un avis | change un comportement en production (la carte suivrait plus lentement le terrain) |
+
+**Ce qui est attendu** : le choix (recommandation : **A** tant qu'aucun validateur d'inspection n'est
+nommé ; **B** quand AGEROUTE en désigne, avec autorisation de la migration irréversible).
