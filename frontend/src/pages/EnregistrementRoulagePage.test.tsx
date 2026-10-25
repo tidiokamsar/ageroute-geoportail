@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { violationsAccessibilite } from "../test/accessibilite";
 import { deplacer } from "../roulage";
@@ -64,6 +64,10 @@ vi.mock("../lib/api", () => ({
     }),
   },
 }));
+vi.mock("../lib/observationsTerrain", async (importOriginal) => {
+  const reel = await importOriginal<typeof import("../lib/observationsTerrain")>();
+  return { ...reel, enregistrerObservation: vi.fn(async () => ({ ok: true as const, observation: {} })) };
+});
 // Leaflet a besoin d'un vrai navigateur (mesures, canvas) : la carte est remplacee par un temoin qui expose ce qu'elle recoit.
 vi.mock("../components/CarteTraceRoulage", () => ({
   CarteTraceRoulage: (p: { segments: unknown[][]; position: [number, number] | null }) => (
@@ -787,5 +791,36 @@ describe("complétude et indice d'irrégularité en fin de session", () => {
     expect(c).toHaveTextContent(/Temps avec signal\s*100 %/);
     expect(c).not.toHaveTextContent(/Couverture/);
     expect(c).toHaveTextContent(/pas un verdict d'inspection/);
+  });
+});
+
+describe("observation rapide dans l'enregistreur", () => {
+  it("absente sans position, puis posee avec la position du dernier fix de la session en cours", async () => {
+    installerGeolocalisation();
+    rendre();
+    await demarrer();
+    expect(screen.getByText(/Rien n'est posé sans position/)).toBeInTheDocument();
+    emettre(0);
+    emettre(1);
+    fireEvent.click(await screen.findByRole("button", { name: "Dégradation" }));
+    fireEvent.click(screen.getByRole("button", { name: "Moyenne" }));
+    const { enregistrerObservation } = await import("../lib/observationsTerrain");
+    await waitFor(() => expect(vi.mocked(enregistrerObservation)).toHaveBeenCalledTimes(1));
+    const [saisie, userId] = vi.mocked(enregistrerObservation).mock.calls[0];
+    expect(userId).toBe("agent-1");
+    expect(saisie).toMatchObject({ type: "DEGRADATION", gravite: "MOYENNE", precisionM: 8 });
+    expect(saisie.lat).toBeCloseTo(9.64, 1);
+    expect(String(saisie.description)).toMatch(/^Relevé en roulant, session [0-9a-f]{8}/);
+  });
+
+  it("n'est pas proposée en pause ni apres l'arret : on n'observe pas sans enregistrer", async () => {
+    installerGeolocalisation();
+    rendre();
+    await demarrer();
+    emettre(0);
+    emettre(1);
+    fireEvent.click(screen.getByRole("button", { name: /Pause/ }));
+    await screen.findByText("En pause");
+    expect(screen.queryByRole("group", { name: /Observation rapide/ })).not.toBeInTheDocument();
   });
 });

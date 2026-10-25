@@ -69,6 +69,8 @@ Base `replay` portant les 82 migrations, arbre `lot/03-map-matching` après fusi
 | Frontend complet | 80 fichiers, 1 029 tests ; `tsc`, `eslint` (0 erreur), build réussis |
 | Test du dépôt sans secret | rouge sur le HEAD depuis l'ajout du projet Android (30 binaires non examinés) ; corrigé : PNG vérifiés par leur signature, JAR de Gradle épinglé par son SHA-256, identique à l'empreinte publiée par Gradle pour 8.14.3 |
 
+**Ajouts du 25/10 (SMART FIELD, phases 2 et 3)** : observation rapide dans l'enregistreur (7 tests de composant, 2 d'écran : deux appuis, position du dernier fix, position ancienne dite, stockage refusé dit, absente sans position et en pause) ; rapport des capacités de l'appareil (7 tests de la lecture, 4 du panneau : « non communiqué » jamais remplacé par une valeur). État des huit phases et protocole du pilote : `docs/pilotage/SMART-FIELD-ETAT-ET-PILOTE.md` (aucun résultat de pilote : il n'y en a pas).
+
 **Non vérifié** : la route entre deux villes n'a pas été essayée sur la base de production (lecture refusée), donc on ne sait pas
 si le référentiel y est continu entre Sangarédi et Télimélé ; le déploiement du changement d'APK exige de modifier
 `docker-compose.yml` et `nginx.conf` sur le serveur (volume `./mobile` passant du frontend au backend), à la main de la DSI.
