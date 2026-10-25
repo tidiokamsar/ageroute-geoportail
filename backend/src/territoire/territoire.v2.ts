@@ -57,6 +57,15 @@ export const territoireAnomaliesGroupe = requireTerritoire(async (req: Request) 
   const lignes = await prisma.anomalieReferentiel.findMany({ where: { id: { in: ids } }, select: { troncon: { select: { regionId: true } } } });
   return lignes.map((l) => l.troncon.regionId);
 });
+/** Lien chantier / section : la region du chantier ET celle du troncon lie doivent etre dans le perimetre. */
+export const territoireChantierSection = requireTerritoire(async (req: Request) => {
+  const chantier = await prisma.chantier.findUnique({ where: { id: req.params.id }, select: { regionId: true } });
+  return [...liste(chantier?.regionId), await regionDuTroncon(texte(req.body?.tronconId))];
+});
+export const territoireRetraitSection = requireTerritoire(async (req: Request) => {
+  const s = await prisma.chantierSection.findUnique({ where: { id: req.params.lienId }, select: { tronconId: true, chantier: { select: { regionId: true } } } });
+  return s ? [s.chantier.regionId, await regionDuTroncon(s.tronconId)] : [];
+});
 /** Analyse : la region examinee (null pour une analyse nationale, reservee a l'administrateur par la route). */
 export const territoireAnalyseReferentiel = requireTerritoire(async (req: Request) => [typeof req.body?.regionId === "number" ? req.body.regionId : null]);
 

@@ -370,6 +370,8 @@ model User {
   propositionsTeledetectionJugees PropositionTeledetection[] @relation("PtVerificateur")
   programmesBudgetairesCrees      ProgrammeBudgetaire[]      @relation("ProgrammationAuteur")
   decisionsAnomalie               DecisionAnomalie[]
+  chantierSectionsCrees           ChantierSection[]          @relation("ChantierSectionCreateur")
+  chantierSectionsRetirees        ChantierSection[]          @relation("ChantierSectionRetrait")
 
   @@map("users")
 }
@@ -517,6 +519,7 @@ model Troncon {
   propositionsTeledetection PropositionTeledetection[]
   programmesBudgetaires     ProgrammeBudgetaire[]
   anomaliesReferentiel      AnomalieReferentiel[]
+  chantierSections          ChantierSection[]
 
   @@index([regionId])
   @@index([etat])
@@ -704,6 +707,8 @@ model Chantier {
 
   @@index([regionId])
   @@index([deletedAt])
+  sections ChantierSection[]
+
   @@index([statutValidation])
   @@map("chantiers")
 }
@@ -2685,6 +2690,8 @@ model Portion {
   @@index([tronconId, valideDu], map: "portions_tronconId_valideDu_idx")
   @@index([statutValidation])
   @@index([deletedAt])
+  chantierSections ChantierSection[]
+
   @@index([observationId])
   @@map("portions")
 }
@@ -3934,4 +3941,31 @@ model DecisionAnomalie {
 
   @@index([anomalieId, decideLe], map: "decisions_anomalie_anomalie_idx")
   @@map("decisions_anomalie")
+}
+
+/// Un chantier sur plusieurs troncons ou sections (BDRI, lot G). Migration 20261027110000.
+/// Section = une portion existante OU un intervalle d'abscisses (metres le long du trace), ou le troncon entier.
+/// Aucun montant ni statut contractuel : ils restent au chantier. Un lien se RETIRE (retireLe), il ne s'efface pas.
+model ChantierSection {
+  id           String    @id @default(uuid())
+  chantierId   String
+  chantier     Chantier  @relation(fields: [chantierId], references: [id], onDelete: Restrict)
+  tronconId    String
+  troncon      Troncon   @relation(fields: [tronconId], references: [id], onDelete: Restrict)
+  portionId    String?
+  portion      Portion?  @relation(fields: [portionId], references: [id], onDelete: Restrict)
+  debutM       Float?
+  finM         Float?
+  commentaire  String?
+  creeParId    String
+  creePar      User      @relation("ChantierSectionCreateur", fields: [creeParId], references: [id], onDelete: Restrict)
+  creeLe       DateTime  @default(now())
+  retireLe     DateTime?
+  retireParId  String?
+  retirePar    User?     @relation("ChantierSectionRetrait", fields: [retireParId], references: [id], onDelete: Restrict)
+  motifRetrait String?
+
+  @@index([chantierId], map: "chantier_sections_chantier_idx")
+  @@index([tronconId], map: "chantier_sections_troncon_idx")
+  @@map("chantier_sections")
 }

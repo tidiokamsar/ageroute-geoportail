@@ -9,6 +9,7 @@ import { EntityForm } from "./EntityForm";
 import { FicheChildManager } from "./FicheChildManager";
 import { TronconDocumentsTab } from "./TronconDocumentsTab";
 import { VoletPortions, VoletProgrammation } from "./Fiche360Volets";
+import { ChantiersDuTroncon } from "./ChantiersDuTroncon";
 import { useEntityMutations } from "../hooks/useEntity";
 import { useAuth, canWrite as canWriteRole } from "../lib/auth";
 import { parseApiError } from "../lib/errors";
@@ -299,6 +300,8 @@ export function TronconFicheModal({ open, onClose, tronconId }: { open: boolean;
               />
             )}
             {tab === "chantiers" && (
+              <div className="space-y-3">
+              <ChantiersDuTroncon tronconId={tronconId} inspections={data.inspections ?? []} />
               <FicheChildManager
                 tronconId={tronconId}
                 endpoint="chantiers"
@@ -309,6 +312,7 @@ export function TronconFicheModal({ open, onClose, tronconId }: { open: boolean;
                 emptyLabel="Aucun chantier."
                 canWrite={writable}
               />
+              </div>
             )}
             {tab === "inspections" && (
               <FicheChildManager
