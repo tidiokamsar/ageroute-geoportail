@@ -6,7 +6,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
  * Revue d'une observation par un responsable : les PHOTOS jointes depuis le terrain sont visibles, avec leur date de prise,
  * leur position et leur empreinte SHA-256, et rien n'est affiché quand il n'y en a pas.
  */
-const h = vi.hoisted(() => ({ medias: [] as unknown[], lectures: [] as string[] }));
+const h = vi.hoisted(() => ({
+  medias: [] as unknown[], lectures: [] as string[], ecritures: [] as { url: string; corps: unknown }[],
+  suggestion: { tronconId: "t1", code: "GN N0001", nom: "RN1", distanceM: 12, abscisseM: 340, pk: 4.2, confiance: 0.88, ambigu: false } as Record<string, unknown> | null,
+}));
 
 vi.mock("../lib/api", () => ({
   api: {
@@ -22,7 +25,11 @@ vi.mock("../lib/api", () => ({
       if (url.startsWith("/photos/")) return { data: new Blob(["x"], { type: "image/jpeg" }) };
       throw new Error(`GET inattendu : ${url}`);
     }),
-    post: vi.fn(),
+    post: vi.fn(async (url: string, corps?: unknown) => {
+      h.ecritures.push({ url, corps });
+      if (url.endsWith("/appariement/suggestion")) return { data: { suggestion: h.suggestion } };
+      return { data: {} };
+    }),
   },
 }));
 vi.mock("../lib/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -43,7 +50,8 @@ async function ouvrirObservation() {
 }
 
 beforeEach(() => {
-  h.medias = []; h.lectures = [];
+  h.medias = []; h.lectures = []; h.ecritures = [];
+  h.suggestion = { tronconId: "t1", code: "GN N0001", nom: "RN1", distanceM: 12, abscisseM: 340, pk: 4.2, confiance: 0.88, ambigu: false };
   Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:essai") });
   Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
 });
@@ -65,5 +73,41 @@ describe("revue d'une observation : photos de preuve", () => {
     rendre();
     await ouvrirObservation();
     expect(screen.queryByText("Photos de preuve")).not.toBeInTheDocument();
+  });
+});
+
+describe("revue d'une observation : rattachement à un tronçon, sur proposition", () => {
+  it("dit que l'observation n'entre dans l'historique d'aucune section, propose un tronçon, et ne rattache qu'après confirmation", async () => {
+    rendre();
+    await ouvrirObservation();
+    const section = screen.getByRole("region", { name: "Rattachement à un tronçon" });
+    expect(section).toHaveTextContent(/n'entre dans l'historique d'aucune section/);
+    fireEvent.click(screen.getByRole("button", { name: /Proposer un tronçon/ }));
+    expect(await screen.findByText(/GN N0001 · RN1/)).toBeInTheDocument();
+    expect(screen.getByText(/À 12 m · confiance 88 %/)).toBeInTheDocument();
+    // Proposé, pas encore rattaché : aucune confirmation envoyée.
+    expect(h.ecritures.map((e) => e.url)).toEqual(["/v2/observations/o1/appariement/suggestion"]);
+    fireEvent.click(screen.getByRole("button", { name: /Confirmer ce tronçon/ }));
+    await vi.waitFor(() => expect(h.ecritures).toHaveLength(2));
+    expect(h.ecritures[1]).toEqual({ url: "/v2/observations/o1/appariement/confirmation", corps: { tronconId: "t1" } });
+  });
+
+  it("un candidat ambigu est dit ; « Ne pas rattacher » n'écrit rien", async () => {
+    h.suggestion = { tronconId: "t1", code: "GN N0001", nom: null, distanceM: 30, abscisseM: 10, pk: null, confiance: 0.4, ambigu: true };
+    rendre();
+    await ouvrirObservation();
+    fireEvent.click(screen.getByRole("button", { name: /Proposer un tronçon/ }));
+    expect(await screen.findByText(/candidat ambigu : vérifier avant de confirmer/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Ne pas rattacher/ }));
+    expect(h.ecritures).toHaveLength(1);
+  });
+
+  it("aucun candidat sûr : rien n'est proposé ni forcé", async () => {
+    h.suggestion = null;
+    rendre();
+    await ouvrirObservation();
+    fireEvent.click(screen.getByRole("button", { name: /Proposer un tronçon/ }));
+    await vi.waitFor(() => expect(h.ecritures).toHaveLength(1));
+    expect(screen.queryByRole("button", { name: /Confirmer ce tronçon/ })).not.toBeInTheDocument();
   });
 });

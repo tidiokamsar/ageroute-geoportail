@@ -51,6 +51,7 @@ Chaque banc nomme ses vérifications, les compte, et sort en **code 1** si une s
 | `geometries-invalides` | transaction annulée | 6 | compte exact des géométries invalides |
 | `deviation` | transaction annulée | 8 | déviation routée, longueur comparée à un **oracle SQL** |
 | `chemin` | transaction annulée | 13 | route entre deux villes : troncons dans l'ordre sur le reseau, ni route parallele ni route qui traverse, longueur comparée à un **oracle SQL**, sens inverse au retour, ville hors référentiel, trou du référentiel (aucun chemin, jamais une ligne droite), troncon archivé |
+| `historique` | transaction annulée | 19 | historique d'une section et classement « à contrôler » : constats par jour, récurrences, confirmés et proposés à part, rejeté et supprimé écartés, **observation conteneur d'un défaut non comptée deux fois**, score calculé à la main, périmètre régional |
 | `graphe` | transaction annulée | 7 | graphe chargé depuis la base, jonction comparée à un oracle SQL |
 | `info-route` | transaction annulée | 12 | publication, retrait, bulletin archivé immuable, absence de fuite de texte interne |
 | `patrouilles` | transaction annulée | 10 | programmes, missions, couverture, vérification de signalement, audit |

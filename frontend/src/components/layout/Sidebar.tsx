@@ -39,6 +39,7 @@ const sections = [
       { to: "/programmation/moteur", label: "Moteur de programmation", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/inspections", label: "Inspections" },
       { to: "/inspections/defauts/validation", label: "Validation des relevés", roles: ["ADMIN", "GESTIONNAIRE"] },
+      { to: "/inspections/a-controler", label: "Points à contrôler", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/inspections/conflits", label: "Conflits de synchronisation", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/inspections/defauts/catalogue", label: "Catalogue des défauts", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/imports", label: "Lots d'import", roles: ["ADMIN", "GESTIONNAIRE"] },

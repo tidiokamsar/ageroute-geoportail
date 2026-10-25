@@ -33,6 +33,7 @@ const TerrainPortionsPage = lazy(() => import("./pages/TerrainPortionsPage").the
 const ObservationsTerrainPage = lazy(() => import("./pages/ObservationsTerrainPage").then((m) => ({ default: m.ObservationsTerrainPage })));
 const ConflitsSyncPage = lazy(() => import("./pages/ConflitsSyncPage").then((m) => ({ default: m.ConflitsSyncPage })));
 const PortionsValidationPage = lazy(() => import("./pages/PortionsValidationPage").then((m) => ({ default: m.PortionsValidationPage })));
+const AControlerPage = lazy(() => import("./pages/AControlerPage").then((m) => ({ default: m.AControlerPage })));
 const DefautsValidationPage = lazy(() => import("./pages/DefautsValidationPage").then((m) => ({ default: m.DefautsValidationPage })));
 const CatalogueDefautsPage = lazy(() => import("./pages/CatalogueDefautsPage").then((m) => ({ default: m.CatalogueDefautsPage })));
 const RapportBailleurPage = lazy(() => import("./pages/RapportBailleurPage").then((m) => ({ default: m.RapportBailleurPage })));
@@ -117,6 +118,7 @@ const router = createBrowserRouter(
       </Route>
       <Route element={<ProtectedRoute roles={["ADMIN", "GESTIONNAIRE"]} />}>
         <Route element={<AppLayout />}>
+          <Route path="inspections/a-controler" element={<LazyPage><AControlerPage /></LazyPage>} handle={{ title: "Points à contrôler" }} />
           <Route path="inspections/defauts/validation" element={<LazyPage><DefautsValidationPage /></LazyPage>} handle={{ title: "Validation des relevés terrain" }} />
           <Route path="inspections/conflits" element={<LazyPage><ConflitsSyncPage /></LazyPage>} handle={{ title: "Conflits de synchronisation" }} />
           <Route path="inspections/defauts/catalogue" element={<LazyPage><CatalogueDefautsPage /></LazyPage>} handle={{ title: "Catalogue des défauts" }} />

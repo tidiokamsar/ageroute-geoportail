@@ -10,6 +10,8 @@ import { enregistrerQualite } from "../lib/qualite";
 import { validationPermise, EXPLICATIONS } from "../governance/validation";
 import { verdictDelegation } from "../governance/delegation.service";
 import { territoireObservation } from "../territoire/territoire.v2";
+import { requireRole } from "../middleware/rbac.middleware";
+import { apparier, type Appariement } from "../geo/appariement";
 import { uploadPhoto } from "../middleware/upload-photo.middleware";
 import { plafondPhotos } from "../middleware/quota-photos.middleware";
 import { photoAbsolutePath } from "../lib/photos";
@@ -369,4 +371,73 @@ observationsV2Router.post("/:id/photos", requireAuth, requireModuleAccess("inspe
     if (req.file) await supprimerTemporaire(req.file.path);
     return next(err);
   }
+});
+
+/**
+ * RATTACHER UNE OBSERVATION A UN TRONCON, SUR PROPOSITION (SMART FIELD, phase 6, 25/10/2026).
+ *
+ * Une observation prise en roulant n'a qu'une position GPS : aucun troncon. Sans rattachement, elle n'entre dans l'historique
+ * d'aucune section. Le serveur PROPOSE le troncon le plus plausible (meme moteur d'appariement que pour les defauts : distance au
+ * trace, incertitude GPS, second candidat), un RESPONSABLE confirme. Rien n'est rattache sans lui, et la confirmation reverifie le
+ * candidat (un tronçon different de celui calcule est refuse : la carte a pu changer entre la proposition et le clic).
+ *
+ * Reserve aux observations encore PROPOSEE : une observation validee est une donnee officielle, on ne la deplace pas en silence.
+ */
+function empriseLocaleObservation(lat: number, lon: number): string {
+  // Fenetre d'environ 2 km : l'index spatial suffit, le moteur ne balaie jamais tout le reseau pour un point.
+  const dLat = 0.018, dLon = 0.02;
+  const west = lon - dLon, east = lon + dLon;
+  const south = Math.max(-90, lat - dLat), north = Math.min(90, lat + dLat);
+  return `POLYGON((${west} ${south},${east} ${south},${east} ${north},${west} ${north},${west} ${south}))`;
+}
+
+async function observationAApparier(req: Request) {
+  const scope = await perimetreObservations(req.user!);
+  return prisma.observation.findFirst({
+    where: { id: req.params.id, deletedAt: null, ...scope },
+    select: { id: true, lat: true, lon: true, precisionM: true, statut: true, version: true, tronconId: true },
+  });
+}
+
+observationsV2Router.post("/:id/appariement/suggestion", requireAuth, requireModuleAccess("inspections"), requireRole("ADMIN", "GESTIONNAIRE"), territoireObservation, async (req, res, next) => {
+  try {
+    const o = await observationAApparier(req);
+    if (!o) return res.status(404).json({ message: "Observation introuvable." });
+    if (o.lat == null || o.lon == null) return res.status(422).json({ message: "Cette observation n'a pas de position GPS à apparier." });
+    const suggestion = await apparier({ lat: o.lat, lon: o.lon, precisionM: o.precisionM }, { emprise: empriseLocaleObservation(o.lat, o.lon) });
+    return res.json({ suggestion, motif: suggestion ? null : "AUCUN_CANDIDAT_SUR", dejaRattachee: o.tronconId });
+  } catch (err) { return next(err); }
+});
+
+observationsV2Router.post("/:id/appariement/confirmation", requireAuth, requireModuleAccess("inspections"), requireRole("ADMIN", "GESTIONNAIRE"), territoireObservation, async (req, res, next) => {
+  try {
+    const c = z.object({ tronconId: z.string().min(1) }).strict().parse(req.body);
+    const user = req.user!;
+    const o = await observationAApparier(req);
+    if (!o) return res.status(404).json({ message: "Observation introuvable." });
+    if (o.statut !== "PROPOSEE") return res.status(409).json({ message: "Seule une observation encore proposée peut être rattachée : une observation tranchée n'est plus déplacée." });
+    if (o.lat == null || o.lon == null) return res.status(422).json({ message: "Cette observation n'a pas de position GPS à apparier." });
+    const suggestion: Appariement | null = await apparier({ lat: o.lat, lon: o.lon, precisionM: o.precisionM }, { emprise: empriseLocaleObservation(o.lat, o.lon) });
+    if (!suggestion || suggestion.tronconId !== c.tronconId) {
+      return res.status(409).json({ message: "Le tronçon demandé ne correspond plus au candidat calculé. Rechargez la suggestion." });
+    }
+    const apres = await prisma.$transaction(async (tx) => {
+      const maj = await tx.observation.updateMany({
+        where: { id: o.id, deletedAt: null, statut: "PROPOSEE", version: o.version },
+        data: { tronconId: suggestion.tronconId, pk: suggestion.pk, confianceAppariement: suggestion.confiance, version: { increment: 1 } },
+      });
+      if (maj.count !== 1) return null;
+      const valeur = await tx.observation.findUnique({ where: { id: o.id } });
+      if (!valeur) throw new Error("Observation absente après confirmation d'appariement.");
+      await logAuditTransactionnelle(tx, {
+        userId: user.id, action: "UPDATE", entityType: "Observation", entityId: o.id,
+        before: { tronconId: o.tronconId, version: o.version },
+        after: { tronconId: suggestion.tronconId, pk: suggestion.pk, confianceAppariement: suggestion.confiance, version: valeur.version },
+        ipAddress: req.ip,
+      });
+      return valeur;
+    });
+    if (!apres) return res.status(409).json({ message: "L'observation a changé. Rechargez-la avant de confirmer le rattachement." });
+    return res.json({ observation: apres, appariement: suggestion });
+  } catch (err) { return next(err); }
 });
