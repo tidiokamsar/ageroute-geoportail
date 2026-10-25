@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   adresseNonPublique, balayerArbre, balayerTexte, entropie, estValeurFactice, nomDeFichierSecret, racineDepot,
@@ -20,6 +22,16 @@ import { EXCEPTIONS_SECRETS, estExcusee } from "./exceptions-secrets";
  * lui-meme balaye, et ne doit pas contenir ce qu'il cherche.
  */
 const RACINE = racineDepot(__dirname);
+
+/**
+ * Le JAR de demarrage de Gradle (projet Android genere par Capacitor) est du CODE EXECUTABLE binaire. Il n'est tolere que
+ * s'il est identique a celui verifie le 25/10/2026 : son SHA-256 est celui que Gradle publie pour la version 8.14.3
+ * (https://gradle.org/release-checksums/, rubrique « Wrapper JAR Checksum »). Toute modification demande un nouvel examen.
+ */
+const ENVELOPPE_GRADLE = {
+  chemin: "frontend/android/gradle/wrapper/gradle-wrapper.jar",
+  sha256: "7d3a4ac4de1c32b59bc6a4eb8ecb8e612ccd0cf1ae1e99f66902da64df296172",
+};
 const regles = (chemin: string, contenu: string): Regle[] => balayerTexte(chemin, contenu).map((t) => t.regle);
 
 // Fragments assembles : aucun ne ressemble a un secret tant qu'il n'est pas recolle.
@@ -142,8 +154,19 @@ describe("le depot suivi par git ne contient aucun secret", () => {
     expect(resultat.fichiersLus).toBeGreaterThan(800);
     // Les seuls fichiers qu'on ne lit pas sont des binaires ou des donnees volumineuses. Un nouveau venu doit etre examine.
     const attendus = new Set(["frontend/public/favicon.ico"]);
-    const inattendus = resultat.ignores.filter((i) => !attendus.has(i.chemin));
+    // Images de l'application mobile (icones, ecrans de demarrage) : ce doivent etre de VRAIES images PNG (signature lue).
+    // Un fichier qui porterait ce nom sans en etre une reste un inattendu, donc signale.
+    const dossiersImages = [/^frontend\/android\/app\/src\/main\/res\/.+\.png$/, /^frontend\/public\/icons\/.+\.png$/];
+    const SIGNATURE_PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const estImageAttendue = (chemin: string) =>
+      dossiersImages.some((re) => re.test(chemin)) && readFileSync(path.join(RACINE, chemin)).subarray(0, 8).equals(SIGNATURE_PNG);
+    const inattendus = resultat.ignores.filter((i) => !attendus.has(i.chemin) && !estImageAttendue(i.chemin) && i.chemin !== ENVELOPPE_GRADLE.chemin);
     expect(inattendus.map((i) => `${i.chemin} (${i.raison})`)).toEqual([]);
+  });
+
+  it("l'enveloppe Gradle (binaire du projet Android) est celle qui a ete examinee : empreinte epinglee", () => {
+    const octets = readFileSync(path.join(RACINE, ENVELOPPE_GRADLE.chemin));
+    expect(createHash("sha256").update(octets).digest("hex")).toBe(ENVELOPPE_GRADLE.sha256);
   });
 
   it("aucun fichier d'environnement reel n'est suivi (seul .env.example l'est), et .gitignore les ecarte", () => {

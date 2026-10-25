@@ -40,6 +40,10 @@ services:
       # documentaire, Inspection terrain et Ordres de travaux sont en production et
       # servent precisement a televerser.
       - bdri_uploads:/app/uploads
+      # L'APK Android vit sur l'hote (hors archive de deploy : il survit aux publications sans etre commite
+      # dans un depot public). Il est servi par l'API, derriere l'authentification (GET /api/v2/mobile/apk),
+      # et non plus par nginx. Mis a jour manuellement a chaque version.
+      - ./mobile:/app/mobile:ro
     ports:
       - "127.0.0.1:4000:4000"
     networks:
@@ -52,10 +56,6 @@ services:
     logging: *logging-defaut
     depends_on:
       - backend
-    volumes:
-      # L'APK Android vit sur l'hote (hors archive de deploy : il survit aux publications
-      # sans etre commite dans un depot public). Mis a jour manuellement a chaque version.
-      - ./mobile:/opt/console-bdri/mobile:ro
     ports:
       - "127.0.0.1:8081:80"
     networks:

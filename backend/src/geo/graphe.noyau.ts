@@ -402,3 +402,98 @@ export function deviation(g: Graphe, c: Coupure, opts: { distanceMaxM: number })
   const longueurM = atteint + coutArrivee;
   return { longueurM, longueurCoupeeM, allongementM: longueurM - longueurCoupeeM, segments };
 }
+
+// ===================== Chemin entre deux positions (route entre deux villes) =====================
+
+export interface PositionSurTroncon { tronconId: string; abscisseM: number }
+
+export interface Chemin {
+  /** Longueur du chemin, en metres, de la position de depart a celle d'arrivee. */
+  longueurM: number;
+  /** Les morceaux de troncons empruntes, dans l'ordre, chacun de `deM` vers `aM`. */
+  segments: SegmentItineraire[];
+}
+
+export type RefusChemin = { refus: "TRONCON_HORS_GRAPHE" | "AUCUN_CHEMIN"; motif: string };
+
+/**
+ * Le plus court chemin entre deux positions du reseau, rendu comme la liste ORDONNEE des troncons qui le composent.
+ *
+ * Les deux positions sont (troncon, abscisse) : un troncon peut n'etre emprunte qu'en partie, aux extremites, quand la ville
+ * est au milieu de lui ; chaque segment dit de quelle abscisse a quelle abscisse. Le reseau est non oriente (le referentiel
+ * n'a pas de sens de circulation). Aucun chemin n'est une reponse legitime : le referentiel couvre une partie du reseau, et un
+ * trou entre deux troncons coupe la route. Elle est rendue telle quelle, jamais remplacee par une ligne droite.
+ */
+export function cheminEntre(
+  g: Graphe,
+  depuis: PositionSurTroncon,
+  vers: PositionSurTroncon,
+  opts: { distanceMaxM: number },
+): Chemin | RefusChemin {
+  if (!(opts.distanceMaxM > 0)) throw new Error("cheminEntre : distanceMaxM doit etre strictement positive");
+  const ta = g.parTroncon.get(depuis.tronconId), tb = g.parTroncon.get(vers.tronconId);
+  if (!ta || !tb) return { refus: "TRONCON_HORS_GRAPHE", motif: "Un des deux troncons n'est pas dans le sous-reseau charge." };
+  const sa = Math.max(0, Math.min(ta.longueurM, depuis.abscisseM));
+  const sb = Math.max(0, Math.min(tb.longueurM, vers.abscisseM));
+
+  const candidats: Chemin[] = [];
+  // Meme troncon : le long de lui, sans passer par un noeud.
+  if (depuis.tronconId === vers.tronconId) {
+    candidats.push({ longueurM: Math.abs(sa - sb), segments: [{ tronconId: depuis.tronconId, deM: sa, aM: sb }] });
+  }
+
+  const departs = encadrement(ta, sa);
+  const arrivees = encadrement(tb, sb);
+  const dist = new Map<number, number>();
+  const prec = new Map<number, { de: number; arc: Arc } | null>();
+  const tas = new Tas();
+  for (const d of departs) {
+    if (d.coutM < (dist.get(d.noeud) ?? Infinity)) { dist.set(d.noeud, d.coutM); prec.set(d.noeud, null); tas.pousser(d.coutM, d.noeud); }
+  }
+  while (tas.taille > 0) {
+    const [d, n] = tas.extraire();
+    if (d > (dist.get(n) ?? Infinity)) continue;
+    for (const a of g.adjacence[n]) {
+      const nd = d + a.poidsM;
+      if (nd > opts.distanceMaxM) continue;
+      if (nd < (dist.get(a.vers) ?? Infinity)) { dist.set(a.vers, nd); prec.set(a.vers, { de: n, arc: a }); tas.pousser(nd, a.vers); }
+    }
+  }
+
+  let meilleurNoeud = -1, meilleurCout = Infinity;
+  for (const x of arrivees) {
+    const d = dist.get(x.noeud);
+    if (d !== undefined && d + x.coutM < meilleurCout) { meilleurCout = d + x.coutM; meilleurNoeud = x.noeud; }
+  }
+  if (meilleurNoeud >= 0 && meilleurCout <= opts.distanceMaxM) {
+    const arcs: Arc[] = [];
+    let n = meilleurNoeud;
+    for (;;) {
+      const p = prec.get(n);
+      if (!p) break;
+      arcs.unshift(p.arc);
+      n = p.de;
+    }
+    const noeudDepart = n;
+    const noeudArrivee = meilleurNoeud;
+    const brut: SegmentItineraire[] = [];
+    // Du point de depart au premier noeud : un morceau du troncon de depart.
+    const posDepart = ta.noeuds.indexOf(noeudDepart) >= 0 ? ta.abscisses[ta.noeuds.indexOf(noeudDepart)] : sa;
+    if (posDepart !== sa) brut.push({ tronconId: depuis.tronconId, deM: sa, aM: posDepart });
+    for (const a of arcs) brut.push({ tronconId: a.tronconId, deM: a.deM, aM: a.aM });
+    const posArrivee = tb.noeuds.indexOf(noeudArrivee) >= 0 ? tb.abscisses[tb.noeuds.indexOf(noeudArrivee)] : sb;
+    if (posArrivee !== sb) brut.push({ tronconId: vers.tronconId, deM: posArrivee, aM: sb });
+    const segments: SegmentItineraire[] = [];
+    for (const s of brut) {
+      const der = segments[segments.length - 1];
+      if (der && der.tronconId === s.tronconId && der.aM === s.deM && Math.sign(der.aM - der.deM) === Math.sign(s.aM - s.deM)) der.aM = s.aM;
+      else segments.push({ ...s });
+    }
+    candidats.push({ longueurM: meilleurCout, segments });
+  }
+
+  if (candidats.length === 0) {
+    return { refus: "AUCUN_CHEMIN", motif: `Aucun chemin continu entre les deux positions dans le sous-reseau charge, en moins de ${opts.distanceMaxM} m : le referentiel est interrompu entre elles.` };
+  }
+  return candidats.reduce((m, c) => (c.longueurM < m.longueurM ? c : m));
+}

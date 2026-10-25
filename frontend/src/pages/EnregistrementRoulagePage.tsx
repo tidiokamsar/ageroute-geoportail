@@ -155,6 +155,7 @@ export function EnregistrementRoulagePage() {
   // ignore en silence (phase 1 SMART FIELD) : la raison est dite, les donnees restent sur
   // l'appareil, et l'agent choisit en connaissance de cause.
   const [repriseRefusee, setRepriseRefusee] = useState<string | null>(null);
+  const [confirmerEffacementJournal, setConfirmerEffacementJournal] = useState(false);
   const [missionId, setMissionId] = useState("");
   // Pack de mission (phase 2 SMART FIELD) : ce qui est sur le telephone AVANT de partir.
   const [pack, setPack] = useState<EtatPack>(() => etatPackMission());
@@ -333,6 +334,7 @@ export function EnregistrementRoulagePage() {
       const etat = etatPackMission();
       setPack(etat);
       if (!navigator.onLine) toast.error("Hors ligne : rien n'a pu être téléchargé.");
+      else if (refs.tronconsIncomplets) toast.error(`Pack INCOMPLET : ${refs.troncons.length} tronçon(s) sur ${refs.tronconsTotal ?? "un total inconnu"}. Réessayer en ligne ; ne pas partir hors réseau avec ce pack.`);
       else toast.success(`Mission prête : ${refs.troncons.length} tronçons, ${refs.catalogue.length} types de défauts en cache.`);
     } catch {
       toast.error("Téléchargement du pack impossible : réessayez en ligne.");
@@ -593,13 +595,23 @@ export function EnregistrementRoulagePage() {
             Si ces données comptent, ne les effacez pas : contactez la DSI avec la mention « journal de roulage {repriseRefusee === "VERSION_JOURNAL_INCONNUE" ? "version incompatible" : "début absent"} ».
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button type="button" variant="danger" onClick={() => { void oublier(); }}>
+            <Button type="button" variant="danger" onClick={() => setConfirmerEffacementJournal(true)}>
               Effacer ce journal (données perdues)
             </Button>
-            <Button type="button" variant="secondary" onClick={() => setRepriseRefusee(null)}>
+            <Button type="button" variant="secondary" onClick={() => { setConfirmerEffacementJournal(false); setRepriseRefusee(null); }}>
               Décider plus tard
             </Button>
           </div>
+          {confirmerEffacementJournal && (
+            <div role="alertdialog" aria-labelledby="conf-journal" className="mt-3 rounded-lg border border-red-300 bg-red-50 p-3 text-red-950">
+              <p id="conf-journal" className="font-semibold">Effacer définitivement ce journal ?</p>
+              <p className="mt-1">Ses positions n'ont jamais été envoyées et ne peuvent plus être relues par cette version : elles seront perdues de ce téléphone, sans retour possible.</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button size="sm" variant="danger" onClick={() => { setConfirmerEffacementJournal(false); void oublier(); }}>Oui, effacer</Button>
+                <Button size="sm" variant="outline" onClick={() => setConfirmerEffacementJournal(false)}>Non, le garder</Button>
+              </div>
+            </div>
+          )}
         </section>
       )}
       {!session.current && !interrompue && (
@@ -607,7 +619,7 @@ export function EnregistrementRoulagePage() {
           <h2 className="font-semibold flex items-center gap-2"><Download className="h-4 w-4" aria-hidden="true" /> Préparer la mission (avant de partir)</h2>
           <p className="mt-1 text-xs text-gray-500">En ligne, ici : téléchargez ce dont la session aura besoin hors réseau. Ce qui est sur le téléphone :</p>
           <ul className="mt-2 space-y-1 text-sm" aria-label="État de la préparation">
-            <li>{pack.troncons > 0 ? "✅" : "⬜"} Référentiel des tronçons : <strong>{pack.troncons}</strong>{pack.tronconsLe ? ` (copie du ${new Date(pack.tronconsLe).toLocaleString("fr-FR")})` : " — aucun"}</li>
+            <li>{pack.troncons > 0 && !pack.tronconsIncomplets ? "✅" : pack.tronconsIncomplets ? "⚠️" : "⬜"} Référentiel des tronçons : <strong>{pack.troncons}</strong>{pack.tronconsTotal !== null ? ` sur ${pack.tronconsTotal}` : ""}{pack.tronconsLe ? ` (copie du ${new Date(pack.tronconsLe).toLocaleString("fr-FR")})` : " — aucun"}{pack.tronconsIncomplets && <strong className="ml-1 text-amber-900"> : INCOMPLET, le pack n'a pas tout le référentiel</strong>}</li>
             <li>{pack.catalogue > 0 ? "✅" : "⬜"} Catalogue des défauts : <strong>{pack.catalogue}</strong> type(s)</li>
             <li>{vocab ? "✅" : "⬜"} Vocabulaires de qualification {vocab?.copieDuLe ? `(copie du ${new Date(vocab.copieDuLe).toLocaleString("fr-FR")})` : vocab?.refs ? "" : " — absents"}</li>
             <li>{stockageEstime ? `✅ Place occupée sur l'appareil : ${stockageEstime.usageMo.toFixed(0)} Mo` : "⬜ Place sur l'appareil : inconnue"}</li>
@@ -754,9 +766,8 @@ export function EnregistrementRoulagePage() {
           {vue.phase === "arretee" && profilCompletude && (
             <section aria-labelledby="completude" className="rounded-lg border border-gray-200 bg-white p-3">
               <h3 id="completude" className="text-sm font-semibold text-navy">Complétude du relevé</h3>
-              <dl className="mt-2 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
-                <div><dt className="text-xs text-gray-600">Trace valide</dt><dd className="font-semibold">{profilCompletude.traceKm.toLocaleString("fr-FR")} km</dd></div>
-                <div><dt className="text-xs text-gray-600">Positions fiables</dt><dd className="font-semibold">{profilCompletude.fiables}/{profilCompletude.echantillons}</dd></div>
+              <dl className="mt-2 grid grid-cols-1 gap-2 text-sm sm:grid-cols-3">
+                <div><dt className="text-xs text-gray-600">Positions fiables (≤ 15 m, seuil provisoire)</dt><dd className="font-semibold">{profilCompletude.fiables}/{profilCompletude.echantillons}</dd></div>
                 <div><dt className="text-xs text-gray-600">Temps avec signal</dt><dd className="font-semibold">{Math.round(profilCompletude.partTempsAvecSignal * 100)} %</dd></div>
                 <div><dt className="text-xs text-gray-600">Interruptions</dt><dd className="font-semibold">{profilCompletude.interruptions} · {Math.round(profilCompletude.interruptionsMs / 60_000)} min</dd></div>
               </dl>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ChevronDown, Maximize, Minimize, Navigation, PenLine, Ruler, Share2, Smartphone, Square, X } from "lucide-react";
 import { ExportControl } from "./ExportControl";
+import { telechargerApk } from "../../lib/apkMobile";
 import type { MeasureMode } from "./MeasureLayer";
 
 /**
@@ -57,15 +58,15 @@ export function BarreOutilsCarte(p: PropsBarreOutils) {
           direct (fichier porte par nginx, voir docker-compose.yml), et la PWA reste la
           voie recommendee — le title le dit. Visible de tous, y compris LECTEUR : un
           agent de terrain qui n'ecrit pas a autant besoin de la carte dans sa poche. */}
-      <a
-        href="/mobile/bdri-console-terrain.apk"
-        download
+      <button
+        type="button"
+        onClick={() => { void telechargerApk(); }}
         aria-label="Télécharger l'application mobile (Android)"
-        title="Application mobile terrain (Android) — télécharger l'APK. Sur téléphone, la voie la plus simple reste « Ajouter à l'écran d'accueil » (PWA, toujours à jour)."
-        className={BOUTON}
+        title="Application mobile terrain (Android) — télécharger l'APK (compte requis). Sur téléphone, la voie la plus simple reste « Ajouter à l'écran d'accueil » (PWA, toujours à jour)."
+        className={`${BOUTON} rounded-lg border border-gray-200 bg-white text-navy shadow-md hover:bg-gray-50`}
       >
         <Smartphone className="h-4 w-4" aria-hidden="true" />
-      </a>
+      </button>
 
       <div className={GROUPE}>
         <button type="button" onClick={p.onPartager} aria-label={p.copie ? "Lien copié" : "Partager la vue"} title="Partager la vue (copie un lien)" className={BOUTON}>

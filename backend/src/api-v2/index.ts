@@ -28,6 +28,7 @@ import { integrationsV2Router } from "./integrations.routes";
 import { tableauDeBordV2Router, fiche360V2Router } from "./tableau-de-bord.routes";
 import { tachesInternesV2Router } from "./taches-internes.routes";
 import { correspondancesV2Router } from "./correspondances.routes";
+import { mobileV2Router } from "./mobile.routes";
 
 /**
  * `/api/v2` — la nouvelle surface d'API.
@@ -107,6 +108,7 @@ apiV2Router.use("/tableau-de-bord", tableauDeBordV2Router);
 apiV2Router.use("/fiche-360", fiche360V2Router);
 apiV2Router.use("/taches-internes", tachesInternesV2Router);
 apiV2Router.use("/correspondances", correspondancesV2Router);
+apiV2Router.use("/mobile", mobileV2Router);
 
 /**
  * Inventaire de la surface v2, pour qu'un client sache ce qui existe reellement.

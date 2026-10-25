@@ -55,6 +55,24 @@ Base `replay` portant les 82 migrations, arbre `lot/03-map-matching` après fusi
 
 **Second défaut trouvé le 23/10 (capture de la carte)** : la route `POST /api/v2/troncons-corridor/bulk-etat` (changement d'état d'un corridor, commit `d243f3c`) n'avait pas `requireAuth` : `req.user` n'était jamais posé, donc elle répondait 401 « Authentification requise » à tout le monde, y compris à un compte connecté. Le test unitaire posait le compte à la main et affirmait à tort que la route était montée derrière `requireAuth`. Elle n'avait pas non plus le contrôle territorial (A10) : un compte régional aurait pu changer l'état de tronçons hors de son périmètre. Corrigé (`requireAuth`, puis refus de tout le lot dès qu'un tronçon est hors périmètre) ; le test reproduit maintenant le contrat de `requireAuth` et couvre 401, 403 et le lot dans le périmètre (8 tests). Mise en page : le panneau (288 px) débordait de sa colonne et le champ de la ville de départ était écrasé ; vérifié dans un navigateur sur un harnais local (colonne de 221 px), **pas sur la carte réelle avec le serveur** (aucun backend lancé). La route n'a pas été éprouvée contre la base : le banc `territoire` ne la couvre pas.
 
+## 25/10/2026 — route entre deux villes, APK derrière authentification, corrections de la revue SMART FIELD (T-42)
+
+| Contrôle | Résultat mesuré |
+|---|---|
+| Noyau `cheminEntre` (`geo/graphe.chemin.test.ts`) | 7 tests : ordre des tronçons, sens aller et retour, même tronçon, plus court de deux routes, trou du référentiel (aucun chemin), borne de longueur, tronçon hors lot |
+| Banc PostGIS `chemin` (sur `replay`, transaction annulée) | **13 vérifications réussies** : la route suit le réseau et exclut une route parallèle et une route qui la croise (que l'ancienne bande de 20 km aurait prises), longueur égale à un oracle SQL à 3 m, ville à 25 km du réseau refusée, trou du référentiel refusé, tronçon archivé coupe la route |
+| Route `GET /v2/troncons-recherche/chemin` | 6 tests (401 sans jeton, paramètres, 422 aucun chemin, 404 hors référentiel, panne = 500 sans détail) |
+| Écran « Route entre deux villes » (page Tronçons) | 8 tests dont zéro violation axe-core |
+| APK : `GET /v2/mobile/apk` et `/apk/info` | 5 tests : 401 sans jeton, octets identiques, SHA-256 du fichier servi, aucun chemin pris dans la requête, 404 si absent ; 3 tests du client, 1 du bouton |
+| Pack de mission incomplet | 3 tests : pack complet, copie locale refusée (quota), plafond de pages atteint : dits INCOMPLETS |
+| Complétude, indice d'irrégularité (revue du 25/10) | 5 tests de noyau et 3 d'écran ; effacement de journal confirmé (1 test) |
+| Frontend complet | 80 fichiers, 1 029 tests ; `tsc`, `eslint` (0 erreur), build réussis |
+| Test du dépôt sans secret | rouge sur le HEAD depuis l'ajout du projet Android (30 binaires non examinés) ; corrigé : PNG vérifiés par leur signature, JAR de Gradle épinglé par son SHA-256, identique à l'empreinte publiée par Gradle pour 8.14.3 |
+
+**Non vérifié** : la route entre deux villes n'a pas été essayée sur la base de production (lecture refusée), donc on ne sait pas
+si le référentiel y est continu entre Sangarédi et Télimélé ; le déploiement du changement d'APK exige de modifier
+`docker-compose.yml` et `nginx.conf` sur le serveur (volume `./mobile` passant du frontend au backend), à la main de la DSI.
+
 ## 22/10/2026 — graphe de trace (T-28), métadonnées ISO 19115 (T-29), compte des géométries invalides, bancs versionnés
 
 Toutes les lignes ci-dessous ont été exécutées et lues le 22/10/2026 sur ce poste (base de rejeu locale

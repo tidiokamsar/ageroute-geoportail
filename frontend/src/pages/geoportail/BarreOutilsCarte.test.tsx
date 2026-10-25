@@ -15,6 +15,8 @@ import { BarreOutilsCarte, type PropsBarreOutils } from "./BarreOutilsCarte";
  */
 
 vi.mock("./ExportControl", () => ({ ExportControl: () => <button type="button">Exporter</button> }));
+const apk = vi.hoisted(() => ({ telechargerApk: vi.fn(async () => undefined) }));
+vi.mock("../../lib/apkMobile", () => apk);
 
 beforeAll(() => {
   // jsdom n'a pas ces methodes, dont Radix a besoin pour ouvrir un menu.
@@ -184,6 +186,17 @@ describe("menu Mesures : clavier et fermeture", () => {
     screen.getByRole("button", { name: "Mesures" }).focus();
     await userEvent.keyboard("{ArrowDown}");
     expect(await screen.findByRole("menu")).toBeInTheDocument();
+  });
+});
+
+describe("application mobile", () => {
+  it("est un BOUTON qui telecharge par l'API authentifiee, jamais un lien public vers le fichier", async () => {
+    render(<BarreOutilsCarte {...props()} />);
+    const bouton = screen.getByRole("button", { name: /Télécharger l'application mobile/ });
+    expect(bouton.tagName).toBe("BUTTON");
+    expect(screen.queryByRole("link", { name: /application mobile/ })).not.toBeInTheDocument();
+    await userEvent.click(bouton);
+    expect(apk.telechargerApk).toHaveBeenCalledTimes(1);
   });
 });
 
