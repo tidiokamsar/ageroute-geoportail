@@ -8,6 +8,7 @@ import { buildExportBuffer, parseImportBuffer, formatImportError, type ImportRep
 import { resolveRegionId } from "../../lib/regions";
 import { ApiError } from "../../middleware/error.middleware";
 import { tronconCreateSchema, type TronconCreateInput } from "./troncons.schema";
+import { EMPRISE_NATIONALE } from "../../referentiel/registre.noyau";
 
 /**
  * Troncon est migre a l'audit transactionnel (ADR 11).
@@ -487,18 +488,56 @@ async function longueurGeometriqueM(id: string): Promise<number | null> {
   return v !== null && Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : null;
 }
 
-async function createWithGeom(data: TronconCreateInput & { geom?: { type: string; coordinates: number[][] } }, userId: string) {
-  const { geom, ...rest } = data;
-  const record = await base.create(rest, userId);
-  if (geom) await setLineGeom(record.id as string, geom);
-  return record;
+type Trace = { type: string; coordinates: number[][] };
+
+/**
+ * UN TRACE EST CONTROLE AVANT D'ETRE ECRIT (BDRI, lot I).
+ *
+ * Aucun chemin d'ecriture ne verifiait le trace : une ligne invalide pour PostGIS, ou des coordonnees inversees
+ * (latitude a la place de la longitude, qui posent la route au large de l'Afrique australe), entraient en base
+ * et ne se decouvraient qu'a la carte ou au metre. Le controle lit le trace TEL QU'IL SERAIT ECRIT et refuse
+ * avec la raison donnee par PostGIS ; il ne repare rien.
+ */
+async function verifierTrace(geom: Trace, client: Pick<typeof prisma, "$queryRaw"> = prisma): Promise<void> {
+  const [v] = await client.$queryRaw<{ valide: boolean; raison: string; xmin: number; ymin: number; xmax: number; ymax: number }[]>`
+    WITH g AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(geom)}), 4326) AS g)
+    SELECT ST_IsValid(g) AS valide, ST_IsValidReason(g) AS raison, ST_XMin(g) AS xmin, ST_YMin(g) AS ymin, ST_XMax(g) AS xmax, ST_YMax(g) AS ymax FROM g
+  `;
+  if (!v.valide) throw new ApiError(422, `Tracé refusé : géométrie invalide (${v.raison}). Rien n'a été écrit.`);
+  const e = EMPRISE_NATIONALE;
+  if (v.xmin < e.xmin || v.xmax > e.xmax || v.ymin < e.ymin || v.ymax > e.ymax) {
+    throw new ApiError(422, "Tracé refusé : coordonnées hors de l'emprise de la Guinée (longitude et latitude inversées, ou autre système de coordonnées ?). Rien n'a été écrit.");
+  }
 }
 
-async function updateWithGeom(id: string, data: Partial<TronconCreateInput & { geom?: { type: string; coordinates: number[][] } }>, userId: string) {
+/**
+ * La creation ou la modification d'un troncon AVEC trace est UNE transaction : l'entite, sa provenance, son audit
+ * ET le trace avec son propre audit. Avant, le trace s'ecrivait apres coup, hors transaction et sans trace d'audit :
+ * seul `PATCH /:id/geom` etait audite.
+ */
+function ecrireTrace(geom: Trace, userId: string) {
+  return async (tx: unknown, enregistrement: Record<string, unknown>) => {
+    const client = tx as Pick<typeof prisma, "$executeRaw" | "$queryRaw">;
+    const id = enregistrement.id as string;
+    const avant = await resumeGeom(id, client);
+    await setLineGeom(id, geom, client);
+    await logAuditTransactionnelle(tx as never, {
+      userId, action: "UPDATE", entityType: "Troncon", entityId: id,
+      before: { geom: avant }, after: { geom: { points: geom.coordinates.length } },
+    });
+  };
+}
+
+async function createWithGeom(data: TronconCreateInput & { geom?: Trace }, userId: string) {
   const { geom, ...rest } = data;
-  const record = await base.update(id, rest, userId);
-  if (geom) await setLineGeom(id, geom);
-  return record;
+  if (geom) await verifierTrace(geom);
+  return base.create(rest, userId, geom ? ecrireTrace(geom, userId) : undefined);
+}
+
+async function updateWithGeom(id: string, data: Partial<TronconCreateInput & { geom?: Trace }>, userId: string) {
+  const { geom, ...rest } = data;
+  if (geom) await verifierTrace(geom);
+  return base.update(id, rest, userId, geom ? ecrireTrace(geom, userId) : undefined);
 }
 
 /**
@@ -522,6 +561,7 @@ async function updateGeomOnly(
   geom: { type: string; coordinates: number[][] },
   userId: string,
 ): Promise<void> {
+  await verifierTrace(geom);
   await prisma.$transaction(async (tx) => {
     const avant = await resumeGeom(id, tx);
     await setLineGeom(id, geom, tx);

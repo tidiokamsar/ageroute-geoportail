@@ -177,8 +177,29 @@ async function main() {
   const avecTrace = await tronconsService.list({ geometrie: "presente", region: "Region integ registre" });
   verifier("liste : longueur geometrique par ligne, longueur declaree intacte", avecTrace.data.some((t: { id: string; longueurKm: number; longueurGeometriqueKm: number | null }) => t.id === "T-INV" && t.longueurKm === 5 && t.longueurGeometriqueKm !== null && t.longueurGeometriqueKm < 1.2));
 
-  verifier("aucun troncon n'a ete supprime ni archive par le registre", (await n(`SELECT count(*)::int AS n FROM troncons`)) === tronconsAvant
-    && (await n(`SELECT count(*)::int AS n FROM troncons WHERE "deletedAt" IS NOT NULL`)) === 1);
+  // ---- lot I : le trace est controle avant d'etre ecrit, et ecrit dans la transaction ----
+  const ligneGeo = (x: number, y: number) => ({ type: "LineString", coordinates: [[x, y], [x + 0.01, y]] });
+  const nouveau = (code: string, geom: unknown) => ({ code, nom: `Essai ${code}`, classe: "RN", regionId, longueurKm: 1.1, revetement: "BITUME", pkDebut: 0, pkFin: 1.1, geom });
+  const erreur = async (f: () => Promise<unknown>) => { try { await f(); return null; } catch (e) { return String((e as Error).message); } };
+  const tronconsAvantI = await n(`SELECT count(*)::int AS n FROM troncons`);
+  verifier("creation avec un trace invalide (deux points confondus) : refusee avec la raison PostGIS, rien n'est ecrit",
+    /invalide \(Too few points/.test((await erreur(() => tronconsService.createWithGeom(nouveau("I-INV", { type: "LineString", coordinates: [[-13.2, 9.7], [-13.2, 9.7]] }), "u-a"))) ?? "")
+    && (await n(`SELECT count(*)::int AS n FROM troncons`)) === tronconsAvantI);
+  verifier("creation avec latitude et longitude inversees : refusee (emprise nationale), rien n'est ecrit",
+    /emprise de la Guin/.test((await erreur(() => tronconsService.createWithGeom(nouveau("I-INVERSE", ligneGeo(9.64, -13.6)), "u-a"))) ?? "")
+    && (await n(`SELECT count(*)::int AS n FROM troncons WHERE code = 'I-INVERSE'`)) === 0);
+  const cree = await tronconsService.createWithGeom(nouveau("I-OK", ligneGeo(-13.0, 9.64)), "u-a");
+  const audits = await lire<{ action: string; after: Record<string, unknown> }>(`SELECT action::text AS action, after FROM audit_logs WHERE "entityType" = 'Troncon' AND "entityId" = $1 ORDER BY "createdAt", action`, cree.id);
+  verifier("creation avec un trace valide : le trace est ecrit, et audite (CREATE de l'entite puis UPDATE du trace)",
+    (await n(`SELECT count(*)::int AS n FROM troncons WHERE id = $1 AND geom IS NOT NULL`, cree.id)) === 1
+    && audits.map((x) => x.action).join(",") === "CREATE,UPDATE" && (audits[1].after as { geom?: { points: number } }).geom?.points === 2, audits);
+  verifier("modification avec un trace hors emprise : refusee, ni le trace ni les champs ne bougent",
+    /emprise/.test((await erreur(() => tronconsService.updateWithGeom(cree.id, { nom: "Renomme", geom: ligneGeo(9.64, -13.6) }, "u-a"))) ?? "")
+    && (await lire<{ nom: string }>(`SELECT nom FROM troncons WHERE id = $1`, cree.id))[0].nom === "Essai I-OK");
+  await sql(`UPDATE troncons SET "deletedAt" = now() WHERE id = $1`, cree.id);
+
+  verifier("aucun troncon n'a ete supprime par le registre (le seul archivage est celui du troncon d'essai du lot I)", (await n(`SELECT count(*)::int AS n FROM troncons`)) === tronconsAvant + 1
+    && (await n(`SELECT count(*)::int AS n FROM troncons WHERE "deletedAt" IS NOT NULL`)) === 2);
   conclure();
 }
 
