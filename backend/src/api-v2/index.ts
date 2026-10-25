@@ -30,6 +30,7 @@ import { tableauDeBordV2Router, fiche360V2Router } from "./tableau-de-bord.route
 import { tachesInternesV2Router } from "./taches-internes.routes";
 import { correspondancesV2Router } from "./correspondances.routes";
 import { mobileV2Router } from "./mobile.routes";
+import { requireAuth } from "../middleware/auth.middleware";
 
 /**
  * `/api/v2` — la nouvelle surface d'API.
@@ -48,9 +49,14 @@ import { mobileV2Router } from "./mobile.routes";
  * CE QUI MANQUE ENCORE
  *
  * La section 16 liste douze domaines : auth, devices, missions, tracks, geo,
- * observations, assets, offline, sync, intelligence, ai, integrations. Six sont la.
- * Les ajouter tous d'un coup produirait des routes sans implementation derriere, ce
- * qui est pire que leur absence : un client les appellerait.
+ * observations, assets, offline, sync, intelligence, ai, integrations. Parmi eux,
+ * geo, sync, devices, missions, observations et integrations sont montes ci-dessous ;
+ * les six autres ne le sont pas sous ces noms (constat du 25/10/2026). Le fichier
+ * monte aujourd'hui plus de trente routeurs (31 appels `apiV2Router.use`, voir la liste
+ * apres ce commentaire), dont beaucoup ne figurent pas dans cette liste de douze :
+ * defauts, field, portions, qualite, programmation, teledetection, mobile, etc.
+ * Ajouter un domaine sans implementation derriere produirait des routes que personne
+ * ne tient, ce qui est pire que leur absence : un client les appellerait.
  *
  * `geo` est venu en premier parce que son moteur existait et qu'il etait mesure.
  * `sync` suit parce qu'il est le plus couteux a rattraper apres coup : une
@@ -72,7 +78,8 @@ import { mobileV2Router } from "./mobile.routes";
  * ecrit qu'une fois les portions modelisees, et il rend en une requete ce qu'un client
  * mobile aurait dû assembler en trois sur un reseau ou chaque aller-retour coute.
  *
- * Les suivants viendront avec leur service, pas avant.
+ * Les domaines encore absents (voir plus haut) viendront avec leur service, pas avant.
+ * Les routeurs apparus depuis ce texte sont documentes dans leur propre fichier.
  */
 export const apiV2Router = Router();
 
@@ -117,8 +124,13 @@ apiV2Router.use("/mobile", mobileV2Router);
  *
  * Plus honnete qu'une documentation qui promet douze domaines : cette liste est
  * construite a partir de ce qui est monte, donc elle ne peut pas mentir.
+ *
+ * RESERVEE AUX COMPTES CONNECTES (25/10/2026) : c'etait la seule route de /api/v2 sans garde,
+ * decouverte par `securite/routes-authentifiees.test.ts`. Elle ne livre aucune donnee, mais
+ * cartographier l'API pour un visiteur anonyme n'a pas de raison d'etre (meme principe que
+ * /api/docs, reserve a l'ADMIN). Aucun client du depot ne l'appelle.
  */
-apiV2Router.get("/", (_req, res) => {
+apiV2Router.get("/", requireAuth, (_req, res) => {
   res.json({
     version: "v2",
     domaines: ["geo", "sync", "devices", "missions", "roulage", "observations", "defauts", "field", "portions", "referentiels", "qualite", "reseau", "imports", "exploitation", "teledetection", "programmation", "baremes", "perimetres", "integrations", "tableau-de-bord", "fiche-360", "taches-internes", "correspondances"],

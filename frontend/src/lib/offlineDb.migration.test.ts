@@ -22,6 +22,8 @@ type Magasin = Map<string, unknown>;
 interface BaseFausse { version: number; magasins: Map<string, { cle: string; donnees: Magasin }> }
 const bases = new Map<string, BaseFausse>();
 const destructions: string[] = [];
+/** Si renseigne, la PROCHAINE transaction d'ecriture est annulee (`abort`) avec cette erreur, comme sur un quota atteint. */
+let abandon: { name: string; message: string } | null = null;
 
 function requete<T>(resultat: T) {
   const r: { result: T; error: null; onsuccess: (() => void) | null; onerror: (() => void) | null } =
@@ -50,7 +52,7 @@ function fauxIndexedDB() {
           transaction(n: string) {
             const m = base!.magasins.get(n);
             if (!m) throw new Error(`magasin inconnu : ${n}`);
-            const tx: { oncomplete: (() => void) | null; onerror: (() => void) | null; onabort: (() => void) | null; error: null; objectStore: () => unknown } = {
+            const tx: { oncomplete: (() => void) | null; onerror: (() => void) | null; onabort: (() => void) | null; error: { name: string; message: string } | null; objectStore: () => unknown } = {
               oncomplete: null, onerror: null, onabort: null, error: null,
               objectStore: () => ({
                 put: (item: Record<string, unknown>) => { m.donnees.set(String(item[m.cle]), item); return requete(undefined); },
@@ -58,7 +60,16 @@ function fauxIndexedDB() {
                 getAll: () => requete([...m.donnees.values()]),
               }),
             };
-            setTimeout(() => tx.oncomplete?.(), 0);
+            const annulee = abandon;
+            abandon = null;
+            if (annulee) {
+              // Un abandon par quota : ni `oncomplete` ni `onerror`, seulement `onabort`, et rien n'est ecrit.
+              const ecrit = m.donnees;
+              const copie = new Map(ecrit);
+              setTimeout(() => { ecrit.clear(); copie.forEach((v, k) => ecrit.set(k, v)); tx.error = annulee; tx.onabort?.(); }, 0);
+            } else {
+              setTimeout(() => tx.oncomplete?.(), 0);
+            }
             return tx;
           },
         };
@@ -90,11 +101,13 @@ function baseVersion3() {
 beforeEach(() => {
   bases.clear();
   destructions.length = 0;
+  abandon = null;
   vi.stubGlobal("indexedDB", fauxIndexedDB());
 });
 afterEach(() => vi.unstubAllGlobals());
 
 import {
+  addPendingDefaut, addPendingInspection, addPendingPortion, removePendingDefaut, removePendingInspection, removePendingPortion,
   addPendingObservation, getAllPending, getAllPendingDefauts, getAllPendingObservations, getAllPendingPortions,
   removePendingObservation, updatePendingObservation, type PendingObservation,
 } from "./offlineDb";
@@ -149,5 +162,59 @@ describe("file d'observations : ecriture, relecture, mise a jour, retrait", () =
 
     await removePendingObservation("o-2");
     expect((await getAllPendingObservations()).map((o) => o.localId)).toEqual(["o-1"]);
+  });
+});
+
+/**
+ * Une transaction d'ecriture annulee (quota du stockage) doit REJETER, pas rester pendante.
+ *
+ * Constate par audit : seules les observations ecoutaient `onabort`. Pour les inspections, les defauts et les
+ * portions, un abandon par quota ne declenchait ni `oncomplete` ni `onerror` : la promesse ne se resolvait
+ * jamais, l'ecran de saisie attendait sans fin et l'agent croyait sa saisie enregistree. Le faux IndexedDB
+ * ci-dessus simule cet abandon (`abandon`) ; le comportement d'un vrai navigateur reste a eprouver sur appareil.
+ */
+describe("ecriture annulee par le navigateur (quota) : la promesse rejette avec un message clair", () => {
+  const quota = { name: "QuotaExceededError", message: "quota" };
+  const insp = { localId: "i-1", ownerUserId: "u1", status: "pending", payload: { etatObserve: "MAUVAIS", dateInspection: "2026-10-23" }, photos: [], createdAt: "x" } as never;
+  const def = { localId: "d-1", ownerUserId: "u1", status: "pending", payload: { catalogueCode: "NID_POULE", constateA: "x" }, createdAt: "x" } as never;
+  const por = { localId: "p-1", ownerUserId: "u1", status: "pending", payload: { tronconId: "t", debutM: 0, finM: 10 }, createdAt: "x" } as never;
+
+  const cas: [string, () => Promise<void>][] = [
+    ["inspection", () => addPendingInspection(insp)],
+    ["defaut", () => addPendingDefaut(def)],
+    ["portion", () => addPendingPortion(por)],
+    ["observation", () => addPendingObservation(obs("o-1"))],
+  ];
+  for (const [nom, ecrire] of cas) {
+    it(`${nom} : un abandon par quota REJETTE avec le message « Stockage de l'appareil plein »`, async () => {
+      baseVersion3();
+      await getAllPendingObservations();   // migration faite avant d'armer l'abandon
+      abandon = quota;
+      await expect(ecrire()).rejects.toThrow(/Stockage de l'appareil plein.*n'est PAS enregistrée/);
+    });
+  }
+
+  it("un abandon d'une autre nature rejette aussi, avec sa cause", async () => {
+    await getAllPendingObservations();
+    abandon = { name: "AbortError", message: "transaction interrompue" };
+    await expect(addPendingDefaut(def)).rejects.toThrow(/Écriture locale annulée.*transaction interrompue/);
+  });
+
+  it("les retraits rejettent eux aussi au lieu de rester pendants", async () => {
+    baseVersion3();
+    await getAllPendingObservations();
+    abandon = quota; await expect(removePendingInspection("insp-1")).rejects.toThrow(/Stockage/);
+    abandon = quota; await expect(removePendingDefaut("def-1")).rejects.toThrow(/Stockage/);
+    abandon = quota; await expect(removePendingPortion("por-1")).rejects.toThrow(/Stockage/);
+  });
+
+  it("une ecriture normale reste possible apres un abandon (l'etat d'avant est intact)", async () => {
+    baseVersion3();
+    await getAllPendingObservations();
+    abandon = quota;
+    await expect(addPendingDefaut(def)).rejects.toBeDefined();
+    expect((await getAllPendingDefauts()).map((d) => d.localId).sort()).toEqual(["def-1", "def-2"]);
+    await addPendingDefaut(def);
+    expect((await getAllPendingDefauts()).map((d) => d.localId).sort()).toEqual(["d-1", "def-1", "def-2"]);
   });
 });

@@ -331,6 +331,17 @@ export async function setupTwoFa(userId: string) {
   const user = await prisma.user.findUnique({ where: { id: userId } });
   if (!user) throw new ApiError(404, "Utilisateur introuvable");
 
+  // Reecrire le secret d'un compte dont la 2FA est ACTIVE la desactiverait en silence
+  // (totpEnabled repasse a false), sans mot de passe, sans code et sans trace : un jeton
+  // d'acces vole suffirait a retirer le second facteur. La seule voie de desactivation
+  // reste disableTwoFa, qui exige le mot de passe et audite.
+  if (user.totpEnabled) {
+    throw new ApiError(
+      409,
+      "La double authentification est deja active. Desactivez-la d'abord avec votre mot de passe avant de la reconfigurer."
+    );
+  }
+
   const secret = generateTotpSecret();
   await prisma.user.update({ where: { id: userId }, data: { totpSecret: secret, totpEnabled: false } });
 

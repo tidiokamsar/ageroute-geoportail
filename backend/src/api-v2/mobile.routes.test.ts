@@ -17,8 +17,13 @@ import { join } from "node:path";
 vi.mock("../middleware/auth.middleware", () => ({
   requireAuth: (req: express.Request, res: express.Response, n: express.NextFunction) => {
     if (!req.headers.authorization?.startsWith("Bearer ")) { res.status(401).json({ error: "Authentification requise" }); return; }
+    (req as unknown as { user: unknown }).user = { id: "u-apk", role: "LECTEUR" };
     n();
   },
+}));
+const audits = vi.hoisted(() => [] as Record<string, unknown>[]);
+vi.mock("../utils/audit", () => ({
+  logAudit: vi.fn(async (p: Record<string, unknown>) => { audits.push(p); }),
 }));
 
 import { mobileV2Router, NOM_APK } from "./mobile.routes";
@@ -54,6 +59,26 @@ describe("APK reserve aux comptes connectes", () => {
     expect(r.headers["content-disposition"]).toBe(`attachment; filename="${NOM_APK}"`);
     expect(r.headers["cache-control"]).toBe("private, no-store");
     expect(Buffer.compare(r.body as Buffer, CONTENU)).toBe(0);
+  });
+
+  it("trace QUI telecharge l'APK dans le journal d'audit", async () => {
+    audits.length = 0;
+    await request(app).get("/apk").set(JETON);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
+      userId: "u-apk", action: "SECURITY_EVENT", entityType: "ApplicationMobile", entityId: NOM_APK,
+      after: { evenement: "APK_TELECHARGE", fichier: NOM_APK, tailleOctets: CONTENU.length },
+    });
+  });
+
+  it("ne trace rien sans jeton, ni quand le fichier est absent, ni pour la simple empreinte", async () => {
+    audits.length = 0;
+    await request(app).get("/apk");
+    await request(app).get("/apk/info").set(JETON);
+    const ancien = process.env.MOBILE_DIR;
+    process.env.MOBILE_DIR = join(dossier, "inexistant");
+    try { await request(app).get("/apk").set(JETON); } finally { process.env.MOBILE_DIR = ancien; }
+    expect(audits).toHaveLength(0);
   });
 
   it("l'empreinte rendue est le SHA-256 du fichier servi, avec sa taille", async () => {

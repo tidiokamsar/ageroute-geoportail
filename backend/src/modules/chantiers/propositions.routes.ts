@@ -5,6 +5,7 @@ import { requireAuth } from "../../middleware/auth.middleware";
 import { requireRole } from "../../middleware/rbac.middleware";
 import { requireModuleAccess } from "../../middleware/module-access.middleware";
 import { deriveChantierGeom } from "../../lib/geo";
+import { construireAudit } from "../../utils/audit";
 import { territoirePropositionLocalisation } from "../../territoire/territoire.v1";
 
 export const propositionsRouter = Router();
@@ -180,15 +181,36 @@ propositionsRouter.post(
         return res.status(409).json({ message: "Proposition déjà tranchée" });
       }
 
-      await prisma.propositionLocalisation.update({
-        where: { id: proposition.id },
-        data: {
-          statut: "REJECTED",
-          decidedAt: new Date(),
-          decidedById: (req.user as { id: string }).id,
-          motifRejet: parsed.data.motif ?? null,
-        },
-      });
+      const userId = (req.user as { id: string }).id;
+      // Rejeter est une decision d'agent au meme titre que valider : elle ferme la
+      // proposition et laisse le chantier sans localisation. Elle part donc avec sa
+      // trace dans la meme transaction (regle 3 d'AGENTS.md), rattachee au chantier
+      // comme l'approbation pour que son historique raconte les deux issues.
+      await prisma.$transaction([
+        prisma.propositionLocalisation.update({
+          where: { id: proposition.id },
+          data: {
+            statut: "REJECTED",
+            decidedAt: new Date(),
+            decidedById: userId,
+            motifRejet: parsed.data.motif ?? null,
+          },
+        }),
+        construireAudit({
+          userId,
+          action: "UPDATE",
+          entityType: "Chantier",
+          entityId: proposition.chantierId,
+          before: { propositionId: proposition.id, statutProposition: proposition.statut },
+          after: {
+            localisation: "proposition rejetée",
+            propositionId: proposition.id,
+            statutProposition: "REJECTED",
+            methode: proposition.methode,
+            motifRejet: parsed.data.motif ?? null,
+          },
+        }),
+      ]);
 
       return res.json({ statut: "REJECTED" });
     } catch (err) {

@@ -246,6 +246,22 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
+/**
+ * Erreur rendue quand une transaction d'ECRITURE est annulée (`abort`) : le plus souvent le quota du
+ * stockage, que le navigateur signale en annulant la transaction PLUTOT qu'en échouant une requête.
+ *
+ * POURQUOI CHAQUE ECRITURE L'ÉCOUTE. Sans `onabort`, ni `oncomplete` ni `onerror` ne se déclenchent sur
+ * un abandon par quota : la promesse restait pendante pour toujours, l'écran de saisie attendait sans fin
+ * et l'agent ne savait pas que sa saisie n'était PAS enregistrée. Le message dit la cause en clair.
+ */
+function erreurEcritureAnnulee(tx: IDBTransaction, magasin: string): Error {
+  const cause = tx.error;
+  if (cause?.name === "QuotaExceededError") {
+    return new Error(`Stockage de l'appareil plein : la saisie (${magasin}) n'est PAS enregistrée. Libérez de la place ou synchronisez avant de continuer.`);
+  }
+  return new Error(`Écriture locale annulée (${magasin}) : la saisie n'est PAS enregistrée${cause?.message ? ` (${cause.message})` : ""}.`);
+}
+
 export async function addPendingInspection(item: PendingInspection): Promise<void> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
@@ -253,6 +269,7 @@ export async function addPendingInspection(item: PendingInspection): Promise<voi
     tx.objectStore(INSPECTIONS_STORE).put(item);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(erreurEcritureAnnulee(tx, "inspection"));
   });
 }
 
@@ -277,6 +294,7 @@ export async function removePendingInspection(localId: string): Promise<void> {
     tx.objectStore(INSPECTIONS_STORE).delete(localId);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(erreurEcritureAnnulee(tx, "inspection"));
   });
 }
 
@@ -292,6 +310,7 @@ export async function addPendingDefaut(item: PendingDefaut): Promise<void> {
     tx.objectStore(DEFAUTS_STORE).put(item);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(erreurEcritureAnnulee(tx, "défaut"));
   });
 }
 
@@ -316,6 +335,7 @@ export async function addPendingPortion(item: PendingPortion): Promise<void> {
     tx.objectStore(PORTIONS_STORE).put(item);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(erreurEcritureAnnulee(tx, "portion"));
   });
   db.close();
 }
@@ -343,6 +363,7 @@ export async function removePendingPortion(localId: string): Promise<void> {
     tx.objectStore(PORTIONS_STORE).delete(localId);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(erreurEcritureAnnulee(tx, "portion"));
   });
   db.close();
 }
@@ -354,7 +375,7 @@ export async function addPendingObservation(item: PendingObservation): Promise<v
     tx.objectStore(OBSERVATIONS_STORE).put(item);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error);
+    tx.onabort = () => reject(erreurEcritureAnnulee(tx, "observation"));
   });
   db.close();
 }
@@ -386,6 +407,7 @@ export async function removePendingObservation(localId: string): Promise<void> {
     tx.objectStore(OBSERVATIONS_STORE).delete(localId);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(erreurEcritureAnnulee(tx, "observation"));
   });
   db.close();
 }
@@ -397,5 +419,6 @@ export async function removePendingDefaut(localId: string): Promise<void> {
     tx.objectStore(DEFAUTS_STORE).delete(localId);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(erreurEcritureAnnulee(tx, "défaut"));
   });
 }

@@ -10,9 +10,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  * le telephone, un auteur pris du payload, ou une cle d'idempotence libre. Les trois sont
  * testes.
  *
- * Le depot a deja divergé une fois dans ce programme : `field/observations.regles.ts`
- * portait un duplicata de la regle de validation qui disait `MOTIF_REQUIS` quand l'original
- * disait `COMMENTAIRE_REQUIS`. C'est ce que ces tests existent pour empecher.
+ * Le depot a deja divergé une fois dans ce programme : un ancien module de regles des
+ * observations (supprime depuis) portait un duplicata de la regle de validation qui disait
+ * `MOTIF_REQUIS` quand l'original disait `COMMENTAIRE_REQUIS`. C'est ce que ces tests existent pour empecher.
  *
  * UN REFUS DEFINITIF NE DOIT PAS REVENIR
  *

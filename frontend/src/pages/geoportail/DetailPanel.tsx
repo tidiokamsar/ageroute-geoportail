@@ -21,6 +21,7 @@ import { ETAT_COLORS, ETAT_LABELS, CHANTIER_COLORS } from "./types";
 import type { SelectedFeature, TronconGeoFeature } from "./types";
 import type { EtatPatrimoine, StatutChantier, Ouvrage, PointNoir, Poste, Chantier, Inspection, Document } from "../../types";
 import { formaterPk, formaterPlagePk } from "../../lib/pk";
+import { echapDansAutreDialogue } from "./echap";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -304,6 +305,8 @@ export function DetailPanel({
   const [isEditing, setIsEditing] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [editDraft, setEditDraft] = useState<Record<string, unknown>>({});
+  // Instantane du brouillon a l'ouverture de l'edition : sert a savoir si la saisie a change.
+  const editInitialRef = useRef("");
 
   // Quick edit state
   const [etatDraft, setEtatDraft] = useState<EtatPatrimoine | null>(null);
@@ -386,7 +389,7 @@ export function DetailPanel({
   function startEdit() {
     if (feature.kind !== "troncon") return;
     const d = feature.data;
-    setEditDraft({
+    const brouillon = {
       nom: d.nom,
       classe: d.classe,
       revetement: d.revetement ?? "",
@@ -398,9 +401,49 @@ export function DetailPanel({
       prefecture: fiche?.troncon.prefecture ?? "",
       commune: fiche?.troncon.commune ?? "",
       observations: fiche?.troncon.observations ?? "",
-    });
+    };
+    editInitialRef.current = JSON.stringify(brouillon);
+    setEditDraft(brouillon);
     setIsEditing(true);
   }
+
+  /**
+   * Saisie non enregistree dans la fiche : le formulaire d'edition modifie, ou l'un des
+   * brouillons rapides (etat, statut, avancement, signalement de chantier). Fermer la fiche
+   * (croix, « Fermer », Echap) ne doit pas les perdre en silence.
+   */
+  function saisieNonEnregistree(): boolean {
+    if (isEditing && JSON.stringify(editDraft) !== editInitialRef.current) return true;
+    if (feature.kind === "troncon" && etatDraft != null && etatDraft !== feature.data.etat) return true;
+    if (statutDraft != null || avancementDraft != null) return true;
+    return chantierOpen && (chantierIntitule.trim() !== "" || chantierEntreprise.trim() !== "");
+  }
+
+  async function demanderFermeture() {
+    if (saisieNonEnregistree()
+      && !(await confirm("Des modifications n'ont pas été enregistrées. Fermer quand même ?", { danger: true }))) return;
+    onClose();
+  }
+
+  async function annulerEdition() {
+    if (saisieNonEnregistree()
+      && !(await confirm("Abandonner les modifications non enregistrées ?", { danger: true }))) return;
+    setIsEditing(false);
+  }
+
+  // Echap ferme la fiche (avec confirmation s'il y a une saisie). Le gestionnaire est relu a
+  // chaque rendu via une reference : l'ecouteur n'est pose qu'une fois mais voit toujours le
+  // brouillon courant. Un Echap destine a une autre boite de dialogue ouverte est ignore.
+  const fermetureRef = useRef(demanderFermeture);
+  useEffect(() => { fermetureRef.current = demanderFermeture; });
+  useEffect(() => {
+    const surTouche = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || echapDansAutreDialogue(e)) return;
+      void fermetureRef.current();
+    };
+    window.addEventListener("keydown", surTouche);
+    return () => window.removeEventListener("keydown", surTouche);
+  }, []);
 
   async function saveEdit() {
     if (feature.kind !== "troncon") return;
@@ -679,14 +722,24 @@ export function DetailPanel({
       case "etat":
         return (
           <div>
-            <SectionTitle icon={<AlertTriangle className="h-3.5 w-3.5" />} title="État observé" />
+            <SectionTitle icon={<AlertTriangle className="h-3.5 w-3.5" />} title={d.etatDeclare ? "État déclaré" : "État observé"} />
             <div className="flex items-center gap-3 p-3 rounded-lg mb-4" style={{ backgroundColor: `${etatColor}15`, border: `1px solid ${etatColor}30` }}>
               <span className="h-4 w-4 rounded-full shrink-0" style={{ backgroundColor: etatColor }} />
               <div>
                 <p className="text-sm font-semibold text-navy">{ETAT_LABELS[d.etat]}</p>
-                <p className="text-xs text-gray-500">Dernier état constaté</p>
+                {/* Un etat declare n'est pas un etat constate : la fiche ne doit jamais
+                    presenter la valeur annoncee par un gestionnaire comme un releve. */}
+                <p className="text-xs text-gray-500">
+                  {d.etatDeclare ? "Déclaré, non constaté sur le terrain" : "Dernier état constaté"}
+                </p>
               </div>
             </div>
+            {d.etatDeclare && (
+              <p role="note" className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-snug text-amber-950">
+                Cet état a été déclaré par un gestionnaire et n'a pas fait l'objet d'un relevé de
+                terrain. Sur la carte, ce tronçon est tracé en pointillé.
+              </p>
+            )}
             {canEdit && (
               <div className="mb-4">
                 <p className="text-xs font-medium text-gray-600 mb-2">Mettre à jour l'état</p>
@@ -1020,8 +1073,8 @@ export function DetailPanel({
   // Minimized strip
   if (isMinimized) {
     return (
-      <div className="absolute right-0 top-0 h-full w-10 shadow-2xl z-[900] flex flex-col items-center py-3 gap-2 border-l border-white/10" style={{ background: "linear-gradient(180deg, #1a2942 0%, #2a4666 100%)" }}>
-        <button onClick={() => setIsMinimized(false)} title="Afficher le panneau" className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10">
+      <div role="dialog" aria-label={`Fiche réduite : ${headerConfig.title || headerConfig.subtitle}`} className="absolute right-0 top-0 h-full w-10 shadow-2xl z-[900] flex flex-col items-center py-3 gap-2 border-l border-white/10" style={{ background: "linear-gradient(180deg, #1a2942 0%, #2a4666 100%)" }}>
+        <button onClick={() => setIsMinimized(false)} title="Afficher le panneau" aria-label="Afficher le panneau" className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10">
           <ChevronLeft className="h-4 w-4" />
         </button>
         <div className="flex-1 flex items-center justify-center">
@@ -1029,22 +1082,30 @@ export function DetailPanel({
             {feature.kind === "troncon" ? feature.data.nom.slice(0, 20) : feature.kind}
           </span>
         </div>
-        <button onClick={onClose} title="Fermer" className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10">
+        <button onClick={() => void demanderFermeture()} title="Fermer" aria-label="Fermer la fiche" className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10">
           <X className="h-3.5 w-3.5" />
         </button>
+        {/* La confirmation de fermeture doit pouvoir s'afficher aussi quand la fiche est reduite. */}
+        {confirmDialog}
       </div>
     );
   }
 
   return (
-    <div className="absolute right-0 top-0 h-full w-[520px] bg-white shadow-2xl z-[900] flex flex-col border-l border-gray-200">
+    // Pleine largeur sous le breakpoint `md` : 520 px fixes depassent un telephone de 375 px et
+    // masquaient toute la carte ; sur bureau la largeur historique est inchangee.
+    <div
+      role="dialog"
+      aria-label={`Fiche : ${headerConfig.title || headerConfig.subtitle}`}
+      className="absolute right-0 top-0 h-full w-full md:w-[520px] max-w-full bg-white shadow-2xl z-[900] flex flex-col border-l border-gray-200"
+    >
       {/* ── Header ── */}
       <div className="relative shrink-0" style={{ background: "linear-gradient(135deg, #1a2942 0%, #2a4666 100%)" }}>
         <div className="absolute top-3 right-3 flex items-center gap-1">
-          <button onClick={() => setIsMinimized(true)} title="Réduire" className="p-1.5 rounded-lg hover:bg-white/10 text-white/70 hover:text-white">
+          <button onClick={() => setIsMinimized(true)} title="Réduire" aria-label="Réduire la fiche" className="p-1.5 rounded-lg hover:bg-white/10 text-white/70 hover:text-white">
             <ChevronRight className="h-4 w-4" />
           </button>
-          <button onClick={onClose} title="Fermer" className="p-1.5 rounded-lg hover:bg-white/10 text-white/70 hover:text-white">
+          <button onClick={() => void demanderFermeture()} title="Fermer" aria-label="Fermer la fiche" className="p-1.5 rounded-lg hover:bg-white/10 text-white/70 hover:text-white">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -1067,6 +1128,7 @@ export function DetailPanel({
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-white" />
                 {ETAT_LABELS[headerConfig.etat]}
+                {feature.kind === "troncon" && feature.data.etatDeclare && " (déclaré)"}
               </span>
               {feature.kind === "troncon" && (
                 <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-white/10 text-white/80">
@@ -1095,6 +1157,7 @@ export function DetailPanel({
           {onZoomTo && feature.kind === "troncon" && (
             <button
               title="Zoomer"
+              aria-label="Zoomer sur le tronçon"
               onClick={() => {
                 try {
                   const coords = (JSON.parse(feature.data.geometry) as { coordinates: number[][] }).coordinates;
@@ -1222,7 +1285,7 @@ export function DetailPanel({
             <Save className="h-3 w-3" />
             {tronconsMut.update.isPending ? "Enregistrement…" : "Enregistrer"}
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => setIsEditing(false)}>Annuler</Button>
+          <Button size="sm" variant="ghost" onClick={() => void annulerEdition()}>Annuler</Button>
           <div className="flex-1" />
           <span className="text-[11px] text-amber-700 italic">Mode édition</span>
         </div>
@@ -1252,10 +1315,10 @@ export function DetailPanel({
               </button>
             )}
             <div className="flex-1" />
-            <button onClick={() => setIsMinimized(true)} title="Réduire" className="text-xs text-gray-500 hover:text-gray-600 px-2 py-1.5">
+            <button onClick={() => setIsMinimized(true)} title="Réduire" aria-label="Réduire la fiche" className="text-xs text-gray-500 hover:text-gray-600 px-2 py-1.5">
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
-            <button onClick={onClose} className="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5">Fermer</button>
+            <button onClick={() => void demanderFermeture()} className="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5">Fermer</button>
           </div>
         )
       )}

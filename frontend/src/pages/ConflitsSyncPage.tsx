@@ -105,7 +105,8 @@ function CarteConflit({ conflit }: { conflit: ConflitSync }) {
         )}
       </header>
 
-      <table className="w-full border-collapse text-sm">
+      <div className="overflow-x-auto">
+      <table className="w-full min-w-[32rem] border-collapse text-sm">
         <caption className="mb-1 text-left text-xs text-slate-500">
           Les deux versions côte à côte. « différent » marque un champ où le téléphone et le serveur ne disent pas la même chose.
         </caption>
@@ -131,6 +132,7 @@ function CarteConflit({ conflit }: { conflit: ConflitSync }) {
           ))}
         </tbody>
       </table>
+      </div>
 
       {conflit.verificationDemandee && (
         <p className="rounded border border-sky-300 bg-sky-50 p-2 text-sm text-sky-900">

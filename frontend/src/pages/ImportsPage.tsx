@@ -223,13 +223,15 @@ export function ImportsPage() {
                 <dt className="text-gray-500">Méthode</dt><dd>{lot.methodeSource}</dd>
                 <dt className="text-gray-500">Mapping</dt><dd>{lot.versionMapping}</dd>
               </dl>
-              <table className="w-full text-center text-xs">
+              <div className="overflow-x-auto">
+              <table className="w-full min-w-[24rem] text-center text-xs">
                 <thead><tr className="text-gray-500"><th>Lues</th><th>Validées</th><th>Importées</th><th>Rejetées</th><th>En conflit</th><th>Ignorées</th></tr></thead>
                 <tbody><tr className="font-medium">
                   <td>{lot.lignesLues}</td><td className="text-emerald-700">{lot.lignesValidees}</td><td>{lot.lignesImportees}</td>
                   <td className="text-red-700">{lot.lignesRejetees}</td><td>{lot.lignesEnConflit}</td><td className="text-gray-500">{lot.lignesIgnorees}</td>
                 </tr></tbody>
               </table>
+              </div>
               {lot.statut === "VALIDE_SCHEMA" && (
                 <p className="rounded bg-amber-50 p-2 text-amber-900">
                   {lot.lignesValidees} ligne(s) conformes au contrat, <strong>en attente d'application</strong>. Aucun objet n'a été créé.

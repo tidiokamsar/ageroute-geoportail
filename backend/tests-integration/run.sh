@@ -5,7 +5,7 @@
 set -u
 cd "$(dirname "$0")/.."
 
-BANCS=(trace metadonnees geometries-invalides contour deviation graphe info-route patrouilles teledetection veille metre tuiles chemin historique)
+BANCS=(trace metadonnees geometries-invalides contour deviation graphe info-route patrouilles teledetection veille metre tuiles chemin historique photos-observation)
 echec=0
 lignes=()
 

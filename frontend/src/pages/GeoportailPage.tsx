@@ -49,6 +49,9 @@ import { DrawTronconLayer, type DrawHandle, type DrawPhase } from "./geoportail/
 import { DrawTronconForm } from "./geoportail/DrawTronconForm";
 import { BarreOutilsCarte } from "./geoportail/BarreOutilsCarte";
 import { libelleTroncon } from "../lib/libelleTroncon";
+import { LegendeEtat } from "./geoportail/LegendeEtat";
+import { echapDansAutreDialogue } from "./geoportail/echap";
+import { ecranEtroit, longueurDeclareeKm, styleTroncon } from "./geoportail/affichageTroncon";
 import { TOPONYMES } from "./geoportail/toponymes";
 import { ouvrageIcon, pointNoirIcon, posteIcon, chantierApproxIcon, TYPE_OUVRAGE_LABEL } from "./geoportail/symbols";
 import { TronconPicker } from "../components/TronconPicker";
@@ -171,12 +174,14 @@ function PanelSection({
   return (
     <div className="rounded-lg border border-gray-100 bg-white shadow-sm overflow-hidden">
       <button
+        type="button"
         onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
         className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-gray-50"
       >
         <span className="text-navy">{icon}</span>
         <span className="text-xs font-semibold uppercase tracking-wide text-gray-600 flex-1">{title}</span>
-        <ChevronDown className={`h-3.5 w-3.5 text-gray-500 transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown aria-hidden="true" className={`h-3.5 w-3.5 text-gray-500 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && <div className="px-3 pb-3 space-y-1.5 text-sm">{children}</div>}
     </div>
@@ -268,7 +273,9 @@ export function GeoportailPage() {
     [pontsOsm]
   );
   const [drawMode, setDrawMode] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Replie par defaut sous le breakpoint `md` : ouvert, le panneau (18 rem) ne laisse presque rien
+  // de la carte sur un telephone. Sur bureau, le comportement historique (ouvert) est inchange.
+  const [sidebarOpen, setSidebarOpen] = useState(() => !ecranEtroit());
   const [rechercheVilleOuverte, setRechercheVilleOuverte] = useState(false);
   // Voirie locale : couche de 262 656 objets, servie par emprise au-dela du zoom 12.
   // Par defaut, seules les voies carrossables — les 175 283 chemins et sentiers font
@@ -777,6 +784,21 @@ export function GeoportailPage() {
       .sort((a, b) => b.km - a.km);
   }, [troncons]);
 
+  const longueurDeclaree = useMemo(() => longueurDeclareeKm(troncons ?? []), [troncons]);
+
+  // Echap quitte le plein ecran, mais seulement quand aucune fiche n'est ouverte : la fiche
+  // consomme le premier Echap (elle se ferme, avec confirmation si une saisie est en cours),
+  // le suivant ramene la carte a sa taille normale.
+  useEffect(() => {
+    if (!fullscreen) return;
+    const surTouche = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || echapDansAutreDialogue(e) || selectedFeature) return;
+      setFullscreen(false);
+    };
+    window.addEventListener("keydown", surTouche);
+    return () => window.removeEventListener("keydown", surTouche);
+  }, [fullscreen, selectedFeature]);
+
   const toggleLayer = (key: LayerKey) => setLayers((l) => ({ ...l, [key]: !l[key] }));
   const bm = BASEMAPS[basemap];
 
@@ -851,13 +873,15 @@ export function GeoportailPage() {
           recherche se pose sur le panneau des couches. */}
       <div
         className={`pointer-events-none absolute top-3 right-3 z-20 flex items-start justify-between gap-4 transition-all duration-200 ${
-          sidebarOpen ? "left-[19rem]" : "left-[3.25rem]"
+          sidebarOpen ? "left-[19rem] max-md:left-[3.25rem]" : "left-[3.25rem]"
         }`}
       >
       <div className="pointer-events-auto flex w-80 min-w-[9rem] max-w-[46%] shrink flex-col items-center gap-2">
         <div className="relative w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
           <input
+            type="search"
+            aria-label="Rechercher un tronçon, un ouvrage ou un chantier"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Rechercher (tronçon, ouvrage, chantier...)"
@@ -920,10 +944,15 @@ export function GeoportailPage() {
             {cheminVille.error instanceof Error ? cheminVille.error.message : "Route non calculée."} Les tronçons affichés sont ceux proches de la droite entre les deux villes (approximatif) : le changement d'état en masse n'est pas proposé.
           </p>
         )}
-        {villeFiltre && canWrite(user?.role) && filteredTroncons.length > 0 && (!villeFiltre.b || routeExacte) && (
+        {/* Le changement d'etat en masse n'est propose QUE pour la route exacte entre deux villes.
+            Pour une ville seule, les troncons affiches sont la bande de 20 km autour d'elle, routes
+            voisines comprises : y appliquer un etat reviendrait a modifier des routes qui n'ont
+            rien a voir avec la decision. */}
+        {villeFiltre?.b && routeExacte && canWrite(user?.role) && filteredTroncons.length > 0 && (
           <ChangerEtatCorridor
             ids={filteredTroncons.map((t) => t.id)}
-            libelle={`${villeFiltre.a.nom}${villeFiltre.b ? ` ↔ ${villeFiltre.b.nom}` : ""}`}
+            etatsActuels={filteredTroncons.map((t) => t.etat)}
+            libelle={`${villeFiltre.a.nom} ↔ ${villeFiltre.b.nom}`}
             onApplique={() => { void refetchTroncons(); }}
           />
         )}
@@ -1062,14 +1091,18 @@ export function GeoportailPage() {
       {/* Panneau gauche collapsible */}
       <aside
         className={`relative z-10 bg-gray-50 border-r border-gray-100 text-sm flex flex-col flex-shrink-0 transition-all duration-200 ease-in-out ${
-          sidebarOpen ? "w-72" : "w-10"
+          // Sous `md`, le panneau ouvert se superpose a la carte (voir le contenu ci-dessous) au lieu de
+          // la comprimer : l'encombrement reste celui du bandeau replie (w-10).
+          sidebarOpen ? "w-72 max-md:w-10 max-md:z-30" : "w-10"
         }`}
       >
         {/* Bouton toggle */}
         <button
           onClick={() => setSidebarOpen((v) => !v)}
           title={sidebarOpen ? "Réduire le panneau" : "Afficher le panneau"}
-          className={`absolute top-3 z-10 flex items-center justify-center w-6 h-6 rounded-full bg-white border border-gray-200 shadow-sm hover:bg-gray-50 text-gray-500 transition-all ${
+          aria-label={sidebarOpen ? "Réduire le panneau des couches" : "Afficher le panneau des couches"}
+          aria-expanded={sidebarOpen}
+          className={`absolute top-3 z-10 max-md:z-40 flex items-center justify-center w-6 h-6 rounded-full bg-white border border-gray-200 shadow-sm hover:bg-gray-50 text-gray-500 transition-all ${
             sidebarOpen ? "right-2" : "left-1/2 -translate-x-1/2"
           }`}
         >
@@ -1079,7 +1112,9 @@ export function GeoportailPage() {
         {/* Contenu (masqué quand replié) */}
         <div
           className={`flex-1 overflow-y-auto p-3 pt-10 space-y-3 transition-opacity duration-150 ${
-            sidebarOpen ? "opacity-100" : "opacity-0 pointer-events-none overflow-hidden"
+            sidebarOpen
+              ? "opacity-100 max-md:absolute max-md:left-0 max-md:top-0 max-md:z-30 max-md:h-full max-md:w-[min(18rem,85vw)] max-md:border-r max-md:border-gray-200 max-md:bg-gray-50 max-md:shadow-xl"
+              : "opacity-0 pointer-events-none overflow-hidden"
           }`}
         >
           {/* KPIs réseau */}
@@ -1121,6 +1156,12 @@ export function GeoportailPage() {
                     <span className="text-gray-500 shrink-0 w-7 text-right">{r.pct.toFixed(0)}%</span>
                   </div>
                 ))}
+                {longueurDeclaree > 0 && (
+                  <p className="pt-1 text-[11px] leading-snug text-gray-500">
+                    Dont {longueurDeclaree.toFixed(0)} km à l'état seulement déclaré, non constaté sur le terrain
+                    (tracés en pointillé).
+                  </p>
+                )}
               </div>
             </PanelSection>
           )}
@@ -1396,6 +1437,8 @@ export function GeoportailPage() {
               {Object.entries(BASEMAPS).map(([key, b]) => (
                 <button
                   key={key}
+                  type="button"
+                  aria-pressed={basemap === key}
                   onClick={() => setBasemap(key as BasemapKey)}
                   className={`rounded-md border px-1.5 py-1.5 text-[11px] text-center leading-tight ${
                     basemap === key ? "border-navy bg-navy text-white" : "border-gray-200 hover:bg-gray-50 text-gray-600"
@@ -1407,17 +1450,7 @@ export function GeoportailPage() {
             </div>
           </PanelSection>
 
-          <div className="rounded-lg border border-gray-100 bg-white shadow-sm p-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">État de la chaussée</h3>
-            <div className="space-y-1">
-              {Object.entries(ETAT_LABELS).map(([etat, label]) => (
-                <div key={etat} className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: ETAT_COLORS[etat as EtatPatrimoine] }} />
-                  <span className="text-gray-600">{label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          <LegendeEtat />
         </div>
 
         {/* Icônes visibles quand replié */}
@@ -1491,17 +1524,17 @@ export function GeoportailPage() {
               key={`troncons-${focus ? `seul-${focus.id}` : "tous"}-${curseur.actif ? "ref" : "etat"}-${tronconsFeatureCollection.features.length}-${regionFilter}-${etatFilter}-${Object.values(classeFilter).join("")}-${villeFiltre ? `${villeFiltre.a.nom}-${villeFiltre.b?.nom ?? ""}-${routeExacte ? "route" : "bande"}` : ""}`}
               data={tronconsFeatureCollection}
               style={(feature) => {
-                // Curseur temporel allume : le troncon n'est plus qu'un TRACE DE REFERENCE gris.
-                // Sa couleur d'etat est celle d'AUJOURD'HUI ; la poser sous une date passee dirait
-                // faux. Seules les portions de la date choisie portent un etat.
-                if (curseur.actif) return { color: "#9aa0aa", weight: 3, opacity: 0.8 };
                 const t = feature?.properties?.id ? tronconsById.get(feature.properties.id) : undefined;
-                return { color: t ? ETAT_COLORS[t.etat] ?? "#1a2942" : "#1a2942", weight: 4 };
+                // Trait pointille pour un etat seulement declare : voir affichageTroncon.ts.
+                return styleTroncon(t, curseur.actif);
               }}
               onEachFeature={(feature, layer: Layer) => {
                 const t = tronconsById.get(feature.properties?.id);
                 if (!t) return;
-                layer.bindTooltip(libelleTroncon(t.code, t.nom), { sticky: true });
+                layer.bindTooltip(
+                  t.etatDeclare ? `${libelleTroncon(t.code, t.nom)} (état déclaré)` : libelleTroncon(t.code, t.nom),
+                  { sticky: true },
+                );
                 layer.on("click", () => setSelectedFeature({ kind: "troncon", data: t }));
               }}
             />

@@ -78,7 +78,8 @@ vi.mock("../../lib/prisma", () => {
   return { prisma: client };
 });
 
-import { revokeAllForUser, confirmTwoFa, disableTwoFa } from "./auth.service";
+import { revokeAllForUser, confirmTwoFa, disableTwoFa, setupTwoFa } from "./auth.service";
+import { prisma } from "../../lib/prisma";
 
 /** Le lot contient-il a la fois une mutation et une trace ? */
 function lotAtomique() {
@@ -129,6 +130,31 @@ describe("Les actes de securite partent avec leur trace", () => {
     await revokeAllForUser("u1", "ACCOUNT_DEACTIVATED", "admin-1");
     await disableTwoFa("u1", "motdepasse");
     expect(h.failSoft).toEqual([]);
+  });
+});
+
+describe("La reconfiguration du second facteur ne peut pas le desactiver en silence", () => {
+  it("REFUSE (409) setup quand la 2FA est deja active et ne reecrit PAS le secret", async () => {
+    // Avant correction, setupTwoFa remplacait le secret et remettait totpEnabled a false :
+    // un jeton d'acces vole retirait la 2FA sans mot de passe ni trace.
+    h.utilisateur = { id: "u1", email: "a@b.gn", totpEnabled: true, totpSecret: "secret-actuel", passwordHash: "h" };
+
+    await expect(setupTwoFa("u1")).rejects.toMatchObject({ status: 409 });
+
+    expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(h.lots).toEqual([]);
+  });
+
+  it("autorise setup quand la 2FA n'est pas encore active", async () => {
+    h.utilisateur = { id: "u1", email: "a@b.gn", totpEnabled: false, totpSecret: null, passwordHash: "h" };
+
+    const res = await setupTwoFa("u1");
+
+    expect(res.secret).toBe("secret");
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: "u1" },
+      data: { totpSecret: "secret", totpEnabled: false },
+    });
   });
 });
 

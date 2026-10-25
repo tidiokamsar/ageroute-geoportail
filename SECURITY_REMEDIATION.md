@@ -20,7 +20,7 @@ Aucune opération sur la production (§ A.5.1).
 | S-2 | Mot de passe ADMIN transmis en clair et non changé | non | **bloqué** : exige une opération sur la production |
 | S-3 | Compte de test avec rôle ADMIN en production | partiellement | **traité le 13/10/2026** (rétrogradé, audité) ; à reconfirmer |
 | S-4 | Rôle PostgreSQL `bdri_app` superuser | partiellement | privilèges constatés le 13/10 ; réduction **bloquée** |
-| S-5 | Sauvegardes : fraîcheur et **restaurabilité réelle** | partiellement | archive lisible vérifiée ; **restauration jamais exécutée** |
+| S-5 | Sauvegardes : fraîcheur et **restaurabilité réelle** | partiellement | archive lisible vérifiée ; restaurations éprouvées (dernière complète documentée : 02/09/2026) ; **clé en un seul exemplaire (P5-13)** |
 
 **Le point le plus important de ce document est S-1, et il contredit la formulation de
 l'alerte.**
@@ -193,22 +193,36 @@ vérifier qu'il se connecte, puis exécuter le script.
 
 ---
 
-## S-5 — Sauvegardes : lisibles, jamais restaurées
+## S-5 — Sauvegardes : lisibles, et restaurées (voir la correction ci-dessous)
 
 **Ce qui est vérifié.** Trois archives ont été produites les 13 et 14/10 avant déploiement, de
 **292 Mo** chacune, et l'une a été contrôlée par `pg_restore -l`, qui a listé **470 entrées** :
 l'archive est donc lisible et structurellement complète.
 
-**Ce qui ne l'est pas, et c'est l'essentiel.** Aucune restauration n'a jamais été exécutée. Le
-§ A.7 le dit sans détour : « un fichier présent ne prouve rien ». Une archive lisible n'est pas
-une archive restaurable — il manque la preuve qu'une base reconstruite depuis elle fonctionne.
+**Correction (25/10/2026).** La phrase d'origine de cette section, « Aucune restauration n'a
+jamais été exécutée », est fausse et a été retirée. Des restaurations ont été éprouvées :
+
+- `docs/bdri-2/BDRI-2-BACKLOG.md` (T1, document non daté) : le script de sauvegarde et sa
+  vérification de restauration « ont été exécutés avec succès » (28 tables, 1 690 géométries
+  valides, 35 clés étrangères) ;
+- `docs/phase5/REGISTRE-VERITE-BDRI.md` (ligne Sauvegardes) : « restauration réelle du
+  02/09/2026 », **c'est la dernière restauration complète documentée** ;
+- `infra/deployer-console.sh`, étape 8c : à chaque déploiement, le dump du jour est restauré
+  dans un conteneur jetable, les compteurs de la copie sont comparés à ceux de la production et
+  les migrations en attente y sont essayées avant tout geste sur la production.
+
+**Ce qui reste vrai, et c'est l'essentiel.** Le § A.7 le dit sans détour : « un fichier présent
+ne prouve rien ». Une restauration planifiée et consignée à date fixe, indépendante d'un
+déploiement, n'est pas documentée. Et la clé de chiffrement des sauvegardes n'existe qu'en un
+seul exemplaire (`docs/phase5/BACKUP-KEY-DECISION.md`, vérifié le 02/09/2026) : la décision de
+gestion de clé (P5-13) est en attente.
 
 **Et un risque qui n'est pas dans la liste d'origine** : la clé de chiffrement des sauvegardes
 vit sur la machine qu'elle sauvegarde. Une sauvegarde dont la clé disparaît avec la machine
 n'est pas une sauvegarde. Une copie hors site de la clé, conservée séparément des archives, est
 à organiser.
 
-**Bloqué** : une restauration d'épreuve demande une base cible, et il n'en existe aucune — ni
+**Bloqué (constat du 14/10 sur le poste de travail, dépassé depuis : la restauration est exercée par l'étape 8c ci-dessus)** : une restauration d'épreuve demande une base cible, et il n'en existe aucune — ni
 PostgreSQL local, ni Docker fonctionnel sur le poste de travail (voir `BLOCKERS.md`).
 
 ---

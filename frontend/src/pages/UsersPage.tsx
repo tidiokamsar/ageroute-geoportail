@@ -46,12 +46,20 @@ export function ModuleAccessModal({ user, onClose }: { user: User; onClose: () =
     onError: (err) => toast.error(parseApiError(err).message),
   });
 
+  // Modifie par rapport a l'etat enregistre : la restriction ou la liste de modules a change.
+  const sale = () => {
+    const initiaux = new Set(user.modulesAutorises ?? []);
+    if (enabled !== restricted) return true;
+    if (!enabled) return false;
+    return selected.size !== initiaux.size || [...selected].some((k) => !initiaux.has(k));
+  };
+
   function toggle(key: string) {
     setSelected((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   }
 
   return (
-    <Modal open onClose={onClose} title={`Accès aux modules — ${user.nomComplet}`}>
+    <Modal open onClose={onClose} title={`Accès aux modules — ${user.nomComplet}`} sale={sale}>
       <div className="space-y-3">
         <label className="flex items-center gap-2 text-sm text-gray-700">
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="rounded border-gray-300 text-navy focus:ring-navy/30" />
@@ -132,7 +140,7 @@ export function ProfilModal({ user, onClose }: { user: User; onClose: () => void
   const profil = profils?.find((p) => p.code === choisi) ?? null;
 
   return (
-    <Modal open onClose={onClose} title={`Profil métier — ${user.nomComplet}`}>
+    <Modal open onClose={onClose} title={`Profil métier — ${user.nomComplet}`} sale={() => choisi !== null}>
       <div className="space-y-3">
         <p className="text-xs text-gray-500">
           Les onze profils du cahier des charges. Appliquer un profil <strong>remplace</strong>{" "}
@@ -210,6 +218,9 @@ export function UsersPage() {
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [viewingUser, setViewingUser] = useState<User | null>(null);
+  // Saisie non enregistree dans le formulaire d'ajout / modification : la fermeture du
+  // modal (Echap, clic hors zone, croix) demande confirmation au lieu de la perdre.
+  const [formDirty, setFormDirty] = useState(false);
 
   const { confirm, dialog: confirmDialog } = useConfirm();
   const { data, isLoading } = useEntityList<User>("users", { page, pageSize: 20, search, sortBy, sortDir });
@@ -226,6 +237,7 @@ export function UsersPage() {
     try {
       if (editing) await update.mutateAsync({ id: editing.id, payload: values });
       else await create.mutateAsync(values);
+      setFormDirty(false);
       setModalOpen(false);
       setEditing(null);
     } catch (err) {
@@ -452,11 +464,13 @@ export function UsersPage() {
       <Modal
         open={modalOpen}
         onClose={() => {
+          setFormDirty(false);
           setModalOpen(false);
           setError(null);
           setFieldErrors({});
         }}
         title={editing ? `Modifier — ${editing.nomComplet}` : "Ajouter un utilisateur"}
+        sale={() => formDirty}
       >
         <EntityForm
           fields={editing ? EDIT_FIELDS : CREATE_FIELDS}
@@ -465,10 +479,16 @@ export function UsersPage() {
           submitting={create.isPending || update.isPending}
           serverError={error}
           serverFieldErrors={fieldErrors}
+          onDirtyChange={setFormDirty}
         />
       </Modal>
 
-      <Modal open={!!resetTarget} onClose={() => setResetTarget(null)} title={`Réinitialiser le mot de passe — ${resetTarget?.nomComplet ?? ""}`}>
+      <Modal
+        open={!!resetTarget}
+        onClose={() => { setResetTarget(null); setNewPassword(""); }}
+        title={`Réinitialiser le mot de passe — ${resetTarget?.nomComplet ?? ""}`}
+        sale={() => newPassword !== ""}
+      >
         {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
         <div className="space-y-3">
           <div>

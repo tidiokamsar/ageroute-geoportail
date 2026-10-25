@@ -13,18 +13,24 @@ date et sa méthode ; ce qui n'est pas vérifié est dit comme tel (§ A.5.7).
 
 ## 1. Production
 
-| Élément | État vérifié |
+> **Ce tableau est le relevé du 14/10/2026 et il est périmé.** Depuis, deux déploiements sont
+> consignés dans [AUTONOMOUS_EXECUTION_TRACKER.md](AUTONOMOUS_EXECUTION_TRACKER.md) (T-10) : le
+> 21/10 (commit `7411664`) et le 22/10 à 11 h 46 (commit `0703c6a`). Pour l'état courant (dernier
+> déploiement, migrations appliquées), lire le tracker puis vérifier au moment du déploiement.
+
+| Élément | État vérifié le 14/10 |
 |---|---|
 | Domaine | `carte.ageroute.gov.gn`, HTTP **200** |
-| Dernier déploiement | **14/10/2026 à 14:23**, images construites à 14:17 |
+| Dernier déploiement (au 14/10) | **14/10/2026 à 14:23**, images construites à 14:17 ; remplacé depuis, voir ci-dessus |
 | Migrations | **50 appliquées**, « Database schema is up to date! » |
 | Santé | `/api/health` 200, base 5 ms, stockage 2 ms, `echecsDepuisDemarrage` **0** |
 | Journal backend | **0 erreur** depuis le redémarrage |
 | API publique | `/api/public/carte/geo` sert 785 Ko en 0,36 s |
 | PWA | `/sw.js` 200 |
 
-**Depuis le 14/10 à 14:23, aucune opération de production** autre que la désapprobation de la
-règle RCI à 16:19, explicitement autorisée. Le § A.5.1 l'exige.
+**Le 14/10, après 14:23, aucune opération de production** autre que la désapprobation de la
+règle RCI à 16:19, explicitement autorisée. Le § A.5.1 l'exige. (Les déploiements des 21 et 22/10
+sont postérieurs à ce relevé.)
 
 ---
 
