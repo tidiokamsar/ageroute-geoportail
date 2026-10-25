@@ -38,6 +38,8 @@ const sections = [
       { to: "/programmation", label: "Programmation" },
       { to: "/programmation/moteur", label: "Moteur de programmation", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/inspections", label: "Inspections" },
+      { to: "/inspections/missions", label: "Missions terrain" },
+      { to: "/inspections/defauts/registre", label: "Registre des défauts" },
       { to: "/inspections/defauts/validation", label: "Validation des relevés", roles: ["ADMIN", "GESTIONNAIRE"] },
       { to: "/inspections/a-controler", label: "Points à contrôler", roles: ["ADMIN", "GESTIONNAIRE"] },
       // Route ouverte a tout compte connecte (App.tsx) : pas de filtre de role ici non plus. Seul lien
@@ -56,12 +58,14 @@ const sections = [
       { to: "/inspections/terrain", label: "Inspection terrain" },
       { to: "/inspections/terrain/defauts", label: "Défauts terrain" },
       { to: "/inspections/terrain/portions", label: "Portions terrain" },
+      { to: "/portions/gestion", label: "Gestion des portions" },
       { to: "/inspections/terrain/observations", label: "Observations terrain" },
     ],
   },
   {
     title: "EXPLOITATION",
     items: [
+      { to: "/exploitation/main-courante", label: "Main courante" },
       { to: "/veille", label: "Cellule de veille" },
       { to: "/exploitation/patrouilles", label: "Patrouilles" },
       { to: "/exploitation/info-route", label: "Info Route et bulletin" },

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { codeMissionTeledetection, verifierDepecheVerification, verifierProduit, verifierVerdict, type ProduitSaisi, verifierDeuxDates } from "./teledetection.noyau";
+import { codeMissionTeledetection, verifierDepecheVerification, verifierProduit, verifierVerdict, type ProduitSaisi, verifierDeuxDates, graviteCoherence, GRAVITE_COHERENCE } from "./teledetection.noyau";
 
 /**
  * Observation de la Terre (partie E) : ce que ces tests defendent.
@@ -82,4 +82,23 @@ describe("Comparaison de deux dates", () => {
     expect(verifierDeuxDates(produit, { id: "p-ref", dateAcquisition: new Date("2026-11-01") })).toMatchObject({ ok: false, code: "REFERENCE_NON_ANTERIEURE" });
   });
   it("le produit lui-meme comme reference : refuse", () => expect(verifierDeuxDates(produit, { ...produit })).toMatchObject({ ok: false, code: "REFERENCE_IDENTIQUE" }));
+});
+
+describe("Gravite des regles de coherence", () => {
+  it("les huit regles de la vue ont une gravite ; une regle inconnue est bloquante", () => {
+    expect(Object.keys(GRAVITE_COHERENCE)).toHaveLength(8);
+    expect(graviteCoherence("HORS_EMPRISE_PRODUIT")).toBe("BLOQUANTE");
+    expect(graviteCoherence("VERDICT_AVANT_DEPOT")).toBe("BLOQUANTE");
+    expect(graviteCoherence("MISSION_SANS_VERDICT")).toBe("A_EXAMINER");
+    expect(graviteCoherence("TRONCON_SUPPRIME")).toBe("A_EXAMINER");
+    expect(graviteCoherence("JAMAIS_VUE")).toBe("BLOQUANTE");
+  });
+  it("chaque regle de la vue est connue du noyau (les deux migrations sont relues)", () => {
+    const migrations = ["20261022020000_teledetection_coherence", "20261025120000_teledetection_coherence_complements"]
+      .map((m) => readFileSync(join(__dirname, "..", "..", "prisma", "migrations", m, "migration.sql"), "utf8")).join("\n");
+    const vue = migrations.slice(migrations.lastIndexOf('CREATE OR REPLACE VIEW "coherence_teledetection"'));
+    const regles = [...vue.matchAll(/SELECT pt\."id"(?: AS "propositionId")?, '([A-Z_]+)'/g)].map((m) => m[1]);
+    expect(regles.length).toBe(8);
+    for (const r of regles) expect(Object.keys(GRAVITE_COHERENCE)).toContain(r);
+  });
 });

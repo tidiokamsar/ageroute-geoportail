@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, CloudRain, Maximize2, Minimize2, Radio, ShieldAlert, UserX } from "lucide-react";
+import { Link } from "react-router-dom";
 import { api } from "../lib/api";
 import { Button } from "../components/ui/Button";
 
@@ -111,6 +112,7 @@ export function CelluleVeillePage() {
         </div>
         <div className="flex items-center gap-3 text-sm text-gray-500">
           <span>Mis à jour à {new Date(dataUpdatedAt).toLocaleTimeString("fr-FR")}</span>
+          {!mural && <Link className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-primary hover:bg-muted" to="/exploitation/main-courante">Main courante</Link>}
           <Button variant="secondary" onClick={() => setMural((m) => !m)}>
             {mural ? <><Minimize2 className="h-4 w-4" /> Quitter le mode mural</> : <><Maximize2 className="h-4 w-4" /> Mode mural</>}
           </Button>
@@ -146,14 +148,17 @@ export function CelluleVeillePage() {
         <section className="lg:col-span-2 rounded-lg border border-gray-200 bg-white">
           <h2 className="flex items-center gap-2 border-b px-3 py-2 font-semibold"><ShieldAlert className="h-4 w-4" /> Événements actifs</h2>
           {data.evenements.length === 0 ? (
-            <p className="p-3 text-gray-500">Aucun événement actif dans la main courante.</p>
+            <p className="p-3 text-gray-500">Aucun événement actif dans la main courante.{!mural && <> <Link className="underline" to="/exploitation/main-courante">Déclarer un événement</Link>.</>}</p>
           ) : (
             <ul className="divide-y">
               {data.evenements.map((e) => (
                 <li key={e.evenementId} className={`p-3 ${e.statut === "OUVERT" ? "bg-red-50/40" : ""}`}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="font-medium">{e.typeCode}{e.tronconCode ? ` — ${e.tronconCode}` : ""}</span>
-                    <span className="text-sm text-gray-600">depuis {duree(e.ageMinutes)}</span>
+                    <span className="flex items-center gap-2 text-sm text-gray-600">
+                      depuis {duree(e.ageMinutes)}
+                      {!mural && <Link className="text-xs underline" to={`/exploitation/main-courante?evenement=${encodeURIComponent(e.evenementId)}`} aria-label={`Ouvrir le journal de l'événement ${e.typeCode}`}>Journal</Link>}
+                    </span>
                   </div>
                   <div className="text-sm text-gray-700">{e.texte}</div>
                   <div className="mt-1 flex flex-wrap gap-2 text-xs">

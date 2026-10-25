@@ -77,4 +77,25 @@ describe("TeledetectionPage", () => {
     expect(screen.queryByRole("button", { name: "Enregistrer le verdict" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Dépêcher une vérification" })).not.toBeInTheDocument();
   });
+
+  it("dit les anomalies de coherence, bloquantes et a examiner distinguees", async () => {
+    h.get["/v2/teledetection/coherence"] = {
+      bloquantes: 1, aExaminer: 1, tronquee: false,
+      anomalies: [
+        { propositionId: "pr-9", regle: "HORS_EMPRISE_PRODUIT", detail: "S1", gravite: "BLOQUANTE" },
+        { propositionId: "pr-8", regle: "MISSION_SANS_VERDICT", detail: "VER-1 TERMINEE", gravite: "A_EXAMINER" },
+      ],
+    };
+    rendre();
+    expect(await screen.findByText(/Hors de l'emprise du produit/)).toBeInTheDocument();
+    expect(screen.getByText(/Mission close sans verdict/)).toBeInTheDocument();
+    expect(screen.getByText("Bloquante")).toBeInTheDocument();
+    expect(screen.getByText("À examiner")).toBeInTheDocument();
+  });
+
+  it("sans anomalie, le dit", async () => {
+    h.get["/v2/teledetection/coherence"] = { bloquantes: 0, aExaminer: 0, tronquee: false, anomalies: [] };
+    rendre();
+    expect(await screen.findByText("Aucune anomalie.")).toBeInTheDocument();
+  });
 });

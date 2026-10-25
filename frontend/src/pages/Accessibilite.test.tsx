@@ -29,6 +29,10 @@ import { PatrouillesPage } from "./PatrouillesPage";
 import { InfoRoutePage } from "./InfoRoutePage";
 import { VeilleConfigurationPage } from "./VeilleConfigurationPage";
 import { TeledetectionPage } from "./TeledetectionPage";
+import { MainCourantePage } from "./MainCourantePage";
+import { DefautsRegistrePage } from "./DefautsRegistrePage";
+import { MissionsPage } from "./MissionsPage";
+import { PortionsGestionPage } from "./PortionsGestionPage";
 import { ControlTowerPage } from "./ControlTowerPage";
 import { IndicateursControles } from "../components/IndicateursControles";
 import { VoletPortions, VoletProgrammation } from "../components/Fiche360Volets";
@@ -142,6 +146,10 @@ beforeEach(() => {
     }] },
     "/v2/teledetection/precision": { lignes: [{ type: "INONDATION", methode: "seuil v0", total: 1, aVerifier: 1, confirmees: 0, infirmees: 0, precision: null }] },
     "/v2/teledetection/produits": { produits: [] },
+    "/v2/defauts/catalogue": { catalogue: [{ code: "NID", libelle: "Nid de poule" }] },
+    "/v2/defauts": { defauts: [{ id: "d", code: null, statutValidation: "A_CORRIGER", etat: "ACTIF", traiteA: null, constateA: "2026-10-01T08:00:00Z",
+      catalogue: { code: "NID", libelle: "Nid de poule", unite: "UNITE" }, constatePar: { id: "u", nomComplet: "Agent" }, medias: [] }], curseurSuivant: "d" },
+    "/v2/missions": [{ id: "m", code: "MIS-1", intitule: "RN1", type: "INSPECTION", statut: "EN_COURS", debutPrevu: null }],
     "/v2/imports": { lots: [{
       id: "l1", reference: "IMP-2026-0001", systemeSource: "ANASUR", format: "CSV", nomFichier: "releve.csv", statut: "VALIDE_SCHEMA",
       importeLe: "2026-10-20T08:00:00Z", lignesLues: 10, lignesValidees: 9, lignesImportees: 0, lignesRejetees: 1, lignesEnConflit: 0, lignesIgnorees: 0,
@@ -173,6 +181,10 @@ describe("Accessibilite des ecrans (axe-core, WCAG 2.1 A et AA, contraste exclu)
     ["Info Route", <InfoRoutePage key="i" />, /BR-20261020-1/],
     ["Configuration de la veille", <VeilleConfigurationPage key="c" />, /Tous modes · niveau 1/],
     ["Observation de la Terre", <TeledetectionPage key="t" />, /Rattachée à GN N0001/],
+    ["Main courante", <MainCourantePage key="mc" />, /Pris en compte/],
+    ["Registre des defauts", <DefautsRegistrePage key="rd" />, /Charger la suite/],
+    ["Missions terrain", <MissionsPage key="mi" />, /MIS-1/],
+    ["Gestion des portions (aucun troncon choisi)", <PortionsGestionPage key="pg" />, /Choisissez un tronçon/],
     ["Menu lateral", <Sidebar key="s" open />, /Cellule de veille/],
     ["Connexion", <LoginPage key="l" />, /./],
     ["Lots d'import", <ImportsPage key="im" />, /IMP-2026-0001/],
@@ -186,6 +198,16 @@ describe("Accessibilite des ecrans (axe-core, WCAG 2.1 A et AA, contraste exclu)
     if (typeof attente === "string") await screen.findByTestId(attente, undefined, { timeout: 10_000 });
     else await screen.findAllByText(attente, undefined, { timeout: 10_000 });
     expect(await violationsAccessibilite(container)).toEqual([]);
+  }, 30_000);
+});
+
+describe("Accessibilite de la main courante, declaration ouverte", () => {
+  it("aucune violation avec le formulaire de declaration", async () => {
+    const { container } = rendre(<MainCourantePage />);
+    await screen.findAllByText(/Pris en compte/, undefined, { timeout: 10_000 });
+    await userEvent.click(screen.getByRole("button", { name: /Déclarer un événement/ }));
+    await screen.findByRole("dialog");
+    expect(await violationsAccessibilite(container.ownerDocument.body)).toEqual([]);
   }, 30_000);
 });
 

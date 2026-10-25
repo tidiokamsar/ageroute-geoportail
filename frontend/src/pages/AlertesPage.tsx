@@ -63,7 +63,7 @@ function FilterSelect({ value, onChange, children }: {
       >
         {children}
       </select>
-      <ChevronDown className={`pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 ${active ? "text-navy/60" : "text-gray-400"}`} />
+      <ChevronDown className={`pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 ${active ? "text-navy/60" : "text-gray-500"}`} />
     </div>
   );
 }
@@ -138,7 +138,7 @@ export function AlertesPage() {
   }
 
   if (isLoading || !data) return (
-    <div className="flex items-center gap-3 text-gray-400 p-8 text-sm">
+    <div className="flex items-center gap-3 text-gray-500 p-8 text-sm">
       <div className="h-4 w-4 border-2 border-gray-200 border-t-navy rounded-full animate-spin" />
       Chargement des alertes…
     </div>
@@ -191,10 +191,10 @@ export function AlertesPage() {
 
         {/* Ouvrages critiques */}
         <div className={`rounded-xl border p-4 ${nbOuvragesCritiques > 0 ? "bg-red-50 border-red-200" : "bg-gray-50 border-gray-200"}`}>
-          <p className={`text-sm font-medium ${nbOuvragesCritiques > 0 ? "text-red-500" : "text-gray-400"}`}>
+          <p className={`text-sm font-medium ${nbOuvragesCritiques > 0 ? "text-red-600" : "text-gray-500"}`}>
             Ouvrages critiques
           </p>
-          <p className={`text-4xl font-bold mt-1 ${nbOuvragesCritiques > 0 ? "text-red-600" : "text-gray-300"}`}>
+          <p className={`text-4xl font-bold mt-1 ${nbOuvragesCritiques > 0 ? "text-red-600" : "text-gray-500"}`}>
             {nbOuvragesCritiques}
           </p>
         </div>
@@ -204,11 +204,11 @@ export function AlertesPage() {
           <p className="flex items-center gap-1.5 text-sm text-gray-500">
             <Clock className="h-3.5 w-3.5 shrink-0" /> Chantiers en retard
           </p>
-          <p className={`text-4xl font-bold mt-1 ${nbChantiersEnRetard > 0 ? "text-orange-600" : "text-gray-800"}`}>
+          <p className={`text-4xl font-bold mt-1 ${nbChantiersEnRetard > 0 ? "text-orange-700" : "text-gray-800"}`}>
             {nbChantiersEnRetard}
           </p>
           {nbChantiersEnRetard === 0 && (
-            <p className="text-xs text-gray-400 mt-1.5 leading-snug">
+            <p className="text-xs text-gray-500 mt-1.5 leading-snug">
               Fiabilité à vérifier : dates de fin souvent absentes
             </p>
           )}
@@ -219,7 +219,7 @@ export function AlertesPage() {
           <p className="flex items-center gap-1.5 text-sm font-medium text-amber-700">
             <Tag className="h-3.5 w-3.5 shrink-0" /> Tronçons non inspectés
           </p>
-          <p className={`text-4xl font-bold mt-1 ${nbTronconsNonInsp > 0 ? "text-amber-700" : "text-gray-300"}`}>
+          <p className={`text-4xl font-bold mt-1 ${nbTronconsNonInsp > 0 ? "text-amber-700" : "text-gray-500"}`}>
             {nbTronconsNonInsp}
           </p>
           {nbTronconsNonInsp > 0 && (
@@ -240,9 +240,9 @@ export function AlertesPage() {
             <h3 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
               <span className="inline-block h-4 w-1 rounded-full bg-red-500 shrink-0" />
               Ouvrages d'art en mauvais / critique état{" "}
-              <span className="text-gray-400 font-normal">({ouvrages.length})</span>
+              <span className="text-gray-500 font-normal">({ouvrages.length})</span>
             </h3>
-            <span className="text-xs text-gray-400">Triés par sévérité</span>
+            <span className="text-xs text-gray-500">Triés par sévérité</span>
           </div>
           <div className="rounded-xl border border-gray-200 overflow-x-auto hover:shadow-md transition-shadow">
             <table className="w-full min-w-[36rem] text-sm">
@@ -265,7 +265,7 @@ export function AlertesPage() {
                     <td className="px-4 py-3">
                       <span className="font-medium text-gray-800">{o.nom}</span>
                       {o.code && (
-                        <span className="ml-1.5 text-[11px] font-mono text-gray-400">{o.code}</span>
+                        <span className="ml-1.5 text-[11px] font-mono text-gray-500">{o.code}</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -277,18 +277,18 @@ export function AlertesPage() {
                           {o.troncon}
                         </button>
                       ) : (
-                        <span className="text-gray-300">—</span>
+                        <span className="text-gray-500">—</span>
                       )}
                     </td>
                     <td className="px-4 py-3 text-gray-600">
-                      {o.region ?? <span className="text-gray-300">Non renseigné</span>}
+                      {o.region ?? <span className="text-gray-500">Non renseigné</span>}
                     </td>
                     <td className="px-4 py-3">
                       <EtatBadge etat={o.etat} />
                     </td>
                     <td className="px-4 py-3">
                       {!o.derniereInspection ? (
-                        <span className="flex items-center gap-1.5 text-gray-400 text-xs">
+                        <span className="flex items-center gap-1.5 text-gray-500 text-xs">
                           <AlertCircle className="h-3.5 w-3.5 text-orange-400 shrink-0" />
                           Jamais inspecté
                         </span>
@@ -326,7 +326,7 @@ export function AlertesPage() {
           <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
             <span className="inline-block h-4 w-1 rounded-full bg-orange-400 shrink-0" />
             Chantiers en retard{" "}
-            <span className="text-gray-400 font-normal">({chantiersEnRetard.length})</span>
+            <span className="text-gray-500 font-normal">({chantiersEnRetard.length})</span>
           </h3>
           <div className="rounded-xl border border-gray-200 overflow-x-auto hover:shadow-md transition-shadow">
             <table className="w-full min-w-[36rem] text-sm">
@@ -388,7 +388,7 @@ export function AlertesPage() {
           <h3 className="text-sm font-semibold text-gray-800 mb-3 flex items-center gap-2">
             <span className="inline-block h-4 w-1 rounded-full bg-amber-400 shrink-0" />
             Tronçons jamais inspectés{" "}
-            <span className="text-gray-400 font-normal">({tronconsJamaisInspectes.length})</span>
+            <span className="text-gray-500 font-normal">({tronconsJamaisInspectes.length})</span>
           </h3>
           <div className="rounded-xl border border-gray-200 overflow-x-auto hover:shadow-md transition-shadow">
             <table className="w-full min-w-[36rem] text-sm">
@@ -415,7 +415,7 @@ export function AlertesPage() {
                         <span className="truncate block">{t.nom}</span>
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-500">{classeLabels[t.classe] ?? t.classe}</td>
-                      <td className="px-4 py-3 text-gray-600">{t.region ?? <span className="text-gray-300">Non renseigné</span>}</td>
+                      <td className="px-4 py-3 text-gray-600">{t.region ?? <span className="text-gray-500">Non renseigné</span>}</td>
                       <td className="px-4 py-3"><EtatBadge etat={t.etat} /></td>
                       <td className="px-4 py-3">
                         <div className="flex items-center justify-end gap-3">
@@ -443,7 +443,7 @@ export function AlertesPage() {
       )}
 
       {ouvrages.length === 0 && chantiersEnRetard.length === 0 && tronconsJamaisInspectes.length === 0 && (
-        <div className="rounded-xl border border-gray-100 bg-gray-50 py-12 text-center text-sm text-gray-400">
+        <div className="rounded-xl border border-gray-100 bg-gray-50 py-12 text-center text-sm text-gray-500">
           Aucune alerte pour cette sélection.
         </div>
       )}

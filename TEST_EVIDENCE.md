@@ -3,6 +3,101 @@
 > Exigé par le § 4 du mandat v2.1. Le § 2.7 impose que toute affirmation de réussite cite la
 > commande lancée et son résultat. Aucune ligne de ce fichier n'est écrite sans l'avoir vue.
 
+## 22/10/2026 (nuit, après fusion de `lot/03-map-matching` à `5f30814`) — PR #3
+
+Conflits résolus : le métré des défauts par emprise est celui de la ligne principale (`070b21e`) ; la migration
+`20261025100000_metre_emprise_utm` de cette branche, en double, est retirée (sa descente aurait retiré la valeur
+`EMPRISE_UTM` dont dépend `20261024300000`). La matrice a été reconstruite ligne à ligne (leurs lignes là où je n'avais
+rien changé, les miennes là où ils n'avaient rien changé, A5 fusionnée en gardant leur statut TP).
+
+| Commande | Résultat |
+|---|---|
+| `verifier.sh --strict --garder` | **78 migrations, 274 vérifications, 0 échec**, 0 sans descente |
+| `infra/ci/bancs-sql.sh` sur la base laissée par le banc | **17 bancs, 0 échec** |
+| bancs d'intégration `metre`, `tuiles`, `coherence` (sur `replay`) | **29/29, 9/9, 12/12** |
+| `npx vitest run` backend, puis frontend | **2 603 passés** (159 fichiers) ; **669 passés** (52 fichiers) |
+| `npx tsc --noEmit` (deux côtés), `npm run lint` | aucune erreur |
+
+## 22/10/2026 (nuit) — apports de la branche `lot/17-consignes-dt` (DT-2, DT-4 à DT-8)
+
+### Fusion de `lot/03-map-matching` à `01ef5dd` (23/10, soir)
+
+Huit conflits. **Doublon retiré** : la ligne principale rattache déjà la session de roulage à une mission (`c31b5de`, chargé à
+l'ouverture, avec qualification par segment) ; mon rattachement (DT-9) et ses deux tests sont retirés, « Mes sessions envoyées »
+reste. Contraste : la ligne principale a son propre garde-fou mesuré en navigateur (`styles/contraste.test.ts`) ; les deux
+coexistent et passent ; ses jetons d'état sont pris dans `RapportsPage.tsx` (y compris trois cellules « moyen » restées en
+`lime-700`, 4,40:1), le `texteLisible` de `DecisionPage.tsx` est combiné avec mes `gray-500`. Matrice fusionnée ligne à ligne
+(A5, 7.13, 7.14). `api-v2/index.ts`, `tests-integration/run.sh` : ajouts des deux côtés gardés.
+
+| Commande | Résultat |
+|---|---|
+| `verifier.sh --strict --garder` | **83 migrations, 290 vérifications, 0 échec**, 0 sans descente |
+| `infra/ci/bancs-sql.sh` sur la base de référence (détruite ensuite) | **17 bancs, 0 échec** |
+| `npx vitest run` backend | **2 771 passés** (174 fichiers) ; `tsc` 0 erreur |
+| `npx vitest run` frontend (seul) | **1 024 passés** (84 fichiers, 0 échec, les deux garde-fous de contraste compris) ; `tsc` 0 erreur ; lint 0 erreur, 5 avertissements |
+
+### Fusion de `lot/03-map-matching` à `49efc17` (23/10, après-midi)
+
+Conflits : `App.tsx` et `Sidebar.tsx` (ajouts des deux côtés, gardés) ; `GeoportailPage.tsx` (barre d'outils déplacée dans
+`BarreOutilsCarte` par la ligne principale : version de la ligne principale, avec le rouge du bouton de dessin repris de DT-6).
+`deployer-console.sh` : version de la ligne principale, dont la garde de l'index planaire remplace la mienne. Le garde-fou de
+contraste a trouvé 6 `text-gray-400` (2,41:1) dans `ChangerEtatCorridor.tsx` et `TronconPickerGeo.tsx`, arrivés avec la fusion :
+portés à `gray-500`.
+
+| Commande | Résultat |
+|---|---|
+| `verifier.sh --strict --garder` | **80 migrations, 280 vérifications, 0 échec**, 0 sans descente |
+| `infra/ci/bancs-sql.sh` sur la base de référence (détruite ensuite) | **17 bancs, 0 échec** |
+| `npx vitest run` backend | **2 679 passés** (169 fichiers) ; `tsc` 0 erreur |
+| `npx vitest run` frontend (seul) | **866 passés sur 872** (75 fichiers, 755 s : poste saturé, 2,9 Go libres, 31 processus Node d'autres sessions) ; les 6 échecs, tous dans `BarreOutilsCarte.test.tsx` (arrivé avec la fusion), sont des délais de 30 s dépassés et des processus de test arrêtés net. **Seul, sur un processus, délai de 180 s : 13/13** (jusqu'à 166 s par test). Le test ne lit aucune des classes de couleur modifiées. À rejouer sur un poste moins chargé |
+| `npx tsc --noEmit` frontend ; `npm run lint` | 0 erreur ; lint 5 avertissements (dont `TronconPickerGeo.tsx`, arrivé avec la fusion) |
+
+### Fusion de `lot/03-map-matching` à `4baa281` (23/10)
+
+Conflits : documentation seulement (matrice A15 et A20, preuves, README des bancs), les deux côtés gardés. **Doublon retiré** :
+la ligne principale pose `troncons_geom_gist` par `20261023200000` ; la migration `20261025110000` de cette branche posait le même
+index (sans effet grâce à `IF NOT EXISTS`, mais sa descente aurait supprimé l'index de l'autre). La garde anti-doublon de
+`deployer-console.sh` est désormais celle de la ligne principale (`05f04d6`, qui exclut l'index de même nom) ; la mienne est retirée.
+
+| Commande | Résultat |
+|---|---|
+| `verifier.sh --strict --garder` | **79 migrations, 276 vérifications, 0 échec**, 0 sans descente |
+| `infra/ci/bancs-sql.sh` sur la base de référence laissée par le banc (détruite ensuite) | **17 bancs, 0 échec** |
+| `npx vitest run` backend, puis frontend (seul) | **2 649 passés** (165 fichiers) ; **770 passés** (65 fichiers) |
+| `npx tsc --noEmit` (deux côtés), `npm run lint` | 0 erreur ; lint 4 avertissements anciens |
+
+### Complément DT-9 (complétude des écrans), même branche
+
+Exécuté et lu le 22/10/2026 sur ce poste. Rien n'a été exécuté contre la production ; la CI GitHub n'a pas tourné (compte bloqué pour facturation).
+
+| Commande | Résultat |
+|---|---|
+| `cd backend && npx vitest run` | **2 622 passés**, 161 fichiers, 0 échec (dont `roulage.routes.test.ts` 6, `patrouilles.routes.test.ts` 18, `historique=false` et `national=false`) |
+| `cd frontend && npx vitest run` (seul) | **770 passés**, 65 fichiers, 0 échec (garde-fou de contraste compris) |
+| `Accessibilite.test.tsx` (axe-core, WCAG 2.1 A et AA) | **31 cas, 0 violation**, dont Main courante (liste et déclaration ouverte), Registre des défauts, Missions terrain, Gestion des portions |
+| `npx tsc --noEmit` (deux côtés) ; `npm run lint` ; `npx vite build` | 0 erreur ; lint 0 erreur, 4 avertissements anciens dans des fichiers non touchés ; build réussi |
+| Navigateur réel, téléphone | **non essayés** |
+
+
+Branche partie de `origin/lot/03-map-matching` (`94b8769`, puis rebasée sur `34ee0ed`), qui portait déjà T-27 (A30) et T-32 (A10) :
+les versions concurrentes de la branche `lot/14-consignes-dt` n'y sont PAS reprises ; seuls les apports
+propres le sont, migrations renumérotées après `20261024200000`. Rien n'a été exécuté contre la production.
+
+| Commande | Résultat |
+|---|---|
+| `verifier.sh --strict --garder` | **75 migrations, 264 vérifications, 0 échec** ; après rebase sur `34ee0ed` : **77 migrations, 272 vérifications, 0 échec**, 0 sans descente |
+| `infra/ci/bancs-sql.sh` sur la base laissée par le banc | **16 bancs, 0 échec** ; après rebase : **17 bancs, 0 échec** (dont `teledetection_complements`, `metre_reference`, `outbox`) |
+| `teledetection_complements.test.sql` sur `replay`, sans la migration (contre-épreuve) | échoue : « Proposition sur produit retire acceptee » |
+| `npx tsx tests-integration/metre.integration.ts` | **30/30** |
+| `npx tsx tests-integration/tuiles.integration.ts` | **9/9** |
+| `npx tsx tests-integration/coherence.integration.mts` (clone `essai_coherence`, détruit ensuite) | **12/12** |
+| `territoire.couverture.test.ts` : contrôle retiré d'un service CRUD, puis garde retirée d'une route v2 | **4 échecs**, puis **1 échec**, nommant chaque route |
+| requête de la garde anti-doublon de `deployer-console.sh` | nomme `troncons_geom_gist` sur une base qui le porte ; rien sur `replay` |
+| `npx vitest run` (backend) | **1 992 passés sur 1 993** ; 1 échec : `trace.import.noyau.test.ts` « reste linéaire sur un fichier volumineux » (3,8 s pour un plafond de 2 s, sous la charge de la suite) — **seul : 21/21, 512 ms**. Test de durée de T-24, code non modifié ici |
+| `npx vitest run` (frontend, seul) | **489 passés**, 39 fichiers |
+| après rebase sur `34ee0ed` : `npx vitest run` backend puis frontend | **2 464 passés** (152 fichiers, 0 échec) ; **642 passés** (50 fichiers, 0 échec, garde-fou de contraste compris) ; `tsc` et lint : 0 erreur |
+| `npm run lint` ; `npx tsc --noEmit` (backend, frontend) | 0 erreur (4 avertissements connus) ; aucune erreur |
+
 ## 22/10/2026 (nuit) — fusion des six lots d'agents, mesures de performance, enregistreur navigateur
 
 Exécuté et lu après la fusion de la branche « performance ». Rien n'a été exécuté contre la production. **La CI GitHub n'a

@@ -5,7 +5,7 @@
 set -u
 cd "$(dirname "$0")/.."
 
-BANCS=(trace metadonnees geometries-invalides contour deviation graphe info-route patrouilles teledetection veille chemin historique photos-observation)
+BANCS=(trace metadonnees geometries-invalides contour deviation graphe info-route patrouilles teledetection veille metre tuiles chemin historique photos-observation)
 echec=0
 lignes=()
 
@@ -31,6 +31,7 @@ lancer "import.integration.mts"
 lancer "metre-defaut.integration.mts"
 lancer "contour-terrain.integration.mts"
 lancer "taches-internes.integration.mts"
+lancer "coherence.integration.mts"
 lancer "extension-unaccent.integration.mts"
 lancer "qualite-geometries.integration.mts"
 lancer "territoire.integration.mts"

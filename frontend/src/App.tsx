@@ -30,9 +30,12 @@ const DefautTerrainPage = lazy(() => import("./pages/DefautTerrainPage").then((m
 const EnregistrementRoulagePage = lazy(() => import("./pages/EnregistrementRoulagePage").then((m) => ({ default: m.EnregistrementRoulagePage })));
 const ReleveVehiculePage = lazy(() => import("./pages/ReleveVehiculePage").then((m) => ({ default: m.ReleveVehiculePage })));
 const TerrainPortionsPage = lazy(() => import("./pages/TerrainPortionsPage").then((m) => ({ default: m.TerrainPortionsPage })));
+const MissionsPage = lazy(() => import("./pages/MissionsPage").then((m) => ({ default: m.MissionsPage })));
+const PortionsGestionPage = lazy(() => import("./pages/PortionsGestionPage").then((m) => ({ default: m.PortionsGestionPage })));
 const ObservationsTerrainPage = lazy(() => import("./pages/ObservationsTerrainPage").then((m) => ({ default: m.ObservationsTerrainPage })));
 const ConflitsSyncPage = lazy(() => import("./pages/ConflitsSyncPage").then((m) => ({ default: m.ConflitsSyncPage })));
 const PortionsValidationPage = lazy(() => import("./pages/PortionsValidationPage").then((m) => ({ default: m.PortionsValidationPage })));
+const DefautsRegistrePage = lazy(() => import("./pages/DefautsRegistrePage").then((m) => ({ default: m.DefautsRegistrePage })));
 const AControlerPage = lazy(() => import("./pages/AControlerPage").then((m) => ({ default: m.AControlerPage })));
 const DefautsValidationPage = lazy(() => import("./pages/DefautsValidationPage").then((m) => ({ default: m.DefautsValidationPage })));
 const CatalogueDefautsPage = lazy(() => import("./pages/CatalogueDefautsPage").then((m) => ({ default: m.CatalogueDefautsPage })));
@@ -46,6 +49,7 @@ const ImportsPage = lazy(() => import("./pages/ImportsPage").then((m) => ({ defa
 const CelluleVeillePage = lazy(() => import("./pages/CelluleVeillePage").then((m) => ({ default: m.CelluleVeillePage })));
 const PatrouillesPage = lazy(() => import("./pages/PatrouillesPage").then((m) => ({ default: m.PatrouillesPage })));
 const InfoRoutePage = lazy(() => import("./pages/InfoRoutePage").then((m) => ({ default: m.InfoRoutePage })));
+const MainCourantePage = lazy(() => import("./pages/MainCourantePage").then((m) => ({ default: m.MainCourantePage })));
 const VeilleConfigurationPage = lazy(() => import("./pages/VeilleConfigurationPage").then((m) => ({ default: m.VeilleConfigurationPage })));
 const MoteurProgrammationPage = lazy(() => import("./pages/MoteurProgrammationPage").then((m) => ({ default: m.MoteurProgrammationPage })));
 const BaremesPage = lazy(() => import("./pages/BaremesPage").then((m) => ({ default: m.BaremesPage })));
@@ -95,6 +99,7 @@ const router = createBrowserRouter(
           <Route path="inspections/terrain" element={<LazyPage><InspectionTerrainPage /></LazyPage>} handle={{ title: "Inspection terrain" }} />
           <Route path="inspections/terrain/defauts" element={<LazyPage><DefautTerrainPage /></LazyPage>} handle={{ title: "Défauts terrain" }} />
           <Route path="inspections/terrain/portions" element={<LazyPage><TerrainPortionsPage /></LazyPage>} handle={{ title: "Portions terrain" }} />
+          <Route path="portions/gestion" element={<LazyPage><PortionsGestionPage /></LazyPage>} handle={{ title: "Gestion des portions" }} />
           <Route path="inspections/terrain/observations" element={<LazyPage><ObservationsTerrainPage /></LazyPage>} handle={{ title: "Observations terrain" }} />
           <Route path="portions/validation" element={<LazyPage><PortionsValidationPage /></LazyPage>} handle={{ title: "Validation des portions" }} />
           <Route path="documents" element={<LazyPage><DocumentsPage /></LazyPage>} handle={{ title: "Base documentaire" }} />
@@ -102,6 +107,7 @@ const router = createBrowserRouter(
           <Route path="qualite" element={<LazyPage><QualitePage /></LazyPage>} handle={{ title: "Qualité des données" }} />
           <Route path="veille" element={<LazyPage><CelluleVeillePage /></LazyPage>} handle={{ title: "Cellule de veille" }} />
           <Route path="exploitation/patrouilles" element={<LazyPage><PatrouillesPage /></LazyPage>} handle={{ title: "Patrouilles programmées" }} />
+          <Route path="exploitation/main-courante" element={<LazyPage><MainCourantePage /></LazyPage>} handle={{ title: "Main courante" }} />
           <Route path="exploitation/info-route" element={<LazyPage><InfoRoutePage /></LazyPage>} handle={{ title: "Info Route et bulletin" }} />
           <Route path="teledetection" element={<LazyPage><TeledetectionPage /></LazyPage>} handle={{ title: "Observation de la Terre" }} />
           <Route path="control-tower" element={<LazyPage><ControlTowerPage /></LazyPage>} handle={{ title: "Control Tower" }} />
@@ -124,6 +130,8 @@ const router = createBrowserRouter(
       </Route>
       <Route element={<ProtectedRoute roles={["ADMIN", "GESTIONNAIRE"]} />}>
         <Route element={<AppLayout />}>
+          <Route path="inspections/missions" element={<LazyPage><MissionsPage /></LazyPage>} handle={{ title: "Missions terrain" }} />
+          <Route path="inspections/defauts/registre" element={<LazyPage><DefautsRegistrePage /></LazyPage>} handle={{ title: "Registre des défauts" }} />
           <Route path="inspections/a-controler" element={<LazyPage><AControlerPage /></LazyPage>} handle={{ title: "Points à contrôler" }} />
           <Route path="inspections/defauts/validation" element={<LazyPage><DefautsValidationPage /></LazyPage>} handle={{ title: "Validation des relevés terrain" }} />
           <Route path="inspections/conflits" element={<LazyPage><ConflitsSyncPage /></LazyPage>} handle={{ title: "Conflits de synchronisation" }} />

@@ -6,6 +6,7 @@ import { useAuth } from "../lib/auth";
 import { toast } from "../lib/toast";
 import { refreshPendingCount } from "../lib/offlineSync";
 import { Button } from "../components/ui/Button";
+import { MesSessions } from "./roulage/MesSessions";
 import { Card } from "../components/ui/Card";
 import { libelleDuree, libelleKm } from "../lib/releve";
 import {
@@ -1037,6 +1038,9 @@ export function EnregistrementRoulagePage() {
           )}
         </section>
       )}
+
+      {/* Pas pendant l'enregistrement : rien ne doit distraire du trajet. */}
+      {!enCours && <MesSessions />}
     </div>
   );
 }

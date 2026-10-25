@@ -4,7 +4,7 @@ import { requireAuth } from "../middleware/auth.middleware";
 import { requireRole } from "../middleware/rbac.middleware";
 import { prisma } from "../lib/prisma";
 import {
-  RefusPatrouille, couvertureMission, creerProgramme, depecherVerification, engendrerMission, listerProgrammes,
+  RefusPatrouille, couvertureMission, creerProgramme, depecherVerification, engendrerMission, listerProgrammes, lireProgramme, modifierProgramme, retirerProgramme,
 } from "../exploitation/patrouilles.service";
 
 /**
@@ -12,6 +12,9 @@ import {
  *
  *   GET  /programmes                              programmes vivants, dernier passage, echeance
  *   POST /programmes                              creer un programme (itineraire obligatoire)
+ *   GET  /programmes/:id                          la fiche : itineraire ordonne, passages, echeance
+ *   PATCH /programmes/:id                         libelle, periodicite, mois actifs, responsable, actif
+ *   POST /programmes/:id/retrait                  retirer le programme (logiquement, motif exige)
  *   POST /programmes/:id/missions                 engendrer le passage d'un jour (mission BROUILLON)
  *   GET  /missions/:missionId/couverture          couverture troncon par troncon, ecart hors itineraire
  *   POST /signalements/:signalementId/verification  depecher une patrouille de verification
@@ -19,8 +22,9 @@ import {
  * Lire est ouvert a tout compte authentifie. Ecrire -- creer un programme, engendrer, depecher --
  * est reserve a ADMIN et GESTIONNAIRE, comme la creation de mission qu'elles produisent.
  *
- * Il n'y a pas de DELETE : un programme se desactive ou se retire par `deletedAt`, jamais ne
- * s'efface, et ce geste n'est pas encore expose.
+ * Il n'y a pas de DELETE : un programme se suspend (`actif`) ou se retire par `deletedAt`, jamais ne
+ * s'efface. Son ITINERAIRE ne se modifie pas : la couverture des passages realises se mesure contre
+ * lui (voir `modifierProgramme`).
  */
 export const patrouillesV2Router = Router();
 patrouillesV2Router.use(requireAuth);
@@ -41,6 +45,15 @@ const corpsProgramme = z.object({
   troncons: z.array(z.string().min(1)).max(500),
 });
 
+const corpsModification = z.object({
+  libelle: z.string().trim().min(1).max(200).optional(),
+  periodiciteJours: z.number().int().optional(),
+  moisActifs: z.array(z.number().int()).max(12).optional(),
+  responsableId: z.string().min(1).optional(),
+  actif: z.boolean().optional(),
+}).strict();
+const corpsRetrait = z.object({ motif: z.string().trim().min(3).max(1000) }).strict();
+
 const corpsPassage = z.object({ debutPrevu: z.coerce.date(), assigneId: z.string().min(1).nullish() });
 const corpsVerification = z.object({ debutPrevu: z.coerce.date().nullish(), assigneId: z.string().min(1).nullish() });
 
@@ -59,6 +72,22 @@ patrouillesV2Router.post("/programmes", ecriture, async (req: Request, res: Resp
   try {
     res.status(201).json(await creerProgramme(prisma, p.data, { auteurId: req.user!.id, ipAddress: req.ip }));
   } catch (err) { refus(err, res, next); }
+});
+
+patrouillesV2Router.get("/programmes/:id", async (req: Request, res: Response, next: NextFunction) => {
+  try { res.json(await lireProgramme(prisma, req.params.id, new Date())); } catch (err) { refus(err, res, next); }
+});
+
+patrouillesV2Router.patch("/programmes/:id", ecriture, async (req: Request, res: Response, next: NextFunction) => {
+  const p = corpsModification.safeParse(req.body);
+  if (!p.success) { res.status(400).json({ error: "corps invalide (l'itineraire ne se modifie pas)", details: p.error.flatten().fieldErrors }); return; }
+  try { res.json(await modifierProgramme(prisma, req.params.id, p.data, { auteurId: req.user!.id, ipAddress: req.ip })); } catch (err) { refus(err, res, next); }
+});
+
+patrouillesV2Router.post("/programmes/:id/retrait", ecriture, async (req: Request, res: Response, next: NextFunction) => {
+  const p = corpsRetrait.safeParse(req.body ?? {});
+  if (!p.success) { res.status(400).json({ error: "motif de retrait requis", details: p.error.flatten().fieldErrors }); return; }
+  try { res.json(await retirerProgramme(prisma, req.params.id, p.data.motif, { auteurId: req.user!.id, ipAddress: req.ip })); } catch (err) { refus(err, res, next); }
 });
 
 patrouillesV2Router.post("/programmes/:id/missions", ecriture, async (req: Request, res: Response, next: NextFunction) => {

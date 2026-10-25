@@ -147,7 +147,7 @@ export function ProfilModal({ user, onClose }: { user: User; onClose: () => void
           le rôle et les modules de ce compte.
         </p>
 
-        {isLoading && <p className="text-sm text-gray-400">Chargement…</p>}
+        {isLoading && <p className="text-sm text-gray-500">Chargement…</p>}
 
         <div className="rounded-lg border border-gray-200 divide-y divide-gray-100 max-h-72 overflow-y-auto">
           {profils?.map((p) => (
@@ -280,7 +280,7 @@ export function UsersPage() {
       accessorKey: "actif",
       header: "Statut",
       cell: ({ row }) => (
-        <span className={`inline-flex items-center gap-1.5 ${row.original.actif ? "text-green-700" : "text-gray-400"}`}>
+        <span className={`inline-flex items-center gap-1.5 ${row.original.actif ? "text-green-700" : "text-gray-500"}`}>
           <span className={`h-1.5 w-1.5 rounded-full ${row.original.actif ? "bg-green-500" : "bg-gray-300"}`} />
           {row.original.actif ? "Actif" : "Désactivé"}
         </span>
@@ -300,7 +300,7 @@ export function UsersPage() {
       <div className="flex items-center gap-1 justify-end">
         <button
           title="Modifier"
-          className="h-7 w-7 flex items-center justify-center rounded-md text-gray-400 hover:text-navy hover:bg-navy/5 transition-colors"
+          className="h-7 w-7 flex items-center justify-center rounded-md text-gray-500 hover:text-navy hover:bg-navy/5 transition-colors"
           onClick={() => {
             setEditing(u);
             setError(null);
@@ -312,28 +312,28 @@ export function UsersPage() {
         </button>
         <button
           title="Réinitialiser le mot de passe"
-          className="h-7 w-7 flex items-center justify-center rounded-md text-gray-400 hover:text-navy hover:bg-navy/5 transition-colors"
+          className="h-7 w-7 flex items-center justify-center rounded-md text-gray-500 hover:text-navy hover:bg-navy/5 transition-colors"
           onClick={() => setResetTarget(u)}
         >
           <KeyRound className="h-3.5 w-3.5" />
         </button>
         <button
           title="Accès aux modules"
-          className="h-7 w-7 flex items-center justify-center rounded-md text-gray-400 hover:text-navy hover:bg-navy/5 transition-colors"
+          className="h-7 w-7 flex items-center justify-center rounded-md text-gray-500 hover:text-navy hover:bg-navy/5 transition-colors"
           onClick={() => setAccessTarget(u)}
         >
           <ShieldCheck className="h-3.5 w-3.5" />
         </button>
         <button
           title="Appliquer un profil métier"
-          className="h-7 w-7 flex items-center justify-center rounded-md text-gray-400 hover:text-navy hover:bg-navy/5 transition-colors"
+          className="h-7 w-7 flex items-center justify-center rounded-md text-gray-500 hover:text-navy hover:bg-navy/5 transition-colors"
           onClick={() => setProfilTarget(u)}
         >
           <UserCog className="h-3.5 w-3.5" />
         </button>
         <button
           title={u.actif ? "Désactiver" : "Réactiver"}
-          className={`h-7 w-7 flex items-center justify-center rounded-md transition-colors ${u.actif ? "text-gray-400 hover:text-red-500 hover:bg-red-50" : "text-gray-400 hover:text-green-600 hover:bg-green-50"}`}
+          className={`h-7 w-7 flex items-center justify-center rounded-md transition-colors ${u.actif ? "text-gray-500 hover:text-red-500 hover:bg-red-50" : "text-gray-500 hover:text-green-600 hover:bg-green-50"}`}
           disabled={isSelf && u.actif}
           onClick={async () => {
             if (await confirm(u.actif ? "Désactiver ce compte ?" : "Réactiver ce compte ?", { danger: u.actif })) toggleActif(u);
@@ -366,7 +366,7 @@ export function UsersPage() {
       {/* Ligne 1 : recherche + bouton ajouter */}
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
           <Input
             placeholder="Rechercher un utilisateur (nom ou e-mail)..."
             value={search}
@@ -393,7 +393,7 @@ export function UsersPage() {
 
       {/* Ligne 3 : count */}
       <div className="flex items-center justify-end px-1">
-        <span className="text-sm text-gray-400">
+        <span className="text-sm text-gray-500">
           {(data?.total ?? 0).toLocaleString("fr-FR")} utilisateur{(data?.total ?? 0) !== 1 ? "s" : ""}
         </span>
       </div>

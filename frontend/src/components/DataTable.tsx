@@ -132,12 +132,12 @@ export function DataTable<T extends { id: string }>({
             ) : data.length === 0 ? (
               <tr>
                 <td colSpan={colSpan} className="px-4 py-0">
-                  <div className="flex flex-col items-center gap-3 py-16 text-gray-400">
+                  <div className="flex flex-col items-center gap-3 py-16 text-gray-500">
                     <div className="h-14 w-14 rounded-full bg-gray-100 flex items-center justify-center">
-                      <Inbox className="h-7 w-7 text-gray-300" />
+                      <Inbox className="h-7 w-7 text-gray-500" />
                     </div>
-                    <p className="text-sm font-medium text-gray-400">Aucune donnée à afficher</p>
-                    <p className="text-xs text-gray-300">Modifiez vos filtres ou ajoutez des éléments</p>
+                    <p className="text-sm font-medium text-gray-500">Aucune donnée à afficher</p>
+                    <p className="text-xs text-gray-500">Modifiez vos filtres ou ajoutez des éléments</p>
                   </div>
                 </td>
               </tr>
@@ -189,7 +189,7 @@ export function DataTable<T extends { id: string }>({
             </button>
             {pageNumbers.map((pn, idx) =>
               pn === "..." ? (
-                <span key={`ellipsis-${idx}`} className="h-7 w-7 flex items-center justify-center text-xs text-gray-400">
+                <span key={`ellipsis-${idx}`} className="h-7 w-7 flex items-center justify-center text-xs text-gray-500">
                   ···
                 </span>
               ) : (

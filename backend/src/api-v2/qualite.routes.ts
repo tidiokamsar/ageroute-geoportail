@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import { queryBoolean } from "../lib/list-query";
 import { requireAuth } from "../middleware/auth.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
 import { requireRole } from "../middleware/rbac.middleware";
@@ -44,7 +45,7 @@ export const qualiteV2Router = Router();
 const requete = z.object({
   regionId: z.coerce.number().int().positive().optional(),
   /** Portee nationale. Coute 20 s, d'ou le geste explicite et le role requis. */
-  national: z.coerce.boolean().optional(),
+  national: queryBoolean,
   /**
    * Seuil de fraicheur des inspections, en jours.
    *

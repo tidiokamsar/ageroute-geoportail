@@ -55,7 +55,7 @@ export function SecuritePage() {
     onError: (err) => toast.error(parseApiError(err).message),
   });
 
-  if (isLoading || !me) return <p className="text-gray-400 p-6">Chargement...</p>;
+  if (isLoading || !me) return <p className="text-gray-500 p-6">Chargement...</p>;
 
   return (
     <div className="space-y-4 max-w-xl">
@@ -116,7 +116,7 @@ export function SecuritePage() {
       <Card>
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            {me.totpEnabled ? <ShieldCheck className="h-5 w-5 text-green-600" /> : <ShieldOff className="h-5 w-5 text-gray-400" />}
+            {me.totpEnabled ? <ShieldCheck className="h-5 w-5 text-green-700" /> : <ShieldOff className="h-5 w-5 text-gray-500" />}
             <div>
               <h3 className="text-sm font-semibold text-navy">Authentification à deux facteurs (2FA)</h3>
               <p className="text-xs text-gray-500">
@@ -150,7 +150,7 @@ export function SecuritePage() {
               <img src={qrDataUrl} alt="QR code 2FA" className="rounded-lg border border-gray-200" />
             </div>
             {secret && (
-              <p className="text-center text-xs text-gray-400">
+              <p className="text-center text-xs text-gray-500">
                 Ou saisissez la clé manuellement : <span className="font-mono text-gray-600">{secret}</span>
               </p>
             )}

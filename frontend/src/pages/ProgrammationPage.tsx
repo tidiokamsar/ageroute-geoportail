@@ -51,7 +51,7 @@ function FilterSelect({ value, onChange, children }: {
       >
         {children}
       </select>
-      <ChevronDown className={`pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 ${active ? "text-navy/60" : "text-gray-400"}`} />
+      <ChevronDown className={`pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 ${active ? "text-navy/60" : "text-gray-500"}`} />
     </div>
   );
 }
@@ -113,7 +113,7 @@ export function ProgrammationPage() {
       cell: ({ row: { original: l } }) => (
         <div className="min-w-0">
           <p className="text-sm font-medium text-navy truncate max-w-[280px]" title={l.intitule}>{l.intitule}</p>
-          <p className="text-xs text-gray-400">{l.entreprise}</p>
+          <p className="text-xs text-gray-500">{l.entreprise}</p>
         </div>
       ),
     },
@@ -168,7 +168,7 @@ export function ProgrammationPage() {
     },
   ];
 
-  if (isLoading || !data) return <p className="text-gray-400 p-6">Chargement...</p>;
+  if (isLoading || !data) return <p className="text-gray-500 p-6">Chargement...</p>;
 
   const chartData = [...data.parAnnee]
     .sort((a, b) => a.annee - b.annee)

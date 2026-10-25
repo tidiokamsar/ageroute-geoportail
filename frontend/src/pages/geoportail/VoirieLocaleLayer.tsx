@@ -293,7 +293,7 @@ function FicheVoirie({
         </button>
       )}
 
-      <p className="mt-1.5 border-t border-gray-100 pt-1.5 text-[10px] leading-snug text-gray-400">
+      <p className="mt-1.5 border-t border-gray-100 pt-1.5 text-[10px] leading-snug text-gray-500">
         La longueur est calculée sur le tracé, ce n'est pas une longueur métier.
       </p>
     </div>

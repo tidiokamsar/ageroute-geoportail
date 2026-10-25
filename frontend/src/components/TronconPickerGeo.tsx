@@ -122,7 +122,7 @@ export function TronconPickerGeo({
           Près de moi
         </button>
         <div className="relative flex-1">
-          <MapPin className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <MapPin className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
           <input
             value={saisieVille}
             onChange={(e) => { setSaisieVille(e.target.value); setVillesOuvert(true); }}
@@ -147,7 +147,7 @@ export function TronconPickerGeo({
                     className="flex w-full items-center justify-between px-3 py-2.5 text-sm hover:bg-navy/5"
                   >
                     <span className="font-medium text-navy">{v.nom}</span>
-                    <span className="text-xs text-gray-400">{v.region}</span>
+                    <span className="text-xs text-gray-500">{v.region}</span>
                   </button>
                 </li>
               ))}
@@ -157,7 +157,7 @@ export function TronconPickerGeo({
       </div>
 
       <div className="relative">
-        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
         <input
           value={texte}
           onChange={(e) => { setTexte(e.target.value); setMode(null); setGps(null); setVille(null); setSaisieVille(""); }}
@@ -173,9 +173,9 @@ export function TronconPickerGeo({
 
       {(isFetching || resultats.length > 0) && (
         <ul className="max-h-64 divide-y divide-gray-100 overflow-y-auto rounded-lg border border-gray-200 bg-white" role="listbox" aria-label="Tronçons trouvés">
-          {isFetching && <li className="px-3 py-3 text-sm text-gray-400">Recherche…</li>}
+          {isFetching && <li className="px-3 py-3 text-sm text-gray-500">Recherche…</li>}
           {!isFetching && resultats.length === 0 && (
-            <li className="px-3 py-3 text-sm text-gray-400">Aucun tronçon trouvé : élargissez la recherche.</li>
+            <li className="px-3 py-3 text-sm text-gray-500">Aucun tronçon trouvé : élargissez la recherche.</li>
           )}
           {resultats.map((t) => (
             <li key={t.id}>

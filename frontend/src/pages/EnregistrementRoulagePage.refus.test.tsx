@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 /**
  * Phase 1 SMART FIELD — un journal retrouvé mais INJOUABLE n'est jamais ignoré en
@@ -36,7 +37,7 @@ describe("reprise refusée (phase 1 SMART FIELD)", () => {
     // Un journal sans DEMARRAGE (seq 1) : rejouer refuse avec DEMARRAGE_ABSENT.
     stockageBrut.ajouter({ seq: 2, type: "PAUSE", tMs: Date.now(), sessionId: "s-x", details: {} });
 
-    render(<MemoryRouter><EnregistrementRoulagePage /></MemoryRouter>);
+    render(<MemoryRouter><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><EnregistrementRoulagePage /></QueryClientProvider></MemoryRouter>);
 
     expect(await screen.findByText(/ne peut pas être rouverte/)).toBeInTheDocument();
     expect(screen.getByText(/toujours sur cet appareil/)).toBeInTheDocument();
@@ -53,7 +54,7 @@ describe("reprise refusée (phase 1 SMART FIELD)", () => {
     };
     stockageBrut.ajouter({ seq: 2, type: "PAUSE", tMs: Date.now(), sessionId: "s-y", details: {} });
     const avant = (await stockageBrut.toutes()).length;
-    render(<MemoryRouter><EnregistrementRoulagePage /></MemoryRouter>);
+    render(<MemoryRouter><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><EnregistrementRoulagePage /></QueryClientProvider></MemoryRouter>);
     fireEvent.click(await screen.findByRole("button", { name: /Effacer ce journal/ }));
     const dialogue = await screen.findByRole("alertdialog");
     expect(dialogue).toHaveTextContent(/sans retour possible/);

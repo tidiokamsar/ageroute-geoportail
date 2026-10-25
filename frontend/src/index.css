@@ -10,7 +10,7 @@ html, body, #root {
 }
 
 body {
-  background: #f4f6f8;
+  background: #f8f9fb;
   color: #1f2937;
 }
 
@@ -19,7 +19,7 @@ body {
    Input...) respectent l'identite visuelle existante sans theme sombre (non requis). */
 @layer base {
   :root {
-    --background: #f4f6f8;
+    --background: #f8f9fb;
     --foreground: #1f2937;
     --card: #ffffff;
     --card-foreground: #1f2937;

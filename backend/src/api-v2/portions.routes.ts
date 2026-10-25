@@ -1,5 +1,6 @@
 import { Router, type Response } from "express";
 import { z } from "zod";
+import { queryBoolean } from "../lib/list-query";
 import { requireAuth } from "../middleware/auth.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
 import { prisma } from "../lib/prisma";
@@ -137,7 +138,7 @@ portionsV2Router.get("/", requireAuth, requireModuleAccess("geoportail"), async 
        * versions anterieures ferait apparaitre plusieurs portions sur les memes metres, et
        * un validateur ne saurait plus laquelle trancher.
        */
-      historique: z.coerce.boolean().optional(),
+      historique: queryBoolean,
       limite: z.coerce.number().int().min(1).max(200).optional(),
       curseur: z.string().uuid().optional(),
     }).parse(req.query);

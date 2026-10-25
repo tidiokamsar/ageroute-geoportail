@@ -17,7 +17,7 @@ import { randomUUID } from "node:crypto";
 import type { PrismaClient } from "@prisma/client";
 import { logAuditTransactionnelle } from "../utils/audit";
 import {
-  codeMissionTeledetection, verifierDepecheVerification, verifierDeuxDates, verifierProduit, verifierVerdict,
+  codeMissionTeledetection, graviteCoherence, verifierDepecheVerification, verifierDeuxDates, verifierProduit, verifierVerdict,
   type ProduitSaisi, type StatutProposition, type TypeProposition,
 } from "./teledetection.noyau";
 
@@ -194,4 +194,21 @@ export interface LignePrecision { type: string; methode: string; total: number; 
 
 export async function precision(depot: Pick<DepotTeledetection, "$queryRaw">) {
   return depot.$queryRaw<LignePrecision[]>`SELECT * FROM "precision_teledetection" ORDER BY "type", "methode"`;
+}
+
+export interface AnomalieCoherence { propositionId: string; regle: string; detail: string | null; gravite: "BLOQUANTE" | "A_EXAMINER" }
+
+/** Ce que la vue `coherence_teledetection` signale, bloquantes d'abord, au plus 1 000 lignes. */
+export async function coherence(depot: Pick<DepotTeledetection, "$queryRaw">) {
+  const lignes = await depot.$queryRaw<{ propositionId: string; regle: string; detail: string | null }[]>`
+    SELECT "propositionId", "regle", "detail" FROM "coherence_teledetection" ORDER BY "regle", "propositionId" LIMIT 1000`;
+  const anomalies: AnomalieCoherence[] = lignes
+    .map((l) => ({ ...l, gravite: graviteCoherence(l.regle) }))
+    .sort((a, b) => (a.gravite === b.gravite ? 0 : a.gravite === "BLOQUANTE" ? -1 : 1));
+  return {
+    bloquantes: anomalies.filter((a) => a.gravite === "BLOQUANTE").length,
+    aExaminer: anomalies.filter((a) => a.gravite === "A_EXAMINER").length,
+    tronquee: lignes.length === 1000,
+    anomalies,
+  };
 }

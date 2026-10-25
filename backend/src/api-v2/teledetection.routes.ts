@@ -4,7 +4,7 @@ import { requireAuth } from "../middleware/auth.middleware";
 import { requireRole } from "../middleware/rbac.middleware";
 import { prisma } from "../lib/prisma";
 import {
-  RefusTeledetection, deposerPropositions, depecherVerificationTeledetection, enregistrerProduit, poserVerdict, precision,
+  RefusTeledetection, coherence, deposerPropositions, depecherVerificationTeledetection, enregistrerProduit, poserVerdict, precision,
 } from "../teledetection/teledetection.service";
 import { NATURES_PRODUIT, TYPES_PROPOSITION } from "../teledetection/teledetection.noyau";
 
@@ -18,6 +18,7 @@ import { NATURES_PRODUIT, TYPES_PROPOSITION } from "../teledetection/teledetecti
  *   POST /propositions/:id/verdict          le terrain confirme ou infirme, une fois
  *   POST /propositions/:id/verification     depecher une mission de verification (EX-03)
  *   GET  /precision                         ce que le terrain a dit, par type et par methode
+ *   GET  /coherence                         anomalies entre registre, propositions, missions et verdicts
  *
  * Ecrire : ADMIN et GESTIONNAIRE. Lire : tout compte authentifie. Aucune route ne telecharge,
  * ne traite d'image, ni ne modifie le referentiel.
@@ -96,4 +97,8 @@ teledetectionV2Router.post("/propositions/:id/verification", ecriture, async (re
 
 teledetectionV2Router.get("/precision", async (_req, res, next) => {
   try { res.json({ methode: "precision = confirmees / (confirmees + infirmees) ; nulle sans verdict", lignes: await precision(prisma) }); } catch (err) { next(err); }
+});
+
+teledetectionV2Router.get("/coherence", async (_req, res, next) => {
+  try { res.json(await coherence(prisma)); } catch (err) { next(err); }
 });

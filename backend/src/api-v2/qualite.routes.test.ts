@@ -107,6 +107,14 @@ describe("La portee, qui est une question de cout", () => {
     expect(h.appels).toHaveLength(0);
   });
 
+  it("national=false n'est pas un balayage national (une chaine non vide n'est pas un vrai)", async () => {
+    compte.role = "ADMIN";
+    const r = await request(app()).get("/api/v2/qualite/anomalies?national=false&regionId=7");
+    expect(r.status).toBe(200);
+    expect(r.body.portee).toBe("REGION_7");
+    expect(h.appels[0].portee).toEqual({ regionId: 7 });
+  });
+
   it("l'accepte d'un ADMIN, et passe une portee NULLE aux detecteurs", async () => {
     compte.role = "ADMIN";
     const r = await request(app()).get("/api/v2/qualite/anomalies?national=true");
