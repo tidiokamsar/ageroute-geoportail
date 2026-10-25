@@ -743,3 +743,49 @@ describe("hors ligne", () => {
     expect(h.posts.filter((p) => p.url === "/v2/sync/push")).toHaveLength(1);
   });
 });
+
+describe("complétude et indice d'irrégularité en fin de session", () => {
+  function secousse(z: number) {
+    act(() => { window.dispatchEvent(Object.assign(new Event("devicemotion"), { accelerationIncludingGravity: { x: 0, y: 0, z } })); });
+  }
+
+  it("l'indice d'irrégularité s'affiche APRES l'arret quand l'agent a activé l'accéléromètre, avec son avertissement expérimental", async () => {
+    installerGeolocalisation();
+    Object.defineProperty(window, "DeviceMotionEvent", { configurable: true, value: class {} });
+    rendre();
+    fireEvent.click(screen.getByRole("checkbox", { name: /Mesurer les irrégularités/ }));
+    await demarrer();
+    for (let i = 0; i < 4; i += 1) secousse(9.81 + 20);
+    for (let s = 0; s < 4; s += 1) emettre(s);
+    fireEvent.click(screen.getByRole("button", { name: /Arrêter/ }));
+    await screen.findByText("Terminée, à envoyer");
+    const indice = await screen.findByRole("region", { name: /Indice d'irrégularité/ });
+    expect(indice).toHaveTextContent(/4 pic\(s\)/);
+    expect(indice).toHaveTextContent(/EXPÉRIMENTAL/);
+  });
+
+  it("sans activation de l'accéléromètre, aucun indice n'est affiché", async () => {
+    installerGeolocalisation();
+    Object.defineProperty(window, "DeviceMotionEvent", { configurable: true, value: class {} });
+    rendre();
+    await demarrer();
+    secousse(9.81 + 20);
+    for (let s = 0; s < 4; s += 1) emettre(s);
+    fireEvent.click(screen.getByRole("button", { name: /Arrêter/ }));
+    await screen.findByText("Terminée, à envoyer");
+    expect(screen.queryByRole("region", { name: /Indice d'irrégularité/ })).not.toBeInTheDocument();
+  });
+
+  it("la complétude parle de TEMPS avec signal, pas d'une « couverture » de la route, et rappelle qu'elle n'est pas un verdict d'inspection", async () => {
+    installerGeolocalisation();
+    rendre();
+    await demarrer();
+    for (let s = 0; s < 4; s += 1) emettre(s);
+    fireEvent.click(screen.getByRole("button", { name: /Arrêter/ }));
+    await screen.findByText("Terminée, à envoyer");
+    const c = await screen.findByRole("region", { name: /Complétude du relevé/ });
+    expect(c).toHaveTextContent(/Temps avec signal\s*100 %/);
+    expect(c).not.toHaveTextContent(/Couverture/);
+    expect(c).toHaveTextContent(/pas un verdict d'inspection/);
+  });
+});

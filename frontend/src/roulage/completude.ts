@@ -20,6 +20,8 @@ export interface EntreeCompletude {
   pauses: ReadonlyArray<{ debutMs: number; finMs: number | null }>;
   debutMs: number;
   finMs: number | null;
+  /** « Maintenant », fourni par l'hôte : utilisé seulement si la session n'a pas de fin. Le noyau ne lit pas l'horloge globale. */
+  maintenantMs: number;
   /** Précision maximale pour qu'un échantillon compte comme "fiable" (paramètre de campagne). */
   precisionFiableM: number;
 }
@@ -30,9 +32,14 @@ export interface ProfilCompletude {
   fiables: number;
   /** Longueur géodésique de la trace valide, en km — ce qui a été ENREGISTRÉ, pas parcouru. */
   traceKm: number;
-  /** Durée utile hors pauses, et couverture par la trace (0..1) sur cette durée. */
+  /** Durée utile hors pauses. */
   dureeUtileMin: number;
-  couvertureTrace: number;
+  /**
+   * Part (0..1) de la durée utile pendant laquelle un signal exploitable était reçu : ni trou de signal, ni
+   * interruption (veille, GNSS perdu, permission retirée, redémarrage). C'est un temps mesuré, pas un taux de
+   * route couverte : la vitesse du véhicule n'y entre pas.
+   */
+  partTempsAvecSignal: number;
   trous: number;
   trousMs: number;
   interruptions: number;
@@ -50,6 +57,31 @@ function haversineM(a: { lat: number; lon: number }, b: { lat: number; lon: numb
   return 2 * 6_371_000 * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
+type Intervalle = readonly [number, number];
+
+/** Fusionne des intervalles qui se chevauchent : un trou et l'interruption qui l'a causé ne se comptent qu'une fois. */
+function fusionner(intervalles: Intervalle[]): Intervalle[] {
+  const tries = intervalles.filter(([a, b]) => b > a).sort((x, y) => x[0] - y[0]);
+  const sortie: [number, number][] = [];
+  for (const [a, b] of tries) {
+    const dernier = sortie[sortie.length - 1];
+    if (dernier && a <= dernier[1]) dernier[1] = Math.max(dernier[1], b);
+    else sortie.push([a, b]);
+  }
+  return sortie;
+}
+
+const longueur = (iv: Intervalle[]) => iv.reduce((n, [a, b]) => n + (b - a), 0);
+
+function intersection(a: Intervalle[], b: Intervalle[]): Intervalle[] {
+  const sortie: Intervalle[] = [];
+  for (const [a0, a1] of a) for (const [b0, b1] of b) {
+    const debut = Math.max(a0, b0), fin = Math.min(a1, b1);
+    if (fin > debut) sortie.push([debut, fin]);
+  }
+  return sortie;
+}
+
 export function evaluerCompletude(e: EntreeCompletude): ProfilCompletude {
   const echantillons = e.echantillons.length;
   const fiables = e.echantillons.filter((s) => s.precisionM !== null && s.precisionM <= e.precisionFiableM).length;
@@ -61,7 +93,7 @@ export function evaluerCompletude(e: EntreeCompletude): ProfilCompletude {
     if (a.segment === b.segment) traceM += haversineM(a, b);
   }
 
-  const finReelle = e.finMs ?? Date.now();
+  const finReelle = e.finMs ?? e.maintenantMs;
   const pausesMs = e.pauses.reduce((n, p) => n + Math.max(0, (p.finMs ?? finReelle) - p.debutMs), 0);
   const dureeUtileMs = Math.max(0, finReelle - e.debutMs - pausesMs);
   const dureeUtileMin = dureeUtileMs / 60_000;
@@ -73,10 +105,15 @@ export function evaluerCompletude(e: EntreeCompletude): ProfilCompletude {
   const segments = new Set(e.echantillons.map((s) => s.segment));
   const segmentOuvert = e.interruptions.some((i) => i.finMs === null);
 
-  // Couverture : vitesse moyenne sur la trace comparee a une reference de campagne
-  // (60 km/h). Ce n'est pas une verite : c'est le ratio trace/duree, dit comme tel.
-  const vitesseKmh = dureeUtileMin > 0 ? (traceM) / (dureeUtileMin / 60) : 0;
-  const couvertureTrace = Math.max(0, Math.min(1, dureeUtileMin > 0 ? vitesseKmh / 60 : 0));
+  // Temps sans signal : trous et interruptions, chevauchements comptes une fois, pauses exclues (une pause n'est pas une perte).
+  const fenetre: Intervalle = [e.debutMs, finReelle];
+  const sansSignal = intersection(fusionner([
+    ...e.trous.map((t): Intervalle => [t.debutMs, t.finMs]),
+    ...e.interruptions.map((i): Intervalle => [i.debutMs, i.finMs ?? finReelle]),
+  ]), [fenetre]);
+  const pauses = fusionner(e.pauses.map((p): Intervalle => [p.debutMs, p.finMs ?? finReelle]));
+  const perduMs = longueur(sansSignal) - longueur(intersection(sansSignal, pauses));
+  const partTempsAvecSignal = dureeUtileMs > 0 ? Math.max(0, Math.min(1, 1 - perduMs / dureeUtileMs)) : 0;
 
   const avertissements: string[] = [];
   if (echantillons < 2) avertissements.push("Moins de deux positions : pas de trace exploitable.");
@@ -89,7 +126,7 @@ export function evaluerCompletude(e: EntreeCompletude): ProfilCompletude {
     echantillons, fiables,
     traceKm: Math.round((traceM / 1000) * 100) / 100,
     dureeUtileMin: Math.round(dureeUtileMin * 10) / 10,
-    couvertureTrace: Math.round(couvertureTrace * 100) / 100,
+    partTempsAvecSignal: Math.round(partTempsAvecSignal * 100) / 100,
     trous: e.trous.length,
     trousMs: e.trous.reduce((n, t) => n + t.dureeMs, 0),
     interruptions: e.interruptions.length,

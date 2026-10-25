@@ -20,7 +20,7 @@ import jsxA11y from "eslint-plugin-jsx-a11y";
 import globals from "globals";
 
 export default tseslint.config(
-  { ignores: ["dist/**", "coverage/**", "node_modules/**", "public/**"] },
+  { ignores: ["dist/**", "coverage/**", "node_modules/**", "public/**", "android/**"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
