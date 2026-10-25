@@ -34,6 +34,13 @@ export interface PendingInspection {
     lon?: number;
     // Incertitude annoncee par l'appareil, en metres.
     precisionM?: number;
+    // Lot F : constat des defauts, methode, conditions, mission, section (metres le long du trace).
+    constatDefauts?: string;
+    methodeObservation?: string;
+    conditionsObservation?: string;
+    missionId?: string;
+    debutM?: number;
+    finM?: number;
   };
   photos: { name: string; blob: Blob }[];
   createdAt: string;

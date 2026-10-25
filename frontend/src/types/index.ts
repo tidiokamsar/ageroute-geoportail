@@ -246,6 +246,9 @@ export interface Inspection {
   defautsConstates?: string | null;
   recommandations?: string | null;
   photos?: string[];
+  /** Lot F : avis d'un responsable (A_VALIDER, VALIDE, REJETE, A_CORRIGER) ; absent pour les inspections antérieures. */
+  statutValidation?: string | null;
+  constatDefauts?: string | null;
 }
 
 export interface Document {

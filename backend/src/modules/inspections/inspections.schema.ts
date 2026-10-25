@@ -11,6 +11,14 @@ import { z } from "zod";
  * ne puisse pas contourner.
  */
 export const TYPES_INSPECTION = ["GENERALE", "PERIODIQUE", "VERIFICATION", "POST_TRAVAUX"] as const;
+
+/**
+ * CONSTAT DES DEFAUTS (lot F). Quatre situations que `defautsConstates` vide confondait : on a regarde et rien vu,
+ * on n'a pas inspecte, on ne sait pas, ou la question ne se pose pas. Memes valeurs que `inspection_constat_connu`.
+ */
+export const CONSTATS_DEFAUTS = ["DEFAUTS_RELEVES", "AUCUN_DEFAUT_OBSERVE", "NON_INSPECTE", "INCONNU", "NON_APPLICABLE"] as const;
+/** Une appreciation VISUELLE reste identifiee comme telle : aucun IRI ni portance ne se deduit de ces methodes. */
+export const METHODES_OBSERVATION = ["VISUELLE_A_PIED", "VISUELLE_EN_VEHICULE", "AUTRE"] as const;
 export type TypeInspection = (typeof TYPES_INSPECTION)[number];
 
 const champsCommuns = {
@@ -43,10 +51,43 @@ const champsCommuns = {
   // L'IRI porte son caractere ESTIME dans son nom (D8) et n'entre pas sans sa methode.
   iriEstime: z.number().min(0).max(30).optional(),
   iriMethode: z.string().trim().min(1).max(64).optional(),
+
+  constatDefauts: z.enum(CONSTATS_DEFAUTS).optional(),
+  methodeObservation: z.enum(METHODES_OBSERVATION).optional(),
+  conditionsObservation: z.string().trim().max(500).optional(),
+  missionId: z.string().uuid().optional(),
+  // La SECTION observee : une portion existante OU un intervalle en metres le long du trace (convention des portions).
+  portionId: z.string().uuid().optional(),
+  debutM: z.number().min(0).max(10_000_000).optional(),
+  finM: z.number().min(0).max(10_000_000).optional(),
 };
 
 /** Les regles qui croisent plusieurs champs, avec un message par manque. */
-function reglesCroisees(d: { type?: TypeInspection; interventionRef?: string; photos?: string[]; etatObserve?: string; iriEstime?: number; iriMethode?: string }, ctx: z.RefinementCtx) {
+function reglesCroisees(d: {
+  type?: TypeInspection; interventionRef?: string; photos?: string[]; etatObserve?: string; iriEstime?: number; iriMethode?: string;
+  constatDefauts?: string; defautsConstates?: string; tronconId?: string; portionId?: string; debutM?: number; finM?: number;
+}, ctx: z.RefinementCtx) {
+  const texte = (d.defautsConstates ?? "").trim();
+  if (d.constatDefauts === "DEFAUTS_RELEVES" && !texte) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["defautsConstates"], message: "Des défauts relevés se décrivent (au moins une ligne)." });
+  }
+  if ((d.constatDefauts === "AUCUN_DEFAUT_OBSERVE" || d.constatDefauts === "NON_APPLICABLE" || d.constatDefauts === "NON_INSPECTE") && texte) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["defautsConstates"], message: "Ce constat contredit la description de défauts saisie : choisir « défauts relevés » ou vider la description." });
+  }
+  if (d.constatDefauts === "NON_INSPECTE" && d.etatObserve && d.etatObserve !== "NON_EVALUE") {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["etatObserve"], message: "Un objet non inspecté n'a pas d'état observé : NON_EVALUE." });
+  }
+  if ((d.debutM === undefined) !== (d.finM === undefined)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["finM"], message: "Une section en mètres a un début et une fin." });
+  } else if (d.debutM !== undefined && d.finM !== undefined && !(d.finM > d.debutM)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["finM"], message: "La fin de la section est après son début." });
+  }
+  if (d.portionId && d.debutM !== undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["portionId"], message: "Une section est une portion OU un intervalle, pas les deux." });
+  }
+  if ((d.portionId || d.debutM !== undefined) && !d.tronconId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["tronconId"], message: "Une section se rapporte à un tronçon." });
+  }
   if (d.type === "POST_TRAVAUX") {
     if (!d.interventionRef) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["interventionRef"], message: "Une inspection post-travaux cite l'intervention qu'elle constate." });
     if (!d.photos || d.photos.length === 0) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["photos"], message: "Une inspection post-travaux porte au moins une photo « après »." });

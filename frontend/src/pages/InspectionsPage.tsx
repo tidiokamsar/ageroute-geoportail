@@ -7,6 +7,7 @@ import { Modal } from "../components/ui/Modal";
 import { Button } from "../components/ui/Button";
 import { EtatBadge } from "../components/ui/Badge";
 import { PhotoGallery } from "../components/PhotoGallery";
+import { AvisInspectionModal, LIBELLE_AVIS } from "../components/AvisInspectionModal";
 import { canWrite, useAuth } from "../lib/auth";
 import { inspectionFields } from "../lib/fieldConfigs";
 import type { Inspection, EtatPatrimoine } from "../types";
@@ -21,6 +22,7 @@ export function InspectionsPage() {
   const { user } = useAuth();
   const [etatFilter, setEtatFilter] = useState("");
   const [photosInspection, setPhotosInspection] = useState<Inspection | null>(null);
+  const [avis, setAvis] = useState<Inspection | null>(null);
 
   const columns: ColumnDef<Inspection, unknown>[] = [
     {
@@ -78,6 +80,11 @@ export function InspectionsPage() {
         return <span className="text-sm text-gray-600" title={i.defautsConstates}>{truncated}</span>;
       },
     },
+    {
+      id: "avis",
+      header: "Avis",
+      cell: ({ row: { original: i } }) => <span className="text-xs text-gray-700">{i.statutValidation ? LIBELLE_AVIS[i.statutValidation] ?? i.statutValidation : "non demandé"}</span>,
+    },
   ];
 
   return (
@@ -104,6 +111,7 @@ export function InspectionsPage() {
       }
       rowExtraActions={[
         { label: "Photos", onClick: (i) => setPhotosInspection(i) },
+        { label: "Avis", onClick: (i) => setAvis(i), visible: () => canWrite(user?.role) },
       ]}
       headerExtra={
         <Button variant="secondary" size="sm" onClick={() => navigate("/inspections/terrain")}>
@@ -111,6 +119,12 @@ export function InspectionsPage() {
         </Button>
       }
     >
+      {avis && (
+        <AvisInspectionModal
+          inspection={{ id: avis.id, inspecteurId: avis.inspecteurId, statutValidation: avis.statutValidation, libelle: avis.troncon?.code ?? avis.ouvrage?.nom ?? "inspection" }}
+          onClose={() => setAvis(null)}
+        />
+      )}
       {photosInspection && (
         <Modal
           open

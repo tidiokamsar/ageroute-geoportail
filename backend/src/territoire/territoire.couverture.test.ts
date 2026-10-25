@@ -29,6 +29,7 @@ const FICHIERS: Record<string, string | null> = {
   "api-v2/portions.routes.ts": null,
   "api-v2/referentiel.routes.ts": null,
   "api-v2/chantier-sections.routes.ts": null,
+  "api-v2/inspections-validation.routes.ts": null,
 };
 
 /** Ecritures qui ne portent sur aucune fiche localisee, ou qui n'ecrivent rien. */

@@ -756,6 +756,20 @@ model Inspection {
   iriEstime       Decimal? @db.Decimal(6, 2)
   iriMethode      String?
 
+  /// Lot F (migration 20261027120000) : constat des defauts DEFAUTS_RELEVES / AUCUN_DEFAUT_OBSERVE / NON_INSPECTE /
+  /// INCONNU / NON_APPLICABLE ; methode VISUELLE_A_PIED / VISUELLE_EN_VEHICULE / AUTRE (une appreciation visuelle,
+  /// jamais une mesure) ; section observee (portion OU intervalle en metres) ; mission ; avis de validation.
+  constatDefauts        String?
+  methodeObservation    String?
+  conditionsObservation String?
+  missionId             String?
+  mission               Mission?          @relation(fields: [missionId], references: [id], onDelete: Restrict)
+  portionId             String?
+  portion               Portion?          @relation(fields: [portionId], references: [id], onDelete: Restrict)
+  debutM                Float?
+  finM                  Float?
+  statutValidation      StatutValidation?
+
   @@index([tronconId])
   @@index([ouvrageId])
   @@index([type])
@@ -1553,6 +1567,8 @@ model Mission {
   signalementId             String?
   signalement               SignalementCitoyen?        @relation(fields: [signalementId], references: [id])
   propositionsTeledetection PropositionTeledetection[]
+
+  inspections Inspection[]
 
   @@index([statut])
   @@index([assigneId])
@@ -2691,6 +2707,7 @@ model Portion {
   @@index([statutValidation])
   @@index([deletedAt])
   chantierSections ChantierSection[]
+  inspections      Inspection[]
 
   @@index([observationId])
   @@map("portions")
