@@ -161,10 +161,12 @@ export function EnregistrementRoulagePage() {
   const [pack, setPack] = useState<EtatPack>(() => etatPackMission());
   const [packEnCours, setPackEnCours] = useState(false);
   // Phase 3 : l'accelerometre est un module OPTIONNEL que l'agent active avant de partir.
-  // Les echantillons ne quittent jamais le telephone : seul l'INDICE agrege part avec
-  // l'envoi de session, et il porte le mot « experimental ».
+  // Les echantillons ne quittent jamais le telephone. L'INDICE agrege n'est QUE AFFICHE en fin de session : il n'est
+  // pas dans la charge envoyee au serveur (le contrat de session n'a pas de champ pour lui). Il porte le mot « experimental ».
   const [accelActif, setAccelActif] = useState(false);
   const accelEchantillons = useRef<EchantillonAccel[]>([]);
+  // Calcule a l'ARRET, AVANT que les echantillons soient liberes avec le GPS : calcule apres, il serait toujours vide.
+  const [indiceAccel, setIndiceAccel] = useState<ReturnType<typeof indiceIrregularite> | null>(null);
 
   // Vocabulaires de qualification et missions : demandes a l'ouverture (en ligne, avant de partir). Un echec n'empeche
   // pas d'enregistrer : les segments partent alors sans qualification, et l'ecran le dit.
@@ -381,6 +383,7 @@ export function EnregistrementRoulagePage() {
       oublierEnvoi(id);
     }
     await stockageOuvert().vider();
+    setIndiceAccel(null);
     setRepriseRefusee(null);
     setConfirmerSuppression(false);
     setIntitule("");
@@ -448,6 +451,7 @@ export function EnregistrementRoulagePage() {
       return;
     }
     setChoixArret(false);
+    if (accelActif) setIndiceAccel(indiceIrregularite(accelEchantillons.current));
     arreterSuivi();
     rafraichir();
   }
@@ -520,13 +524,13 @@ export function EnregistrementRoulagePage() {
   const dureeTotaleMs = etatBrut ? Math.max(0, finOuMaintenant - etatBrut.debutMs) : 0;
   const dureePausesMs = etatBrut ? etatBrut.pauses.reduce((n, p) => n + Math.max(0, (p.finMs ?? finOuMaintenant) - p.debutMs), 0) : 0;
   const qualite = r ? qualiteTrace(r, dureeTotaleMs) : null;
-  // Phase 5 : profil de completude — calcule sur l'ETAT de session, pas sur la vue.
-  const profilCompletude = useMemo(() => (etatBrut ? evaluerCompletude({
+  // Phase 5 : profil de completude, calcule sur l'ETAT courant de la session, et seulement une fois arretee. Il ne doit PAS
+  // etre memoise sur l'identite de l'etat : le noyau le mute en place, un `useMemo([etat])` garderait pour toujours le profil
+  // du premier rendu (0 position, « pas de trace exploitable »).
+  const profilCompletude = vue.phase === "arretee" && etatBrut ? evaluerCompletude({
     echantillons: etatBrut.echantillons, trous: etatBrut.trous, interruptions: etatBrut.interruptions,
     pauses: etatBrut.pauses, debutMs: etatBrut.debutMs, finMs: etatBrut.finMs, maintenantMs: Date.now(), precisionFiableM: 15,
-  }) : null), [etatBrut]);
-  // Phase 3 : indice agrege (recalcule au rendu : pur, borne, sans memoire croissante).
-  const indiceAccel = useMemo(() => indiceIrregularite(accelEchantillons.current), [vue.phase]);
+  }) : null;
   const etatVue = etatSessionVue({ phase: vue.phase, vide, gpsInterrompu: vue.gnssIndisponible || vue.permissionRefusee, envoi });
   const libelleEtat = LIBELLES_ETAT[etatVue];
   // La trace n'est reconstruite que lorsqu'une position est ajoutee, pas a chaque rafraichissement d'une seconde.
@@ -620,6 +624,9 @@ export function EnregistrementRoulagePage() {
               />
               Mesurer les irrégularités (accéléromètre)
             </label>
+            <p className="basis-full text-xs text-gray-600">
+              Indice expérimental : il suppose le téléphone posé à plat, écran vers le haut. Fixé à la verticale, il n'a pas de sens. Il n'est qu'affiché, jamais envoyé au serveur.
+            </p>
           </div>
         </Card>
       )}
@@ -751,7 +758,7 @@ export function EnregistrementRoulagePage() {
               <dl className="mt-2 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
                 <div><dt className="text-xs text-gray-600">Trace valide</dt><dd className="font-semibold">{profilCompletude.traceKm.toLocaleString("fr-FR")} km</dd></div>
                 <div><dt className="text-xs text-gray-600">Positions fiables</dt><dd className="font-semibold">{profilCompletude.fiables}/{profilCompletude.echantillons}</dd></div>
-                <div><dt className="text-xs text-gray-600">Couverture (réf. 60 km/h)</dt><dd className="font-semibold">{Math.round(profilCompletude.couvertureTrace * 100)} %</dd></div>
+                <div><dt className="text-xs text-gray-600">Temps avec signal</dt><dd className="font-semibold">{Math.round(profilCompletude.partTempsAvecSignal * 100)} %</dd></div>
                 <div><dt className="text-xs text-gray-600">Interruptions</dt><dd className="font-semibold">{profilCompletude.interruptions} · {Math.round(profilCompletude.interruptionsMs / 60_000)} min</dd></div>
               </dl>
               <ul className="mt-2 space-y-1 text-xs text-amber-800">

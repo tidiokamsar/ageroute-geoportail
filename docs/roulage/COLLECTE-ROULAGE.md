@@ -161,6 +161,25 @@ simulation et un contrôle visuel de la carte dans un navigateur.
 | Frontend complet | 73 fichiers, 989 tests réussis ; `tsc`, `eslint` sans erreur ; build réussi |
 | Carte | contrôle visuel dans un navigateur (deux polylignes, cercle de précision, marqueur, tuiles chargées). Leaflet ne tourne pas sous jsdom : les tests d'écran remplacent la carte par un témoin qui expose segments, points et position |
 
+## Revue du 25/10/2026 du travail « SMART FIELD » (commits `74b05b9`, `ade5773`, `939758e`, `3385dd8`)
+
+Relecture du code et des tests, pas du rapport. Cinq phases annoncées ; ce qui existe réellement, ce qui était faux, ce qui est corrigé.
+
+| Phase | Annoncé | Constat | État |
+|---|---|---|---|
+| 1 Reprise après redémarrage | Un journal injouable est dit | Vrai : carte explicite, données gardées, choix de l'agent, test dédié. Réserve : « Effacer ce journal » détruit sans seconde confirmation | Livré, réserve ouverte |
+| 2 Pack de mission | Référentiel complet hors ligne, checklist | Vrai : pagination de `/troncons`, fraîcheur datée. Réserves : au-delà de 12 pages (2 400 tronçons) le téléchargement s'arrête **sans le dire** ; le chiffre « ~1 580 tronçons » du message de commit n'a pas été vérifié par moi (lecture de la base de production refusée) | Livré, réserves ouvertes |
+| 3 Indice d'irrégularité (accéléromètre) | Affiché après l'arrêt, expérimental | **Faux en pratique** : les échantillons étaient vidés à l'arrêt (`arreterSuivi`) AVANT le calcul de l'indice, donc la section ne s'affichait jamais. Le commentaire disait qu'il « part avec l'envoi de session » : non, il n'est que affiché. L'échelle (pics × 10, plafonnée à 100) et le seuil (12 m/s²) sont des constantes sans mesure ; la soustraction de 9,81 suppose le téléphone **à plat** | Corrigé (calcul à l'arrêt, test d'écran, consigne de pose, commentaire exact). Valeurs toujours non calibrées |
+| 4 Vision locale | En attente du corpus guinéen | Exact : rien n'est livré, et ne peut l'être sans images guinéennes annotées | Non commencé, bloqué par les données |
+| 5 Complétude | Profil après l'arrêt | **Faux en pratique** : le profil était mémoïsé sur l'identité de l'objet d'état, que le noyau modifie en place ; il restait celui du premier rendu et affichait « 0 position, pas de trace exploitable » après chaque relevé. Le module lisait aussi l'horloge globale (`Date.now()`), ce que la garde de pureté du noyau interdit : le test `noyau.garde` était rouge. La « couverture (réf. 60 km/h) » était la vitesse moyenne divisée par une constante : un véhicule à 30 km/h affichait 50 % « couvert » | Corrigé : calcul à l'arrêt sur l'état courant, horloge fournie par l'hôte, « couverture » remplacée par la **part du temps avec signal** (trous et interruptions comptés une fois, pauses exclues), 5 tests de noyau et 3 tests d'écran |
+
+Autres constats hors phases :
+
+- **ESLint rouge sur le dépôt** : le projet natif `frontend/android/` (ajouté par la coque Capacitor) était lu par `eslint .` ; 12 636 erreurs. `android/**` est maintenant ignoré. Lint : 0 erreur.
+- **Double affichage** à la fin d'un relevé : le « Résumé du relevé » (distance du noyau) et la « Complétude du relevé » (distance recalculée par haversine, précision « fiable » fixée à 15 m dans le code, sans étiquette provisoire) coexistent. Les deux distances peuvent différer à l'arrondi. À fusionner, non fait.
+- **APK de debug publiquement téléchargeable** : `https://carte.ageroute.gov.gn/mobile/bdri-console-terrain.apk` répond 200 sans authentification (nginx `location /mobile/`), alors que le lien se trouve dans la console. C'est une version **debug** (signée par la clé de debug standard d'Android, `allowBackup` actif). Une application signée par cette clé peut être imitée par n'importe qui, et un APK repackagé serait pris par Android pour une mise à jour. À remplacer par un APK de release signé avec une clé AGEROUTE avant toute diffusion large ; la signature est un geste de la DSI, pas du code.
+- **Phase 7 (pilote)** : aucun pilote n'a eu lieu ; « RN1 Conakry-Kindia-Mamou ou Boké » est une décision de corridor attendue, pas un résultat.
+
 ## 2. Machine à états d'une session
 
 ```
