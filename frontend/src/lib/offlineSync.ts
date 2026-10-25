@@ -22,6 +22,8 @@ import {
   updatePendingObservation,
   removePendingObservation,
 } from "./offlineDb";
+import { ouvrirStockage, type StockageJournal } from "./roulageHote";
+import { lireEnvoiConfirme } from "./releveVue";
 
 type Listener = () => void;
 /**
@@ -69,9 +71,43 @@ export function getSyncState(): SyncState {
   return cachedState;
 }
 
+// Un seul acces au journal de roulage pour toute la vie de la page : en ouvrir un par rafraichissement laisserait une
+// connexion IndexedDB ouverte a chaque fois.
+let stockageRoulage: StockageJournal | null = null;
+
+/**
+ * Vaut 1 si le journal de ce telephone porte une session de roulage ARRETEE, de CE compte, avec de quoi etre envoyee (au
+ * moins deux positions), et que le serveur n'a PAS confirmee. 0 sinon, et 0 si le journal ne peut pas etre lu.
+ *
+ * POURQUOI ELLE COMPTE ICI. Une session de roulage n'a pas de file : elle vit dans son propre journal, et l'ecran
+ * « Enregistrer un releve » est le seul a la connaitre. Page fermee, plus rien n'indiquait qu'un releve attendait sur le
+ * telephone. Le badge la compte donc avec le reste, SANS creer de nouvelle file et sans l'envoyer : l'envoi reste un geste
+ * de l'agent sur cet ecran (la synchronisation ne la pousse pas), et seule une confirmation du serveur la retire du compte.
+ *
+ * Le journal est relu tel quel (premiere entree DEMARRAGE, presence d'une entree ARRET), sans rejouer le noyau : le compte
+ * n'a pas besoin de l'etat complet, et un journal inrejouable est tout de meme un releve non confirme.
+ */
+async function sessionRoulageNonConfirmee(userId: string | null): Promise<number> {
+  if (!userId) return 0;
+  try {
+    stockageRoulage ??= ouvrirStockage();
+    // Sans IndexedDB, le journal ne vit qu'en memoire de la page : rien ne survit a sa fermeture, rien a compter.
+    if (stockageRoulage.nature === "memoire") return 0;
+    const entrees = await stockageRoulage.toutes();
+    const debut = entrees.find((e) => e.type === "DEMARRAGE");
+    if (!debut || debut.type !== "DEMARRAGE" || debut.agentRef !== userId) return 0;
+    if (!entrees.some((e) => e.type === "ARRET")) return 0;
+    if (entrees.filter((e) => e.type === "ECHANTILLON").length < 2) return 0;
+    return lireEnvoiConfirme(debut.sessionId) ? 0 : 1;
+  } catch {
+    return 0;
+  }
+}
+
 export async function refreshPendingCount() {
-  const [inspections, defauts, portions, observations] = await Promise.all([
+  const [inspections, defauts, portions, observations, roulage] = await Promise.all([
     getAllPending(), getAllPendingDefauts(), getAllPendingPortions(), getAllPendingObservations(),
+    sessionRoulageNonConfirmee(utilisateurSyncId),
   ]);
   // Les quatre files comptent ensemble : l'agent veut savoir COMBIEN il lui reste a
   // remonter, pas de quel type. Un compteur par type l'obligerait a additionner.
@@ -79,6 +115,8 @@ export async function refreshPendingCount() {
     utilisateurSyncId ? items.filter((item) => item.ownerUserId === utilisateurSyncId) : [];
   const tous: { status?: string }[] = [
     ...miens(inspections), ...miens(defauts), ...miens(portions), ...miens(observations),
+    // Une session de roulage arretee et non confirmee : jamais « en conflit » ni « abandonnee », elle attend son envoi.
+    ...Array.from({ length: roulage }, () => ({ status: "pending" })),
   ];
   pendingCount = tous.length;
   // Les conflits et les abandons sont comptes A PART, et restent dans le total : une saisie en conflit
@@ -115,10 +153,21 @@ const MAX_TENTATIVES = 5;
  * releve une a une. Les saisies n'etaient pas perdues, mais la synchronisation s'arretait sans
  * que le reseau en soit la cause (test `offlineSync.cinquante.test.ts`).
  *
- * Une erreur du SERVEUR (reponse 4xx, 5xx) compte toujours : lui a repondu.
+ * LES REPONSES TRANSITOIRES COMPTENT COMME UN RESEAU MUET
+ *
+ * Certaines reponses ne parlent pas de la saisie non plus (`STATUTS_TRANSITOIRES`) : 502, 503 et 504
+ * viennent du proxy pendant un deploiement ou un redemarrage (la saisie n'a jamais ete lue), 408 et 429
+ * disent « reessayez plus tard », et 401 dit que le JETON a expire (l'intercepteur de `api.ts` le
+ * rafraichit et rejoue; si cela echoue, il faut se reconnecter, pas abandonner la saisie). Les compter
+ * faisait passer toute la file en « abandonnee » en cinq passages, soit le temps d'un deploiement.
+ *
+ * Une erreur du SERVEUR qui a lu la saisie (400, 403, 404, 409, 422, 500...) compte toujours : lui a repondu.
  */
+const STATUTS_TRANSITOIRES: ReadonlySet<number> = new Set([401, 408, 429, 502, 503, 504]);
+
+/** Vrai si l'erreur ne dit rien de la saisie elle-meme (voir ci-dessus). */
 function estErreurReseau(err: unknown): boolean {
-  return axios.isAxiosError(err) && !err.response;
+  return axios.isAxiosError(err) && (!err.response || STATUTS_TRANSITOIRES.has(err.response.status));
 }
 
 function messageErreur(err: unknown): string {
@@ -550,6 +599,25 @@ export async function relancerObservation(item: PendingObservation): Promise<voi
   await updatePendingObservation({
     ...item, status: "pending", tentatives: 0, refusDefinitif: undefined, errorMessage: undefined,
   });
+  await refreshPendingCount();
+}
+
+/**
+ * Remet un defaut ABANDONNE en file (statut `pending`, compteur de tentatives a zero), a l'image de
+ * `relancerObservation`.
+ *
+ * POURQUOI IL EXISTE. Un defaut deja cree cote serveur (`serverId`) dont les photos n'ont pas pu partir,
+ * une fois `abandonnee`, n'avait AUCUNE issue : « Reprendre les photos » relancait une synchronisation qui
+ * l'ignore (`syncOneDefaut` retourne tot sur `abandonnee`), et « Corriger » est masque des qu'un `serverId`
+ * existe. Il ne restait que la suppression, donc la perte des photos. Le `serverId` et les photos restantes
+ * sont CONSERVES : la reprise ne refait que ce qui manque, sans recreer le defaut.
+ *
+ * Ne touche jamais une saisie en conflit (un responsable doit trancher) ni une saisie qui n'est pas
+ * abandonnee.
+ */
+export async function relancerDefaut(item: PendingDefaut): Promise<void> {
+  if (item.status !== "abandonnee") return;
+  await updatePendingDefaut({ ...item, status: "pending", tentatives: 0, errorMessage: undefined });
   await refreshPendingCount();
 }
 

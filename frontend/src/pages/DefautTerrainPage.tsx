@@ -18,7 +18,7 @@ import {
   updatePendingDefaut,
   type PendingDefaut,
 } from "../lib/offlineDb";
-import { refreshPendingCount, syncPendingOfflineData } from "../lib/offlineSync";
+import { refreshPendingCount, relancerDefaut, syncPendingOfflineData } from "../lib/offlineSync";
 import { toast } from "../lib/toast";
 import { useAuth } from "../lib/auth";
 
@@ -316,6 +316,19 @@ export function DefautTerrainPage() {
       URL.revokeObjectURL(current[index].previewUrl);
       return current.filter((_, currentIndex) => currentIndex !== index);
     });
+  }
+
+  /**
+   * « Reprendre les photos » d'un défaut déjà créé sur le serveur. Abandonné, il est d'abord REMIS EN FILE :
+   * la synchronisation ignore les défauts `abandonnee`, et sans cette remise le bouton ne faisait rien (la
+   * seule issue restante était de supprimer le brouillon, donc de perdre les photos).
+   */
+  async function reprendreEnvoi(item: PendingDefaut) {
+    if (item.status === "abandonnee") {
+      await relancerDefaut(item);
+      await rafraichirQueue();
+    }
+    void syncPendingOfflineData();
   }
 
   async function supprimerBrouillon(item: PendingDefaut) {
@@ -747,7 +760,7 @@ export function DefautTerrainPage() {
                   </div>
                   <div className="flex shrink-0 gap-2">
                     {item.serverId
-                      ? <Button type="button" size="sm" variant="secondary" disabled={!online || syncing} onClick={() => void syncPendingOfflineData()}><RefreshCw className="h-3.5 w-3.5" /> Reprendre les photos</Button>
+                      ? <Button type="button" size="sm" variant="secondary" disabled={!online || syncing} onClick={() => void reprendreEnvoi(item)}><RefreshCw className="h-3.5 w-3.5" /> Reprendre les photos</Button>
                       : <Button type="button" size="sm" variant="secondary" onClick={() => commencerCorrection(item)}><Pencil className="h-3.5 w-3.5" /> Corriger</Button>}
                     <Button type="button" size="sm" variant="ghost" aria-label={`Retirer le brouillon ${label}`} onClick={() => void supprimerBrouillon(item)}><Trash2 className="h-3.5 w-3.5" /></Button>
                   </div>

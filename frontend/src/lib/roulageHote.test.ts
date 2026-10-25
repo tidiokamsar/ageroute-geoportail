@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { demanderStockagePersistant, estimerStockage, etatPermissionGps, garderEcranAllume, nomFichierGpx, positionVersEchantillon, stockageMemoire, versGpx } from "./roulageHote";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { demanderStockagePersistant, estimerStockage, etatPermissionGps, garderEcranAllume, nomFichierGpx, positionVersEchantillon, stockageIndexedDb, stockageMemoire, versGpx } from "./roulageHote";
 import type { EntreeJournal } from "../roulage/journal";
 
 /**
@@ -128,5 +128,60 @@ describe("permission GPS, stockage", () => {
     expect(await demanderStockagePersistant({ storage: { persist: async () => false } })).toBe(false);
     expect(await demanderStockagePersistant({})).toBe(false);
     expect(await demanderStockagePersistant({ storage: { persist: async () => { throw new Error("x"); } } })).toBe(false);
+  });
+});
+
+/**
+ * Les ecritures du journal sont lancees sans attendre : leur echec ne se voit QUE dans `echecs()`. L'ecran de roulage le lit
+ * pour dire « le journal n'est plus ecrit » (test de l'ecran dans `EnregistrementRoulagePage.test.tsx`). Faux IndexedDB minimal :
+ * une transaction qui se termine, ou qui est annulee (quota).
+ */
+describe("stockage du journal : les echecs d'ecriture sont comptes", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function fauxIndexedDB(issue: () => "ok" | "abandon") {
+    return {
+      open() {
+        const req: { result: unknown; error: null; onsuccess: (() => void) | null; onerror: (() => void) | null; onupgradeneeded: (() => void) | null } =
+          { result: null, error: null, onsuccess: null, onerror: null, onupgradeneeded: null };
+        setTimeout(() => {
+          req.result = {
+            objectStoreNames: { contains: () => true },
+            transaction: () => {
+              const tx: { error: { name: string }; oncomplete: (() => void) | null; onerror: (() => void) | null; onabort: (() => void) | null; objectStore: () => unknown } = {
+                error: { name: "QuotaExceededError" }, oncomplete: null, onerror: null, onabort: null,
+                objectStore: () => ({ put: () => ({ result: undefined }) }),
+              };
+              const sortie = issue();
+              setTimeout(() => (sortie === "ok" ? tx.oncomplete?.() : tx.onabort?.()), 0);
+              return tx;
+            },
+          };
+          req.onsuccess?.();
+        }, 0);
+        return req;
+      },
+    };
+  }
+  const entree = { seq: 1, type: "ARRET", tMs: 1 } as unknown as EntreeJournal;
+  const attendre = () => new Promise((r) => setTimeout(r, 30));
+
+  it("une ecriture annulee (quota) incremente echecs(), sans lever d'erreur dans le noyau", async () => {
+    vi.stubGlobal("indexedDB", fauxIndexedDB(() => "abandon"));
+    const s = stockageIndexedDb();
+    expect(s).not.toBeNull();
+    expect(s!.echecs()).toBe(0);
+    expect(() => s!.ajouter(entree)).not.toThrow();
+    s!.ajouter({ ...entree, seq: 2 } as EntreeJournal);
+    await attendre();
+    expect(s!.echecs()).toBe(2);
+  });
+
+  it("une ecriture reussie ne compte aucun echec", async () => {
+    vi.stubGlobal("indexedDB", fauxIndexedDB(() => "ok"));
+    const s = stockageIndexedDb()!;
+    s.ajouter(entree);
+    await attendre();
+    expect(s.echecs()).toBe(0);
   });
 });

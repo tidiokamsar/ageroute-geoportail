@@ -4,6 +4,7 @@ import { AlertTriangle, Download, Flag, LogOut, MapPin, Pause, Play, RotateCcw, 
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { toast } from "../lib/toast";
+import { refreshPendingCount } from "../lib/offlineSync";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { libelleDuree, libelleKm } from "../lib/releve";
@@ -158,6 +159,15 @@ export function EnregistrementRoulagePage() {
   // l'appareil, et l'agent choisit en connaissance de cause.
   const [repriseRefusee, setRepriseRefusee] = useState<string | null>(null);
   const [confirmerEffacementJournal, setConfirmerEffacementJournal] = useState(false);
+  // Le journal n'a pas encore repondu : « Démarrer » reste inactif. `demarrer()` vide le journal, et un appui
+  // avant la fin de la lecture effacait une session interrompue pourtant recuperable.
+  const [journalLu, setJournalLu] = useState(false);
+  // Journal retrouve mais ecrit par un AUTRE compte (telephone partage) : jamais propose a l'envoi, a la reprise ni a la
+  // suppression, jamais efface par un nouveau depart. `reduit` : l'agent a pris acte (« Garder »), seul un rappel reste.
+  const [autreCompte, setAutreCompte] = useState<{ positions: number; reduit: boolean } | null>(null);
+  // Ecritures du journal echouees DEPUIS le depart de cette session (le compteur du stockage court depuis son ouverture).
+  const [echecsJournal, setEchecsJournal] = useState(0);
+  const echecsDepart = useRef(0);
   const [missionId, setMissionId] = useState("");
   // Pack de mission (phase 2 SMART FIELD) : ce qui est sur le telephone AVANT de partir.
   const [pack, setPack] = useState<EtatPack>(() => etatPackMission());
@@ -211,12 +221,23 @@ export function EnregistrementRoulagePage() {
   const stockageOuvert = useCallback((): StockageJournal => (stockage.current ??= ouvrirStockage()), []);
 
   // Au chargement : une session interrompue (page fermee, telephone redemarre) est proposee a la reprise.
+  // Attend le compte connecte : le journal est celui du TELEPHONE, partage par tous les comptes qui s'y connectent.
   useEffect(() => {
+    if (!userId) return undefined;
     let vivant = true;
     void stockageOuvert().toutes().then((entrees) => {
-      if (!vivant || entrees.length === 0) return;
+      // Une session deja en cours dans cet ecran ne se remplace jamais par une relecture.
+      if (!vivant || entrees.length === 0 || session.current) return;
+      const debut = entrees.find((e) => e.type === "DEMARRAGE");
+      const agentRef = debut && debut.type === "DEMARRAGE" ? debut.agentRef : null;
+      if (agentRef && agentRef !== userId) {
+        // Pas de rejeu : cette session n'est pas la notre. On la compte seulement, pour que l'ecran puisse la dire.
+        setAutreCompte({ positions: entrees.filter((e) => e.type === "ECHANTILLON").length, reduit: false });
+        return;
+      }
       const r = SessionRoulage.rejouer(entrees, { horloge: horlogeSysteme(), genererId: () => crypto.randomUUID(), journal: stockageOuvert().ajouter });
       if (!r.ok) { if (vivant) setRepriseRefusee(r.raison); return; }
+      echecsDepart.current = stockageOuvert().echecs();
       session.current = r.session;
       // Les listes (segment ouvert) et la mission reviennent telles qu'elles etaient a la fermeture de la page.
       const ouvert = r.session.etat.evenements.find((e) => e.statut === "OUVERT" && e.code === CODE_SEGMENT);
@@ -227,9 +248,28 @@ export function EnregistrementRoulagePage() {
       if (envoyeLe) setEnvoi("envoye");
       setInterrompue({ positions: r.session.etat.echantillons.length, arretee: r.session.etat.statut === "ARRETEE", envoyeLe });
       rafraichir();
-    }).catch(() => undefined);
+    }).catch(() => undefined).finally(() => { if (vivant) setJournalLu(true); });
     return () => { vivant = false; };
-  }, [rafraichir, stockageOuvert]);
+  }, [rafraichir, stockageOuvert, userId]);
+
+  // Les ecritures du journal sont lancees sans attendre (le noyau les appelle en rappel synchrone) : un echec ne se voit
+  // que dans le compteur du stockage. Lu ici chaque demi-seconde, il rend l'alerte « le journal n'est plus ecrit ».
+  useEffect(() => {
+    const lire = () => setEchecsJournal(Math.max(0, (stockage.current?.echecs() ?? 0) - echecsDepart.current));
+    const t = window.setInterval(lire, 500);
+    return () => window.clearInterval(t);
+  }, []);
+
+  /**
+   * Previent le badge global (`offlineSync`) : une session arretee et non confirmee y compte, et elle change a l'arret, a
+   * l'envoi et a la suppression. La relecture du journal par CE stockage passe d'abord : une lecture est ordonnee apres
+   * les ecritures deja lancees, donc le badge, qui relit par sa propre connexion, voit le journal a jour.
+   */
+  function annoncerAuBadge() {
+    void stockageOuvert().toutes().catch(() => [])
+      .then(() => refreshPendingCount())
+      .catch(() => undefined);
+  }
 
   const arreterSuivi = useCallback(() => {
     if (suivi.current !== null) { navigator.geolocation.clearWatch(suivi.current); suivi.current = null; }
@@ -346,7 +386,11 @@ export function EnregistrementRoulagePage() {
   }
 
   async function demarrer() {
+    // Garde-fous : la lecture du journal doit avoir repondu, et le journal ne doit pas porter la session d'un autre compte.
+    if (!journalLu || autreCompte) return;
     await stockageOuvert().vider();
+    echecsDepart.current = stockageOuvert().echecs();
+    setEchecsJournal(0);
     const r = SessionRoulage.demarrer({
       horloge: horlogeSysteme(), genererId: () => crypto.randomUUID(), journal: stockageOuvert().ajouter, agentRef: user?.id ?? null,
       parametres: profilParCode(profil).parametres,
@@ -365,6 +409,7 @@ export function EnregistrementRoulagePage() {
     setSaisie(SAISIE_VIDE);
     setMissionId("");
     rafraichir();
+    annoncerAuBadge();
     await demarrerSuivi();
   }
 
@@ -396,6 +441,7 @@ export function EnregistrementRoulagePage() {
     setSaisie(SAISIE_VIDE);
     setMissionId("");
     setVue(VUE_VIDE);
+    annoncerAuBadge();
   }
 
   function choisirMission(id: string) {
@@ -457,6 +503,7 @@ export function EnregistrementRoulagePage() {
     if (accelActif) setIndiceAccel(indiceIrregularite(accelEchantillons.current));
     arreterSuivi();
     rafraichir();
+    annoncerAuBadge();
   }
 
   /** Pose la session en pause (journalisee, donc retrouvee), libere le GPS et quitte l'ecran : aucune position n'est perdue. */
@@ -498,6 +545,7 @@ export function EnregistrementRoulagePage() {
       if (suite.action === "RETIRER_DE_LA_FILE") {
         // Retenu sur l'appareil SEULEMENT apres la confirmation du serveur.
         noterEnvoiConfirme(s.etat.sessionId);
+        annoncerAuBadge();
         setEnvoi("envoye");
         setMessageEnvoi(suite.rejeu ? "Cette session était déjà enregistrée sur le serveur : rien n'a été dupliqué." : "Session enregistrée sur le serveur.");
       } else {
@@ -571,6 +619,12 @@ export function EnregistrementRoulagePage() {
           La position est refusée pour ce site. L'autoriser dans les réglages du navigateur ; l'enregistrement reprend alors tout seul.
         </p>
       )}
+      {echecsJournal > 0 && vue.phase !== "repos" && (
+        <p role="alert" className="rounded-lg border border-red-400 bg-red-50 p-3 text-sm font-semibold text-red-950">
+          Le journal n'est plus écrit sur ce téléphone ({echecsJournal} écriture(s) en échec) : la session peut être perdue si la page se ferme ou si le téléphone redémarre.
+          {vue.phase === "arretee" ? " Télécharger le GPX maintenant." : " Arrêter l'enregistrement et télécharger le GPX."}
+        </p>
+      )}
       {vue.gnssIndisponible && (
         <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
           Le signal GPS est perdu. La trace reprendra au prochain signal, sans relier les deux côtés.
@@ -613,6 +667,28 @@ export function EnregistrementRoulagePage() {
                 <Button size="sm" variant="outline" onClick={() => setConfirmerEffacementJournal(false)}>Non, le garder</Button>
               </div>
             </div>
+          )}
+        </section>
+      )}
+      {autreCompte && (
+        <section aria-labelledby="autre-compte" className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          <h2 id="autre-compte" className="font-semibold">Session d'un autre compte sur ce téléphone</h2>
+          {autreCompte.reduit ? (
+            <p className="mt-1" role="status">Gardée telle quelle ({autreCompte.positions} position(s)). Aucun nouvel enregistrement ne peut démarrer tant qu'elle est là.</p>
+          ) : (
+            <>
+              <p className="mt-1">
+                Un relevé de {autreCompte.positions} position(s) a été enregistré ici avec un autre compte. Il reste <strong>intact</strong> sur ce téléphone :
+                il n'est ni envoyé, ni repris, ni supprimé sous le compte actuel.
+              </p>
+              <p className="mt-1 text-xs">
+                Seul le compte qui l'a enregistré peut le reprendre, l'envoyer ou le supprimer : s'y reconnecter, ou contacter la DSI. Pour ne pas l'écraser,
+                aucun nouvel enregistrement ne démarre tant qu'elle est sur ce téléphone.
+              </p>
+              <div className="mt-3">
+                <Button type="button" onClick={() => setAutreCompte((a) => (a ? { ...a, reduit: true } : a))}>Garder</Button>
+              </div>
+            </>
           )}
         </section>
       )}
@@ -687,7 +763,7 @@ export function EnregistrementRoulagePage() {
         </section>
       )}
 
-      {vue.phase === "repos" && !interrompue && (
+      {vue.phase === "repos" && !interrompue && !autreCompte && (
         <section aria-labelledby="preparation" className="max-w-xl space-y-4 rounded-lg border border-gray-300 bg-white p-4">
           <h2 id="preparation" className="text-lg font-semibold">Préparer le relevé</h2>
           <div>
@@ -726,7 +802,9 @@ export function EnregistrementRoulagePage() {
               </dd>
             </div>
           </dl>
-          <Button size="lg" onClick={() => void demarrer()}><MapPin className="h-4 w-4" aria-hidden="true" />Démarrer l'enregistrement</Button>
+          <Button size="lg" onClick={() => void demarrer()} disabled={!journalLu}>
+            <MapPin className="h-4 w-4" aria-hidden="true" />{journalLu ? "Démarrer l'enregistrement" : "Lecture de ce téléphone…"}
+          </Button>
         </section>
       )}
 

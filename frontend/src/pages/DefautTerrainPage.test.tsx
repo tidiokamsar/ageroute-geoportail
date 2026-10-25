@@ -7,10 +7,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const h = vi.hoisted(() => ({
   ajoute: vi.fn(async (item: Record<string, unknown>) => { h.brouillons.push(item); }),
   brouillons: [] as Record<string, unknown>[],
+  online: false,
+  relancer: vi.fn(async () => {}),
+  synchroniser: vi.fn(async () => {}),
 }));
 
 vi.mock("../hooks/useOfflineSync", () => ({
-  useOfflineSync: () => ({ online: false, syncing: false, pendingCount: h.brouillons.length, syncNow: vi.fn() }),
+  useOfflineSync: () => ({ online: h.online, syncing: false, pendingCount: h.brouillons.length, syncNow: vi.fn() }),
 }));
 vi.mock("../lib/defautsTerrain", () => ({
   chargerReferentielsDefautsTerrain: async () => ({
@@ -35,7 +38,8 @@ vi.mock("../lib/offlineDb", () => ({
 }));
 vi.mock("../lib/offlineSync", () => ({
   refreshPendingCount: vi.fn(async () => {}),
-  syncPendingOfflineData: vi.fn(async () => {}),
+  syncPendingOfflineData: h.synchroniser,
+  relancerDefaut: h.relancer,
 }));
 vi.mock("../lib/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("../lib/auth", () => ({ useAuth: () => ({ user: { id: "agent-1", role: "INSPECTEUR" } }) }));
@@ -45,6 +49,9 @@ import { DefautTerrainPage } from "./DefautTerrainPage";
 beforeEach(() => {
   h.ajoute.mockClear();
   h.brouillons.length = 0;
+  h.online = false;
+  h.relancer.mockClear();
+  h.synchroniser.mockClear();
 });
 
 describe("Saisie terrain des défauts", () => {
@@ -90,4 +97,43 @@ describe("Saisie terrain des défauts", () => {
       mesures: { longueurM: 2, largeurM: 1, profondeurM: 0.1 },
     });
   }, 15_000);
+});
+
+describe("File locale : défaut abandonné déjà créé sur le serveur", () => {
+  function deposerAbandonne(serverId: string | undefined) {
+    h.brouillons.push({
+      localId: "d0000000-0000-4000-8000-000000000001", ownerUserId: "agent-1", serverId,
+      payload: { catalogueCode: "NID_POULE", constateA: "2026-10-08T10:00:00.000Z" },
+      photos: [{ name: "p.jpg", blob: new Blob(["x"]), capturedA: "2026-10-08T10:00:00.000Z" }],
+      createdAt: "2026-10-08T10:00:00.000Z", status: "abandonnee", errorMessage: "trop d'échecs",
+    });
+  }
+  const rendre = () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false, enabled: false } } });
+    render(<QueryClientProvider client={qc}><MemoryRouter><DefautTerrainPage /></MemoryRouter></QueryClientProvider>);
+  };
+
+  it("« Reprendre les photos » remet d'abord le défaut en file, puis relance la synchronisation", async () => {
+    // Avant : le bouton relançait une synchronisation qui ignore les défauts abandonnés, donc ne faisait rien ;
+    // « Corriger » est masqué quand un serverId existe, et la seule issue était de supprimer les photos.
+    h.online = true;
+    deposerAbandonne("srv-1");
+    const user = userEvent.setup({ delay: null });
+    rendre();
+
+    await user.click(await screen.findByRole("button", { name: /Reprendre les photos/ }));
+
+    await waitFor(() => expect(h.relancer).toHaveBeenCalledOnce());
+    expect(h.relancer).toHaveBeenCalledWith(expect.objectContaining({ serverId: "srv-1", status: "abandonnee" }));
+    expect(h.synchroniser).toHaveBeenCalled();
+  });
+
+  it("un défaut abandonné SANS serverId garde « Corriger » et n'offre pas la relance des photos", async () => {
+    h.online = true;
+    deposerAbandonne(undefined);
+    rendre();
+
+    expect(await screen.findByRole("button", { name: /Corriger/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Reprendre les photos/ })).toBeNull();
+  });
 });

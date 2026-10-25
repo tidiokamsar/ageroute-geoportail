@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { violationsAccessibilite } from "../test/accessibilite";
-import { deplacer } from "../roulage";
+import { deplacer, horlogeSysteme, SessionRoulage } from "../roulage";
+import type { EntreeJournal } from "../roulage/journal";
 
 /**
  * Enregistrer un releve en roulant (paragraphe 7.13) : ce que ces tests defendent.
@@ -110,7 +111,8 @@ function rendre() {
 }
 
 async function demarrer() {
-  fireEvent.click(screen.getByRole("button", { name: /Démarrer l'enregistrement/ }));
+  // Le bouton reste inactif (« Lecture de ce téléphone… ») tant que le journal n'a pas répondu : on attend qu'il porte son vrai nom.
+  fireEvent.click(await screen.findByRole("button", { name: /Démarrer l'enregistrement/ }));
   await screen.findByText("Enregistrement en cours");
 }
 
@@ -135,7 +137,7 @@ beforeEach(async () => {
 afterEach(() => { cleanup(); vi.useRealTimers(); });
 
 describe("avant le depart", () => {
-  it("dit ses limites avant de proposer de partir", () => {
+  it("dit ses limites avant de proposer de partir", async () => {
     installerGeolocalisation();
     rendre();
     const limites = screen.getByRole("region", { name: /À savoir avant de partir/ });
@@ -143,7 +145,7 @@ describe("avant le depart", () => {
     expect(limites).toHaveTextContent(/passager manipule le téléphone, pas le conducteur/);
     expect(limites).toHaveTextContent(/ne mesure ni l'IRI ni l'état de la chaussée/);
     expect(limites).toHaveTextContent(/pas encore été essayée sur un téléphone/);
-    expect(screen.getByRole("button", { name: /Démarrer l'enregistrement/ })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /Démarrer l'enregistrement/ })).toBeInTheDocument();
   });
 
   it("zero violation d'accessibilite", async () => {
@@ -822,5 +824,183 @@ describe("observation rapide dans l'enregistreur", () => {
     fireEvent.click(screen.getByRole("button", { name: /Pause/ }));
     await screen.findByText("En pause");
     expect(screen.queryByRole("group", { name: /Observation rapide/ })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Le journal du telephone : ce que ces tests defendent (audit terrain).
+ *   - l'echec d'ecriture du journal est DIT (alerte bloquante), pas seulement compte ;
+ *   - « Demarrer » attend la fin de la lecture du journal : un appui precoce effacait une session recuperable ;
+ *   - la session d'un AUTRE compte n'est ni reprise, ni envoyee, ni supprimee, ni ecrasee par un nouveau depart.
+ */
+type StockageEssai = {
+  toutes: () => Promise<unknown[]>; vider: () => Promise<void>; echecs: () => number; ajouter: (e: EntreeJournal) => void;
+};
+async function stockageBrut(): Promise<StockageEssai> {
+  return (await import("../lib/roulageHote") as unknown as { stockageBrut: StockageEssai }).stockageBrut;
+}
+
+/** Seme dans le journal une session enregistree par `agent` (le meme chemin que l'ecran : le noyau ecrit son journal). */
+async function semerSession(agent: string, options: { positions?: number; arretee?: boolean } = {}) {
+  const { positions = 4, arretee = true } = options;
+  const journal = (await stockageBrut()).ajouter;
+  vi.setSystemTime(T0);
+  const r = SessionRoulage.demarrer({ horloge: horlogeSysteme(), genererId: () => crypto.randomUUID(), journal, agentRef: agent });
+  if (!r.ok) throw new Error(r.erreurs.join(" "));
+  for (let s = 0; s < positions; s += 1) {
+    vi.setSystemTime(T0 + s * 1000);
+    const p = deplacer({ lat: 9.64, lon: -13.6 }, 10 * s, 90);
+    r.session.ajouterEchantillon({ tMs: T0 + s * 1000, lat: p.lat, lon: p.lon, precisionM: 8, vitesseMs: 10, capDeg: 90, altitudeM: null });
+  }
+  if (arretee) r.session.arreter("REFUSER");
+}
+
+describe("journal du telephone : echecs d'ecriture", () => {
+  it("un echec d'ecriture du journal est DIT par une alerte bloquante, avec la marche a suivre", async () => {
+    installerGeolocalisation();
+    const stockage = await stockageBrut();
+    rendre();
+    await demarrer();
+    emettre(0);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    const spy = vi.spyOn(stockage, "echecs").mockReturnValue(2);
+    try {
+      const alerte = await screen.findByRole("alert", {}, { timeout: 3000 });
+      expect(alerte).toHaveTextContent(/journal n'est plus écrit/);
+      expect(alerte).toHaveTextContent(/session peut être perdue/);
+      expect(alerte).toHaveTextContent(/Arrêter l'enregistrement et télécharger le GPX/);
+      expect(alerte).toHaveTextContent(/2 écriture\(s\) en échec/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("l'alerte reste affichee apres l'arret, ou elle demande de telecharger le GPX", async () => {
+    installerGeolocalisation();
+    const stockage = await stockageBrut();
+    rendre();
+    await demarrer();
+    for (let s = 0; s < 3; s += 1) emettre(s);
+    fireEvent.click(screen.getByRole("button", { name: /Arrêter/ }));
+    await screen.findByText("Terminée, à envoyer");
+    const spy = vi.spyOn(stockage, "echecs").mockReturnValue(1);
+    try {
+      const alerte = await screen.findByRole("alert", {}, { timeout: 3000 });
+      expect(alerte).toHaveTextContent(/Télécharger le GPX maintenant/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("des echecs ANTERIEURS au depart de la session n'alertent pas : le compteur du stockage court depuis son ouverture", async () => {
+    installerGeolocalisation();
+    const stockage = await stockageBrut();
+    const spy = vi.spyOn(stockage, "echecs").mockReturnValue(5);
+    try {
+      rendre();
+      await demarrer();
+      emettre(0);
+      await new Promise((r) => setTimeout(r, 1200));   // plus de deux relectures du compteur
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("journal du telephone : lecture avant depart", () => {
+  it("« Démarrer » reste inactif tant que le journal n'a pas répondu, et NE vide PAS une session récupérable", async () => {
+    installerGeolocalisation();
+    await semerSession("agent-1", { arretee: false });
+    const stockage = await stockageBrut();
+    const entrees = await stockage.toutes();
+    expect(entrees.length).toBeGreaterThan(2);
+
+    // Lecture lente : la reponse n'arrive que quand le test la libere.
+    let liberer: () => void = () => undefined;
+    const lente = vi.spyOn(stockage, "toutes").mockImplementation(() => new Promise((resolve) => { liberer = () => resolve(entrees); }));
+    const vider = vi.spyOn(stockage, "vider");
+    try {
+      rendre();
+      const bouton = await screen.findByRole("button", { name: /Lecture de ce téléphone/ });
+      expect(bouton).toBeDisabled();
+      expect(screen.queryByRole("button", { name: /Démarrer l'enregistrement/ })).not.toBeInTheDocument();
+
+      fireEvent.click(bouton);
+      expect(vider).not.toHaveBeenCalled();
+
+      await act(async () => { liberer(); });
+      // La session interrompue est proposee, intacte ; le bouton de depart disparait avec elle.
+      expect(await screen.findByRole("heading", { name: /Une session a été retrouvée/ })).toBeInTheDocument();
+      expect(vider).not.toHaveBeenCalled();
+      lente.mockRestore();
+      expect((await stockage.toutes()).length).toBe(entrees.length);
+    } finally {
+      lente.mockRestore();
+      vider.mockRestore();
+    }
+  });
+
+  it("sans session sur le telephone, le bouton porte son nom des que la lecture a repondu", async () => {
+    installerGeolocalisation();
+    rendre();
+    const bouton = await screen.findByRole("button", { name: /Démarrer l'enregistrement/ });
+    expect(bouton).toBeEnabled();
+  });
+});
+
+describe("journal du telephone : compte partage", () => {
+  it("la session d'un AUTRE compte est dite, intacte, et ne se propose ni a l'envoi, ni a la reprise, ni a la suppression", async () => {
+    installerGeolocalisation();
+    await semerSession("agent-2");
+    const avant = (await (await stockageBrut()).toutes()).length;
+    rendre();
+
+    const section = await screen.findByRole("region", { name: /Session d'un autre compte sur ce téléphone/ });
+    expect(section).toHaveTextContent(/4 position\(s\)/);
+    expect(section).toHaveTextContent(/ni envoyé, ni repris, ni supprimé sous le compte actuel/);
+    // Seule issue offerte : la garder. Rien de destructif, rien d'envoyable, aucun nouveau depart.
+    expect(screen.getByRole("button", { name: "Garder" })).toBeInTheDocument();
+    for (const nom of [/Démarrer l'enregistrement/, /Reprendre l'enregistrement/, /Supprimer/, /Recommencer/, /Nouveau relevé/, /Envoyer la session/, /Voir la session/]) {
+      expect(screen.queryByRole("button", { name: nom })).not.toBeInTheDocument();
+    }
+    expect(screen.queryByRole("heading", { name: /Une session a été retrouvée/ })).not.toBeInTheDocument();
+
+    expect(h.posts).toHaveLength(0);
+    expect((await (await stockageBrut()).toutes()).length).toBe(avant);
+  });
+
+  it("« Garder » ne change rien au journal et ne rouvre pas le depart", async () => {
+    installerGeolocalisation();
+    await semerSession("agent-2");
+    const avant = (await (await stockageBrut()).toutes()).length;
+    const vider = vi.spyOn(await stockageBrut(), "vider");
+    try {
+      rendre();
+      fireEvent.click(await screen.findByRole("button", { name: "Garder" }));
+      expect(await screen.findByText(/Gardée telle quelle/)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /Démarrer l'enregistrement/ })).not.toBeInTheDocument();
+      expect(vider).not.toHaveBeenCalled();
+      expect((await (await stockageBrut()).toutes()).length).toBe(avant);
+    } finally {
+      vider.mockRestore();
+    }
+  });
+
+  it("une session du MEME compte reste proposee a la reprise comme avant", async () => {
+    installerGeolocalisation();
+    await semerSession("agent-1", { arretee: false });
+    rendre();
+    expect(await screen.findByRole("heading", { name: /Une session a été retrouvée/ })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /autre compte/ })).not.toBeInTheDocument();
+  });
+
+  it("zero violation d'accessibilite : session d'un autre compte", async () => {
+    installerGeolocalisation();
+    await semerSession("agent-2");
+    const { container } = rendre();
+    await screen.findByRole("region", { name: /Session d'un autre compte/ });
+    expect(await violationsAccessibilite(container)).toEqual([]);
   });
 });

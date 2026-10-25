@@ -29,6 +29,8 @@ const serveur = {
   appels: 0,
 };
 let panne: (appel: number) => Panne = () => "aucune";
+/** Statut HTTP rendu quand la panne est « erreur_serveur ». */
+let statutHttp = 500;
 
 function erreurReseau(): Error {
   // Forme d'une erreur axios sans reponse : le serveur n'a rien repondu.
@@ -44,7 +46,7 @@ vi.mock("./api", () => ({
       const p = panne(serveur.appels);
       if (p === "coupure") throw erreurReseau();           // la requete n'arrive jamais
       if (p === "erreur_serveur") {
-        throw Object.assign(new Error("Request failed with status code 500"), { isAxiosError: true, response: { status: 500, data: { message: "erreur interne" } } });
+        throw Object.assign(new Error(`Request failed with status code ${statutHttp}`), { isAxiosError: true, response: { status: statutHttp, data: { message: "erreur interne" } } });
       }
       const op = corps.operations![0];
       let resultat: Record<string, unknown>;
@@ -106,6 +108,7 @@ beforeEach(() => {
   serveur.creations.length = 0;
   serveur.appels = 0;
   panne = () => "aucune";
+  statutHttp = 500;
   vi.mocked(api.post).mockClear();
   localStorage.clear();
   configurerUtilisateurSync("u1");
@@ -191,6 +194,9 @@ describe("A7, file locale de 50 saisies rejouee dans de mauvaises conditions", (
     expect([...cles].sort()).toEqual(Array.from({ length: 10 }, (_, i) => uuid("g", i)).sort());
   });
 
+  // Une erreur du SERVEUR qui a LU la saisie (500 ici, comme 400 ou 422) compte toujours dans le plafond :
+  // seules les reponses qui ne parlent pas de la saisie (reseau muet, 401/408/429/502/503/504) en sont exclues.
+  // Ce test ne change pas ; le bloc suivant couvre les statuts transitoires.
   it("une erreur du SERVEUR (pas du reseau) compte toujours : elle finit par abandonner, en conservant la saisie", async () => {
     deposerDefaut(uuid("h", 1));
     panne = () => "erreur_serveur";
@@ -198,5 +204,50 @@ describe("A7, file locale de 50 saisies rejouee dans de mauvaises conditions", (
     const item = defautsLocaux.get(uuid("h", 1));
     expect(item?.status).toBe("abandonnee");
     expect(defautsLocaux.has(uuid("h", 1))).toBe(true);
+  });
+});
+
+/**
+ * Deploiement du serveur, jeton expire, limitation de debit : le proxy ou l'API repond, mais pas sur LA SAISIE.
+ *
+ * Constate par audit : 401, 502, 503 et 504 etaient comptes comme des erreurs permanentes. Un redemarrage du
+ * serveur pendant une minute, ou un retour de reseau avec un jeton perime, suffisait a passer la file en
+ * « abandonnee » en cinq passages, et la synchronisation s'arretait sans qu'aucune saisie soit en cause.
+ */
+describe("Reponses transitoires du serveur : elles ne comptent pas dans le plafond de tentatives", () => {
+  for (const statut of [401, 408, 429, 502, 503, 504]) {
+    it(`HTTP ${statut} pendant huit passes : rien n'est abandonne, tout passe quand le serveur revient`, async () => {
+      for (let i = 0; i < 5; i++) deposerDefaut(uuid("t", i));
+      statutHttp = statut;
+      panne = () => "erreur_serveur";
+      for (let i = 0; i < 8; i++) await syncPendingOfflineData();
+
+      expect(enFile()).toHaveLength(5);
+      expect(enFile().some((i) => i.status === "abandonnee")).toBe(false);
+      expect(enFile().every((i) => (i.tentatives ?? 0) === 0)).toBe(true);
+
+      panne = () => "aucune";
+      await syncPendingOfflineData();
+      expect(serveur.creations).toHaveLength(5);
+      expect(enFile()).toHaveLength(0);
+    });
+  }
+
+  it("une portion sous HTTP 503 n'est pas abandonnee non plus", async () => {
+    deposerPortion(uuid("u", 1));
+    statutHttp = 503;
+    panne = () => "erreur_serveur";
+    for (let i = 0; i < 8; i++) await syncPendingOfflineData();
+
+    expect(portionsLocales.get(uuid("u", 1))).toMatchObject({ status: "error", tentatives: 0 });
+  });
+
+  it("une erreur 422 (validation refusee) compte toujours et finit par abandonner", async () => {
+    deposerDefaut(uuid("v", 1));
+    statutHttp = 422;
+    panne = () => "erreur_serveur";
+    for (let i = 0; i < 6; i++) await syncPendingOfflineData();
+
+    expect(defautsLocaux.get(uuid("v", 1))?.status).toBe("abandonnee");
   });
 });

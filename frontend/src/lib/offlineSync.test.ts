@@ -83,7 +83,7 @@ vi.mock("./offlineDb", () => ({
 }));
 
 import { api } from "./api";
-import { configurerUtilisateurSync, syncPendingOfflineData } from "./offlineSync";
+import { configurerUtilisateurSync, relancerDefaut, syncPendingOfflineData } from "./offlineSync";
 basculerCompte = () => configurerUtilisateurSync("u2");
 
 function deposer(localId: string, nbPhotos: number) {
@@ -503,5 +503,57 @@ describe("Un CONFLIT rendu pour un défaut : il reste en file, marqué, jamais c
     const restant = defautsLocaux.get(id);
     expect(restant?.status).toBe("abandonnee");
     expect(String(restant?.errorMessage)).toMatch(/version du serveur/);
+  });
+});
+
+describe("Relance d'un défaut abandonné qui a déjà un serverId", () => {
+  const id = "cccc1111-1111-4111-8111-111111111111";
+  function deposerAbandonne(over: Record<string, unknown> = {}) {
+    defautsLocaux.set(id, {
+      localId: id, ownerUserId: "u1", serverId: "defaut-srv-9", status: "abandonnee", tentatives: 5,
+      errorMessage: "coupure (abandon après 5 échecs consécutifs)", createdAt: "2026-10-08T10:00:00.000Z",
+      payload: { catalogueCode: "NID_POULE", constateA: "2026-10-08T10:00:00.000Z" },
+      photos: [
+        { name: "a.jpg", blob: new Blob(["x"]), capturedA: "2026-10-08T10:00:00.000Z" },
+        { name: "b.jpg", blob: new Blob(["y"]), capturedA: "2026-10-08T10:00:00.000Z" },
+      ],
+      ...over,
+    });
+  }
+
+  it("la synchronisation ignore un défaut abandonné : sans relance, rien ne repart (le défaut d'origine)", async () => {
+    deposerAbandonne();
+    await syncPendingOfflineData();
+    expect(appels.photos).toBe(0);
+    expect(defautsLocaux.get(id)?.status).toBe("abandonnee");
+  });
+
+  it("relancerDefaut remet en file, tentatives à zéro, en CONSERVANT serverId et photos", async () => {
+    deposerAbandonne();
+    await relancerDefaut(defautsLocaux.get(id) as never);
+
+    expect(defautsLocaux.get(id)).toMatchObject({ status: "pending", tentatives: 0, serverId: "defaut-srv-9" });
+    expect(defautsLocaux.get(id)?.errorMessage).toBeUndefined();
+    expect(defautsLocaux.get(id)?.photos as unknown[]).toHaveLength(2);
+  });
+
+  it("après la relance, les photos partent SANS recréer le défaut, et la file se vide", async () => {
+    deposerAbandonne();
+    await relancerDefaut(defautsLocaux.get(id) as never);
+    await syncPendingOfflineData();
+
+    expect(appels.defauts).toBe(0);      // aucune nouvelle création : le serverId est réutilisé
+    expect(appels.photos).toBe(2);
+    expect(defautsLocaux.size).toBe(0);
+  });
+
+  it("ne touche ni un défaut en conflit ni un défaut qui n'est pas abandonné", async () => {
+    deposerAbandonne({ status: "conflit", conflitId: "c-1", serverId: undefined });
+    await relancerDefaut(defautsLocaux.get(id) as never);
+    expect(defautsLocaux.get(id)).toMatchObject({ status: "conflit", conflitId: "c-1" });
+
+    deposerAbandonne({ status: "error", tentatives: 2 });
+    await relancerDefaut(defautsLocaux.get(id) as never);
+    expect(defautsLocaux.get(id)).toMatchObject({ status: "error", tentatives: 2 });
   });
 });
