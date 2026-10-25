@@ -108,3 +108,60 @@ describe("observation rapide", () => {
     expect(await violationsAccessibilite(container)).toEqual([]);
   });
 });
+
+describe("observation rapide : photo facultative", () => {
+  const fichier = (nom = "photo.jpg", type = "image/jpeg", octets = 100) => new File([new Uint8Array(octets)], nom, { type });
+  const choisirPhoto = (f: File) => {
+    const champ = document.getElementById("obs-rapide-photo") as HTMLInputElement;
+    fireEvent.change(champ, { target: { files: [f] } });
+  };
+
+  it("la photo prise au moment de la gravité part avec l'observation, avec la position du GPS", async () => {
+    rendre();
+    fireEvent.click(screen.getByRole("button", { name: "Dégradation" }));
+    choisirPhoto(fichier());
+    expect(await screen.findByText(/1 photo\(s\) jointe\(s\)/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Forte" }));
+    await waitFor(() => expect(h.appels).toHaveLength(1));
+    const photos = h.appels[0].saisie.photos as { name: string; lat: number; lon: number; precisionM: number; capturedA: string }[];
+    expect(photos).toHaveLength(1);
+    expect(photos[0]).toMatchObject({ name: "photo.jpg", lat: 9.64, lon: -13.6, precisionM: 7 });
+    expect(photos[0].capturedA).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    // Retour au choix du type : plus aucune photo en attente.
+    fireEvent.click(screen.getByRole("button", { name: "Chaussée" }));
+    expect(screen.queryByText(/photo\(s\) jointe\(s\)/)).not.toBeInTheDocument();
+  });
+
+  it("sans photo, aucune photo n'est transmise", async () => {
+    rendre();
+    fireEvent.click(screen.getByRole("button", { name: "Chaussée" }));
+    fireEvent.click(screen.getByRole("button", { name: "Faible" }));
+    await waitFor(() => expect(h.appels).toHaveLength(1));
+    expect(h.appels[0].saisie.photos).toEqual([]);
+  });
+
+  it("un format ou une taille refusés sont dits tout de suite, et la photo n'est pas jointe", async () => {
+    rendre();
+    fireEvent.click(screen.getByRole("button", { name: "Chaussée" }));
+    choisirPhoto(fichier("scan.pdf", "application/pdf"));
+    expect(vi.mocked(toast.error).mock.calls[0][0]).toMatch(/seuls les formats JPG, PNG et WebP/);
+    expect(screen.queryByText(/photo\(s\) jointe\(s\)/)).not.toBeInTheDocument();
+  });
+
+  it("« Retirer les photos » les enlève ; « Changer de type » aussi", async () => {
+    rendre();
+    fireEvent.click(screen.getByRole("button", { name: "Chaussée" }));
+    choisirPhoto(fichier());
+    fireEvent.click(await screen.findByRole("button", { name: "Retirer les photos" }));
+    expect(screen.queryByText(/photo\(s\) jointe\(s\)/)).not.toBeInTheDocument();
+  });
+
+  it("zéro violation d'accessibilité à l'étape de la gravité, photo jointe", async () => {
+    const { container } = rendre();
+    fireEvent.click(screen.getByRole("button", { name: "Trafic" }));
+    choisirPhoto(fichier());
+    await screen.findByText(/photo\(s\) jointe\(s\)/);
+    expect(await violationsAccessibilite(container)).toEqual([]);
+  });
+});
+

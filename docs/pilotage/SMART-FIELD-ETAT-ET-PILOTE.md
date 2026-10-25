@@ -8,19 +8,17 @@
 | Phase | Ce qui existe (vérifié par tests, voir `TEST_EVIDENCE.md`) | Ce qui manque | État |
 |---|---|---|---|
 | 1 Socle fiable | Session vide dite et jamais présentée comme relevé ; envoi confirmé retenu ; reprise après redémarrage ; journal injouable dit ; suppression confirmée ; envoi rejoué au retour du réseau, idempotent ; missions limitées à celles que le serveur accepte | File de plusieurs sessions terminées (une seule session locale à la fois) ; aucun essai sur téléphone en roulant | Livré en simulation |
-| 2 Assistant de terrain | Préparation (intitulé, profil de précision, contrôles) ; pack de mission hors ligne dit complet ou INCOMPLET ; qualification des segments par les vocabulaires du serveur ; repères ; **observation rapide en deux appuis** avec la position du GPS (file hors ligne existante, validation par un responsable) | Photos dans l'enregistreur (voir ci-dessous) ; checklist adaptative à la mission ; sections « homogènes » au-delà des segments qualifiés | Partiel |
+| 2 Assistant de terrain | Préparation (intitulé, profil de précision, contrôles) ; pack de mission hors ligne dit complet ou INCOMPLET ; qualification des segments par les vocabulaires du serveur ; repères ; **observation rapide en deux appuis** avec la position du GPS et **une photo facultative** (file hors ligne existante, photo envoyée après l'observation, validation par un responsable qui voit la photo) | Checklist adaptative à la mission ; sections « homogènes » au-delà des segments qualifiés ; photos de défauts complets (restent dans « Défauts terrain ») | Partiel |
 | 3 Capteurs | GPS horodaté ; indice d'irrégularité par accéléromètre (optionnel, expérimental, affiché seulement) ; **rapport des capacités de l'appareil** (GPS, capteurs de mouvement, caméra, stockage, calcul, batterie, réseau), copiable pour la fiche de chaque appareil | Gyroscope non exploité ; indice d'irrégularité jamais étalonné | Partiel |
-| 4 IA embarquée | Rien de livré. Aucun jeu d'images guinéen annoté trouvé (`PILOTE-ET-VISION-LOCALE.md`) | Corpus du pilote ; essais de modèles ; décision de licence | **Bloqué par les données** |
+| 4 IA embarquée | **Banc de mesure et critères d'acceptation provisoires** (`evaluationVision.ts`, `CRITERES-VISION.md`) : précision, rappel, fausses alertes par km, latence, mémoire, batterie, taille, effectif ; une case non mesurée n'est jamais conforme. Aucun modèle. Aucun jeu d'images guinéen annoté trouvé (`PILOTE-ET-VISION-LOCALE.md`) | Corpus du pilote ; essais de modèles ; décision de licence | **Bloqué par les données** (le banc est prêt) |
 | 5 Qualité des relevés | Distance estimée, trace valide, positions fiables (≤ 15 m, provisoire), temps avec signal, interruptions, trous, qualité indicative avec ses raisons ; jamais « inspecté parce que le GPS est passé » | Images exploitables et observations validées ne sont pas encore comptées dans le profil ; portions non couvertes non cartographiées | Partiel |
 | 6 Historique et décision | Existe déjà ailleurs : fiche 360 par tronçon, moteur de programmation explicable, rapports bailleur, validation humaine | Historique des inspections par section issu de ces relevés ; rapports automatiques de campagne | Non commencé pour les relevés |
-| 7 Pilote | Protocole ci-dessous ; corridor retenu : « RN1 ou Boké » ; outil de route entre deux villes | Le pilote lui-même | **Non fait** |
+| 7 Pilote | Protocole ci-dessous ; **ordre retenu : RN1 d'abord, puis Boké** (`CRITERES-VISION.md`) ; outil de route entre deux villes | Le pilote lui-même | **Non fait** |
 | 8 Livraison | Tests, build, lint, balayage de secrets verts sur le HEAD | **Aucun déploiement des derniers changements** (accès root, attestation de la DSI) | Non déployé |
 
-**Photos.** Le serveur n'accepte les photos que sur les **défauts** (`/v2/defauts`), pas sur les observations ni sur une
-session de roulage. Les joindre à l'enregistreur exige soit de saisir un défaut complet (catalogue, mesures : impossible en
-roulant), soit de changer le contrat serveur. Je ne l'ai pas fait. Recommandation : garder les photos dans la page « Défauts
-terrain » existante, utilisée à l'arrêt, et décider avec la DSI si une photo rapide rattachée à une observation vaut un
-changement de contrat.
+**Photos (mis à jour le 25/10).** Le contrat serveur est étendu : `POST /v2/observations/:id/photos`, sans migration, sans toucher au lot de
+synchronisation. Une observation rapide peut porter jusqu'à cinq photos ; elles partent après l'observation, une par une, et le
+responsable les voit à la validation. Les photos de **défauts complets** (catalogue, mesures) restent dans « Défauts terrain ».
 
 ## 2. Protocole du pilote
 
@@ -64,10 +62,10 @@ l'enregistrement (le trou doit apparaître dans la trace, sans être comblé).
 **Rien n'est annoncé tant que la case est vide.** Une mesure faite sur un seul appareil ou une seule route est dite « un
 essai », pas une performance.
 
-## 3. Évaluation d'un modèle de vision : critères à fixer AVANT l'essai
+## 3. Évaluation d'un modèle de vision
 
-Ces critères relèvent de l'AGEROUTE ; je ne fixe aucun seuil d'acceptation. À décider : précision et rappel minimaux par type de
-défaut, fausses alertes maximales par kilomètre, latence maximale par image sur l'appareil le plus modeste, mémoire, consommation
-par heure, licence acceptable (voir `PILOTE-ET-VISION-LOCALE.md`). Un modèle qui n'apporte pas de bénéfice démontré sur le
+Les critères d'acceptation PROVISOIRES sont fixés dans `CRITERES-VISION.md` (précision, rappel, fausses alertes par kilomètre, latence,
+mémoire, batterie, taille, effectif), sur délégation du DSI, à réviser après la première mesure. Reste à décider par l'AGEROUTE : la licence
+acceptable (voir `PILOTE-ET-VISION-LOCALE.md`). Un modèle qui n'apporte pas de bénéfice démontré sur le
 corpus guinéen n'est pas conservé ; la collecte manuelle reste complète sans lui, et le traitement différé après synchronisation
 reste l'option pour les appareils trop modestes.

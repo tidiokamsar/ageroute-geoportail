@@ -43,6 +43,28 @@ export const LIBELLES_GRAVITE: Record<GraviteObservation, string> = {
   FORTE: "Forte",
 };
 
+/** Limites du serveur (`upload-photo.middleware.ts` : 8 Mio, JPEG PNG WebP) et plafond retenu par observation pour le terrain. */
+export const PHOTO_TAILLE_MAX_OCTETS = 8 * 1024 * 1024;
+export const PHOTO_TYPES_ACCEPTES = ["image/jpeg", "image/png", "image/webp"] as const;
+export const PHOTOS_MAX_PAR_OBSERVATION = 5;
+
+export interface PhotoSaisie {
+  name: string;
+  blob: Blob;
+  capturedA: string;
+  lat?: number;
+  lon?: number;
+  precisionM?: number;
+}
+
+/** Dit pourquoi une photo ne sera pas acceptee, AVANT qu'on la garde : le serveur la refuserait au retour du reseau, trop tard. */
+export function motifRefusPhoto(photo: { name: string; blob: Blob }): string | null {
+  if (!(PHOTO_TYPES_ACCEPTES as readonly string[]).includes(photo.blob.type)) return `${photo.name} : seuls les formats JPG, PNG et WebP sont acceptés.`;
+  if (photo.blob.size > PHOTO_TAILLE_MAX_OCTETS) return `${photo.name} : la taille maximale est de 8 Mo (réduire la résolution de l'appareil photo).`;
+  if (photo.blob.size === 0) return `${photo.name} : le fichier est vide.`;
+  return null;
+}
+
 export interface SaisieObservation {
   type: string;
   gravite?: string;
@@ -52,6 +74,7 @@ export interface SaisieObservation {
   precisionM?: number | null;
   tronconId?: string;
   missionId?: string;
+  photos?: PhotoSaisie[];
 }
 
 export type ResultatConstruction =
@@ -115,6 +138,14 @@ export function construireObservation(
   if (saisie.tronconId && saisie.tronconId.length > 128) erreurs.push("L'identifiant du tronçon est trop long.");
   if (saisie.missionId && !estUuid(saisie.missionId)) erreurs.push("L'identifiant de mission n'est pas valide.");
 
+  const photos = saisie.photos ?? [];
+  if (photos.length > PHOTOS_MAX_PAR_OBSERVATION) erreurs.push(`Cinq photos au maximum peuvent être jointes à une observation.`);
+  for (const p of photos) {
+    const motif = motifRefusPhoto(p);
+    if (motif) erreurs.push(motif);
+    if ((p.lat === undefined) !== (p.lon === undefined)) erreurs.push(`${p.name} : la position d'une photo va par paire (latitude et longitude).`);
+  }
+
   if (!description && !aLat && !saisie.tronconId) {
     erreurs.push("Décrivez l'observation, ou localisez-la (position GPS ou tronçon) : une observation sans rien ne se retrouve pas.");
   }
@@ -138,6 +169,8 @@ export function construireObservation(
       localId: identifiant,
       ownerUserId: contexte.userId,
       payload,
+      // Les photos ne sont PAS dans le payload (schema serveur strict) : elles partent apres l'observation.
+      ...(photos.length > 0 ? { photos: photos.map((p) => ({ ...p })) } : {}),
       createdAt: maintenant.toISOString(),
       status: "pending",
     },

@@ -66,6 +66,8 @@ type Observation = {
   agentId: string;
   mission?: { id: string; code: string; intitule: string } | null;
   validations?: Historique[];
+  /** Preuves photo jointes depuis le terrain (`POST /v2/observations/:id/photos`). */
+  medias?: Defaut["medias"];
 };
 
 const UNITES: Record<string, string> = {
@@ -322,6 +324,7 @@ export function DefautsValidationPage() {
             {selection?.type === "Observation" && detail ? (
               <Card className="space-y-4 xl:sticky xl:top-4">
                 <div><h2 className="font-semibold text-navy">Revue de l’observation</h2><p className="mt-2 text-sm text-gray-700">{(detail as Observation).description ?? "Aucune description"}</p></div>
+                {!!(detail as Observation).medias?.length && <div><h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Photos de preuve</h3><div className="grid grid-cols-2 gap-2">{(detail as Observation).medias!.map((media) => <PreuvePhoto key={media.id} media={media} />)}</div></div>}
                 <div><h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Historique de validation</h3><DetailHistorique lignes={(detail as Observation).validations} /></div>
                 <label className="block text-xs font-medium text-gray-700" htmlFor="commentaire-observation">Motif du rejet (obligatoire pour rejeter)
                   <textarea id="commentaire-observation" value={commentaire} onChange={(event) => setCommentaires((old) => ({ ...old, [selection.id]: event.target.value }))} rows={3} maxLength={2000} className="mt-1 w-full rounded-md border border-gray-300 p-2 text-sm focus:border-navy focus:outline-none focus:ring-2 focus:ring-navy/20" />

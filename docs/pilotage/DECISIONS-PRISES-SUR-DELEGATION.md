@@ -20,6 +20,10 @@
 - Chaque décision ci-dessous est **réversible** : elle ne crée aucune donnée officielle et aucune
   migration irréversible.
 
+**Compléments du 25/10/2026** (même délégation, voir `CRITERES-VISION.md`) : critères d'acceptation PROVISOIRES d'un modèle de vision
+(précision, rappel, fausses alertes par km, latence, mémoire, batterie, taille, effectif) ; pilote **RN1 d'abord, puis Boké** ;
+contrat serveur étendu pour joindre une photo à une observation.
+
 ## Les sept décisions
 
 | Décision | Choix retenu | Pourquoi | Ce qui change dans le logiciel | Ce qui reste attendu de l'AGEROUTE |

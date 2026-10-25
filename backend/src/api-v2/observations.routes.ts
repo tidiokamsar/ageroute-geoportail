@@ -1,4 +1,6 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
+import { createHash } from "node:crypto";
+import { readFile, unlink } from "node:fs/promises";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
@@ -8,6 +10,9 @@ import { enregistrerQualite } from "../lib/qualite";
 import { validationPermise, EXPLICATIONS } from "../governance/validation";
 import { verdictDelegation } from "../governance/delegation.service";
 import { territoireObservation } from "../territoire/territoire.v2";
+import { uploadPhoto } from "../middleware/upload-photo.middleware";
+import { plafondPhotos } from "../middleware/quota-photos.middleware";
+import { photoAbsolutePath } from "../lib/photos";
 
 /**
  * `/api/v2/observations` — consultation et VALIDATION.
@@ -254,6 +259,114 @@ observationsV2Router.post("/:id/validate", requireAuth, requireModuleAccess("ins
 
     return res.json(apres);
   } catch (err) {
+    return next(err);
+  }
+});
+
+/**
+ * `POST /api/v2/observations/:id/photos` : une PREUVE PHOTO rattachee a une observation (SMART FIELD, 25/10/2026).
+ *
+ * POURQUOI ICI ET PAS DANS LA CHARGE DE SYNCHRONISATION. La creation de l'observation reste la seule operation de
+ * `/sync/push` (idempotente, schema strict, inchange). Le fichier part APRES elle, par cette route, comme pour les defauts
+ * (`POST /v2/defauts/:id/photos`) : un binaire ne passe pas dans un lot JSON, et une coupure pendant l'envoi d'une photo ne
+ * doit pas defaire l'observation deja acceptee. Le client garde la photo localement jusqu'a la reponse 200 ou 201.
+ *
+ * MEMES REGLES QUE LES DEFAUTS, parce qu'elles ont ete eprouvees : plafond de photos par objet et de disque AVANT l'ecriture
+ * du fichier, empreinte SHA-256 unique (le meme fichier renvoye apres une reponse perdue rend la ligne existante, 200, sans
+ * doublon), un 404 identique pour « n'existe pas » et « n'est pas a vous » (on ne revele pas l'existence), position et cap du
+ * cliche facultatifs mais PAR PAIRE, controle territorial, ecriture auditee.
+ *
+ * Le modele de vision n'est pas branche : `analyseeLe` reste nul (« personne n'a regarde »), jamais « analysee, rien trouve ».
+ */
+async function supprimerTemporaire(chemin: string | undefined) {
+  if (chemin) await unlink(chemin).catch(() => undefined);
+}
+
+/** Meme visibilite que la route : un compteur qui ignorerait le filtre revelerait a un tiers que l'observation existe. */
+const compterPhotosObservation = async (req: Request): Promise<number | null> => {
+  const user = req.user;
+  if (!user) return null;
+  const gestionnaire = user.role === "ADMIN" || user.role === "GESTIONNAIRE";
+  const o = await prisma.observation.findFirst({
+    where: { id: req.params.id, deletedAt: null, ...(gestionnaire ? {} : { agentId: user.id }) },
+    select: { _count: { select: { medias: true } } },
+  });
+  return o ? o._count.medias : null;
+};
+
+observationsV2Router.post("/:id/photos", requireAuth, requireModuleAccess("inspections"), territoireObservation, plafondPhotos(compterPhotosObservation), uploadPhoto, async (req, res, next) => {
+  try {
+    if (!req.user) return res.status(401).json({ message: "Authentification requise." });
+    if (!req.file) return res.status(400).json({ message: "Photo manquante." });
+    const fichier = req.file;
+    const c = z.object({
+      lat: z.coerce.number().min(-90).max(90).optional(),
+      lon: z.coerce.number().min(-180).max(180).optional(),
+      precisionM: z.coerce.number().positive().max(10_000).optional(),
+      cap: z.coerce.number().min(0).max(360).optional(),
+      capturedA: z.string().datetime().optional(),
+    }).strict().safeParse(req.body);
+    if (!c.success || (c.data.lat !== undefined) !== (c.data.lon !== undefined)) {
+      await supprimerTemporaire(fichier.path);
+      return res.status(400).json({ message: "Métadonnées photo invalides : latitude et longitude doivent être renseignées ensemble." });
+    }
+
+    const user = req.user;
+    const observation = await prisma.observation.findFirst({
+      where: { id: req.params.id, deletedAt: null },
+      select: { id: true, agentId: true },
+    });
+    const gestionnaire = user.role === "ADMIN" || user.role === "GESTIONNAIRE";
+    if (!observation || (!gestionnaire && observation.agentId !== user.id)) {
+      await supprimerTemporaire(fichier.path);
+      return res.status(404).json({ message: "Observation introuvable." });
+    }
+
+    const octets = await readFile(fichier.path);
+    const sha256 = createHash("sha256").update(octets).digest("hex");
+    const existante = await prisma.mediaObservation.findUnique({ where: { sha256 } });
+    if (existante) {
+      await supprimerTemporaire(fichier.path);
+      if (existante.observationId !== observation.id) {
+        return res.status(409).json({ message: "Cette photo est déjà rattachée à une autre preuve." });
+      }
+      return res.status(200).json(existante);
+    }
+
+    try {
+      const media = await prisma.$transaction(async (tx) => {
+        const cree = await tx.mediaObservation.create({
+          data: {
+            observationId: observation.id,
+            type: "PHOTO",
+            chemin: fichier.filename,
+            sha256,
+            mimeType: fichier.mimetype,
+            tailleOctets: fichier.size,
+            lat: c.data.lat ?? null,
+            lon: c.data.lon ?? null,
+            precisionM: c.data.precisionM ?? null,
+            cap: c.data.cap ?? null,
+            capturedA: c.data.capturedA ? new Date(c.data.capturedA) : new Date(),
+          },
+        });
+        await logAuditTransactionnelle(tx, {
+          userId: user.id, action: "CREATE", entityType: "MediaObservation", entityId: cree.id,
+          after: { observationId: observation.id, sha256, tailleOctets: cree.tailleOctets, lat: cree.lat, lon: cree.lon },
+          ipAddress: req.ip,
+        });
+        return cree;
+      });
+      return res.status(201).json(media);
+    } catch (err) {
+      await supprimerTemporaire(photoAbsolutePath(fichier.filename));
+      if (typeof err === "object" && err !== null && "code" in err && (err as { code?: string }).code === "P2002") {
+        return res.status(409).json({ message: "Cette photo a déjà été enregistrée." });
+      }
+      throw err;
+    }
+  } catch (err) {
+    if (req.file) await supprimerTemporaire(req.file.path);
     return next(err);
   }
 });
