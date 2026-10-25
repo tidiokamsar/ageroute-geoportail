@@ -468,12 +468,34 @@ async function syncOnePortion(item: PendingPortion, userId: string): Promise<boo
 async function syncOneObservation(item: PendingObservation, userId: string): Promise<boolean> {
   if (item.status === "abandonnee") return false;
   const tentatives = (item.tentatives ?? 0) + 1;
+  // L'etat qui AVANCE (photos deja confirmees retirees) : c'est lui qu'on conserve apres un echec, pas l'etat de depart.
+  let etat: PendingObservation = item;
   try {
     const reponse = await pousserCreation(userId, "Observation", item.localId, item.payload);
     if (!reponse) return false;
     const resultat = reponse.data?.resultats?.[0] as ResultatPush | undefined;
 
     if (resultat && ["SYNCHRONISE", "REJOUEE"].includes(resultat.statut ?? "")) {
+      // Le serveur a l'observation : ses photos partent maintenant, UNE A UNE, chacune retiree de la file locale des que
+      // le serveur l'a confirmee. Une coupure en route reprend a la photo suivante ; l'observation ne quitte la file
+      // qu'avec sa derniere photo (une photo de terrain perdue ne se refait pas). L'identifiant serveur est celui de la saisie.
+      etat = { ...item, serverId: resultat.entityId ?? item.localId };
+      if (etat.photos?.length) await updatePendingObservation(etat);
+      while (etat.photos?.length) {
+        if (utilisateurSyncId !== userId) return false;
+        const photo = etat.photos[0];
+        const form = new FormData();
+        form.append("photo", photo.blob, photo.name);
+        form.append("capturedA", photo.capturedA);
+        if (photo.lat !== undefined && photo.lon !== undefined) {
+          form.append("lat", String(photo.lat));
+          form.append("lon", String(photo.lon));
+        }
+        if (photo.precisionM !== undefined) form.append("precisionM", String(photo.precisionM));
+        await api.post(`/v2/observations/${etat.serverId}/photos`, form);
+        etat = { ...etat, photos: etat.photos.slice(1) };
+        await updatePendingObservation(etat);
+      }
       await removePendingObservation(item.localId);
       return true;
     }
@@ -504,10 +526,11 @@ async function syncOneObservation(item: PendingObservation, userId: string): Pro
   } catch (err) {
     if (item.status === "conflit" && estErreurReseau(err)) return false;
     const message = messageErreur(err);
-    const comptees = estErreurReseau(err) ? (item.tentatives ?? 0) : tentatives;
+    const aProgresse = (etat.photos?.length ?? 0) < (item.photos?.length ?? 0);
+    const comptees = aProgresse ? 0 : estErreurReseau(err) ? (item.tentatives ?? 0) : tentatives;
     const abandonnee = comptees >= MAX_TENTATIVES;
     await updatePendingObservation({
-      ...item,
+      ...etat,
       tentatives: comptees,
       status: abandonnee ? "abandonnee" : item.status === "conflit" ? "conflit" : "error",
       errorMessage: abandonnee

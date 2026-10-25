@@ -64,8 +64,12 @@ type Observation = {
   lon: number | null;
   pk: number | null;
   agentId: string;
+  /** Tronçon auquel un responsable a rattaché l'observation ; nul tant que personne ne l'a fait. */
+  tronconId?: string | null;
   mission?: { id: string; code: string; intitule: string } | null;
   validations?: Historique[];
+  /** Preuves photo jointes depuis le terrain (`POST /v2/observations/:id/photos`). */
+  medias?: Defaut["medias"];
 };
 
 const UNITES: Record<string, string> = {
@@ -182,6 +186,29 @@ export function DefautsValidationPage() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["rai-v2", "Defaut"] }),
         queryClient.invalidateQueries({ queryKey: ["rai-v2", "defauts", "validation"] }),
+      ]);
+    },
+    onError: (error) => toast.error(parseApiError(error).message),
+  });
+
+  // Rattacher une OBSERVATION à un tronçon, sur proposition : le serveur propose, le responsable confirme (phase 6, historique par section).
+  const proposerAppariementObs = useMutation({
+    mutationFn: async (id: string) => (await api.post<{ suggestion: AppariementSuggestion | null }>(`/v2/observations/${id}/appariement/suggestion`, {})).data,
+    onSuccess: (result) => {
+      setAppariement(result.suggestion);
+      if (!result.suggestion) toast.error("Aucun tronçon assez sûr autour de cette position. L'observation reste sans rattachement.");
+    },
+    onError: (error) => toast.error(parseApiError(error).message),
+  });
+  const confirmerAppariementObs = useMutation({
+    mutationFn: async ({ id, tronconId }: { id: string; tronconId: string }) =>
+      api.post(`/v2/observations/${id}/appariement/confirmation`, { tronconId }),
+    onSuccess: async () => {
+      setAppariement(null);
+      toast.success("Observation rattachée au tronçon : elle entre dans l'historique de la section.");
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["rai-v2", "Observation"] }),
+        queryClient.invalidateQueries({ queryKey: ["rai-v2", "observations", "validation"] }),
       ]);
     },
     onError: (error) => toast.error(parseApiError(error).message),
@@ -322,7 +349,20 @@ export function DefautsValidationPage() {
             {selection?.type === "Observation" && detail ? (
               <Card className="space-y-4 xl:sticky xl:top-4">
                 <div><h2 className="font-semibold text-navy">Revue de l’observation</h2><p className="mt-2 text-sm text-gray-700">{(detail as Observation).description ?? "Aucune description"}</p></div>
+                {!!(detail as Observation).medias?.length && <div><h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Photos de preuve</h3><div className="grid grid-cols-2 gap-2">{(detail as Observation).medias!.map((media) => <PreuvePhoto key={media.id} media={media} />)}</div></div>}
                 <div><h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Historique de validation</h3><DetailHistorique lignes={(detail as Observation).validations} /></div>
+                <section aria-label="Rattachement à un tronçon" className="rounded-md bg-gray-50 p-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500">Rattachement à un tronçon</h3>
+                  <p className="mt-1 text-sm">{(detail as Observation).tronconId ? "Rattachée à un tronçon : elle entre dans l'historique de sa section." : "Aucun tronçon : l'observation n'entre dans l'historique d'aucune section."}</p>
+                  {(detail as Observation).lat == null || (detail as Observation).lon == null
+                    ? <p className="mt-1 text-xs text-gray-600">Pas de position GPS : rien à proposer.</p>
+                    : !appariement && <Button size="sm" variant="secondary" className="mt-2" disabled={proposerAppariementObs.isPending} onClick={() => proposerAppariementObs.mutate(selection!.id)}><RefreshCw className="h-4 w-4" />{proposerAppariementObs.isPending ? "Recherche locale…" : "Proposer un tronçon"}</Button>}
+                  {appariement && <div className="mt-3 rounded-md bg-white p-3 text-sm">
+                    <p className="font-semibold text-navy">{appariement.code}{appariement.nom ? ` · ${appariement.nom}` : ""}</p>
+                    <p className="mt-1 text-xs text-gray-600">À {appariement.distanceM} m · confiance {Math.round(appariement.confiance * 100)} %{appariement.ambigu ? " · candidat ambigu : vérifier avant de confirmer" : ""}</p>
+                    <div className="mt-2 flex flex-wrap gap-2"><Button size="sm" disabled={confirmerAppariementObs.isPending} onClick={() => confirmerAppariementObs.mutate({ id: selection!.id, tronconId: appariement.tronconId })}><CheckCircle2 className="h-4 w-4" /> Confirmer ce tronçon</Button><Button size="sm" variant="secondary" onClick={() => setAppariement(null)}>Ne pas rattacher</Button></div>
+                  </div>}
+                </section>
                 <label className="block text-xs font-medium text-gray-700" htmlFor="commentaire-observation">Motif du rejet (obligatoire pour rejeter)
                   <textarea id="commentaire-observation" value={commentaire} onChange={(event) => setCommentaires((old) => ({ ...old, [selection.id]: event.target.value }))} rows={3} maxLength={2000} className="mt-1 w-full rounded-md border border-gray-300 p-2 text-sm focus:border-navy focus:outline-none focus:ring-2 focus:ring-navy/20" />
                 </label>

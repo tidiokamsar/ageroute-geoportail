@@ -17,6 +17,8 @@ import {
   qualiteTrace, segmentsPourCarte, sessionVide, stockageProche, vitesseKmH,
   type CodeProfil, type EstimationStockage,
 } from "../lib/releveVue";
+import { ObservationRapideRoulage } from "../components/ObservationRapideRoulage";
+import { CapacitesAppareilPanel } from "../components/CapacitesAppareilPanel";
 import { CarteTraceRoulage } from "../components/CarteTraceRoulage";
 import {
   construirePayload, horlogeSysteme, interpreterReponse, operationPourSynchronisation, SessionRoulage,
@@ -640,6 +642,7 @@ export function EnregistrementRoulagePage() {
               Indice expérimental : il suppose le téléphone posé à plat, écran vers le haut. Fixé à la verticale, il n'a pas de sens. Il n'est qu'affiché, jamais envoyé au serveur.
             </p>
           </div>
+          <CapacitesAppareilPanel />
         </Card>
       )}
       {interrompue && (
@@ -866,6 +869,14 @@ export function EnregistrementRoulagePage() {
                   </p>
                 )}
               </fieldset>
+              {vue.phase === "en_cours" && user && etatBrut && (
+                <ObservationRapideRoulage
+                  position={dernierEchantillon ? { lat: dernierEchantillon.lat, lon: dernierEchantillon.lon, precisionM: dernierEchantillon.precisionM, ageMs: ageDernierMs ?? 0 } : null}
+                  userId={user.id}
+                  sessionId={etatBrut.sessionId}
+                  missionId={missionId || null}
+                />
+              )}
               <div className="flex flex-wrap gap-2">
                 <Button onClick={poserRepere} disabled={vue.phase !== "en_cours"}><Flag className="h-4 w-4" aria-hidden="true" />Poser un repère ici</Button>
                 <Button variant="outline" onClick={basculerSegment} disabled={vue.phase !== "en_cours"}>

@@ -4,9 +4,8 @@
 
 ## 1. Pilote : corridor retenu
 
-Le DSI a indiqué le 25/10/2026 que le corridor du pilote est décidé : **« RN1 ou Boké »**. La phrase ne dit pas lequel passe
-en premier, ni si les deux sont retenus ; je les consigne tous les deux comme **corridors retenus pour le pilote** et je n'en
-choisis pas l'ordre à la place de l'AGEROUTE.
+Le DSI a indiqué le 25/10/2026 que le corridor du pilote est décidé : **« RN1 ou Boké »**. Il m'a ensuite délégué le choix de l'ordre :
+**RN1 d'abord, puis Boké** (raisons dans `CRITERES-VISION.md`, réversible).
 
 - **RN1 (Conakry, Coyah, Kindia, Mamou)** : Coyah, Kindia et Mamou sont dans la liste de villes de la console.
 - **Boké** : Boké, Boffa, Fria, Gaoual et, depuis le 25/10, **Sangarédi** (11°06′N 13°46′W, Wikipédia) y sont. Le corridor

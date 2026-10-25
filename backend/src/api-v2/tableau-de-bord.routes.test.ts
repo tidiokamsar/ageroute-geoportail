@@ -21,6 +21,7 @@ const h = vi.hoisted(() => ({
   porteesVues: [] as (number[] | null)[],
   appelsFiche: [] as string[],
   tronconExiste: true,
+  appelsControle: [] as { regionIds: number[] | null; limite: number }[],
 }));
 
 vi.mock("../middleware/auth.middleware", () => ({
@@ -62,6 +63,10 @@ vi.mock("../tableau-de-bord/fiche360.service", () => ({
   voletPortions: async (_d: unknown, id: string) => { h.appelsFiche.push(`portions:${id}`); return h.tronconExiste ? { tronconId: id, courantes: [], historique: [] } : null; },
   voletProgrammation: async (_d: unknown, id: string) => { h.appelsFiche.push(`programmation:${id}`); return h.tronconExiste ? { tronconId: id, previsions: [] } : null; },
 }));
+vi.mock("../tableau-de-bord/historique.service", () => ({
+  voletConstats: async (_d: unknown, id: string) => { h.appelsFiche.push(`constats:${id}`); return h.tronconExiste ? { tronconId: id, historique: { total: 0 }, liste: [] } : null; },
+  aControler: async (_d: unknown, o: { regionIds: number[] | null; limite: number }) => { h.appelsControle.push(o); return { lignes: [], totalClasses: 0 }; },
+}));
 // La Control Tower reste le vrai module : elle ne cite que des codes du registre, et ignore ceux que le registre factice n'a pas.
 import { tableauDeBordV2Router, fiche360V2Router } from "./tableau-de-bord.routes";
 
@@ -72,7 +77,7 @@ app.use("/fiche", fiche360V2Router);
 beforeEach(() => {
   h.compte = { id: "u1", role: "GESTIONNAIRE" };
   h.national = true; h.regions = []; h.regionDuTroncon = 3; h.modulesRefuses = [];
-  h.porteesVues = []; h.appelsFiche = []; h.tronconExiste = true;
+  h.porteesVues = []; h.appelsFiche = []; h.tronconExiste = true; h.appelsControle = [];
 });
 
 describe("GET /tdb/indicateurs", () => {
@@ -200,5 +205,48 @@ describe("Fiche 360 : lecture refusee hors perimetre (A10)", () => {
     h.modulesRefuses = ["programmation"];
     expect((await request(app).get("/fiche/troncons/t-1/programmation")).status).toBe(403);
     expect((await request(app).get("/fiche/troncons/t-1/portions")).status).toBe(200);
+  });
+});
+
+describe("GET /fiche/troncons/:id/constats et /fiche/a-controler (phase 6)", () => {
+  it("le volet constats est rendu pour un troncon du perimetre, et 403 hors perimetre sans appeler le service", async () => {
+    h.national = false; h.regions = [3]; h.regionDuTroncon = 3;
+    expect((await request(app).get("/fiche/troncons/t-1/constats")).status).toBe(200);
+    h.appelsFiche = [];
+    h.regionDuTroncon = 9;
+    expect((await request(app).get("/fiche/troncons/t-1/constats")).status).toBe(403);
+    expect(h.appelsFiche).toEqual([]);
+  });
+
+  it("troncon introuvable : 404 ; module « inspections » refuse : 403", async () => {
+    h.tronconExiste = false;
+    expect((await request(app).get("/fiche/troncons/inconnu/constats")).status).toBe(404);
+    h.modulesRefuses = ["inspections"];
+    expect((await request(app).get("/fiche/troncons/t-1/constats")).status).toBe(403);
+    expect((await request(app).get("/fiche/a-controler")).status).toBe(403);
+  });
+
+  it("a-controler : compte national, toutes regions par defaut, 50 lignes ; une region demandee la restreint", async () => {
+    await request(app).get("/fiche/a-controler");
+    await request(app).get("/fiche/a-controler?region=4&limite=10");
+    expect(h.appelsControle).toEqual([{ regionIds: null, limite: 50 }, { regionIds: [4], limite: 10 }]);
+  });
+
+  it("a-controler : un compte regional est borne a SES regions ; une autre region demandee est refusee (403), jamais elargie", async () => {
+    h.national = false; h.regions = [3];
+    await request(app).get("/fiche/a-controler");
+    expect(h.appelsControle[0]).toEqual({ regionIds: [3], limite: 50 });
+    const hors = await request(app).get("/fiche/a-controler?region=9");
+    expect(hors.status).toBe(403);
+    expect(hors.body.code).toBe("HORS_PERIMETRE");
+    expect(h.appelsControle).toHaveLength(1);
+    expect((await request(app).get("/fiche/a-controler?region=3")).status).toBe(200);
+  });
+
+  it("a-controler : parametres invalides ou inconnus refuses (400)", async () => {
+    expect((await request(app).get("/fiche/a-controler?limite=0")).status).toBe(400);
+    expect((await request(app).get("/fiche/a-controler?limite=500")).status).toBe(400);
+    expect((await request(app).get("/fiche/a-controler?national=true")).status).toBe(400);
+    expect(h.appelsControle).toEqual([]);
   });
 });

@@ -11,6 +11,7 @@ import { REGISTRE } from "../tableau-de-bord/indicateurs.registre";
 import { controler, evaluer } from "../tableau-de-bord/tableau-de-bord.service";
 import { controlTower } from "../tableau-de-bord/control-tower.service";
 import { voletPortions, voletProgrammation } from "../tableau-de-bord/fiche360.service";
+import { aControler, voletConstats } from "../tableau-de-bord/historique.service";
 
 /**
  * `/api/v2/tableau-de-bord` -- le tableau de bord executif (7.12) et la Control Tower.
@@ -102,5 +103,44 @@ fiche360V2Router.get("/troncons/:id/programmation", requireModuleAccess("program
     const volet = await voletProgrammation(prisma, req.params.id);
     if (!volet) { res.status(404).json({ error: "tronçon introuvable ou supprimé", code: "INTROUVABLE" }); return; }
     res.json(volet);
+  } catch (err) { next(err); }
+});
+
+// ===================================================================================== Historique et « à contrôler » (phase 6)
+
+/**
+ * `GET /api/v2/fiche-360/troncons/:id/constats` : l'HISTOIRE d'une section issue du terrain (defauts et observations
+ * rattaches), par jour de constat, avec les recurrences. Confirmes et proposes restent separes. Meme perimetre (A10) que les
+ * autres volets. Voir `tableau-de-bord/historique.noyau.ts` pour les regles.
+ */
+fiche360V2Router.get("/troncons/:id/constats", requireModuleAccess("inspections"), horsPerimetre, async (req, res, next) => {
+  try {
+    const volet = await voletConstats(prisma, req.params.id);
+    if (!volet) { res.status(404).json({ error: "tronçon introuvable ou supprimé", code: "INTROUVABLE" }); return; }
+    res.json(volet);
+  } catch (err) { next(err); }
+});
+
+/**
+ * `GET /api/v2/fiche-360/a-controler?region=&limite=` : les troncons a CONTROLER en premier, classes avec leurs facteurs.
+ * Aide au controle, pas une decision. Le perimetre vient du COMPTE (A10) : une region demandee hors de ses regions est refusee
+ * (403), jamais elargie.
+ */
+const paramsAControler = z.object({
+  region: z.coerce.number().int().positive().optional(),
+  limite: z.coerce.number().int().min(1).max(200).optional(),
+}).strict();
+
+fiche360V2Router.get("/a-controler", requireModuleAccess("inspections"), async (req, res, next) => {
+  try {
+    const p = paramsAControler.safeParse(req.query);
+    if (!p.success) { res.status(400).json({ error: "paramètres invalides : region (identifiant), limite (1 à 200)", details: p.error.flatten().fieldErrors }); return; }
+    const perimetre = await perimetreDe(req.user!);
+    let regionIds: number[] | null = perimetre.national ? null : [...perimetre.regions];
+    if (p.data.region !== undefined) {
+      if (regionIds !== null && !regionIds.includes(p.data.region)) { res.status(403).json({ error: "Cette région est hors de votre périmètre.", code: "HORS_PERIMETRE" }); return; }
+      regionIds = [p.data.region];
+    }
+    res.json(await aControler(prisma, { regionIds, limite: p.data.limite ?? 50 }));
   } catch (err) { next(err); }
 });

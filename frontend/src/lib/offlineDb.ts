@@ -189,6 +189,19 @@ export interface PendingObservation {
     /** Date du CONSTAT (ISO 8601), pas de l'envoi. */
     observeA: string;
   };
+  /**
+   * Photos de l'observation, conservées comme Blob et envoyées APRÈS son acceptation par `POST /v2/observations/:id/photos`
+   * (le fichier ne passe pas dans le lot JSON de `/sync/push`, dont le schéma est strict). Chaque photo est retirée de la liste
+   * dès que le serveur l'a confirmée ; l'observation ne quitte la file qu'une fois la liste vide.
+   */
+  photos?: {
+    name: string;
+    blob: Blob;
+    lat?: number;
+    lon?: number;
+    precisionM?: number;
+    capturedA: string;
+  }[];
   createdAt: string;
   /**
    * `pending`    jamais envoyée, ou envoyée sans réponse
