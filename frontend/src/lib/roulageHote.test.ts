@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { garderEcranAllume, nomFichierGpx, positionVersEchantillon, stockageMemoire, versGpx } from "./roulageHote";
+import { demanderStockagePersistant, estimerStockage, etatPermissionGps, garderEcranAllume, nomFichierGpx, positionVersEchantillon, stockageMemoire, versGpx } from "./roulageHote";
 import type { EntreeJournal } from "../roulage/journal";
 
 /**
@@ -99,5 +99,34 @@ describe("garderEcranAllume", () => {
     expect(v.actif).toBe(true);
     await v.liberer();
     expect(relache).toBe(1);
+  });
+});
+
+describe("permission GPS, stockage", () => {
+  it("la permission est lue sans etre demandee ; sans API ou en erreur : « inconnue », jamais un refus invente", async () => {
+    const etat = (state: string) => etatPermissionGps({ permissions: { query: async () => ({ state }) } });
+    expect(await etat("granted")).toBe("accordee");
+    expect(await etat("denied")).toBe("refusee");
+    expect(await etat("prompt")).toBe("a_demander");
+    expect(await etat("autre")).toBe("inconnue");
+    expect(await etatPermissionGps({})).toBe("inconnue");
+    expect(await etatPermissionGps({ permissions: { query: async () => { throw new Error("TypeError"); } } })).toBe("inconnue");
+  });
+
+  it("l'estimation du stockage donne la part utilisee ; absente ou incoherente : null", async () => {
+    const e = await estimerStockage({ storage: { estimate: async () => ({ usage: 50 * 1_048_576, quota: 200 * 1_048_576 }) } });
+    expect(e).not.toBeNull();
+    expect(e?.part).toBeCloseTo(0.25, 6);
+    expect(e?.usageMo).toBeCloseTo(50, 6);
+    expect(await estimerStockage({})).toBeNull();
+    expect(await estimerStockage({ storage: { estimate: async () => ({ usage: 1, quota: 0 }) } })).toBeNull();
+    expect(await estimerStockage({ storage: { estimate: async () => { throw new Error("x"); } } })).toBeNull();
+  });
+
+  it("la persistance du stockage ne leve jamais : sans API ou refusee, c'est « false »", async () => {
+    expect(await demanderStockagePersistant({ storage: { persist: async () => true } })).toBe(true);
+    expect(await demanderStockagePersistant({ storage: { persist: async () => false } })).toBe(false);
+    expect(await demanderStockagePersistant({})).toBe(false);
+    expect(await demanderStockagePersistant({ storage: { persist: async () => { throw new Error("x"); } } })).toBe(false);
   });
 });

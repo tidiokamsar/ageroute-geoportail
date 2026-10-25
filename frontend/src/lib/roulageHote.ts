@@ -169,3 +169,46 @@ export async function garderEcranAllume(nav: { wakeLock?: WakeLockLike } = navig
     return { actif: false, liberer: async () => undefined };
   }
 }
+
+// ------------------------------------------------------------------ permission GPS, stockage
+
+export type EtatPermissionGps = "accordee" | "refusee" | "a_demander" | "inconnue";
+
+/**
+ * Etat de l'autorisation de position, SANS declencher la demande. `inconnue` quand le navigateur ne sait pas le
+ * dire (l'API Permissions n'existe pas partout) : l'ecran ne bloque alors rien, la demande se fera au demarrage.
+ */
+export async function etatPermissionGps(
+  nav: { permissions?: { query(d: { name: "geolocation" }): Promise<{ state: string }> } } = navigator as never,
+): Promise<EtatPermissionGps> {
+  try {
+    const r = await nav.permissions?.query({ name: "geolocation" });
+    if (!r) return "inconnue";
+    return r.state === "granted" ? "accordee" : r.state === "denied" ? "refusee" : r.state === "prompt" ? "a_demander" : "inconnue";
+  } catch {
+    return "inconnue";
+  }
+}
+
+/** Place occupee par le site sur l'appareil, ou `null` quand le navigateur ne la donne pas (jamais devinee). */
+export async function estimerStockage(
+  nav: { storage?: { estimate?: () => Promise<{ usage?: number; quota?: number }> } } = navigator as never,
+): Promise<{ usageMo: number; quotaMo: number; part: number } | null> {
+  try {
+    const e = await nav.storage?.estimate?.();
+    if (!e || typeof e.usage !== "number" || typeof e.quota !== "number" || e.quota <= 0) return null;
+    return { usageMo: e.usage / 1_048_576, quotaMo: e.quota / 1_048_576, part: e.usage / e.quota };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Demande au navigateur de ne pas purger le stockage du site quand l'appareil manque de place. Reponse `false` ou
+ * absente : le stockage reste « au mieux », et l'ecran ne promet rien de plus.
+ */
+export async function demanderStockagePersistant(
+  nav: { storage?: { persist?: () => Promise<boolean> } } = navigator as never,
+): Promise<boolean> {
+  try { return (await nav.storage?.persist?.()) === true; } catch { return false; }
+}

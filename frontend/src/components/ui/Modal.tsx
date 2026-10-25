@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { X } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "./dialog";
 
 /**
@@ -22,10 +23,25 @@ export function Modal({
   return (
     <Dialog open={open} onOpenChange={(next) => !next && demanderFermeture()}>
       <DialogContent className="max-w-[480px] max-h-[85vh] overflow-y-auto">
+        {/* En-tete STICKY avec fermeture explicite. Bug du 23/10 : la croix du Dialog
+            (absolute top-4 right-4) vit dans le conteneur DEFILABLE — sur une fiche
+            longue elle defile hors de vue, et l'utilisateur n'a plus aucun moyen visible
+            de fermer. L'en-tete colle reste en place pendant tout le defilement ;
+            Esc et le clic hors zone continuent de fonctionner (Radix). */}
+        <div className="sticky top-0 z-10 -m-6 mb-4 flex items-start justify-between gap-3 border-b border-gray-100 bg-white px-6 py-4">
+          <DialogTitle className="text-base font-semibold text-primary">{title}</DialogTitle>
+          <button
+            type="button"
+            onClick={demanderFermeture}
+            aria-label="Fermer"
+            className="shrink-0 rounded-md p-1.5 text-gray-500 hover:bg-gray-100 hover:text-navy focus:outline-none focus:ring-2 focus:ring-navy/30"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
         {/* Visible uniquement a l'impression (cf. printFiche/.printing-fiche) : en-tete
             institutionnel pour les fiches exportees en PDF. */}
         <img src="/ageroute-logo.svg" alt="AGEROUTE" className="hidden print:block h-10 w-auto mb-2" />
-        <DialogTitle className="text-base font-semibold text-primary">{title}</DialogTitle>
         {children}
       </DialogContent>
     </Dialog>

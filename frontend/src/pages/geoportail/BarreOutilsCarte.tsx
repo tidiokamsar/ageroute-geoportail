@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Maximize, Minimize, Navigation, PenLine, Ruler, Share2, Square, X } from "lucide-react";
+import { ChevronDown, Maximize, Minimize, Navigation, PenLine, Ruler, Share2, Smartphone, Square, X } from "lucide-react";
 import { ExportControl } from "./ExportControl";
 import type { MeasureMode } from "./MeasureLayer";
 
@@ -52,6 +52,20 @@ export function BarreOutilsCarte(p: PropsBarreOutils) {
       )}
 
       <MenuMesures {...p} mesureActive={mesureActive} />
+
+      {/* L'application mobile terrain est a portee de clic : APK natif en telechargement
+          direct (fichier porte par nginx, voir docker-compose.yml), et la PWA reste la
+          voie recommendee — le title le dit. Visible de tous, y compris LECTEUR : un
+          agent de terrain qui n'ecrit pas a autant besoin de la carte dans sa poche. */}
+      <a
+        href="/mobile/bdri-console-terrain.apk"
+        download
+        aria-label="Télécharger l'application mobile (Android)"
+        title="Application mobile terrain (Android) — télécharger l'APK. Sur téléphone, la voie la plus simple reste « Ajouter à l'écran d'accueil » (PWA, toujours à jour)."
+        className={BOUTON}
+      >
+        <Smartphone className="h-4 w-4" aria-hidden="true" />
+      </a>
 
       <div className={GROUPE}>
         <button type="button" onClick={p.onPartager} aria-label={p.copie ? "Lien copié" : "Partager la vue"} title="Partager la vue (copie un lien)" className={BOUTON}>

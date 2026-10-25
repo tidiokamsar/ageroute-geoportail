@@ -28,7 +28,11 @@ set -euo pipefail
 COMMIT="${1:-}"
 SHA_ATTENDU="${2:-}"
 ARCHIVE_LOCALE="${3:-}"
-ATTENDUES_EN_ATTENTE=3
+ATTENDUES_EN_ATTENTE=0
+# Seuil de disque libre en %. Defaut 15. L'operateur peut le passer consciemment
+# (ex. SEUIL_DISQUE=13) quand il a verifie le besoin transient du build (~1,6 Go :
+# dump, code-avant, couches d'image) et que l'arrondi de df arrete a tort.
+SEUIL_DISQUE="${SEUIL_DISQUE:-15}"
 PREMIERE_EN_ATTENTE="20261026300000_plans_pluriannuels"
 DEPOT="tidiokamsar/ageroute-geoportail"
 HORODATAGE="$(date +%Y%m%d-%H%M%S)"
@@ -68,7 +72,7 @@ vert "sauvegarde ${DUMP} : ${TAILLE} octets, ${ENTREES} entrees lisibles par pg_
 etape "3. Espace disque"
 OCCUPE=$(df -P / | awk 'NR==2 { gsub("%", "", $5); print $5 }')
 LIBRE=$((100 - OCCUPE))
-[ "$LIBRE" -gt 15 ] || arret "${LIBRE} % libres seulement : lancer d'abord 'docker builder prune' (JAMAIS 'docker volume prune')"
+[ "$LIBRE" -gt "$SEUIL_DISQUE" ] || arret "${LIBRE} % libres seulement (seuil ${SEUIL_DISQUE}) : lancer d'abord 'docker builder prune' (JAMAIS 'docker volume prune')"
 vert "${LIBRE} % libres"
 
 # ---------------------------------------------------------------------------------------------
@@ -111,7 +115,9 @@ comm -13 "${SAUVEGARDES}/appliquees.txt" "${SAUVEGARDES}/locales.txt" > "${SAUVE
 EN_ATTENTE=$(wc -l < "${SAUVEGARDES}/en-attente.txt")
 [ "$ORPHELINES" -eq 0 ] || arret "${ORPHELINES} migration(s) appliquee(s) sans dossier dans l'archive (voir ${SAUVEGARDES})"
 [ "$EN_ATTENTE" -eq "$ATTENDUES_EN_ATTENTE" ] || arret "${EN_ATTENTE} migrations en attente au lieu de ${ATTENDUES_EN_ATTENTE} (voir ${SAUVEGARDES}/en-attente.txt)"
-[ "$(head -1 "${SAUVEGARDES}/en-attente.txt")" = "$PREMIERE_EN_ATTENTE" ] || arret "la premiere migration en attente n'est pas ${PREMIERE_EN_ATTENTE}"
+if [ "$EN_ATTENTE" -gt 0 ]; then
+  [ "$(head -1 "${SAUVEGARDES}/en-attente.txt")" = "$PREMIERE_EN_ATTENTE" ] || arret "la premiere migration en attente n'est pas ${PREMIERE_EN_ATTENTE}"
+fi
 vert "$(wc -l < "${SAUVEGARDES}/appliquees.txt") appliquees, ${EN_ATTENTE} en attente, 0 orpheline, 0 inachevee"
 
 # ---------------------------------------------------------------------------------------------
