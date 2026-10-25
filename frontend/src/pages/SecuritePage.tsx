@@ -8,6 +8,7 @@ import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { toast } from "../lib/toast";
 import { parseApiError } from "../lib/errors";
+import { lireInfoApk, telechargerApk } from "../lib/apkMobile";
 import type { User } from "../types";
 
 export function SecuritePage() {
@@ -17,6 +18,8 @@ export function SecuritePage() {
   const [confirmCode, setConfirmCode] = useState("");
   const [disablePassword, setDisablePassword] = useState("");
   const [showDisableForm, setShowDisableForm] = useState(false);
+
+  const { data: infoApk } = useQuery({ queryKey: ["mobile", "apk", "info"], queryFn: lireInfoApk, staleTime: 5 * 60_000 });
 
   const { data: me, isLoading } = useQuery({
     queryKey: ["auth", "me"],
@@ -86,15 +89,23 @@ export function SecuritePage() {
                 </li>
                 <li>
                   <span className="font-medium">APK — installation directe :</span>{" "}
-                  <a
-                    href="/mobile/bdri-console-terrain.apk"
-                    download
-                    className="font-semibold text-navy underline hover:text-navy/70"
+                  <button
+                    type="button"
+                    onClick={() => { void telechargerApk(); }}
+                    disabled={infoApk?.disponible === false}
+                    className="font-semibold text-navy underline hover:text-navy/70 disabled:cursor-not-allowed disabled:text-gray-500 disabled:no-underline"
                   >
                     télécharger bdri-console-terrain.apk
-                  </a>{" "}
-                  puis l'ouvrir sur le téléphone (autoriser « sources inconnues »). Version debug ;
+                  </button>{" "}
+                  (réservé aux comptes connectés) puis l'ouvrir sur le téléphone (autoriser « sources inconnues »).
+                  <strong> Version de test (debug), non signée par une clé AGEROUTE</strong> : à réserver aux essais ;
                   la version signée suivra la procédure de diffusion.
+                  {infoApk?.disponible === false && <span className="block text-amber-800"> Non publiée sur ce serveur pour le moment.</span>}
+                  {infoApk?.sha256 && (
+                    <span className="mt-1 block break-all font-mono text-[11px] text-gray-600">
+                      Empreinte SHA-256 à comparer avec celle communiquée par la DSI : {infoApk.sha256}
+                    </span>
+                  )}
                 </li>
               </ol>
             </div>

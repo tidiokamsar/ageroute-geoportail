@@ -25,6 +25,7 @@ export const VILLES: Ville[] = [
   { nom: "Boffa", lat: 10.18, lon: -13.03, region: "Boké" },
   { nom: "Fria", lat: 10.37, lon: -13.68, region: "Boké" },
   { nom: "Gaoual", lat: 11.75, lon: -14.22, region: "Boké" },
+  { nom: "Sangarédi", lat: 11.10, lon: -13.77, region: "Boké" }, // 11°06′N 13°46′W (Wikipédia, vérifié le 25/10/2026)
   { nom: "Koundara", lat: 12.34, lon: -13.31, region: "Boké" },
   { nom: "Kindia", lat: 10.06, lon: -12.86, region: "Kindia" },
   { nom: "Coyah", lat: 9.71, lon: -13.39, region: "Kindia" },

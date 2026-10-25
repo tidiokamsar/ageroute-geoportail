@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
@@ -46,5 +46,24 @@ describe("reprise refusée (phase 1 SMART FIELD)", () => {
 
     // Le stockage n'a pas été vidé par la simple consultation.
     expect(await stockageBrut.toutes()).toHaveLength(1);
+  });
+
+  it("« Effacer ce journal » demande une confirmation : « Non » le garde, « Oui » l'efface", async () => {
+    const { stockageBrut } = (await import("../lib/roulageHote")) as unknown as {
+      stockageBrut: { ajouter: (e: unknown) => void; toutes: () => Promise<unknown[]> };
+    };
+    stockageBrut.ajouter({ seq: 2, type: "PAUSE", tMs: Date.now(), sessionId: "s-y", details: {} });
+    const avant = (await stockageBrut.toutes()).length;
+    render(<MemoryRouter><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><EnregistrementRoulagePage /></QueryClientProvider></MemoryRouter>);
+    fireEvent.click(await screen.findByRole("button", { name: /Effacer ce journal/ }));
+    const dialogue = await screen.findByRole("alertdialog");
+    expect(dialogue).toHaveTextContent(/sans retour possible/);
+    expect((await stockageBrut.toutes()).length).toBe(avant);
+    fireEvent.click(screen.getByRole("button", { name: /Non, le garder/ }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect((await stockageBrut.toutes()).length).toBe(avant);
+    fireEvent.click(screen.getByRole("button", { name: /Effacer ce journal/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Oui, effacer/ }));
+    await waitFor(async () => expect(await stockageBrut.toutes()).toHaveLength(0));
   });
 });

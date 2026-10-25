@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
+import { chargerChemin, cleChemin } from "../lib/cheminVilles";
 import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, GeoJSON, Tooltip, ZoomControl, useMap, useMapEvents } from "react-leaflet";
 import type { Layer } from "leaflet";
 import type { Feature, Geometry } from "geojson";
@@ -459,6 +460,19 @@ export function GeoportailPage() {
     }
   }, [selectKind, selectId, troncons, ouvrages, pointsNoirs, postes, chantiers]);
 
+  // Deux villes : la ROUTE entre elles (plus court chemin sur le reseau, cote serveur), pas la bande de 20 km autour de la droite
+  // (qui ramenait aussi les routes voisines). Tant que la route n'est pas calculee, ou si le referentiel est interrompu entre
+  // les deux villes, la bande reste affichee a titre APPROXIMATIF, dit comme tel, et aucune action de masse n'est proposee.
+  const cheminVille = useQuery({
+    queryKey: villeFiltre?.b ? cleChemin(villeFiltre.a, villeFiltre.b) : ["chemin-villes", "vide"],
+    queryFn: () => chargerChemin(villeFiltre!.a, villeFiltre!.b!),
+    enabled: Boolean(villeFiltre?.b),
+    retry: false,
+    staleTime: 60_000,
+  });
+  const idsChemin = useMemo(() => (cheminVille.data ? new Set(cheminVille.data.troncons.map((t) => t.id)) : null), [cheminVille.data]);
+  const routeExacte = Boolean(villeFiltre?.b && idsChemin);
+
   const filteredTroncons = useMemo(
     () =>
       (troncons ?? []).filter(
@@ -466,9 +480,9 @@ export function GeoportailPage() {
           (!regionFilter || t.region === regionFilter) &&
           (!etatFilter || t.etat === etatFilter) &&
           classeFilter[t.classe] !== false &&
-          (!villeFiltre || tronconDansFiltre(t.geometry, villeFiltre))
+          (!villeFiltre || (idsChemin && villeFiltre.b ? idsChemin.has(t.id) : tronconDansFiltre(t.geometry, villeFiltre)))
       ),
-    [troncons, regionFilter, etatFilter, classeFilter, villeFiltre]
+    [troncons, regionFilter, etatFilter, classeFilter, villeFiltre, idsChemin]
   );
 
   const alertTroncons = useMemo(
@@ -897,10 +911,16 @@ export function GeoportailPage() {
           >
             <MapPin className="h-3 w-3" />
             {villeFiltre.a.nom}{villeFiltre.b ? ` ↔ ${villeFiltre.b.nom}` : " (20 km)"} — {filteredTroncons.length} tronçon(s)
+            {villeFiltre.b && (routeExacte ? " · route" : cheminVille.isLoading ? " · calcul…" : " · approximatif")}
             <X className="h-3 w-3" />
           </button>
         )}
-        {villeFiltre && canWrite(user?.role) && filteredTroncons.length > 0 && (
+        {villeFiltre && villeFiltre.b && !routeExacte && !cheminVille.isLoading && (
+          <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+            {cheminVille.error instanceof Error ? cheminVille.error.message : "Route non calculée."} Les tronçons affichés sont ceux proches de la droite entre les deux villes (approximatif) : le changement d'état en masse n'est pas proposé.
+          </p>
+        )}
+        {villeFiltre && canWrite(user?.role) && filteredTroncons.length > 0 && (!villeFiltre.b || routeExacte) && (
           <ChangerEtatCorridor
             ids={filteredTroncons.map((t) => t.id)}
             libelle={`${villeFiltre.a.nom}${villeFiltre.b ? ` ↔ ${villeFiltre.b.nom}` : ""}`}
@@ -1468,7 +1488,7 @@ export function GeoportailPage() {
 
           {coucheVisible(focus, layers, "troncons") && (
             <GeoJSON
-              key={`troncons-${focus ? `seul-${focus.id}` : "tous"}-${curseur.actif ? "ref" : "etat"}-${tronconsFeatureCollection.features.length}-${regionFilter}-${etatFilter}-${Object.values(classeFilter).join("")}-${villeFiltre ? `${villeFiltre.a.nom}-${villeFiltre.b?.nom ?? ""}` : ""}`}
+              key={`troncons-${focus ? `seul-${focus.id}` : "tous"}-${curseur.actif ? "ref" : "etat"}-${tronconsFeatureCollection.features.length}-${regionFilter}-${etatFilter}-${Object.values(classeFilter).join("")}-${villeFiltre ? `${villeFiltre.a.nom}-${villeFiltre.b?.nom ?? ""}-${routeExacte ? "route" : "bande"}` : ""}`}
               data={tronconsFeatureCollection}
               style={(feature) => {
                 // Curseur temporel allume : le troncon n'est plus qu'un TRACE DE REFERENCE gris.

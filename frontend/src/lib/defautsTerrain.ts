@@ -22,7 +22,14 @@ export interface ReferentielsDefautsTerrain {
   catalogue: TypeCatalogueDefaut[];
   tronconsEnCache: boolean;
   catalogueEnCache: boolean;
+  /** Total annonce par le serveur, ou `null` s'il ne l'a pas donne. */
+  tronconsTotal?: number | null;
+  /** Vrai si le pack n'a pas tout : plafond de pages atteint, ou copie locale refusee par le navigateur. Jamais passe sous silence. */
+  tronconsIncomplets?: boolean;
 }
+
+/** Plafond de securite du nombre de pages (200 par page : 20 000 troncons). Au-dela, le pack se dit INCOMPLET. */
+const PAGES_MAX = 100;
 
 const CACHE_TERRAIN = "bdri_terrain_referentiels";
 const CACHE_CATALOGUE = "bdri_terrain_catalogue_defauts";
@@ -36,11 +43,13 @@ function lireCache<T>(key: string, fallback: T): T {
   }
 }
 
-function ecrireCache(key: string, value: unknown): void {
+/** Vrai si la copie a ete ecrite. Faux (quota, mode prive) : le formulaire reste utilisable en ligne, mais le pack n'est PAS sur l'appareil. */
+function ecrireCache(key: string, value: unknown): boolean {
   try {
     localStorage.setItem(key, JSON.stringify(value));
+    return true;
   } catch {
-    // Le formulaire reste utilisable en ligne si le navigateur refuse le stockage.
+    return false;
   }
 }
 
@@ -54,8 +63,10 @@ export async function chargerReferentielsDefautsTerrain(): Promise<ReferentielsD
   let catalogue = lireCache<TypeCatalogueDefaut[]>(CACHE_CATALOGUE, []);
   let tronconsEnCache = troncons.length > 0;
   let catalogueEnCache = catalogue.length > 0;
+  let tronconsTotal: number | null = (cachedTerrain as { tronconsTotal?: number | null }).tronconsTotal ?? null;
+  let tronconsIncomplets = tronconsTotal !== null && troncons.length < tronconsTotal;
 
-  if (!navigator.onLine) return { troncons, catalogue, tronconsEnCache, catalogueEnCache };
+  if (!navigator.onLine) return { troncons, catalogue, tronconsEnCache, catalogueEnCache, tronconsTotal, tronconsIncomplets };
 
   const [tronconsResult, catalogueResult] = await Promise.allSettled([
     api.get("/troncons", { params: { pageSize: 200, sortBy: "code", sortDir: "asc" } }),
@@ -63,21 +74,26 @@ export async function chargerReferentielsDefautsTerrain(): Promise<ReferentielsD
   ]);
 
   if (tronconsResult.status === "fulfilled") {
-    // Pack de mission COMPLET (phase 2 SMART FIELD) : le reseau porte ~1 580 troncons,
-    // une seule page de 200 en privait l'agent hors ligne de 87 % du referentiel. On
-    // descend toutes les pages (plafond de securite 12 pages = 2 400).
-    let rows: Array<{ id: string; code: string; nom: string }> = tronconsResult.value.data.data ?? [];
+    // Pack de mission COMPLET (phase 2 SMART FIELD) : toutes les pages, jusqu'au total annonce par le serveur. Un plafond
+    // de securite existe (PAGES_MAX) ; s'il est atteint, ou si le navigateur refuse la copie, le pack est dit INCOMPLET.
+    const premiere = tronconsResult.value.data as { data?: Array<{ id: string; code: string; nom: string }>; total?: number };
+    let rows: Array<{ id: string; code: string; nom: string }> = premiere.data ?? [];
+    const total = typeof premiere.total === "number" ? premiere.total : null;
     let page = 1;
-    while (rows.length >= 200 && page < 12) {
+    let derniereComplete = rows.length >= 200;
+    while (page < PAGES_MAX && (total !== null ? rows.length < total : derniereComplete)) {
       page += 1;
       const suivante = await api.get<{ data: Array<{ id: string; code: string; nom: string }> }>("/troncons", { params: { pageSize: 200, page, sortBy: "code", sortDir: "asc" } });
       const lot: Array<{ id: string; code: string; nom: string }> = suivante.data.data ?? [];
       rows = rows.concat(lot);
-      if (lot.length < 200) break;
+      derniereComplete = lot.length >= 200;
+      if (lot.length === 0) break;
     }
     troncons = rows.map((t) => ({ id: t.id, code: t.code, nom: t.nom }));
-    ecrireCache(CACHE_TERRAIN, { ...cachedTerrain, troncons, cachedAt: new Date().toISOString() });
-    tronconsEnCache = troncons.length > 0;
+    const copie = ecrireCache(CACHE_TERRAIN, { ...cachedTerrain, troncons, tronconsTotal: total, cachedAt: new Date().toISOString() });
+    tronconsEnCache = copie && troncons.length > 0;
+    tronconsTotal = total;
+    tronconsIncomplets = !copie || (total !== null ? troncons.length < total : derniereComplete);
   }
 
   if (catalogueResult.status === "fulfilled") {
@@ -90,17 +106,17 @@ export async function chargerReferentielsDefautsTerrain(): Promise<ReferentielsD
     }
   }
 
-  return { troncons, catalogue, tronconsEnCache, catalogueEnCache };
+  return { troncons, catalogue, tronconsEnCache, catalogueEnCache, tronconsTotal, tronconsIncomplets };
 }
 
 /** 
  * Etat du PACK DE MISSION sans rien telecharger : ce qui est deja sur le telephone, avec
  * sa fraicheur. C'est ce que la checklist « Preparer la mission » affiche avant le depart.
  */
-export interface EtatPack { troncons: number; catalogue: number; tronconsLe: string | null; catalogueLe: string | null }
+export interface EtatPack { troncons: number; catalogue: number; tronconsLe: string | null; catalogueLe: string | null; tronconsTotal: number | null; tronconsIncomplets: boolean }
 
 export function etatPackMission(): EtatPack {
-  const terrain = lireCache<{ troncons?: TronconTerrain[]; cachedAt?: string }>(CACHE_TERRAIN, {});
+  const terrain = lireCache<{ troncons?: TronconTerrain[]; cachedAt?: string; tronconsTotal?: number | null }>(CACHE_TERRAIN, {});
   const catalogue = lireCache<TypeCatalogueDefaut[]>(CACHE_CATALOGUE, []);
   const catalogueLe = lireCache<{ cachedAt?: string }>(CACHE_CATALOGUE + "_at", {}).cachedAt ?? null;
   return {
@@ -108,5 +124,8 @@ export function etatPackMission(): EtatPack {
     catalogue: Array.isArray(catalogue) ? catalogue.length : 0,
     tronconsLe: terrain.cachedAt ?? null,
     catalogueLe,
+    tronconsTotal: terrain.tronconsTotal ?? null,
+    // Incomplet : le serveur annoncait plus de troncons que la copie n'en porte.
+    tronconsIncomplets: typeof terrain.tronconsTotal === "number" && Array.isArray(terrain.troncons) && terrain.troncons.length < terrain.tronconsTotal,
   };
 }

@@ -3,6 +3,8 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
 import { prisma } from "../lib/prisma";
+import { cheminEntrePoints, RefusChemin } from "../geo/chemin.service";
+import { EmpriseTropLarge } from "../geo/graphe.depot";
 
 /**
  * `/api/v2/troncons/recherche` — trouver un tronçon SANS connaître son nom.
@@ -83,4 +85,32 @@ rechercheV2Router.get("/", async (req, res, next) => {
     `;
     res.json({ data: lignes });
   } catch (err) { next(err); }
+});
+
+/**
+ * `GET /api/v2/troncons-recherche/chemin` : les troncons d'une ROUTE entre deux endroits, dans l'ordre (voir
+ * `geo/chemin.service.ts`). Le client resout deux villes en positions avec sa liste locale (decision D4) ; le serveur suit le
+ * reseau, pas la droite. Lecture seule. Aucun chemin continu : 422 `AUCUN_CHEMIN`, jamais une ligne droite.
+ */
+const paramsChemin = z.object({
+  deLat: z.coerce.number().min(-90).max(90),
+  deLon: z.coerce.number().min(-180).max(180),
+  versLat: z.coerce.number().min(-90).max(90),
+  versLon: z.coerce.number().min(-180).max(180),
+  tolerance: z.coerce.number().positive().max(50).optional(),
+}).strict();
+
+rechercheV2Router.get("/chemin", async (req, res, next) => {
+  const p = paramsChemin.safeParse(req.query);
+  if (!p.success) {
+    res.status(400).json({ error: "parametres invalides : deLat, deLon, versLat, versLon (degres), tolerance (m, <= 50, facultative)", details: p.error.flatten().fieldErrors });
+    return;
+  }
+  try {
+    res.json(await cheminEntrePoints(prisma, { lat: p.data.deLat, lon: p.data.deLon }, { lat: p.data.versLat, lon: p.data.versLon }, { toleranceFusionM: p.data.tolerance }));
+  } catch (err) {
+    if (err instanceof RefusChemin) { res.status(err.http).json({ error: err.message, code: err.code }); return; }
+    if (err instanceof EmpriseTropLarge) { res.status(422).json({ error: err.message, code: "EMPRISE_TROP_LARGE" }); return; }
+    next(err);
+  }
 });

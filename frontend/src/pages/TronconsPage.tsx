@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Route } from "lucide-react";
 import { EntityListPage, FilterSelect } from "./EntityListPage";
 import { TronconFicheModal } from "../components/TronconFicheModal";
+import { RouteEntreVilles } from "../components/RouteEntreVilles";
 import { EtatBadge } from "../components/ui/Badge";
 import { api } from "../lib/api";
 import { tronconFields } from "../lib/fieldConfigs";
@@ -227,6 +228,7 @@ export function TronconsPage() {
       extraParams={{ region: regionFilter || undefined, etat: etatFilter || undefined, type: classeFilter || undefined }}
       rowFilter={pkManquantOnly ? (t) => t.pkDebut === 0 && t.pkFin === 0 : undefined}
       onRowsLoaded={setPageRows}
+      aboveList={<RouteEntreVilles />}
       filters={
         <>
           <FilterSelect value={regionFilter} onChange={setRegion}>
