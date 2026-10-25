@@ -334,14 +334,53 @@ function toNumber(v: unknown): number | undefined {
   return isNaN(n) ? undefined : n;
 }
 
-async function importXlsx(buffer: Buffer, userId: string): Promise<ImportReport> {
+/** Champs comparés pour dire si une ligne d'import CHANGE un tronçon existant, et quoi. */
+const CHAMPS_IMPORT = ["nom", "classe", "regionId", "longueurKm", "revetement", "etat", "pkDebut", "pkFin", "traficMoyenJma"] as const;
+
+export interface LigneImport {
+  row: number;
+  code: string;
+  action: "CREER" | "METTRE_A_JOUR" | "INCHANGE" | "ERREUR";
+  /** Pour une mise a jour : chaque champ qui change, avec sa valeur actuelle et la nouvelle. */
+  changements?: { champ: string; actuelle: unknown; nouvelle: unknown }[];
+  message?: string;
+}
+
+export interface RapportImportTroncons extends ImportReport {
+  simulation: boolean;
+  /** Creations seulement (avant ce lot, les mises a jour etaient comptees ici). */
+  created: number;
+  updated: number;
+  unchanged: number;
+  /** Signalements qui n'empechent pas l'import : doublon potentiel par nom et region. */
+  avertissements: { row: number; message: string }[];
+  lignes: LigneImport[];
+}
+
+/**
+ * IMPORT XLSX DES TRONÇONS, SIMULABLE ET REJOUABLE (BDRI, lot H).
+ *
+ * `simulation` : chaque ligne est verifiee et classee (creer, mettre a jour avec la liste des champs qui changent,
+ * inchangee, erreur) SANS RIEN ECRIRE. L'import reel fait le meme examen et :
+ *   - n'ecrit pas une ligne inchangee : rejouer le meme fichier ne cree ni ne modifie rien ;
+ *   - refuse les MISES A JOUR de troncons existants sans `confirmer` (la simulation les a montrees) ;
+ *   - refuse un code present deux fois dans le fichier (laquelle des deux lignes croire ?) ;
+ *   - signale, sans bloquer, un nom deja porte dans la meme region par un autre code (doublon potentiel).
+ * Les identifiants existants sont conserves : la cle d'import est le `code`, l'`id` ne change jamais.
+ */
+async function importXlsx(buffer: Buffer, userId: string, options: { simulation?: boolean; confirmer?: boolean } = {}): Promise<RapportImportTroncons> {
   const rows = await parseImportBuffer(buffer);
-  const report: ImportReport = { created: 0, errors: [] };
+  const report: RapportImportTroncons = { simulation: options.simulation === true, created: 0, updated: 0, unchanged: 0, errors: [], avertissements: [], lignes: [] };
+  const codes = new Map<string, number>();
+  const prets: { rowNum: number; payload: TronconCreateInput; existantId: string | null }[] = [];
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i] as Record<string, unknown>;
     const rowNum = i + 2; // ligne Excel reelle (entete = ligne 1)
+    const codeBrut = String(row["Code"] ?? "").trim();
     try {
+      if (codeBrut && codes.has(codeBrut)) throw new Error(`Code ${codeBrut} déjà présent ligne ${codes.get(codeBrut)} du fichier : laquelle croire ? Corriger le fichier.`);
+      if (codeBrut) codes.set(codeBrut, rowNum);
       const regionId = await resolveRegionId(String(row["Région"] ?? ""));
       if (!regionId) throw new Error(`Région "${row["Région"]}" introuvable`);
 
@@ -359,11 +398,51 @@ async function importXlsx(buffer: Buffer, userId: string): Promise<ImportReport>
       });
 
       const existing = await prisma.troncon.findUnique({ where: { code: payload.code } });
-      if (existing) await base.update(existing.id, payload, userId);
-      else await base.create(payload, userId);
-      report.created++;
+      if (existing?.deletedAt) throw new Error(`Le tronçon ${payload.code} est archivé : le restaurer avant de l'importer (l'import ne fait renaître aucune donnée archivée).`);
+      if (existing) {
+        const changements = CHAMPS_IMPORT
+          .filter((c) => payload[c] !== undefined && payload[c] !== (existing as Record<string, unknown>)[c])
+          .map((c) => ({ champ: c, actuelle: (existing as Record<string, unknown>)[c], nouvelle: payload[c] }));
+        if (changements.length === 0) {
+          report.unchanged++;
+          report.lignes.push({ row: rowNum, code: payload.code, action: "INCHANGE" });
+          continue;
+        }
+        report.lignes.push({ row: rowNum, code: payload.code, action: "METTRE_A_JOUR", changements });
+      } else {
+        const homonyme = await prisma.troncon.findFirst({
+          where: { deletedAt: null, regionId: payload.regionId, nom: { equals: payload.nom, mode: "insensitive" } },
+          select: { code: true },
+        });
+        if (homonyme) report.avertissements.push({ row: rowNum, message: `Doublon potentiel : le nom « ${payload.nom} » est déjà porté dans cette région par ${homonyme.code}. Un nom identique n'est pas une preuve ; vérifier avant d'importer.` });
+        report.lignes.push({ row: rowNum, code: payload.code, action: "CREER" });
+      }
+      prets.push({ rowNum, payload, existantId: existing?.id ?? null });
     } catch (err) {
-      report.errors.push({ row: rowNum, message: formatImportError(err) });
+      const message = formatImportError(err);
+      report.errors.push({ row: rowNum, message });
+      report.lignes.push({ row: rowNum, code: codeBrut, action: "ERREUR", message });
+    }
+  }
+
+  const misesAJour = prets.filter((p) => p.existantId).length;
+  if (report.simulation) {
+    report.created = prets.length - misesAJour;
+    report.updated = misesAJour;
+    return report;
+  }
+  if (misesAJour > 0 && options.confirmer !== true) {
+    throw new ApiError(409, `${misesAJour} tronçon(s) existant(s) seraient modifiés : simuler l'import, vérifier les changements, puis confirmer. Rien n'a été écrit.`);
+  }
+  for (const p of prets) {
+    try {
+      if (p.existantId) { await base.update(p.existantId, p.payload, userId); report.updated++; }
+      else { await base.create(p.payload, userId); report.created++; }
+    } catch (err) {
+      const message = formatImportError(err);
+      report.errors.push({ row: p.rowNum, message });
+      const ligne = report.lignes.find((l) => l.row === p.rowNum);
+      if (ligne) { ligne.action = "ERREUR"; ligne.message = message; }
     }
   }
   return report;

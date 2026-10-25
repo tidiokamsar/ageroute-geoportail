@@ -70,7 +70,10 @@ export async function importHandler(req: Request, res: Response, next: NextFunct
   try {
     if (!req.user) throw new ApiError(401, "Authentification requise");
     if (!req.file) throw new ApiError(400, "Fichier manquant");
-    res.json(await tronconsService.importXlsx(req.file.buffer, req.user.id));
+    res.json(await tronconsService.importXlsx(req.file.buffer, req.user.id, {
+      simulation: req.query.simulation === "true",
+      confirmer: req.query.confirmer === "true",
+    }));
   } catch (err) { next(err); }
 }
 

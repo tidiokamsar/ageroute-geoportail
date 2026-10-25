@@ -236,6 +236,7 @@ export function TronconsPage() {
       columns={columns}
       fields={tronconFields}
       importExport
+      importSimulation
       exportTable="troncons"
       auditEntityType="Troncon"
       extraParams={Object.fromEntries(FILTRES.map((k) => [k, filtre(k) || undefined]))}

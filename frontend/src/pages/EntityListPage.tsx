@@ -45,6 +45,8 @@ interface Props<T extends { id: string }> {
   fields: FieldConfig[];
   searchPlaceholder?: string;
   importExport?: boolean;
+  /** Import SIMULÉ avant écriture (le serveur doit accepter `?simulation=true`, comme les tronçons). */
+  importSimulation?: boolean;
   /** Nom de l'entite cote audit_logs (ex "Troncon") pour afficher l'historique. */
   auditEntityType?: string;
   /** Table (liste blanche serveur) pour exporter LA SÉLECTION en CSV / GeoJSON. */
@@ -116,7 +118,7 @@ function ExportSelection({ table, ids, onDone }: { table: string; ids: string[];
   );
 }
 
-export function EntityListPage<T extends { id: string }>({ endpoint, title, columns, fields, searchPlaceholder, importExport, auditEntityType, exportTable, rowExtraActions, filters, extraParams, rowFilter, pageIcon, subtitle, defaultSortBy, headerExtra, children, aboveList, onRowsLoaded }: Props<T>) {
+export function EntityListPage<T extends { id: string }>({ endpoint, title, columns, fields, searchPlaceholder, importExport, importSimulation, auditEntityType, exportTable, rowExtraActions, filters, extraParams, rowFilter, pageIcon, subtitle, defaultSortBy, headerExtra, children, aboveList, onRowsLoaded }: Props<T>) {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [page, setPage] = useState(1);
@@ -321,7 +323,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
             {archived ? "← Actifs" : "Voir les archivés"}
           </Button>
           {!archived && headerExtra}
-          {importExport && !archived && <ImportExportBar endpoint={endpoint} filenamePrefix={endpoint} exportParams={{ search: search || undefined, ...extraParams }} />}
+          {importExport && !archived && <ImportExportBar endpoint={endpoint} filenamePrefix={endpoint} exportParams={{ search: search || undefined, ...extraParams }} simulation={importSimulation} />}
           {!archived && canWrite(user?.role) && (
             <Button
               onClick={() => {
