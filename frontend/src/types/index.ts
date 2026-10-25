@@ -47,6 +47,10 @@ export interface User {
 }
 
 export interface Troncon {
+  /** Rendu par la liste : le tronçon a-t-il un tracé ? (la carte ne montre que ceux qui en ont un) */
+  aGeometrie?: boolean;
+  /** Rendu par la liste : longueur du tracé (géodésique), distincte de la longueur déclarée. */
+  longueurGeometriqueKm?: number | null;
   id: string;
   code: string;
   nom: string;

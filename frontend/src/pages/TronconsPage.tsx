@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Route } from "lucide-react";
+import { AlertTriangle, Route, RotateCcw } from "lucide-react";
 import { EntityListPage, FilterSelect } from "./EntityListPage";
 import { TronconFicheModal } from "../components/TronconFicheModal";
 import { RouteEntreVilles } from "../components/RouteEntreVilles";
+import { SyntheseReferentiel } from "../components/SyntheseReferentiel";
 import { EtatBadge } from "../components/ui/Badge";
 import { api } from "../lib/api";
 import { tronconFields } from "../lib/fieldConfigs";
@@ -116,16 +117,22 @@ function PkCell({ pkDebut, pkFin, onEdit, canEdit }: {
 
 // ── Page : enveloppe EntityListPage (consolidation) ──────────────────────────
 // Spécifique conservé : cellules métier (code technique import, badge segment,
-// pill classe RP/VU/PR, notation PK 1+400), filtre PK manquant (client), fiche
-// tronçon, stats d'axes segmentés. Le lien « Renseigner » du PK manquant cède
-// la place à l'action Modifier standard du tableau.
+// pill classe RP/VU/PR, notation PK 1+400), fiche tronçon, stats d'axes segmentés.
+//
+// LES FILTRES VIVENT DANS L'URL (BDRI, lot B) : ouvrir la carte puis revenir les retrouve, un lien les partage.
+// Ils sont tous SERVEUR, y compris « PK non renseignés » et « sans tracé » : l'ancien filtre PK s'appliquait aux
+// 20 lignes de la page courante et faisait mentir la pagination. L'export reçoit les mêmes filtres.
+
+const FILTRES = ["region", "type", "etat", "revetement", "pk", "geometrie"] as const;
 
 export function TronconsPage() {
   const navigate = useNavigate();
-  const [regionFilter, setRegion] = useState("");
-  const [classeFilter, setClasse] = useState("");
-  const [etatFilter, setEtat] = useState("");
-  const [pkManquantOnly, setPkManquant] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const filtre = (k: (typeof FILTRES)[number]) => params.get(k) ?? "";
+  const changer = (k: (typeof FILTRES)[number]) => (v: string) =>
+    setParams((p) => { const n = new URLSearchParams(p); if (v) n.set(k, v); else n.delete(k); return n; }, { replace: true });
+  const filtresActifs = FILTRES.some((k) => params.get(k));
+  const reinitialiser = () => setParams((p) => { const n = new URLSearchParams(p); FILTRES.forEach((k) => n.delete(k)); return n; }, { replace: true });
   const [ficheId, setFicheId] = useState<string | null>(null);
   const [pageRows, setPageRows] = useState<Troncon[]>([]);
 
@@ -188,9 +195,14 @@ export function TronconsPage() {
     },
     {
       accessorKey: "longueurKm",
-      header: () => <span className="block text-right w-full">Longueur</span>,
+      header: () => <span className="block text-right w-full">Longueur déclarée</span>,
       cell: ({ row: { original: t } }) => (
-        <span className="block text-right text-sm text-gray-600 tabular-nums pr-2">{t.longueurKm.toFixed(1)} km</span>
+        <span className="block text-right text-sm text-gray-600 tabular-nums pr-2">
+          {t.longueurKm > 0 ? `${t.longueurKm.toFixed(1)} km` : "non renseignée"}
+          <span className="block text-[11px] text-gray-500">
+            {t.aGeometrie === false ? "sans tracé" : t.longueurGeometriqueKm != null ? `tracé ${t.longueurGeometriqueKm.toFixed(1)} km` : ""}
+          </span>
+        </span>
       ),
     },
     {
@@ -224,25 +236,34 @@ export function TronconsPage() {
       columns={columns}
       fields={tronconFields}
       importExport
+      exportTable="troncons"
       auditEntityType="Troncon"
-      extraParams={{ region: regionFilter || undefined, etat: etatFilter || undefined, type: classeFilter || undefined }}
-      rowFilter={pkManquantOnly ? (t) => t.pkDebut === 0 && t.pkFin === 0 : undefined}
+      extraParams={Object.fromEntries(FILTRES.map((k) => [k, filtre(k) || undefined]))}
       onRowsLoaded={setPageRows}
-      aboveList={<RouteEntreVilles />}
+      aboveList={
+        <div className="space-y-3">
+          <SyntheseReferentiel
+            regionId={(regions ?? []).find((r) => r.nom === filtre("region"))?.id}
+            onFiltre={(cle, valeur) => changer(cle)(valeur)}
+          />
+          <RouteEntreVilles />
+        </div>
+      }
       filters={
         <>
-          <FilterSelect value={regionFilter} onChange={setRegion}>
+          <FilterSelect label="Région" value={filtre("region")} onChange={changer("region")}>
             <option value="">Toutes les régions</option>
             {(regions ?? []).map((r) => <option key={r.id} value={r.nom}>{r.nom}</option>)}
           </FilterSelect>
-          <FilterSelect value={classeFilter} onChange={setClasse}>
+          <FilterSelect label="Classe" value={filtre("type")} onChange={changer("type")}>
             <option value="">Toutes les classes</option>
             <option value="RN">Route Nationale (RN)</option>
             <option value="RR">Route Préfectorale (RP)</option>
             <option value="RU">Voirie Urbaine (VU)</option>
             <option value="PISTE">Piste Rurale (PR)</option>
+            <option value="NON_CLASSEE">Non classée</option>
           </FilterSelect>
-          <FilterSelect value={etatFilter} onChange={setEtat}>
+          <FilterSelect label="État" value={filtre("etat")} onChange={changer("etat")}>
             <option value="">Tous les états</option>
             <option value="BON">Bon</option>
             <option value="MOYEN">Moyen</option>
@@ -250,18 +271,25 @@ export function TronconsPage() {
             <option value="CRITIQUE">Critique</option>
             <option value="NON_EVALUE">Non évalué</option>
           </FilterSelect>
-          <button
-            onClick={() => setPkManquant((v) => !v)}
-            className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${
-              pkManquantOnly
-                ? "border border-orange-300 bg-orange-100 text-orange-700 font-medium"
-                : "border border-gray-200 bg-white text-gray-600"
-            }`}
-            title="Ne montrer que les tronçons dont le PK n'est pas renseigné"
-          >
-            <AlertTriangle className="inline h-3.5 w-3.5 mr-1 -mt-0.5" />
-            PK manquant
-          </button>
+          <FilterSelect label="Revêtement" value={filtre("revetement")} onChange={changer("revetement")}>
+            <option value="">Tous les revêtements</option>
+            {Object.entries(REVETEMENT_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </FilterSelect>
+          <FilterSelect label="PK" value={filtre("pk")} onChange={changer("pk")}>
+            <option value="">PK : tous</option>
+            <option value="non_renseigne">PK non renseignés</option>
+            <option value="renseigne">PK renseignés</option>
+          </FilterSelect>
+          <FilterSelect label="Tracé" value={filtre("geometrie")} onChange={changer("geometrie")}>
+            <option value="">Tracé : tous</option>
+            <option value="absente">Sans tracé</option>
+            <option value="presente">Avec tracé</option>
+          </FilterSelect>
+          {filtresActifs && (
+            <button type="button" onClick={reinitialiser} className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">
+              <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />Réinitialiser les filtres
+            </button>
+          )}
           {topAxis && (
             <span className="text-xs text-gray-500 self-center ml-1 whitespace-nowrap">
               <span className="text-gray-500 font-medium">{topAxis.axis}</span>
@@ -271,7 +299,7 @@ export function TronconsPage() {
         </>
       }
       rowExtraActions={[
-        { label: "Carte", onClick: (t) => navigate(`/geoportail?select=troncon&id=${t.id}`) },
+        { label: "Carte", onClick: (t) => navigate(`/geoportail?select=troncon&id=${t.id}`), visible: (t) => t.aGeometrie !== false },
       ]}
     >
       {ficheId && (

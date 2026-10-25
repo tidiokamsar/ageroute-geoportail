@@ -66,6 +66,10 @@ export interface TronconListParams extends ListParams {
   region?: string;
   etat?: string;
   classe?: string;
+  revetement?: string;
+  /** « non_renseigne » : PK 0 -> 0, la facon dont l'absence a ete saisie (les colonnes sont obligatoires). */
+  pk?: "non_renseigne" | "renseigne";
+  geometrie?: "absente" | "presente";
   /** Reseau classe par defaut ; "tout" inclut la voirie promue. */
   perimetre?: PerimetreTroncons;
 }
@@ -87,23 +91,71 @@ export type PerimetreTroncons = "reference" | "tout";
  */
 const RESEAU_CLASSE: Prisma.TronconWhereInput = WHERE_RESEAU_CLASSE;
 
-async function list(params: TronconListParams) {
+/**
+ * Identifiants des troncons SANS trace. La geometrie est une colonne `Unsupported` : Prisma ne sait pas la
+ * filtrer, d'ou cette lecture SQL, plafonnee (au-dela, le filtre le dit au lieu de rendre une liste fausse).
+ */
+const PLAFOND_SANS_GEOMETRIE = 50_000;
+async function idsSansGeometrie(): Promise<string[]> {
+  const lignes = await prisma.$queryRaw<{ id: string }[]>`SELECT id FROM troncons WHERE geom IS NULL LIMIT ${PLAFOND_SANS_GEOMETRIE + 1}`;
+  if (lignes.length > PLAFOND_SANS_GEOMETRIE) throw new ApiError(422, "Trop de tronçons sans tracé pour ce filtre : restreignez d'abord par région.");
+  return lignes.map((l) => l.id);
+}
+
+/** Un PK cherche : « 12,5 » ou « 12.5 ». Le texte reste cherche dans le code et le nom. */
+export function pkCherche(search: string): number | null {
+  const t = search.trim();
+  return /^\d{1,4}([.,]\d{1,3})?$/.test(t) ? Number(t.replace(",", ".")) : null;
+}
+
+/** Le filtre de la liste, partage avec l'export : ce qu'on exporte est ce qu'on voit. */
+async function whereListe(params: TronconListParams): Promise<Record<string, unknown>> {
   const where: Record<string, unknown> = { ...params.where };
+  const et: unknown[] = [];
   if (params.region) where.region = { nom: params.region };
   if (params.etat) where.etat = params.etat;
   if (params.classe) where.classe = params.classe;
+  if (params.revetement) where.revetement = params.revetement;
   if (params.search) {
+    const pk = pkCherche(params.search);
     where.OR = [
       { code: { contains: params.search, mode: "insensitive" } },
       { nom: { contains: params.search, mode: "insensitive" } },
+      ...(pk === null ? [] : [{ AND: [{ pkDebut: { lte: pk } }, { pkFin: { gte: pk } }] }]),
     ];
+  }
+  if (params.pk === "non_renseigne") et.push({ pkDebut: 0, pkFin: 0 });
+  if (params.pk === "renseigne") et.push({ NOT: { pkDebut: 0, pkFin: 0 } });
+  if (params.geometrie) {
+    const ids = await idsSansGeometrie();
+    et.push(params.geometrie === "absente" ? { id: { in: ids } } : { id: { notIn: ids } });
   }
   // Par AND et non par OR : `where.OR` porte deja la recherche texte, et fusionner
   // les deux listes rendrait toute la voirie des qu'un utilisateur tape un caractere.
-  if ((params.perimetre ?? "reference") !== "tout") {
-    where.AND = [...((where.AND as unknown[]) ?? []), RESEAU_CLASSE];
-  }
-  return base.list({ ...params, where });
+  if ((params.perimetre ?? "reference") !== "tout") et.push(RESEAU_CLASSE);
+  if (et.length) where.AND = [...((where.AND as unknown[]) ?? []), ...et];
+  return where;
+}
+
+async function list(params: TronconListParams) {
+  const resultat = await base.list({ ...params, where: await whereListe(params) });
+  // Chaque ligne dit si elle a un trace et sa longueur geometrique : la liste ne propose pas « Carte » pour un
+  // troncon que la carte ne peut pas montrer, et ne confond pas longueur declaree et longueur du trace.
+  const lignes = resultat.data as { id: string }[];
+  const ids = lignes.map((t) => t.id);
+  const geo = ids.length === 0 ? [] : await prisma.$queryRaw<{ id: string; a: boolean; km: number | null }[]>`
+    SELECT id, (geom IS NOT NULL) AS a,
+           CASE WHEN geom IS NOT NULL AND ST_IsValid(geom) THEN ST_Length(geom::geography) / 1000.0 END AS km
+      FROM troncons WHERE id = ANY(${ids}::text[])
+  `;
+  const parId = new Map(geo.map((g) => [g.id, g]));
+  return {
+    ...resultat,
+    data: lignes.map((t) => {
+      const g = parId.get(t.id);
+      return { ...t, aGeometrie: g?.a ?? false, longueurGeometriqueKm: g?.km == null ? null : Math.round(Number(g.km) * 1000) / 1000 };
+    }),
+  };
 }
 
 // Estimation "a vol d'oiseau" entre deux troncons (centroides de leurs traces), PAS un
@@ -250,10 +302,8 @@ const PLAFOND_EXPORT = 20_000;
  * `perimetre: "tout"` reste possible pour un appelant qui sait ce qu'il demande, et
  * se heurte alors au plafond plutot qu'a une panne.
  */
-async function exportXlsx({ perimetre = "reference" }: { perimetre?: PerimetreTroncons } = {}): Promise<Buffer> {
-  const where: Prisma.TronconWhereInput = perimetre === "tout"
-    ? { deletedAt: null }
-    : { deletedAt: null, ...RESEAU_CLASSE };
+async function exportXlsx(params: TronconListParams = {}): Promise<Buffer> {
+  const where = { ...(await whereListe(params)), deletedAt: params.archived ? { not: null } : null } as Prisma.TronconWhereInput;
 
   const total = await prisma.troncon.count({ where });
   if (total > PLAFOND_EXPORT) {

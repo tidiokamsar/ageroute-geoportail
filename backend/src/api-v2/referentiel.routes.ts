@@ -9,11 +9,13 @@ import { CODES_REGLES, REGLES, STATUTS, TRANSITIONS } from "../referentiel/regis
 import {
   PLAFOND_GROUPE, RefusRegistre, analyser, annuler, appliquer, decider, detail, exporterCsv, lister, previsualiser,
 } from "../referentiel/registre.service";
+import { synthese } from "../referentiel/synthese.depot";
 
 /**
  * Registre des anomalies du referentiel des troncons (BDRI, lot C) : `/api/v2/referentiel/troncons`.
  *
  *   GET  /regles                          catalogue des regles et transitions (lecture)
+ *   GET  /synthese[?regionId]             tableau de bord du referentiel (lecture)
  *   GET  /anomalies[.csv]                 liste filtree, ou son export CSV (lecture)
  *   GET  /anomalies/:id                   fiche et journal des decisions (lecture)
  *   POST /analyse                         constate et enregistre (idempotent), par region
@@ -47,6 +49,13 @@ const filtres = z.object({
 
 referentielV2Router.get("/regles", (_req, res) => {
   res.json({ regles: CODES_REGLES.map((code) => ({ code, ...REGLES[code] })), statuts: STATUTS, transitions: TRANSITIONS });
+});
+
+referentielV2Router.get("/synthese", async (req, res, next) => {
+  try {
+    const { regionId } = z.object({ regionId: z.coerce.number().int().positive().optional() }).strict().parse(req.query);
+    res.json(await synthese(regionId ?? null));
+  } catch (err) { repondre(err, res, next); }
 });
 
 referentielV2Router.get("/anomalies.csv", async (req, res, next) => {

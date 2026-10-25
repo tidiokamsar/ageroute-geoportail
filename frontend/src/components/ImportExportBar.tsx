@@ -9,7 +9,11 @@ interface ImportReport {
   errors: { row: number; message: string }[];
 }
 
-export function ImportExportBar({ endpoint, filenamePrefix }: { endpoint: string; filenamePrefix: string }) {
+/**
+ * `exportParams` : la recherche et les filtres courants de la liste. Le serveur qui les connait exporte ce qu'on
+ * voit ; celui qui ne les connait pas les ignore et exporte tout, comme avant.
+ */
+export function ImportExportBar({ endpoint, filenamePrefix, exportParams }: { endpoint: string; filenamePrefix: string; exportParams?: Record<string, string | undefined> }) {
   const qc = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -34,7 +38,7 @@ export function ImportExportBar({ endpoint, filenamePrefix }: { endpoint: string
   async function handleExport() {
     setExporting(true);
     try {
-      const res = await api.get(`/${endpoint}/export`, { responseType: "blob" });
+      const res = await api.get(`/${endpoint}/export`, { responseType: "blob", params: exportParams });
       const url = URL.createObjectURL(res.data as Blob);
       const a = document.createElement("a");
       a.href = url;

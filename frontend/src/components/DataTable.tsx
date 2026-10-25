@@ -75,6 +75,7 @@ export function DataTable<T extends { id: string }>({
                 {selectable && (
                   <th className="px-4 py-3 w-8">
                     <Checkbox
+                      aria-label="Sélectionner toutes les lignes de la page"
                       checked={allOnPageSelected}
                       onCheckedChange={onToggleSelectAll}
                     />
@@ -153,6 +154,7 @@ export function DataTable<T extends { id: string }>({
                   {selectable && (
                     <td className="px-4 py-3 w-8" onClick={(e) => e.stopPropagation()}>
                       <Checkbox
+                        aria-label="Sélectionner la ligne"
                         checked={selectedIds!.has(row.original.id)}
                         onCheckedChange={() => onToggleSelect!(row.original.id)}
                       />

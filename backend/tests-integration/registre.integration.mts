@@ -30,6 +30,8 @@ const R = new URL("../src/", pathToFileURL(process.argv[1]).href).href;
 const imp = (p: string) => import(R + p + ".ts");
 const { prisma } = await imp("lib/prisma");
 const reg = await imp("referentiel/registre.service");
+const syn = await imp("referentiel/synthese.depot");
+const { tronconsService } = await imp("modules/troncons/troncons.service");
 
 const require = createRequire(import.meta.url);
 const pg = require("pg");
@@ -161,6 +163,19 @@ async function main() {
   verifier("l'export CSV porte une ligne par anomalie, le libelle et la correction", csv.split("\n").filter(Boolean).length === 1 + (await n(`SELECT count(*)::int AS n FROM anomalies_referentiel`)) && /PK non renseign/.test(csv) && /PV 2024-17/.test(csv));
   const l = await reg.lister({ regionId, statut: "CORRIGEE" });
   verifier("la liste filtre par statut et compte par statut", l.total === 2 && l.data.every((a: { statut: string }) => a.statut === "CORRIGEE") && l.parStatut.REJETEE === 1, l.parStatut);
+
+  // ---- synthese et filtres de la liste, contre la base ----
+  const sy = await syn.synthese(regionId);
+  verifier("synthese : le nombre de troncons est COMPTE (8 actifs du reseau classe, l'archive exclu)", sy.troncons === 8, sy.troncons);
+  verifier("synthese : PK non renseignes, sans trace et trace invalide comptes", sy.completude.pkNonRenseignes === 1 && sy.completude.sansGeometrie === 1 && sy.completude.geometriesInvalides === 1, sy.completude);
+  verifier("synthese : longueur declaree et geometrique distinctes, methode nommee", sy.longueur.declareeKm > sy.longueur.geometriqueKm && sy.longueur.geometriqueKm > 5 && /ST_Length/.test(sy.longueur.methodeGeometrique), sy.longueur);
+  verifier("synthese : ventilation par revetement et compte du registre", sy.parRevetement.some((v: { cle: string; troncons: number }) => v.cle === "NON_RENSEIGNE" && v.troncons === 1) && sy.registre.ouvertes > 0 && sy.registre.doublonsPotentiels >= 2, sy.registre);
+  const sansTrace = await tronconsService.list({ geometrie: "absente", region: "Region integ registre" });
+  verifier("liste : le filtre « sans trace » rend le seul troncon sans geometrie, drapeau aGeometrie faux", sansTrace.data.length === 1 && sansTrace.data[0].id === "T-PK0" && sansTrace.data[0].aGeometrie === false);
+  const parPk = (await tronconsService.list({ search: "5", region: "Region integ registre" })).data.map((t: { id: string }) => t.id);
+  verifier("liste : un PK cherche (5) trouve le troncon dont l'intervalle le contient (T-INV, 2,5 a 7,5) et pas les autres", parPk.includes("T-INV") && !parPk.includes("T-SAIN"), parPk);
+  const avecTrace = await tronconsService.list({ geometrie: "presente", region: "Region integ registre" });
+  verifier("liste : longueur geometrique par ligne, longueur declaree intacte", avecTrace.data.some((t: { id: string; longueurKm: number; longueurGeometriqueKm: number | null }) => t.id === "T-INV" && t.longueurKm === 5 && t.longueurGeometriqueKm !== null && t.longueurGeometriqueKm < 1.2));
 
   verifier("aucun troncon n'a ete supprime ni archive par le registre", (await n(`SELECT count(*)::int AS n FROM troncons`)) === tronconsAvant
     && (await n(`SELECT count(*)::int AS n FROM troncons WHERE "deletedAt" IS NOT NULL`)) === 1);

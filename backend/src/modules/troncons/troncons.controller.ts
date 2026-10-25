@@ -1,21 +1,33 @@
 import type { Request, Response, NextFunction } from "express";
+import { z } from "zod";
 import { tronconsService } from "./troncons.service";
 import { tronconCreateSchema, tronconUpdateSchema, tronconGeomSchema } from "./troncons.schema";
 import { parseListQuery } from "../../lib/list-query";
 import { ApiError } from "../../middleware/error.middleware";
 
+const filtresTroncons = z.object({
+  revetement: z.enum(["BITUME", "TERRE", "LATERITE", "PAVE", "NON_RENSEIGNE"]).optional(),
+  pk: z.enum(["non_renseigne", "renseigne"]).optional(),
+  geometrie: z.enum(["absente", "presente"]).optional(),
+});
+
+/** Les filtres de la liste, lus une fois : la liste et l'export recoivent les memes. */
+function paramsListe(req: Request) {
+  const q = parseListQuery(req);
+  const f = filtresTroncons.parse({ revetement: req.query.revetement, pk: req.query.pk, geometrie: req.query.geometrie });
+  return {
+    page: q.page, pageSize: q.pageSize, sortBy: q.sortBy, sortDir: q.sortDir,
+    search: q.search, region: q.region, etat: q.etat, archived: q.archived, classe: q.type, ...f,
+    // Le reseau classe par defaut. `?perimetre=tout` reste ouvert a l'appelant qui
+    // sait qu'il demande aussi la voirie promue, et le repli sur "reference" vaut
+    // pour toute valeur inconnue : on ne devine pas un perimetre.
+    perimetre: (req.query.perimetre === "tout" ? "tout" : "reference") as "tout" | "reference",
+  };
+}
+
 export async function listHandler(req: Request, res: Response, next: NextFunction) {
   try {
-    const q = parseListQuery(req);
-    const result = await tronconsService.list({
-      page: q.page, pageSize: q.pageSize, sortBy: q.sortBy, sortDir: q.sortDir,
-      search: q.search, region: q.region, etat: q.etat, archived: q.archived, classe: q.type,
-      // Le reseau classe par defaut. `?perimetre=tout` reste ouvert a l'appelant qui
-      // sait qu'il demande aussi la voirie promue, et le repli sur "reference" vaut
-      // pour toute valeur inconnue : on ne devine pas un perimetre.
-      perimetre: req.query.perimetre === "tout" ? "tout" : "reference",
-    });
-    res.json(result);
+    res.json(await tronconsService.list(paramsListe(req)));
   } catch (err) { next(err); }
 }
 
@@ -43,9 +55,11 @@ export async function itineraireHandler(req: Request, res: Response, next: NextF
   } catch (err) { next(err); }
 }
 
-export async function exportHandler(_req: Request, res: Response, next: NextFunction) {
+export async function exportHandler(req: Request, res: Response, next: NextFunction) {
   try {
-    const buffer = await tronconsService.exportXlsx();
+    // L'export suit les filtres de la liste (pas la pagination ni le tri) : on exporte ce qu'on voit.
+    const { page: _page, pageSize: _taille, sortBy: _tri, sortDir: _sens, ...filtres } = paramsListe(req);
+    const buffer = await tronconsService.exportXlsx(filtres);
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     res.setHeader("Content-Disposition", "attachment; filename=troncons.xlsx");
     res.send(buffer);
