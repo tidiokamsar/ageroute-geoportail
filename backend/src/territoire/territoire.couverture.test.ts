@@ -27,6 +27,7 @@ const FICHIERS: Record<string, string | null> = {
   "api-v2/defauts.routes.ts": null,
   "api-v2/observations.routes.ts": null,
   "api-v2/portions.routes.ts": null,
+  "api-v2/referentiel.routes.ts": null,
 };
 
 /** Ecritures qui ne portent sur aucune fiche localisee, ou qui n'ecrivent rien. */
@@ -34,6 +35,7 @@ const EXEMPTIONS: Record<string, string> = {
   "api-v2/defauts.routes.ts POST /catalogue": "le catalogue des types de defaut est national",
   "api-v2/defauts.routes.ts PATCH /catalogue/:code": "idem",
   "api-v2/defauts.routes.ts POST /:id/appariement/suggestion": "calcule une proposition sans rien ecrire ; la confirmation, elle, est gardee",
+  "api-v2/referentiel.routes.ts POST /anomalies/previsualisation": "lit et calcule sans rien ecrire ; l'application, elle, est gardee",
 };
 
 const GESTIONNAIRES_CRUD = /\b(createHandler|updateHandler|deleteHandler|importHandler)\b/;

@@ -45,6 +45,21 @@ export async function regionPortion(id: string): Promise<Region | undefined> {
 
 const liste = (r: Region | undefined): Region[] => (r === undefined ? [] : [r]);
 
+/** Region d'une anomalie du registre du referentiel : celle de son troncon. */
+export async function regionAnomalie(id: string): Promise<Region | undefined> {
+  const a = await prisma.anomalieReferentiel.findUnique({ where: { id }, select: { tronconId: true } });
+  return a ? regionDuTroncon(a.tronconId) : undefined;
+}
+export const territoireAnomalie = requireTerritoire(async (req: Request) => liste(await regionAnomalie(req.params.id)));
+/** Application groupee : TOUTES les regions touchees doivent etre dans le perimetre, sinon rien ne passe. */
+export const territoireAnomaliesGroupe = requireTerritoire(async (req: Request) => {
+  const ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).filter((x): x is string => typeof x === "string").slice(0, 200) : [];
+  const lignes = await prisma.anomalieReferentiel.findMany({ where: { id: { in: ids } }, select: { troncon: { select: { regionId: true } } } });
+  return lignes.map((l) => l.troncon.regionId);
+});
+/** Analyse : la region examinee (null pour une analyse nationale, reservee a l'administrateur par la route). */
+export const territoireAnalyseReferentiel = requireTerritoire(async (req: Request) => [typeof req.body?.regionId === "number" ? req.body.regionId : null]);
+
 /** Creation d'un defaut : son troncon, sinon sa mission, sinon l'observation qui le contient. */
 async function regionCreationDefaut(c: Record<string, unknown>): Promise<Region> {
   const tronconId = texte(c.tronconId); const ouvrageId = texte(c.ouvrageId); const missionId = texte(c.missionId);

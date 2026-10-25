@@ -24,6 +24,7 @@ const sections = [
     title: "PATRIMOINE",
     items: [
       { to: "/troncons", label: "Tronçons routiers" },
+      { to: "/troncons/audit", label: "Audit du référentiel" },
       { to: "/ouvrages", label: "Ouvrages d'art" },
       { to: "/points-noirs", label: "Points noirs" },
       { to: "/postes", label: "Péages / Pesages" },

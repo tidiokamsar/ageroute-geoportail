@@ -4,6 +4,7 @@ import { syncV2Router } from "./sync.routes";
 import { devicesV2Router } from "./devices.routes";
 import { missionsV2Router } from "./missions.routes";
 import { roulageV2Router } from "./roulage.routes";
+import { referentielV2Router } from "./referentiel.routes";
 import { observationsV2Router } from "./observations.routes";
 import { defautsV2Router } from "./defauts.routes";
 import { fieldV2Router } from "./field.routes";
@@ -81,6 +82,7 @@ apiV2Router.use("/sync", syncV2Router);
 apiV2Router.use("/devices", devicesV2Router);
 apiV2Router.use("/missions", missionsV2Router);
 apiV2Router.use("/roulage", roulageV2Router);
+apiV2Router.use("/referentiel/troncons", referentielV2Router);
 apiV2Router.use("/observations", observationsV2Router);
 apiV2Router.use("/defauts", defautsV2Router);
 apiV2Router.use("/field", fieldV2Router);
@@ -121,7 +123,7 @@ apiV2Router.use("/mobile", mobileV2Router);
 apiV2Router.get("/", (_req, res) => {
   res.json({
     version: "v2",
-    domaines: ["geo", "sync", "devices", "missions", "roulage", "observations", "defauts", "field", "portions", "referentiels", "qualite", "reseau", "imports", "exploitation", "teledetection", "programmation", "baremes", "perimetres", "integrations", "tableau-de-bord", "fiche-360", "taches-internes", "correspondances"],
+    domaines: ["geo", "sync", "devices", "missions", "roulage", "referentiel", "observations", "defauts", "field", "portions", "referentiels", "qualite", "reseau", "imports", "exploitation", "teledetection", "programmation", "baremes", "perimetres", "integrations", "tableau-de-bord", "fiche-360", "taches-internes", "correspondances"],
     aVenir: [
       "auth", "tracks",
       "assets", "offline", "intelligence", "ai",

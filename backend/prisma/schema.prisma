@@ -369,6 +369,7 @@ model User {
   propositionsTeledetectionCrees  PropositionTeledetection[] @relation("PtCreateur")
   propositionsTeledetectionJugees PropositionTeledetection[] @relation("PtVerificateur")
   programmesBudgetairesCrees      ProgrammeBudgetaire[]      @relation("ProgrammationAuteur")
+  decisionsAnomalie               DecisionAnomalie[]
 
   @@map("users")
 }
@@ -433,6 +434,8 @@ model Region {
   programmesPatrouille  ProgrammePatrouille[]
 
   astreintes Astreinte[]
+
+  anomaliesReferentiel AnomalieReferentiel[]
 
   @@map("regions")
 }
@@ -513,6 +516,7 @@ model Troncon {
   programmesPatrouille      ProgrammeTroncon[]
   propositionsTeledetection PropositionTeledetection[]
   programmesBudgetaires     ProgrammeBudgetaire[]
+  anomaliesReferentiel      AnomalieReferentiel[]
 
   @@index([regionId])
   @@index([etat])
@@ -3880,4 +3884,54 @@ model PlanPluriannuel {
 
   @@index([anneeDebut, creeLe(sort: Desc)], map: "plans_pluriannuels_debut_idx")
   @@map("plans_pluriannuels")
+}
+
+/// Registre des anomalies du referentiel des troncons (BDRI, lot C). Migration 20261027100000.
+/// Une anomalie est identifiee par (tronconId, regle, empreinte des valeurs observees) : relancer l'analyse
+/// sur des donnees inchangees ne cree rien. Rien n'est supprime : une anomalie qui ne se constate plus recoit
+/// `disparueLe`. Statuts : A_EXAMINER, CORRECTION_PROPOSEE, VALIDEE, REJETEE, CORRIGEE (contrainte en base).
+model AnomalieReferentiel {
+  id                  String    @id @default(uuid())
+  tronconId           String
+  troncon             Troncon   @relation(fields: [tronconId], references: [id], onDelete: Restrict)
+  regle               String
+  empreinte           String
+  gravite             String
+  valeurs             Json
+  source              String
+  statut              String    @default("A_EXAMINER")
+  /// Correction proposee : { champ, ancienne, nouvelle, justification, source }.
+  correction          Json?
+  regionId            Int?
+  region              Region?   @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  detecteeLe          DateTime  @default(now())
+  derniereDetectionLe DateTime  @default(now())
+  disparueLe          DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @default(now()) @updatedAt
+
+  decisions DecisionAnomalie[]
+
+  @@unique([tronconId, regle, empreinte], map: "anomalies_referentiel_troncon_regle_empreinte_key")
+  @@index([statut], map: "anomalies_referentiel_statut_idx")
+  @@index([regle], map: "anomalies_referentiel_regle_idx")
+  @@index([regionId], map: "anomalies_referentiel_region_idx")
+  @@map("anomalies_referentiel")
+}
+
+/// Journal des decisions sur une anomalie, en AJOUT SEUL (declencheur : ni UPDATE ni DELETE).
+model DecisionAnomalie {
+  id          String              @id @default(uuid())
+  anomalieId  String
+  anomalie    AnomalieReferentiel @relation(fields: [anomalieId], references: [id], onDelete: Restrict)
+  statutAvant String?
+  statutApres String
+  commentaire String?
+  correction  Json?
+  auteurId    String
+  auteur      User                @relation(fields: [auteurId], references: [id], onDelete: Restrict)
+  decideLe    DateTime            @default(now())
+
+  @@index([anomalieId, decideLe], map: "decisions_anomalie_anomalie_idx")
+  @@map("decisions_anomalie")
 }
