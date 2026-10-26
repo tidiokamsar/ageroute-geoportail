@@ -3,6 +3,8 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
 import { requireRole } from "../middleware/rbac.middleware";
+import { requireTerritoire } from "../middleware/territoire.middleware";
+import { queryBoolean } from "../lib/list-query";
 import { CORRECTION_PROPOSEE, GRAVITE_PAR_FAMILLE } from "../qualite/anomalies";
 import {
   actifsSansValidation,
@@ -44,7 +46,9 @@ export const qualiteV2Router = Router();
 const requete = z.object({
   regionId: z.coerce.number().int().positive().optional(),
   /** Portee nationale. Coute 20 s, d'ou le geste explicite et le role requis. */
-  national: z.coerce.boolean().optional(),
+  // Pas de z.coerce.boolean() : la chaine "false" y devient `true`, donc `national=false` declencherait le balayage
+  // national (voir lib/list-query.ts).
+  national: queryBoolean,
   /**
    * Seuil de fraicheur des inspections, en jours.
    *
@@ -87,6 +91,14 @@ qualiteV2Router.get(
   // de l'ecran d'administration des droits, donc impossible a retirer a quelqu'un.
   requireModuleAccess("dashboard"),
   requireRole("ADMIN", "GESTIONNAIRE"),
+  // Un compte regional ne demande que sa region : `regionId` est confronte a son perimetre (403 sinon). Un compte
+  // national passe sans lecture. Sans `regionId` (portee nationale), la garde ADMIN plus bas decide.
+  requireTerritoire(async (req) => {
+    const brut = req.query.regionId;
+    if (brut === undefined) return [];
+    const n = Number(brut);
+    return [Number.isInteger(n) && n > 0 ? n : null];
+  }, { nature: "lecture" }),
   async (req, res, next) => {
     try {
       const q = requete.parse(req.query);

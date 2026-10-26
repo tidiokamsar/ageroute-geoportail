@@ -42,6 +42,11 @@ vi.mock("../middleware/rbac.middleware", () => ({
     },
 }));
 
+// Perimetre du compte : national par defaut (comportement d'avant le controle territorial), regional dans les
+// tests dedies. `perimetreDe` est la seule dependance de base de `requireTerritoire`.
+const perimetre = vi.hoisted(() => ({ national: true, regions: new Set<number>() }));
+vi.mock("../territoire/territoire.service", () => ({ perimetreDe: async () => perimetre }));
+
 const h = vi.hoisted(() => ({
   appels: [] as { nom: string; portee: unknown; extra?: unknown }[],
   familles: {} as Record<string, { nombre: number; surTotal: number | null }>,
@@ -78,6 +83,8 @@ function app() {
 }
 
 beforeEach(() => {
+  perimetre.national = true;
+  perimetre.regions = new Set();
   compte.role = "GESTIONNAIRE";
   h.appels.length = 0;
   h.familles = {};
@@ -113,6 +120,44 @@ describe("La portee, qui est une question de cout", () => {
     expect(r.status).toBe(200);
     expect(r.body.portee).toBe("NATIONALE");
     expect(h.appels[0].portee).toEqual({ regionId: null });
+  });
+
+  it("traite national=false comme ABSENT : sans region, la portee est requise (la chaine \"false\" n'est pas vraie)", async () => {
+    // z.coerce.boolean() lisait "false" comme vrai : un ADMIN envoyant national=false declenchait le balayage national.
+    compte.role = "ADMIN";
+    const r = await request(app()).get("/api/v2/qualite/anomalies?national=false");
+    expect(r.status).toBe(400);
+    expect(r.body.motif).toBe("PORTEE_REQUISE");
+    expect(h.appels).toHaveLength(0);
+  });
+
+  it("national=false avec une region : portee regionale", async () => {
+    compte.role = "ADMIN";
+    const r = await request(app()).get("/api/v2/qualite/anomalies?national=false&regionId=7");
+    expect(r.status).toBe(200);
+    expect(r.body.portee).toBe("REGION_7");
+  });
+
+  it("un compte REGIONAL est refuse (403) sur une region hors de son perimetre, accepte sur la sienne", async () => {
+    perimetre.national = false;
+    perimetre.regions = new Set([3]);
+    const hors = await request(app()).get("/api/v2/qualite/anomalies?regionId=7");
+    expect(hors.status).toBe(403);
+    expect(h.appels).toHaveLength(0);
+    const dedans = await request(app()).get("/api/v2/qualite/anomalies?regionId=3");
+    expect(dedans.status).toBe(200);
+    expect(dedans.body.portee).toBe("REGION_3");
+  });
+
+  it("le refus d'une LECTURE hors perimetre ne parle pas d'ecriture (D9, point 7c), et garde son code stable", async () => {
+    perimetre.national = false;
+    perimetre.regions = new Set([3]);
+    const hors = await request(app()).get("/api/v2/qualite/anomalies?regionId=7");
+    expect(hors.body).toEqual({ error: "Cette demande vise une region hors de votre perimetre.", code: "HORS_PERIMETRE" });
+    const invalide = await request(app()).get("/api/v2/qualite/anomalies?regionId=abc");
+    expect(invalide.status).toBe(403);
+    expect(invalide.body.code).toBe("REGION_INCONNUE");
+    expect(JSON.stringify([hors.body, invalide.body])).not.toMatch(/ecri/i);
   });
 
   it("REFUSE un LECTEUR, meme sur une region", async () => {

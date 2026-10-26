@@ -3,6 +3,7 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
 import { prisma } from "../lib/prisma";
+import { queryBoolean } from "../lib/list-query";
 import { verdictDelegation } from "../governance/delegation.service";
 import { dateEffet } from "../reseau/date-effet";
 import { chronologie, lirePortionsALaDate, RefusCurseur, type Emprise } from "../reseau/curseur.service";
@@ -137,7 +138,7 @@ portionsV2Router.get("/", requireAuth, requireModuleAccess("geoportail"), async 
        * versions anterieures ferait apparaitre plusieurs portions sur les memes metres, et
        * un validateur ne saurait plus laquelle trancher.
        */
-      historique: z.coerce.boolean().optional(),
+      historique: queryBoolean,
       limite: z.coerce.number().int().min(1).max(200).optional(),
       curseur: z.string().uuid().optional(),
     }).parse(req.query);
