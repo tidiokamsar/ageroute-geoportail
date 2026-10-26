@@ -18,6 +18,34 @@ modules d'appui (`lib/garde.test.ts`, `lib/verdict.test.ts`).
 - `DATABASE_URL` pointant sur cette base. Les identifiants ne sont jamais écrits dans ces fichiers.
 - Les dépendances du backend installées (`tsx` est une devDependency).
 
+## Bancs qui exigent des migrations récentes
+
+Le banc `eo-workflow` (et le banc `teledetection`, dont le service a changé) exige que les migrations
+`20261028100000_eo_produits_sources`, `20261028110000_eo_propositions_workflow` et
+`20261028120000_eo_qualite_methodes` soient appliquées à la base cible. `replay` n'est **jamais modifiée durablement** par
+ces bancs : pour les lancer avant que `replay` ait reçu ces migrations, passer par un **clone jetable** (`essai_<nom>`,
+accepté par la garde), puis le détruire :
+
+```bash
+# depuis backend/, conteneur bdri-dev-db ; le mot de passe vient de l'environnement du conteneur, il n'est jamais écrit
+docker exec bdri-dev-db psql -U bdri_dev -d postgres -c "CREATE DATABASE essai_eo_workflow TEMPLATE replay"
+for m in 20261028100000_eo_produits_sources 20261028110000_eo_propositions_workflow 20261028120000_eo_qualite_methodes; do
+  docker cp prisma/migrations/$m/migration.sql bdri-dev-db:/tmp/m.sql
+  docker exec bdri-dev-db psql -U bdri_dev -d essai_eo_workflow -X -q -v ON_ERROR_STOP=1 -1 -f /tmp/m.sql
+done
+DATABASE_URL="postgresql://utilisateur:motdepasse@127.0.0.1:5434/essai_eo_workflow" npx tsx tests-integration/eo-workflow.integration.ts
+docker exec bdri-dev-db psql -U bdri_dev -d postgres -c "DROP DATABASE essai_eo_workflow WITH (FORCE)"
+```
+
+Sous Git Bash (Windows), préfixer `MSYS_NO_PATHCONV=1` aux commandes `docker` qui portent un chemin.
+
+Le banc `eo-api` (`eo-api.integration.mts`) crée lui-même son clone `essai_eo_api` à partir de `replay` et y applique les trois migrations ci-dessus
+(`DATABASE_URL` pointe sur `replay`) ; il détruit le clone à la fin :
+
+```bash
+DATABASE_URL="postgresql://utilisateur:motdepasse@127.0.0.1:5434/replay" npx tsx tests-integration/eo-api.integration.mts
+```
+
 ## La garde
 
 `lib/garde.ts` est importé par chaque banc et **termine le processus (code 3)** si la cible n'est pas
@@ -56,6 +84,8 @@ Chaque banc nomme ses vérifications, les compte, et sort en **code 1** si une s
 | `info-route` | transaction annulée | 12 | publication, retrait, bulletin archivé immuable, absence de fuite de texte interne |
 | `patrouilles` | transaction annulée | 10 | programmes, missions, couverture, vérification de signalement, audit |
 | `teledetection` | transaction annulée | 10 | produits, propositions, tolérance, verdict unique, précision, audit |
+| `eo-workflow` | transaction annulée, contraintes différées passées en IMMEDIATE | 138 | **Lot 1 EO-DB** : sources (amorce, jamais « active », échelle d'état, historique), produits (traçabilité, déduplication fournisseur + identifiant, SHA-256, cycle de vie), dépôt (rattachement avec confiance et concurrents contre un **oracle SQL geography**, région dénormalisée, centre calculé, limites obligatoires, synthétique), les **25 couples de transitions** (service ET base), journal exigé par la base dans la même transaction, preuves de terrain, périmètre régional, mission avec région et emprise, taux de confirmation à 0, 1, 2, 29 et 30 verdicts, synthèse comparée aux comptes de la table, **empreintes du référentiel avant/après** (troncons, portions, ouvrages inchangés) |
+| `eo-api` (`.mts`) | clone jetable `essai_eo_api` de `replay` (les trois migrations 20261028* y sont appliquées par le banc), application réelle `createApp`, comptes et périmètres réels en base | 78 | **Lot 1 EO-API** : gardes (sans jeton, jeton forgé, sans la clé de module, lecteur, inspecteur, gestionnaire national et régional, ADMIN), périmètre régional (liste, GeoJSON, synthèse, détail : **même 404** hors périmètre, non rattachée ou inexistante, **même avec un corps invalide**), données synthétiques absentes de toute liste, pagination par curseur, GeoJSON plafonné (`tronque` et `total`), workflow bout en bout avec journal, preuves et verdict définitif, mission de vérification (région nulle si non rattachée, emprise posée), inspecteur limité à sa mission et à ses observations, sources (jamais « active », vérification et synchronisation du catalogue avec un adaptateur **injecté** sur fixtures réelles, **aucun appel réseau**, déduplication, produits sans nuages écartés, aperçu indisponible = 404), entrées hostiles (400, jamais 500, aucune écriture, refus PostGIS traduit), **empreintes du référentiel avant/après** avec témoin, audit des écritures et aucun audit des lectures, indicateur `propositions_a_verifier` et compteur de la veille |
 | `veille` | transaction annulée | 10 | astreintes, escalades idempotentes, tableau de veille, audit |
 | `contour` | transaction annulée | 7 | contour du pays du géoportail : frontière extérieure de l'union des régions de niveau 1 (limite commune disparue, niveau 2 exclu, absent sans limites) |
 | `perf/` | clone jetable, jeu synthétique déterministe de 20 000 ou 261 387 tronçons | 45 | **seuils A15 et A20** mesurés (p50/p95/p99, service et HTTP) ; échoue si un seuil du cahier est dépassé ; `--sans-correctifs` rejoue l'origine pour la contre-épreuve. Méthode : `perf/README.md` ; lancé à part, pas par `run.sh` (durée et charge) |

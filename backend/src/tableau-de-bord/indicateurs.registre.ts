@@ -116,7 +116,7 @@ const SOURCES = {
   mainCourante: { cle: "main_courante", libelle: "main courante", vide: async (d, p) => (await compte(d, Prisma.sql`SELECT count(*)::int AS v FROM (SELECT 1 FROM evenements_exploitation e LEFT JOIN troncons t ON t.id = e."tronconId" WHERE ${dans('t."regionId"', p)} LIMIT 1) s`)) === 0 },
   reglesEscalade: { cle: "regles_escalade", libelle: "règles d'escalade", vide: sourceVideDe('"regles_escalade"') },
   programmesPatrouille: { cle: "programmes_patrouille", libelle: "programmes de patrouille", vide: async (d, p) => (await compte(d, Prisma.sql`SELECT count(*)::int AS v FROM (SELECT 1 FROM programmes_patrouille pp WHERE pp."deletedAt" IS NULL AND ${dans('pp."regionId"', p)} LIMIT 1) s`)) === 0 },
-  propositions: { cle: "propositions_teledetection", libelle: "propositions de télédétection", vide: async (d, p) => (await compte(d, Prisma.sql`SELECT count(*)::int AS v FROM (SELECT 1 FROM propositions_teledetection pt LEFT JOIN troncons t ON t.id = pt."tronconId" WHERE ${dans('t."regionId"', p)} LIMIT 1) s`)) === 0 },
+  propositions: { cle: "propositions_teledetection", libelle: "propositions de télédétection", vide: async (d, p) => (await compte(d, Prisma.sql`SELECT count(*)::int AS v FROM (SELECT 1 FROM propositions_teledetection pt LEFT JOIN troncons t ON t.id = pt."tronconId" WHERE NOT pt.synthetique AND ${dans('t."regionId"', p)} LIMIT 1) s`)) === 0 },
   previsions: { cle: "programmes_budgetaires", libelle: "prévisions budgétaires", vide: async (d, p) => (await compte(d, Prisma.sql`SELECT count(*)::int AS v FROM (SELECT 1 FROM programmes_budgetaires pb LEFT JOIN troncons t ON t.id = pb."tronconId" WHERE pb."deletedAt" IS NULL AND ${dans('t."regionId"', p)} LIMIT 1) s`)) === 0 },
   ouvrages: { cle: "ouvrages", libelle: "ouvrages d'art", vide: async (d, p) => (await compte(d, Prisma.sql`SELECT count(*)::int AS v FROM (SELECT 1 FROM ouvrages o WHERE o."deletedAt" IS NULL AND ${dans('o."regionId"', p)} LIMIT 1) s`)) === 0 },
   pointsNoirs: { cle: "points_noirs", libelle: "points noirs", vide: async (d, p) => (await compte(d, Prisma.sql`SELECT count(*)::int AS v FROM (SELECT 1 FROM points_noirs x WHERE x."deletedAt" IS NULL AND ${dans('x."regionId"', p)} LIMIT 1) s`)) === 0 },
@@ -486,12 +486,13 @@ const teledetection: Definition[] = [
     code: "propositions_a_verifier", libelle: "Propositions de télédétection en attente de verdict", groupe: "teledetection", unite: "nombre", regionalisable: true,
     perimetre: PERIMETRES.PROPOSITIONS_TELEDETECTION, source: SOURCES.propositions,
     calcul: (d, p) => compte(d, Prisma.sql`SELECT count(*)::int AS v FROM propositions_teledetection pt LEFT JOIN troncons t ON t.id = pt."tronconId"
-      WHERE pt.statut = 'A_VERIFIER' AND ${dans('t."regionId"', p)}`),
-    // Autre chemin : toutes les propositions, moins celles qui ont recu un verdict.
+      WHERE pt.statut IN ('A_VERIFIER', 'EN_ATTENTE', 'NON_CONCLUANTE') AND NOT pt.synthetique AND ${dans('t."regionId"', p)}`),
+    // Autre chemin : toutes les propositions reelles, moins celles qui ont recu un verdict (EO-API : une proposition en attente ou non
+    // concluante attend aussi son verdict ; une donnee synthetique n'entre jamais dans un compteur de production).
     controle: async (d, p) => {
       const r = await rangee<{ tout: bigint; jugees: bigint }>(d, Prisma.sql`
         SELECT count(*) AS tout, count(*) FILTER (WHERE pt.statut IN ('CONFIRMEE', 'INFIRMEE')) AS jugees
-          FROM propositions_teledetection pt LEFT JOIN troncons t ON t.id = pt."tronconId" WHERE ${dans('t."regionId"', p)}`);
+          FROM propositions_teledetection pt LEFT JOIN troncons t ON t.id = pt."tronconId" WHERE NOT pt.synthetique AND ${dans('t."regionId"', p)}`);
       return nombre(r?.tout) - nombre(r?.jugees);
     },
   },
