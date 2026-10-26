@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { violationsAccessibilite } from "../test/accessibilite";
@@ -35,6 +35,8 @@ import { VoletPortions, VoletProgrammation } from "../components/Fiche360Volets"
 import { Sidebar } from "../components/layout/Sidebar";
 import { LoginPage } from "./LoginPage";
 import { ImportsPage } from "./ImportsPage";
+import { controle, ETAPES_SANS_CIRCUIT, lotDetail, lotListe, reponseApercu } from "../components/imports/lotsDeTest";
+import type { Etape } from "../components/imports/types";
 import { ReleveVehiculePage } from "./ReleveVehiculePage";
 import { CurseurTemporel } from "./geoportail/CurseurTemporel";
 import type { EtatCouchePortions } from "./geoportail/PortionsDateLayer";
@@ -81,6 +83,38 @@ const CONTROL_TOWER = {
   ],
   nonCouvert: ["Doublons de géométrie : balayage national, non rejoué à chaque rafraîchissement.", "Aucune notification n'est envoyée."],
 };
+
+// Lots d'import : un lot conforme au contrat (en attente, non applique) et un lot rejete avec son motif.
+const META_IMPORT = {
+  formats: [
+    { code: "csv", libelle: "CSV pivot", aide: "Séparateur point-virgule, première ligne = en-tête, UTF-8." },
+    { code: "geojson", libelle: "GeoJSON pivot", aide: "FeatureCollection en WGS 84." },
+  ],
+  tailleMaxOctets: 52428800, limiteLignes: 100000, statuts: ["RECU", "VALIDE_SCHEMA", "IMPORTE_TEST", "IMPORTE", "REJETE"],
+};
+const LOT_CONFORME = lotListe({ id: "l1", reference: "IMP-2026-0001", systemeSource: "ANASUR", nomFichier: "releve.csv", importeLe: "2026-10-20T08:00:00Z" });
+const LOT_REJETE = lotListe({
+  id: "l2", reference: "IMP-2026-0002", systemeSource: "ANASUR", nomFichier: "releve-32628.geojson", format: "geojson", statut: "REJETE",
+  importeLe: "2026-10-21T08:00:00Z", lignesLues: 0, lignesValidees: 0, lignesRejetees: 0, motifRejetLot: "GeoJSON : CRS EPSG:32628 refusé, le pivot impose le SRID 4326",
+});
+// Contrat : pour un lot REJETE, echantillon et import_autorise sont NON_COMMENCEE (pas NON_DISPONIBLE).
+const ETAPES_REJETE: Etape[] = [
+  { id: "reception", titre: "Réception du fichier", etat: "TERMINEE", raison: "Fichier reçu et empreinte calculée." },
+  { id: "controle_schema", titre: "Contrôle du schéma", etat: "ECHEC", raison: "Le fichier n'est pas conforme au contrat." },
+  { id: "echantillon", titre: "Échantillon à valider", etat: "NON_COMMENCEE", raison: "Aucun circuit d'approbation n'existe encore." },
+  { id: "import_autorise", titre: "Import autorisé", etat: "NON_COMMENCEE", raison: "L'écriture au référentiel n'a pas de circuit." },
+];
+// Le detail n'a pas de `motifRejetLot` propre : le motif vit dans `controle`.
+const { motifRejetLot: _motifConforme, ...BASE_CONFORME } = LOT_CONFORME;
+const { motifRejetLot: MOTIF_REJET, ...BASE_REJETE } = LOT_REJETE;
+const DETAIL_CONFORME = lotDetail({ ...BASE_CONFORME, etapes: ETAPES_SANS_CIRCUIT });
+const DETAIL_REJETE = lotDetail({
+  ...BASE_REJETE, etapes: ETAPES_REJETE,
+  controle: controle({
+    motifRejetLot: MOTIF_REJET, compteurs: { lues: 0, validees: 0, rejetees: 0, enConflit: 0, ignorees: 0, importees: 0 },
+    premiersRejets: [], colonnes: null, avertissements: ["Le fichier déclare un autre système de coordonnées."],
+  }),
+});
 
 beforeEach(() => {
   h.get = {
@@ -142,10 +176,14 @@ beforeEach(() => {
     }] },
     "/v2/teledetection/precision": { lignes: [{ type: "INONDATION", methode: "seuil v0", total: 1, aVerifier: 1, confirmees: 0, infirmees: 0, precision: null }] },
     "/v2/teledetection/produits": { produits: [] },
-    "/v2/imports": { lots: [{
-      id: "l1", reference: "IMP-2026-0001", systemeSource: "ANASUR", format: "CSV", nomFichier: "releve.csv", statut: "VALIDE_SCHEMA",
-      importeLe: "2026-10-20T08:00:00Z", lignesLues: 10, lignesValidees: 9, lignesImportees: 0, lignesRejetees: 1, lignesEnConflit: 0, lignesIgnorees: 0,
-    }] },
+    // Lots d'import : liste, formats, sources, details (un lot conforme, un lot rejete) et apercus.
+    "/v2/imports": { lots: [LOT_CONFORME, LOT_REJETE], suivant: null, total: 2 },
+    "/v2/imports/meta": META_IMPORT,
+    "/v2/imports/sources": { sources: [{ valeur: "ANASUR", nombreLots: 2 }] },
+    "/v2/imports/l1": DETAIL_CONFORME,
+    "/v2/imports/l2": DETAIL_REJETE,
+    "/v2/imports/l1/apercu": reponseApercu(),
+    "/v2/imports/l2/apercu": reponseApercu({ lignes: [], tronque: false }),
   };
 });
 
@@ -299,5 +337,81 @@ describe("Accessibilite du tableau de bord, de la Control Tower et de la fiche 3
     const refus = rendre(<VoletProgrammation tronconId="t1" />);
     await screen.findByRole("alert");
     expect(await violationsAccessibilite(refus.container)).toEqual([]);
+  }, 30_000);
+});
+
+describe("Accessibilite de la page Lots d'import : etats cles", () => {
+  const implOriginale = vi.mocked(api.get).getMockImplementation();
+
+  // Les erreurs de lecture se simulent en mettant une `Error` dans `h.get` : la requete la leve.
+  beforeEach(() => {
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      const r = h.get[url];
+      if (r instanceof Error) throw r;
+      return { data: r ?? {} };
+    });
+  });
+  afterEach(() => { if (implOriginale) vi.mocked(api.get).mockImplementation(implOriginale); });
+
+  function rendreImports(entree: string) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(<MemoryRouter initialEntries={[entree]}><QueryClientProvider client={qc}><ImportsPage /></QueryClientProvider></MemoryRouter>);
+  }
+  const erreur503 = () => Object.assign(new Error("503"), { response: { status: 503, data: {} } });
+
+  it("liste vide (premier lot a recevoir)", async () => {
+    h.get["/v2/imports"] = { lots: [], suivant: null, total: 0 };
+    h.get["/v2/imports/sources"] = { sources: [] };
+    const { container } = rendreImports("/imports");
+    await screen.findByText(/Aucun lot reçu\. Sélectionnez un fichier et renseignez/);
+    await screen.findByRole("option", { name: "CSV pivot" });
+    expect(await violationsAccessibilite(container)).toEqual([]);
+  }, 30_000);
+
+  it("liste chargee, avec une page suivante", async () => {
+    h.get["/v2/imports"] = { lots: [LOT_CONFORME, LOT_REJETE], suivant: "curseur-2", total: 3 };
+    const { container } = rendreImports("/imports");
+    await screen.findByText("2 lots sur 3");
+    await screen.findByRole("button", { name: "Charger plus de lots" });
+    expect(await violationsAccessibilite(container)).toEqual([]);
+  }, 30_000);
+
+  it("detail d'un lot REJETE (motif, etapes 3 et 4 non disponibles)", async () => {
+    const { container } = rendreImports("/imports?lot=l2");
+    await screen.findByRole("heading", { name: "IMP-2026-0002" });
+    await screen.findAllByText(/CRS EPSG:32628 refusé/);
+    await screen.findByText("Aucun circuit d'approbation n'existe encore.", { selector: "p" });
+    expect(await violationsAccessibilite(container)).toEqual([]);
+  }, 30_000);
+
+  it("detail d'un lot VALIDE_SCHEMA (non applique, en attente)", async () => {
+    const { container } = rendreImports("/imports?lot=l1");
+    await screen.findByRole("heading", { name: "IMP-2026-0001" });
+    await screen.findAllByText("Schéma validé : non appliqué");
+    expect(await violationsAccessibilite(container)).toEqual([]);
+  }, 30_000);
+
+  it("erreurs : liste, detail et formats indisponibles", async () => {
+    h.get["/v2/imports"] = erreur503();
+    h.get["/v2/imports/meta"] = erreur503();
+    h.get["/v2/imports/l1"] = erreur503();
+    const { container } = rendreImports("/imports?lot=l1");
+    await screen.findByText("La liste des lots n'a pas pu être chargée.");
+    await screen.findByText("Les formats et plafonds du serveur n'ont pas pu être chargés.");
+    await screen.findAllByText("Le détail du lot n'a pas pu être chargé.");
+    expect(await violationsAccessibilite(container)).toEqual([]);
+  }, 30_000);
+
+  it("formulaire avec des erreurs de saisie (champ vide, reference trop courte)", async () => {
+    const { container } = rendreImports("/imports");
+    // Le formulaire est remonte quand les formats arrivent : on prend celui qui est actif.
+    await screen.findByRole("option", { name: "CSV pivot" });
+    const form = screen.getByRole("form", { name: "Recevoir un lot" });
+    const u = userEvent.setup();
+    await u.clear(within(form).getByLabelText(/Système source/));
+    await u.type(within(form).getByLabelText(/Référence de l'autorisation écrite/), "ab");
+    await u.tab();
+    await within(form).findAllByText(/Erreur :/);
+    expect(await violationsAccessibilite(container)).toEqual([]);
   }, 30_000);
 });

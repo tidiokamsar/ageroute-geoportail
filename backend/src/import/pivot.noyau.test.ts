@@ -137,7 +137,7 @@ describe("Memes comptes en CSV et en GeoJSON (X-02)", () => {
 
   it("un aller-retour CSV conserve chaque ligne, y compris un libelle avec le separateur", () => {
     const csv = ecrireCsv(lignes);
-    const relu = lireCsv(csv).lignes.map(verifierLigne);
+    const relu = lireCsv(csv).lignes.map((x) => verifierLigne(x));
     expect(relu.every((v) => v.ok)).toBe(true);
     const ok = relu.filter((v): v is { ok: true; ligne: LignePivot } => v.ok).map((v) => v.ligne);
     expect(ok.map((l) => l.identifiantSource)).toEqual(["A", "B", "C", "D"]);
@@ -152,8 +152,8 @@ describe("Memes comptes en CSV et en GeoJSON (X-02)", () => {
     const lu = lireGeoJson(JSON.parse(JSON.stringify(gj)));
     expect(lu.ok).toBe(true);
     if (!lu.ok) return;
-    const verdictsGj = lu.lignes.map(verifierLigne);
-    const verdictsCsv = lireCsv(ecrireCsv(lignes)).lignes.map(verifierLigne);
+    const verdictsGj = lu.lignes.map((x) => verifierLigne(x));
+    const verdictsCsv = lireCsv(ecrireCsv(lignes)).lignes.map((x) => verifierLigne(x));
 
     const comptes = (vs: ReturnType<typeof verifierLigne>[]) =>
       comptabiliser(vs.map((v) => (v.ok ? "VALIDEE" : "REJETEE")));

@@ -89,6 +89,57 @@ export interface Compteurs {
 
 /* ============================== Verification d'une ligne ============================== */
 
+/** Longueur maximale d'une valeur recopiee dans un motif : le contenu complet reste dans la charge originale. */
+export const LONGUEUR_MAX_CITATION = 80;
+
+/**
+ * Cite une valeur fautive dans un motif, tronquee. Sans cette borne, un motif recopiait la valeur
+ * entiere : onze lignes de 2 Mo faisaient un GET de 19 Mo et un export d'erreurs de 42 Mo.
+ */
+export function extrait(valeur: unknown, max: number = LONGUEUR_MAX_CITATION): string {
+  let s: string;
+  try { s = typeof valeur === "string" ? valeur : String(valeur); } catch { s = "(illisible)"; }
+  // Les caracteres de controle (dont le NUL) n'ont rien a faire dans un motif affiche ou exporte.
+  s = s.replace(/[\u0000-\u001f\u007f-\u009f]/g, " ");
+  return s.length > max ? `${s.slice(0, max)}... (${s.length} caracteres)` : s;
+}
+
+/**
+ * Etendue ATTENDUE du pays, en degres. PROVISOIRE : large a dessein (la Guinee tient dans
+ * lon -15 a -7,5 et lat 7 a 12,7 environ), parce que sa seule fonction est d'AVERTIR d'une
+ * coordonnee manifestement ailleurs (Paris, [0, 0], longitude et latitude inversees). Le depot ne
+ * porte pas de constante nationale a reutiliser (recherche dans backend/src le 25/10/2026) ; a
+ * remplacer par le contour officiel quand la DSI l'aura designe.
+ */
+export const ETENDUE_ATTENDUE_PROVISOIRE = { lonMin: -16, lonMax: -7, latMin: 6.5, latMax: 13.5 } as const;
+
+/** Vrai si au moins une position sort de l'etendue attendue du pays. Un avertissement, jamais un refus. */
+export function horsEtendueAttendue(g: GeometriePivot): boolean {
+  const e = ETENDUE_ATTENDUE_PROVISOIRE;
+  const positions: [number, number][] = g.type === "Point" ? [g.coordinates] : g.coordinates;
+  return positions.some(([lon, lat]) => lon < e.lonMin || lon > e.lonMax || lat < e.latMin || lat > e.latMax);
+}
+
+/**
+ * Date de releve : ISO 8601 STRICT (AAAA-MM-JJ, avec heure et fuseau optionnels). `Date.parse`
+ * acceptait `05/10/2026` (jour ou mois ?), `Foo 1`, `1`, `2026-02-30` et `2099-01-01`. Le contrat
+ * (ROAD_SURVEY_IMPORT_SPEC.md) ne fixe pas de format : l'ISO est le seul sans ambiguite.
+ * `aujourdhui` est fourni par l'appelant (ce noyau n'a pas d'horloge) ; absent, la date future
+ * n'est pas controlee.
+ */
+export function analyserDateIso(texte: string, aujourdhui?: Date): { ok: true } | { ok: false; motif: string } {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,]\d{1,9})?)?(Z|[+-]\d{2}(?::?\d{2})?)?)?$/.exec(texte);
+  const refus = (detail: string) => ({ ok: false as const, motif: `date_source non interpretable : ${extrait(texte)} (${detail})` });
+  if (!m) return refus("ISO 8601 attendu : AAAA-MM-JJ ou AAAA-MM-JJThh:mm:ss");
+  const [annee, mois, jour] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  if (annee < 1900 || annee > 2100) return refus("annee hors de 1900-2100");
+  const d = new Date(Date.UTC(annee, mois - 1, jour));
+  if (d.getUTCFullYear() !== annee || d.getUTCMonth() !== mois - 1 || d.getUTCDate() !== jour) return refus("jour inexistant au calendrier");
+  if (m[4] !== undefined && (Number(m[4]) > 23 || Number(m[5]) > 59 || (m[6] !== undefined && Number(m[6]) > 59))) return refus("heure inexistante");
+  if (aujourdhui && d.getTime() > aujourdhui.getTime() + 2 * 86_400_000) return refus("date dans le futur");
+  return { ok: true };
+}
+
 function estNombreFini(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v);
 }
@@ -104,16 +155,19 @@ export function verifierGeometrie(g: unknown): { ok: true; geometrie: GeometrieP
   if (g === null || typeof g !== "object") return { ok: false, motif: "geometrie absente ou non structuree" };
   const o = g as { type?: unknown; coordinates?: unknown };
 
+  // [lon, lat] ou [lon, lat, altitude] : l'altitude est valide en GeoJSON (RFC 7946) et n'est pas
+  // portee par le pivot, qui la laisse de cote sans la refuser (la charge originale la garde).
   const point = (c: unknown): c is [number, number] =>
-    Array.isArray(c) && c.length === 2 && estNombreFini(c[0]) && estNombreFini(c[1]);
+    Array.isArray(c) && (c.length === 2 || c.length === 3) && estNombreFini(c[0]) && estNombreFini(c[1])
+    && (c.length === 2 || estNombreFini(c[2]));
   const dansEtendue = ([lon, lat]: [number, number]) => lon >= -180 && lon <= 180 && lat >= -90 && lat <= 90;
 
   if (o.type === "Point") {
     if (!point(o.coordinates)) return { ok: false, motif: "Point : coordonnees attendues [lon, lat] finies" };
     if (!dansEtendue(o.coordinates)) {
-      return { ok: false, motif: `Point hors de l'etendue WGS 84 (${o.coordinates.join(", ")}) : le fichier n'est pas en SRID ${SRID_PIVOT}` };
+      return { ok: false, motif: `Point hors de l'etendue WGS 84 (${o.coordinates.slice(0, 2).join(", ")}) : le fichier n'est pas en SRID ${SRID_PIVOT}` };
     }
-    return { ok: true, geometrie: { type: "Point", coordinates: o.coordinates } };
+    return { ok: true, geometrie: { type: "Point", coordinates: [o.coordinates[0], o.coordinates[1]] } };
   }
 
   if (o.type === "LineString") {
@@ -123,12 +177,12 @@ export function verifierGeometrie(g: unknown): { ok: true; geometrie: GeometrieP
     }
     const hors = (cs as [number, number][]).find((c) => !dansEtendue(c));
     if (hors) {
-      return { ok: false, motif: `LineString hors de l'etendue WGS 84 (${hors.join(", ")}) : le fichier n'est pas en SRID ${SRID_PIVOT}` };
+      return { ok: false, motif: `LineString hors de l'etendue WGS 84 (${hors.slice(0, 2).join(", ")}) : le fichier n'est pas en SRID ${SRID_PIVOT}` };
     }
-    return { ok: true, geometrie: { type: "LineString", coordinates: cs as [number, number][] } };
+    return { ok: true, geometrie: { type: "LineString", coordinates: (cs as [number, number][]).map((c) => [c[0], c[1]] as [number, number]) } };
   }
 
-  return { ok: false, motif: `type de geometrie non admis par le pivot : ${String(o.type)}` };
+  return { ok: false, motif: `type de geometrie non admis par le pivot : ${extrait(o.type)}` };
 }
 
 /**
@@ -138,7 +192,7 @@ export function verifierGeometrie(g: unknown): { ok: true; geometrie: GeometrieP
  * identifiant source ne pourra jamais etre rapprochee (BDR_ID_CROSSWALK_SPEC.md, etape 1) : le
  * dire avant de parler de sa geometrie envoie la source corriger ce qui compte.
  */
-export function verifierLigne(brute: Record<string, unknown>): VerdictLigne {
+export function verifierLigne(brute: Record<string, unknown>, options: { aujourdhui?: Date } = {}): VerdictLigne {
   const texte = (k: string): string | null => {
     const v = brute[k];
     if (v === undefined || v === null) return null;
@@ -151,7 +205,7 @@ export function verifierLigne(brute: Record<string, unknown>): VerdictLigne {
 
   const typeObjet = texte("type_objet");
   if (!typeObjet || !(TYPES_OBJET_PIVOT as readonly string[]).includes(typeObjet)) {
-    return { ok: false, motif: `type_objet absent ou inconnu : ${typeObjet ?? "(vide)"} ; admis : ${TYPES_OBJET_PIVOT.join(", ")}` };
+    return { ok: false, motif: `type_objet absent ou inconnu : ${typeObjet === null ? "(vide)" : extrait(typeObjet)} ; admis : ${TYPES_OBJET_PIVOT.join(", ")}` };
   }
 
   const identifiantSource = texte("identifiant_source");
@@ -159,10 +213,15 @@ export function verifierLigne(brute: Record<string, unknown>): VerdictLigne {
     return { ok: false, motif: "identifiant_source manquant : sans lui, aucun rapprochement n'est possible" };
   }
 
+  // Un nombre decimal ORDINAIRE : `Number()` acceptait `0x10`, `0b11`, `1e300` et `Infinity`.
   const nombreOuNul = (k: string): number | null | "invalide" => {
     const v = brute[k];
-    if (v === undefined || v === null || v === "") return null;
-    const n = typeof v === "number" ? v : Number(String(v).replace(",", "."));
+    if (v === undefined || v === null) return null;
+    if (typeof v === "number") return Number.isFinite(v) ? v : "invalide";
+    const t = String(v).trim();
+    if (t === "") return null;
+    if (!/^[+-]?(\d+([.,]\d+)?|[.,]\d+)$/.test(t)) return "invalide";
+    const n = Number(t.replace(",", "."));
     return Number.isFinite(n) ? n : "invalide";
   };
   const debutM = nombreOuNul("debut_m");
@@ -193,8 +252,9 @@ export function verifierLigne(brute: Record<string, unknown>): VerdictLigne {
   }
 
   const dateSource = texte("date_source");
-  if (dateSource !== null && Number.isNaN(Date.parse(dateSource))) {
-    return { ok: false, motif: `date_source non interpretable : ${dateSource}` };
+  if (dateSource !== null) {
+    const date = analyserDateIso(dateSource, options.aujourdhui);
+    if (!date.ok) return { ok: false, motif: date.motif };
   }
 
   // Tout le reste est conserve tel quel : on ne jette rien de ce qu'on a recu.
@@ -267,7 +327,7 @@ export function marquerDoublonsInternes(
     if (premiere !== undefined) {
       return {
         numeroLigne, statut: "IGNOREE", ligne: verdict.ligne,
-        motif: `doublon dans le lot : meme ${verdict.ligne.typeObjet} ${verdict.ligne.identifiantSource} que la ligne ${premiere}, conservee`,
+        motif: `doublon dans le lot : meme ${verdict.ligne.typeObjet} ${extrait(verdict.ligne.identifiantSource)} que la ligne ${premiere}, conservee`,
       };
     }
     vus.set(cle, numeroLigne);
@@ -323,24 +383,34 @@ function citerCsv(v: unknown, sep: string = SEPARATEUR_CSV): string {
  * Les colonnes inconnues ne sont PAS rejetees : elles finissent dans `attributs`. Rejeter une
  * colonne de plus perdrait de l'information que la source a jugee utile.
  */
-export function lireCsv(texte: string, sep: string = SEPARATEUR_CSV): {
+export function lireCsv(texte: string, sep: string = SEPARATEUR_CSV, options: { maxLignes?: number } = {}): {
   entete: string[];
   lignes: Record<string, string>[];
   /** Index (dans `lignes`) -> motif, pour les enregistrements dont la forme est douteuse. */
   anomalies: Map<number, string>;
+  /** Noms de colonnes presents plusieurs fois dans l'en-tete : la derniere valeur gagnait en silence. */
+  entetesDupliques: string[];
+  /** Vrai si le fichier compte plus de `maxLignes` lignes de donnees ; la lecture s'est arretee tot. */
+  depasse: boolean;
 } {
-  const enregistrements = decouperEnregistrementsCsv(texte);
+  const max = options.maxLignes;
+  const borne = decouperEnregistrementsCsvBorne(texte, max);
+  const enregistrements = borne.enregistrements;
   const premiere = enregistrements.findIndex((e) => e.texte.trim().length > 0 && !e.texte.startsWith("#"));
-  if (premiere < 0) return { entete: [], lignes: [], anomalies: new Map() };
+  if (premiere < 0) return { entete: [], lignes: [], anomalies: new Map(), entetesDupliques: [], depasse: false };
   const entete = decouperLigneCsv(enregistrements[premiere].texte, sep).map((h) => h.trim());
+  const vus = new Set<string>();
+  const entetesDupliques = [...new Set(entete.filter((h) => (vus.has(h) ? true : (vus.add(h), false))))];
   const lignes: Record<string, string>[] = [];
   const anomalies = new Map<number, string>();
+  let depasse = borne.depasse;
   for (let i = premiere + 1; i < enregistrements.length; i += 1) {
     const { texte: l, anomalie } = enregistrements[i];
     if (l.trim().length === 0 || l.startsWith("#")) continue;
+    if (max !== undefined && lignes.length >= max) { depasse = true; break; }
     const champs = decouperLigneCsv(l, sep);
-    const obj: Record<string, string> = {};
-    entete.forEach((h, k) => { obj[h] = champs[k] ?? ""; });
+    // Proprietes propres (fromEntries) : une colonne nommee `__proto__` ne doit pas etre avalee.
+    const obj: Record<string, string> = Object.fromEntries(entete.map((h, k) => [h, champs[k] ?? ""]));
     // LE NOMBRE DE CHAMPS DOIT EGALER LE NOMBRE DE COLONNES. Un champ en trop etait JETE sans un
     // mot (il n'a pas de colonne), un champ en moins etait complete par une chaine vide : dans
     // les deux cas la ligne passait comme valide avec des donnees decalees ou tronquees. La
@@ -350,7 +420,7 @@ export function lireCsv(texte: string, sep: string = SEPARATEUR_CSV): {
     if (motif) { anomalies.set(lignes.length, motif); obj._ligne_brute = l; }
     lignes.push(obj);
   }
-  return { entete, lignes, anomalies };
+  return { entete, lignes, anomalies, entetesDupliques, depasse };
 }
 
 /**
@@ -363,17 +433,36 @@ export function lireCsv(texte: string, sep: string = SEPARATEUR_CSV): {
  * physiques, et SEULE sa premiere ligne (celle qui porte le guillemet) est marquee en anomalie.
  */
 export function decouperEnregistrementsCsv(texte: string): { texte: string; anomalie?: string }[] {
+  return decouperEnregistrementsCsvBorne(texte).enregistrements;
+}
+
+/**
+ * Meme decoupage, avec un ARRET TOT : des que `maxNonVides` enregistrements non vides (hors
+ * commentaires) ont ete trouves, le reste du fichier n'est pas lu. C'est ce qui borne le travail
+ * d'un fichier de millions de lignes avant qu'il n'occupe la memoire et la boucle d'evenements.
+ */
+export function decouperEnregistrementsCsvBorne(texte: string, maxNonVides?: number): {
+  enregistrements: { texte: string; anomalie?: string }[];
+  depasse: boolean;
+} {
   const brut = texte.replace(/^﻿/, "");
   const sortie: { texte: string; anomalie?: string }[] = [];
   const sansCr = (s: string) => (s.endsWith("\r") ? s.slice(0, -1) : s);
   let debut = 0;
   let cite = false;
+  let nonVides = 0;
   for (let i = 0; i < brut.length; i += 1) {
     const ch = brut[i];
     if (ch === '"') cite = !cite;
     else if (ch === "\n" && !cite) {
-      sortie.push({ texte: sansCr(brut.slice(debut, i)) });
+      const t = sansCr(brut.slice(debut, i));
+      sortie.push({ texte: t });
       debut = i + 1;
+      if (t.trim().length > 0 && !t.startsWith("#")) {
+        nonVides += 1;
+        // + 1 : l'en-tete est un enregistrement non vide qui n'est pas une ligne de donnees.
+        if (maxNonVides !== undefined && nonVides > maxNonVides + 1) return { enregistrements: sortie, depasse: true };
+      }
     }
   }
   if (debut < brut.length) {
@@ -385,7 +474,7 @@ export function decouperEnregistrementsCsv(texte: string): { texte: string; anom
         : { texte: l }));
     }
   }
-  return sortie;
+  return { enregistrements: sortie, depasse: false };
 }
 
 /** Ecrit un pivot CSV : en-tete fixe, attributs supplementaires en colonnes additionnelles. */
@@ -445,24 +534,40 @@ export function ecrireGeoJson(lignes: readonly LignePivot[]): FeatureCollectionP
  * collection sans `crs` est acceptee -- la specification GeoJSON actuelle (RFC 7946) impose
  * WGS 84 et a retire le membre -- mais l'etendue des coordonnees reste controlee ligne a ligne.
  */
-export function lireGeoJson(doc: unknown): { ok: true; lignes: Record<string, unknown>[] } | { ok: false; motif: string } {
+/**
+ * Noms de CRS admis : CRS84 / EPSG:4326 sous leurs formes courantes, ANCRES. L'alternative `4326`
+ * nue acceptait `my-4326-fake` et `EPSG:34326`.
+ */
+const CRS_ADMIS = new RegExp(
+  "^(?:urn:ogc:def:crs:OGC:(?:\\d+(?:\\.\\d+)*)?:CRS84"
+  + "|urn:ogc:def:crs:EPSG:(?:\\d+(?:\\.\\d+)*)?:4326"
+  + "|EPSG:{1,2}4326|OGC:CRS84|CRS84"
+  + "|https?://www\\.opengis\\.net/def/crs/(?:OGC/\\d+(?:\\.\\d+)*/CRS84|EPSG/\\d+(?:\\.\\d+)*/4326))$",
+  "i",
+);
+
+export function lireGeoJson(doc: unknown, options: { maxLignes?: number } = {}):
+  | { ok: true; lignes: Record<string, unknown>[]; depasse: boolean }
+  | { ok: false; motif: string } {
   if (doc === null || typeof doc !== "object") return { ok: false, motif: "GeoJSON : document non structure" };
   const d = doc as { type?: unknown; crs?: unknown; features?: unknown };
-  if (d.type !== "FeatureCollection") return { ok: false, motif: `GeoJSON : FeatureCollection attendue, recu ${String(d.type)}` };
+  if (d.type !== "FeatureCollection") return { ok: false, motif: `GeoJSON : FeatureCollection attendue, recu ${extrait(d.type)}` };
 
   if (d.crs !== undefined && d.crs !== null) {
     const nom = (d.crs as { properties?: { name?: unknown } }).properties?.name;
-    const admis = typeof nom === "string" && /CRS84|EPSG:+4326|4326/.test(nom);
-    if (!admis) return { ok: false, motif: `GeoJSON : CRS ${String(nom)} refuse, le pivot impose le SRID ${SRID_PIVOT}` };
+    const admis = typeof nom === "string" && CRS_ADMIS.test(nom.trim());
+    if (!admis) return { ok: false, motif: `GeoJSON : CRS ${extrait(nom)} refuse, le pivot impose le SRID ${SRID_PIVOT}` };
   }
 
   if (!Array.isArray(d.features)) return { ok: false, motif: "GeoJSON : features absent" };
+  // Le plafond est controle AVANT toute transformation : 50 001 `null` donnaient 50 001 lignes rejetees.
+  if (options.maxLignes !== undefined && d.features.length > options.maxLignes) return { ok: true, lignes: [], depasse: true };
   const lignes = (d.features as unknown[]).map((f) => {
     const feat = (f ?? {}) as { geometry?: unknown; properties?: unknown };
     const props = (feat.properties && typeof feat.properties === "object") ? (feat.properties as Record<string, unknown>) : {};
     return { ...props, geometrie: feat.geometry ?? null };
   });
-  return { ok: true, lignes };
+  return { ok: true, lignes, depasse: false };
 }
 
 /* ================================= Idempotence ================================= */
