@@ -117,10 +117,15 @@ export function ActionsProposition({ detail, role }: { detail: PropositionDetail
   const etat = etatConstat({ action: ouverte?.action ?? "AFFECTER", nbObservations: preuves.length, reference });
 
   if (estVerdictDefinitif(detail.statut)) {
+    // Le verdict qu'on vient de poser fait basculer la fiche (le detail est relu) AVANT que ce composant ne rende le succes : sans ce message,
+    // la seule trace de l'enregistrement serait un toast qui disparait (constate par le test de bout en bout, parcours 3).
     return (
-      <p role="status" className="rounded border border-gray-200 bg-gray-50 p-2 text-sm text-gray-700">
-        Verdict définitif : cette proposition est « {libelleStatut(detail.statut)} » et ne peut plus être modifiée. Chaque décision est conservée dans l&apos;historique.
-      </p>
+      <div className="space-y-2">
+        {resultat && <p role="status" className="rounded border border-green-200 bg-green-50 p-2 text-sm text-green-900">{resultat}</p>}
+        <p role="status" className="rounded border border-gray-200 bg-gray-50 p-2 text-sm text-gray-700">
+          Verdict définitif : cette proposition est « {libelleStatut(detail.statut)} » et ne peut plus être modifiée. Chaque décision est conservée dans l&apos;historique.
+        </p>
+      </div>
     );
   }
   if (!peutDecider(role)) {

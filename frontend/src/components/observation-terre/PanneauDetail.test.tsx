@@ -673,6 +673,26 @@ describe("decisions : formulaire, corps envoye, roles", () => {
     expect(screen.queryByRole("button", { name: /^(Confirmer|Infirmer|Mettre en attente|Demander|Affecter|Non concluante|Remettre)/ })).not.toBeInTheDocument();
   });
 
+  // Regression (test de bout en bout, parcours 3) : le serveur rend la fiche CONFIRMEE/INFIRMEE apres le verdict, la section « Decision » bascule
+  // sur le message de verdict definitif ; le succes de l'enregistrement doit rester dit (le toast seul disparait).
+  it.each([["Confirmer", "CONFIRMEE", "Confirmée"], ["Infirmer", "INFIRMEE", "Infirmée"]])(
+    "%s : la fiche relue bascule en verdict definitif ET le succes de l'enregistrement reste affiche",
+    async (action, vers, libelle) => {
+      let poste = false;
+      h.get.mockImplementation(routeurGet({ "/v2/teledetection/propositions/p-1": () => (poste ? detail({ statut: vers as PropositionDetail["statut"] }) : detail()) }));
+      h.post.mockImplementation(async () => { poste = true; return { data: {} }; });
+      const u = userEvent.setup();
+      await ouvrir();
+      await u.click(await screen.findByRole("button", { name: `${action} la proposition ${NOM}` }));
+      await u.type(screen.getByLabelText(/Motif/), "Constat sur place");
+      await u.type(screen.getByLabelText(/Référence du constat/), "REF-1");
+      await u.click(screen.getByRole("button", { name: "Enregistrer la décision" }));
+      expect(await screen.findByText(new RegExp(`Verdict définitif : cette proposition est « ${libelle} »`))).toBeInTheDocument();
+      expect(screen.getByText(`Décision enregistrée : la proposition est maintenant « ${libelle} ».`)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^(Confirmer|Infirmer|Mettre en attente|Demander|Affecter|Non concluante|Remettre)/ })).not.toBeInTheDocument();
+    },
+  );
+
   it("EN_ATTENTE : on peut la remettre a verifier", async () => {
     servir(detail({ statut: "EN_ATTENTE" }));
     h.post.mockResolvedValue({ data: {} });
