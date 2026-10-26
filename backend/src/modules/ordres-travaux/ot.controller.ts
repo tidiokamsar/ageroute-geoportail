@@ -4,6 +4,7 @@ import { otService } from "./ot.service";
 import { otCreateSchema, otUpdateSchema, otChangeStatutSchema, otAssignSchema } from "./ot.schema";
 import { parseListQuery } from "../../lib/list-query";
 import { ApiError } from "../../middleware/error.middleware";
+import { regionsVisibles } from "../../territoire/territoire.lecture";
 
 export async function listHandler(req: Request, res: Response, next: NextFunction) {
   try {
@@ -14,6 +15,8 @@ export async function listHandler(req: Request, res: Response, next: NextFunctio
       assigneA, type, search: q.search,
       aTraiter: aTraiter === "1" || aTraiter === "true",
       userId: req.user?.id,
+      // Perimetre territorial (A10) : relu en base, jamais pris dans la requete.
+      regions: req.user ? await regionsVisibles(req.user) : null,
     }));
   } catch (err) { next(err); }
 }
@@ -94,8 +97,8 @@ export async function deleteHandler(req: Request, res: Response, next: NextFunct
   } catch (err) { next(err); }
 }
 
-export async function statsHandler(_req: Request, res: Response, next: NextFunction) {
-  try { res.json(await otService.stats()); } catch (err) { next(err); }
+export async function statsHandler(req: Request, res: Response, next: NextFunction) {
+  try { res.json(await otService.stats(req.user ? await regionsVisibles(req.user) : null)); } catch (err) { next(err); }
 }
 
 export async function assignablesHandler(_req: Request, res: Response, next: NextFunction) {

@@ -15,7 +15,7 @@ import { randomUUID } from "node:crypto";
 import { ouvrirBancClone } from "./lib/banc-clone.mts";
 import { verifier, conclure } from "./lib/verdict.ts";
 
-const banc = await ouvrirBancClone("essai_sync");
+const banc = await ouvrirBancClone("essai_sync", { migrations: ["20261026100000_conflit_sync_verification"] });
 const { prisma } = await banc.imp("lib/prisma");
 const { apiV2Router } = await banc.imp("api-v2/index");
 const { errorHandler } = await banc.imp("middleware/error.middleware");

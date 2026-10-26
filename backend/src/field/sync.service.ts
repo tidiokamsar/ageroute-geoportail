@@ -50,6 +50,80 @@ export interface ResultatOperation {
   conflitId?: string;
   /** Present sur un rejet temporaire : quand reessayer. */
   reessayerDansMs?: number;
+  /** Present sur un refus de droits (`DROITS_MODIFIES`) : ce qui a ete refuse (`MODULE_RETIRE`, `HORS_PERIMETRE`, `REGION_INCONNUE`). */
+  cause?: string;
+  /**
+   * Present (et vrai) sur un refus de droits : le refus est definitif POUR CES DROITS. Le client ne le rejoue pas
+   * tout seul ; il le met en quarantaine et ne le renvoie que sur action explicite apres un changement de droits.
+   */
+  definitif?: boolean;
+}
+
+/**
+ * REFUS DE DROITS, distinct d'un refus de DONNEE (`PAYLOAD_INVALIDE`, `REFERENCE_INCONNUE`, `TYPE_NON_SUPPORTE`...).
+ *
+ * Un refus de donnee dit que l'operation est mal formee ; un refus de droits dit que l'AGENT n'a plus (ou n'a
+ * jamais eu) le droit de la faire : module retire, region sortie du perimetre. La reponse n'est pas la meme pour
+ * l'agent (il doit demander un acces, pas corriger sa saisie) ni pour l'administrateur qui relit `operations_sync`.
+ *
+ * Forme stockee dans `operations_sync.derniereErreur` : `DROITS_MODIFIES:<cause>`, comme `REFERENCE_INCONNUE:<champ>`.
+ * Forme rendue au client : `motif: "DROITS_MODIFIES"` et `cause` a part, pour que le motif reste stable.
+ */
+export const MOTIF_DROITS_MODIFIES = "DROITS_MODIFIES";
+
+/** Motifs de la famille « droits ». `MISSION_NON_AUTORISEE` garde son motif historique (contrat de la collecte de roulage). */
+export function estRefusDeDroits(motif: string | null | undefined): boolean {
+  if (!motif) return false;
+  return motif === MOTIF_DROITS_MODIFIES || motif.startsWith(`${MOTIF_DROITS_MODIFIES}:`) || motif === "MISSION_NON_AUTORISEE";
+}
+
+/** Controle de droits evalue PAR OPERATION, apres l'idempotence : `null` = permis, sinon la cause du refus. */
+export interface OptionsAppliquer {
+  controleDroits?: () => Promise<{ cause: string } | null>;
+  /**
+   * Faux : un refus de droits est RENDU au client (meme motif, meme cause) mais n'ecrit aucune ligne `operations_sync`
+   * (budget de traces epuise, voir `creerBudgetTraces`). Absent ou vrai : le refus est trace, comme avant.
+   */
+  tracerRefusDroits?: boolean;
+}
+
+/**
+ * PLAFOND DE REFUS DE DROITS TRACES PAR APPEL DE `push` (D9, point 4). PROVISOIRE : 20, sans mesure de production.
+ *
+ * LE DEFAUT : un compte dont le module de collecte est retire, ou dont le perimetre a change, ecrivait UNE ligne
+ * `operations_sync` par operation refusee, soit 100 lignes par appel (le plafond d'un lot), et un appel peut etre
+ * repete a volonte avec des identifiants d'operation neufs : un canal d'ecriture dans la base ouvert a un compte
+ * qui n'a justement plus de droits. 20 lignes par appel suffisent a un administrateur pour comprendre l'incident
+ * (quel compte, quel appareil, quelle cause, a quelle heure) ; les autres refus sont rendus au client avec le meme
+ * motif et la meme cause, comptes dans `refusNonTraces`, mais sans trace durable. Rien n'est perdu pour l'agent : un
+ * refus de droits est definitif pour ces droits et ne contient que des operations a renvoyer apres leur retablissement.
+ *
+ * Ce que cela change pour le client : rien (`definitif: true` partout). Ce que cela change pour l'administrateur : le
+ * nombre de lignes de `operations_sync` n'est plus le nombre d'operations refusees ; `refusNonTraces` dans la
+ * reponse, et le compteur `refusDroits`, disent l'ecart.
+ */
+export const REFUS_DROITS_TRACES_MAX_PAR_LOT = 20;
+
+/**
+ * Budget de traces d'un appel de `push`. `peutTracer()` avant chaque operation, `compter(resultat, avaitTrace)` apres :
+ * seuls les resultats `REJETE DROITS_MODIFIES` consomment le budget (un rejeu, un conflit, un refus de donnee ne
+ * creent pas de ligne de refus de droits).
+ */
+export function creerBudgetTraces(plafond: number = REFUS_DROITS_TRACES_MAX_PAR_LOT) {
+  let traces = 0;
+  let nonTraces = 0;
+  return {
+    peutTracer: () => traces < plafond,
+    compter(resultat: { statut: string; motif?: string }, avaitTrace: boolean) {
+      if (resultat.statut !== "REJETE" || resultat.motif !== MOTIF_DROITS_MODIFIES) return;
+      if (avaitTrace) traces++; else nonTraces++;
+    },
+    get refusNonTraces() { return nonTraces; },
+  };
+}
+
+function resultatDroits(operationId: string, cause: string): ResultatOperation {
+  return { operationId, statut: "REJETE", motif: MOTIF_DROITS_MODIFIES, cause, definitif: true };
 }
 
 /** Version courante, tombstone compris : un CREATE ne doit pas reutiliser un id archive. */
@@ -97,6 +171,9 @@ export function rejetRetentable(entityType: string, motif: string | null): boole
   if (motif === "ENTITE_INTROUVABLE") return true;
   // Une reference inconnue peut arriver plus tard (vocabulaire ajoute, observation de la meme file en retard).
   if (motif !== null && motif.startsWith("REFERENCE_INCONNUE")) return true;
+  // Un refus de droits peut etre leve par un changement de droits : un renvoi EXPLICITE est reevalue (le client ne
+  // renvoie pas de lui-meme, voir `definitif`). Le contenu n'est pas conserve ; l'operation arrive de nouveau.
+  if (motif !== null && (motif === MOTIF_DROITS_MODIFIES || motif.startsWith(`${MOTIF_DROITS_MODIFIES}:`))) return true;
   return entityType === "Portion" && motif !== null && !refusDefinitif(motif);
 }
 
@@ -137,12 +214,13 @@ async function resultatPrecedent(
 export async function appliquer(
   op: OperationEntrante,
   contexte: { appareilId: string; userId: string },
+  options: OptionsAppliquer = {},
 ): Promise<ResultatOperation> {
   try {
-    return await appliquerUneFois(op, contexte);
+    return await appliquerUneFois(op, contexte, options);
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      return appliquerUneFois(op, contexte);
+      return appliquerUneFois(op, contexte, options);
     }
     const champ = champReferenceInconnue(err);
     if (champ !== undefined) return rejeterReferenceInconnue(op, contexte, champ);
@@ -192,6 +270,72 @@ async function rejeterReferenceInconnue(
 }
 
 /**
+ * Ecrit (ou met a jour) la ligne `operations_sync` d'un refus de droits. Le contenu de l'operation n'est PAS conserve
+ * (`payload` caviarde) : une operation refusee n'a pas a laisser sa donnee dans la base, seulement ce qu'il faut pour
+ * comprendre le refus (type, entite, operation, appareil, compte, motif, nombre d'essais).
+ */
+async function tracerRefusDroits(
+  op: OperationEntrante,
+  contexte: { appareilId: string; userId: string },
+  cause: string,
+): Promise<ResultatOperation> {
+  const donnees = {
+    appareilId: contexte.appareilId, entityId: op.entityId, operation: op.operation,
+    payload: { redacted: true } as never, baseVersion: op.baseVersion ?? null,
+    statut: "REJETE" as never, derniereErreur: `${MOTIF_DROITS_MODIFIES}:${cause}`, traiteeA: new Date(),
+  };
+  await prisma.operationSync.upsert({
+    where: { operationId: op.operationId },
+    create: { operationId: op.operationId, userId: contexte.userId, entityType: op.entityType, ...donnees },
+    update: { ...donnees, tentatives: { increment: 1 } },
+  });
+  return resultatDroits(op.operationId, cause);
+}
+
+/**
+ * Refuse une operation pour une raison de DROITS decidee en amont de `appliquer` (aujourd'hui : le module de collecte
+ * retire a un compte, evalue une fois pour tout le lot). Memes regles que `appliquer` : une operation deja appliquee ou
+ * en conflit rend son resultat precedent ; celle d'un autre compte n'est pas lue ; un refus de droits anterieur est mis
+ * a jour, pas duplique.
+ */
+export async function refuserPourDroits(
+  op: OperationEntrante,
+  contexte: { appareilId: string; userId: string },
+  cause: string,
+  options: { tracer?: boolean } = {},
+): Promise<ResultatOperation> {
+  // Un type d'entite inconnu n'est PAS un refus de droits : c'est un refus de donnee, rendu comme `appliquer` le rend, SANS
+  // ecriture. Sans cette garde, le `entityType` libre du client (64 caracteres, balises comprises) etait persiste dans
+  // `operations_sync` par ce chemin (D9, point 4).
+  if (!TYPES_ACCEPTES.has(op.entityType)) {
+    return { operationId: op.operationId, statut: "REJETE", motif: `TYPE_NON_SUPPORTE:${op.entityType}` };
+  }
+  const faire = async (): Promise<ResultatOperation> => {
+    const dejaTraitee = await prisma.operationSync.findUnique({
+      where: { operationId: op.operationId },
+      select: { entityId: true, entityType: true, statut: true, userId: true, derniereErreur: true },
+    });
+    if (dejaTraitee) {
+      if (dejaTraitee.userId !== contexte.userId) {
+        return { operationId: op.operationId, statut: "REJETE", motif: "OPERATION_NON_AUTORISEE" };
+      }
+      const precedent = await resultatPrecedent(op.operationId, dejaTraitee);
+      if (precedent) return precedent;
+    }
+    // Budget de traces epuise : le meme refus est rendu, sans ligne durable.
+    if (options.tracer === false) return resultatDroits(op.operationId, cause);
+    return tracerRefusDroits(op, contexte, cause);
+  };
+  try {
+    return await faire();
+  } catch (err) {
+    // Course entre deux envois du meme refus : la seconde lecture voit la ligne de la premiere.
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") return faire();
+    throw err;
+  }
+}
+
+/**
  * Applique une operation, ou enregistre pourquoi elle ne l'a pas ete.
  *
  * TOUT SE JOUE DANS UNE SEULE TRANSACTION
@@ -205,6 +349,7 @@ async function rejeterReferenceInconnue(
 async function appliquerUneFois(
   op: OperationEntrante,
   contexte: { appareilId: string; userId: string },
+  options: OptionsAppliquer = {},
 ): Promise<ResultatOperation> {
   if (!TYPES_ACCEPTES.has(op.entityType)) {
     return { operationId: op.operationId, statut: "REJETE", motif: `TYPE_NON_SUPPORTE:${op.entityType}` };
@@ -226,6 +371,20 @@ async function appliquerUneFois(
     if (precedent) return precedent;
     // Sinon : un refus TEMPORAIRE. L'operation est reevaluee ci-dessous, et sa ligne de trace
     // est mise a jour (voir `trace`) au lieu d'etre recreee.
+  }
+
+  /**
+   * LES DROITS, APRES L'IDEMPOTENCE ET AVANT TOUT TRAVAIL.
+   *
+   * L'ordre est la regle. Une operation deja appliquee puis rejouee apres un changement de perimetre doit rendre
+   * son resultat precedent (ci-dessus), pas un refus qui ferait croire au telephone qu'elle n'a pas ete retenue.
+   * Une operation neuve, ou un refus de droits renvoye, est jugee sur les droits d'AUJOURD'HUI.
+   */
+  if (options.controleDroits) {
+    const refus = await options.controleDroits();
+    if (refus) {
+      return options.tracerRefusDroits === false ? resultatDroits(op.operationId, refus.cause) : tracerRefusDroits(op, contexte, refus.cause);
+    }
   }
 
   if (!(OPERATIONS_ACCEPTEES[op.entityType] ?? []).includes(op.operation)) {

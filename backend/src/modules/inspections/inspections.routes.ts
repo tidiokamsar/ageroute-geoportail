@@ -13,8 +13,15 @@ import { territoireInspection } from "../../territoire/territoire.v1";
 export const inspectionsRouter = Router();
 inspectionsRouter.use(requireAuth);
 inspectionsRouter.get("/", requireModuleAccess("inspections"), listHandler);
-inspectionsRouter.use(requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("inspections"), createBulkRouter(inspectionsService));
-inspectionsRouter.get("/:id", requireModuleAccess("inspections"), getHandler);
+// Garde de role limitee aux deux routes d'archivage en masse. Elle etait posee par `router.use(...)` SANS chemin, donc elle
+// s'appliquait a toutes les routes declarees apres elle : un INSPECTEUR recevait 403 sur POST /, PUT /:id et les photos, alors
+// que ces routes annoncent le role INSPECTEUR plus bas (defaut revele par l'essai de bout en bout E2E-2, 25/10/2026).
+const archivageEnMasse = createBulkRouter(inspectionsService);
+inspectionsRouter.post("/bulk-archive", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("inspections"), archivageEnMasse);
+inspectionsRouter.post("/bulk-restore", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("inspections"), archivageEnMasse);
+// Lecture d'une inspection par identifiant : l'inspecteur de terrain relit ce qu'il a saisi. Le role LECTEUR reste exclu
+// (comme avant ce correctif).
+inspectionsRouter.get("/:id", requireRole("ADMIN", "GESTIONNAIRE", "INSPECTEUR"), requireModuleAccess("inspections"), getHandler);
 // Les inspecteurs de terrain peuvent saisir des inspections, en plus des gestionnaires/admins
 inspectionsRouter.post("/", requireRole("ADMIN", "GESTIONNAIRE", "INSPECTEUR"), requireModuleAccess("inspections"), territoireInspection, createHandler);
 inspectionsRouter.put("/:id", requireRole("ADMIN", "GESTIONNAIRE", "INSPECTEUR"), requireModuleAccess("inspections"), territoireInspection, updateHandler);

@@ -2,6 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import express from "express";
 import request from "supertest";
 
+// Controle territorial (A10) : compte NATIONAL ici, le sujet de ce fichier est ailleurs. Le controle lui-meme
+// (lecture et ecriture par region) est eprouve par securite/controle-acces.test.ts et par le banc
+// tests-integration/controle-acces.integration.mts.
+vi.mock("../territoire/territoire.service", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  perimetreDe: async () => ({ national: true }),
+}));
+
 /**
  * Rattacher une observation à un tronçon, SUR PROPOSITION. Ce que ces tests défendent :
  *   - le serveur propose, un responsable confirme : sans confirmation, rien n'est écrit ;

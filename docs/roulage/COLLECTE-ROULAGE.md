@@ -257,12 +257,22 @@ Plafonds : 36 000 points (dix heures à 1 Hz), 2 000 marqueurs, 2 000 événemen
 | `operationId` connu, autre compte | `REJETE` `OPERATION_NON_AUTORISEE` | aucune |
 | Charge invalide, `iri` présent | `REJETE` `PAYLOAD_INVALIDE` (définitif, charge non conservée) | une trace de rejet |
 | `entityId` différent de `sessionId` | `REJETE` `ENTITE_INCOHERENTE` | une trace de rejet |
-| Mission non assignée ni créée par l'agent | `REJETE` `MISSION_NON_AUTORISEE` | une trace de rejet |
+| Mission non assignée ni créée par l'agent | `REJETE` `MISSION_NON_AUTORISEE` (motif propre conservé, classé dans la famille des refus de droits : compté dans `refusDroits`, voir ci-dessous) | une trace de rejet |
+| Module `inspections` retiré au compte pendant que le téléphone était hors ligne | `REJETE` `DROITS_MODIFIES`, `cause` = `MODULE_RETIRE`, `definitif: true` (chacune des opérations du lot est refusée et tracée ; avant, un 403 muet pour tout le lot) | une trace de rejet sans contenu (`derniereErreur = DROITS_MODIFIES:MODULE_RETIRE`, charge caviardée) |
 | Échec d'écriture | HTTP 500, **transaction annulée**, aucune trace d'opération : le rejeu aboutira | aucune |
 
 Un refus définitif n'a pas de `reessayerDansMs` ; `interpreterReponse` (côté appareil) en déduit « abandonner,
 conserver la session localement, la montrer ». L'analyse (lecture seule, plusieurs secondes) précède la
 transaction d'écriture.
+
+**Famille « refus de droits »** (chantier serveur D4, poste de développement, non déployé) : `MISSION_NON_AUTORISEE` reste
+le motif propre de la collecte de roulage (contrat inchangé, vérifié par le banc `roulage`), mais le serveur le classe avec
+`DROITS_MODIFIES` : les deux sont comptés dans `refusDroits` de la réponse de `sync/push`. Différence à connaître :
+`DROITS_MODIFIES` porte une `cause` et `definitif: true` ; `MISSION_NON_AUTORISEE` ne porte ni l'une ni l'autre. Les motifs
+`HORS_PERIMETRE` et `REGION_INCONNUE` ne sont **pas** des motifs de rejet d'une session de roulage : le contrôle territorial
+de `sync/push` (`verdictOperationSync`) ne s'applique pas à `SessionRoulage`, le périmètre est jugé portion par portion (point 5
+ci-dessous) et la session est enregistrée. Pour les autres types d'opération (défaut, portion, observation), ils deviennent
+`DROITS_MODIFIES` avec `cause` (`SYNC-A7-A8.md`).
 
 ### Ce que le serveur fait d'une session
 
@@ -283,7 +293,8 @@ transaction d'écriture.
    `observeeLe` = début de l'événement, `clientOperationId = <operationId>:<evenementId>:<rang>`. **La validité
    (`valideDu`) n'est jamais déduite.**
 5. **Territoire (A10)** : pour chaque troncon recevant une portion ; un compte régional hors de son périmètre voit la
-   portion refusée (`HORS_PERIMETRE`, `REGION_INCONNUE`), sa session est enregistrée. Les marqueurs ne sont pas des
+   portion refusée (`HORS_PERIMETRE`, `REGION_INCONNUE`, motifs du plan de la session, pas motifs de rejet de `sync/push`),
+   sa session est enregistrée. Les marqueurs ne sont pas des
    écritures patrimoniales et ne sont pas contrôlés.
 6. **Codes de référentiel** (état, revêtement, praticabilité) vérifiés actifs avant l'écriture : un code inconnu
    refuse les portions de l'événement au lieu de faire échouer la transaction par une clé étrangère.

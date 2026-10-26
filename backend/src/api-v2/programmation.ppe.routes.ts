@@ -8,6 +8,8 @@ import { RefusMoteur, type Contexte } from "../programmation/moteur.service";
 import * as ppe from "../programmation/ppe.service";
 import * as depot from "../programmation/ppe.depot";
 import { MAX_ANNEES_PPE, MIN_ANNEES_PPE } from "../programmation/ppe.noyau";
+import { requireTerritoire, requireTerritoireMasque } from "../middleware/territoire.middleware";
+import { regionsCorpsSimulation, regionsPlan, regionsVisibles } from "../territoire/territoire.lecture";
 
 /**
  * `/api/v2/programmation/moteur/ppe` : la programmation PLURIANNUELLE minimale (PPE).
@@ -33,6 +35,12 @@ export const ppeProgrammationV2Router = Router();
 ppeProgrammationV2Router.use(requireAuth, requireModuleAccess("programmation"));
 
 const ecriture = requireRole("ADMIN", "GESTIONNAIRE");
+
+// CONTROLE TERRITORIAL (A10), comme les scenarios annuels (voir programmation.moteur.routes.ts) : un plan porte la region de
+// son perimetre ; un compte regional ne calcule que sur une region de son perimetre, et un plan hors perimetre lui est introuvable.
+const planVisible = (message = "plan pluriannuel introuvable ou supprimé") =>
+  requireTerritoireMasque((req) => regionsPlan(req.params.id), { corps: { error: message, code: "INTROUVABLE" } });
+const simulationDansPerimetre = requireTerritoire((req) => regionsCorpsSimulation(req.body));
 
 const montant = z.string().regex(/^\d{1,18}$/, "chiffres attendus, en chaîne (GNF entiers, 18 chiffres au plus)");
 
@@ -63,12 +71,12 @@ ppeProgrammationV2Router.get("/simulations", async (req, res, next) => {
     const pageSize = Math.min(100, Math.max(1, parseInt(String(req.query.pageSize ?? "20"), 10) || 20));
     const debut = req.query.anneeDebut ? Number(req.query.anneeDebut) : null;
     if (debut !== null && !Number.isInteger(debut)) { res.status(400).json({ error: "anneeDebut : entier attendu" }); return; }
-    const r = await depot.listerPlans(prisma, { anneeDebut: debut, limite: pageSize, decalage: (p - 1) * pageSize });
+    const r = await depot.listerPlans(prisma, { anneeDebut: debut, limite: pageSize, decalage: (p - 1) * pageSize, regions: await regionsVisibles(req.user!) });
     res.json({ data: r.lignes.map(ppe.resumePlanApi), total: r.total, page: p, pageSize });
   } catch (err) { next(err); }
 });
 
-ppeProgrammationV2Router.post("/simulations", ecriture, async (req, res, next) => {
+ppeProgrammationV2Router.post("/simulations", ecriture, simulationDansPerimetre, async (req, res, next) => {
   const p = corpsPlan.safeParse(req.body);
   if (!p.success) { res.status(400).json({ error: "corps invalide", details: p.error.flatten().fieldErrors }); return; }
   try {
@@ -84,21 +92,21 @@ ppeProgrammationV2Router.post("/simulations", ecriture, async (req, res, next) =
   } catch (err) { refus(err, res, next); }
 });
 
-ppeProgrammationV2Router.get("/simulations/:id", async (req, res, next) => {
+ppeProgrammationV2Router.get("/simulations/:id", planVisible(), async (req, res, next) => {
   try { res.json(await ppe.lirePlanComplet(prisma, req.params.id)); } catch (err) { refus(err, res, next); }
 });
 
-ppeProgrammationV2Router.get("/simulations/:id/praticabilite", async (req, res, next) => {
+ppeProgrammationV2Router.get("/simulations/:id/praticabilite", planVisible(), async (req, res, next) => {
   try {
     const { resultat } = await ppe.lirePlanComplet(prisma, req.params.id);
     res.json(await ppe.alertesPraticabilite(prisma, ppe.tronconsRetenusDe(resultat)));
   } catch (err) { refus(err, res, next); }
 });
 
-ppeProgrammationV2Router.post("/simulations/:id/rejouer", async (req, res, next) => {
+ppeProgrammationV2Router.post("/simulations/:id/rejouer", planVisible(), async (req, res, next) => {
   try { res.json(await ppe.rejouerPlan(prisma, req.params.id)); } catch (err) { refus(err, res, next); }
 });
 
-ppeProgrammationV2Router.post("/simulations/:id/supprimer", ecriture, async (req, res, next) => {
+ppeProgrammationV2Router.post("/simulations/:id/supprimer", ecriture, planVisible("plan pluriannuel introuvable ou déjà supprimé"), async (req, res, next) => {
   try { res.json(await ppe.supprimerPlan(prisma, req.params.id, contexte(req))); } catch (err) { refus(err, res, next); }
 });

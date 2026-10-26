@@ -3,9 +3,11 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth.middleware";
 import { requireRole } from "../middleware/rbac.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
+import { requireTerritoire } from "../middleware/territoire.middleware";
 import { prisma } from "../lib/prisma";
 import { logAuditTransactionnelle } from "../utils/audit";
 import { TRANSITIONS, transitionPermise, perimetre } from "../field/missions.regles";
+import { filtreRegion, regionsCorpsMission } from "../territoire/territoire.lecture";
 
 /**
  * `/api/v2/missions` — l'unite de travail du terrain.
@@ -59,7 +61,8 @@ missionsV2Router.get("/", requireAuth, requireModuleAccess("inspections"), async
     }).parse({ ...req.query, limite: req.query.limite ? Number(req.query.limite) : undefined });
 
     const missions = await prisma.mission.findMany({
-      where: { ...perimetre(req.user!), ...(q.statut ? { statut: q.statut as never } : {}) },
+      // Role/affectation (perimetre) ET region (A10) : un compte regional ne voit que les missions de ses regions.
+      where: { ...perimetre(req.user!), ...(await filtreRegion(req.user!)), ...(q.statut ? { statut: q.statut as never } : {}) },
       orderBy: [{ debutPrevu: "desc" }, { createdAt: "desc" }],
       take: q.limite ?? 50,
     });
@@ -82,7 +85,7 @@ missionsV2Router.get("/:id", requireAuth, requireModuleAccess("inspections"), as
     // la fiche laisserait tout voir a qui devine un identifiant — et un identifiant
     // se trouve dans n'importe quel lien partage.
     const mission = await prisma.mission.findFirst({
-      where: { id: req.params.id, ...perimetre(req.user!) },
+      where: { id: req.params.id, ...perimetre(req.user!), ...(await filtreRegion(req.user!)) },
       include: { traces: { select: { id: true, debutA: true, finA: true, distanceKm: true } } },
     });
     if (!mission) return res.status(404).json({ message: "Mission introuvable" });
@@ -101,6 +104,8 @@ missionsV2Router.get("/:id", requireAuth, requireModuleAccess("inspections"), as
  */
 missionsV2Router.post(
   "/", requireAuth, requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("inspections"),
+  // A10 : la region de la mission (et celle de son chantier) doit etre dans le perimetre ; sans region, un compte regional ne cree pas.
+  requireTerritoire((req) => regionsCorpsMission(req.body)),
   async (req, res, next) => {
     try {
       const c = creation.parse(req.body);
@@ -151,7 +156,7 @@ missionsV2Router.post("/:id/statut", requireAuth, requireModuleAccess("inspectio
     }).parse(req.body);
 
     const user = req.user!;
-    const mission = await prisma.mission.findFirst({ where: { id: req.params.id, ...perimetre(user) } });
+    const mission = await prisma.mission.findFirst({ where: { id: req.params.id, ...perimetre(user), ...(await filtreRegion(user)) } });
     if (!mission) return res.status(404).json({ message: "Mission introuvable" });
 
     if (!transitionPermise(mission.statut, statut)) {

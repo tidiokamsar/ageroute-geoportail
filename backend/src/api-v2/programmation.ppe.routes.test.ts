@@ -2,6 +2,14 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import express from "express";
 import request from "supertest";
 
+// Controle territorial (A10) : compte NATIONAL ici, le sujet de ce fichier est ailleurs. Le controle lui-meme
+// (lecture et ecriture par region) est eprouve par securite/controle-acces.test.ts et par le banc
+// tests-integration/controle-acces.integration.mts.
+vi.mock("../territoire/territoire.service", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  perimetreDe: async () => ({ national: true }),
+}));
+
 /**
  * `/api/v2/programmation/moteur/ppe` et lecture de la praticabilite (D-02) : ce que ces tests defendent.
  *

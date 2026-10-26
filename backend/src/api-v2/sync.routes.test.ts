@@ -42,6 +42,9 @@ vi.mock("../middleware/auth.middleware", () => ({
 vi.mock("../middleware/module-access.middleware", () => ({
   requireModuleAccess: () => (_q: express.Request, _s: express.Response, n: express.NextFunction) => n(),
 }));
+// La garde de push lit le module par lib/access (D4) : le compte d'essai a le module de collecte. Le refus par module
+// est eprouve par securite/appareil-revoque.test.ts.
+vi.mock("../lib/access", () => ({ modulesAutorisesDe: async () => null, moduleAutorise: () => true }));
 
 /**
  * `vi.mock` est remonte au-dessus des declarations du fichier : une fabrique qui
@@ -79,8 +82,8 @@ vi.mock("../utils/audit", () => ({
 vi.mock("../lib/prisma", () => ({
   prisma: {
     appareil: {
-      findFirst: vi.fn(async () => (h.appareilTrouve ? { id: "a1", userId: h.appareilUserId } : null)),
-      findUnique: vi.fn(async () => ({ id: "a1", userId: h.appareilUserId })),
+      // Une seule lecture (D4) : l'appareil, avec sa date de revocation, pour distinguer inconnu et revoque.
+      findUnique: vi.fn(async () => (h.appareilTrouve ? { id: "a1", userId: h.appareilUserId, revoqueA: null } : null)),
       update: h.majAppareil,
     },
     mission: { findMany: vi.fn(async () => h.missions) },
@@ -135,9 +138,13 @@ vi.mock("../lib/prisma", () => ({
   },
 }));
 
-vi.mock("../field/sync.service", () => ({
+vi.mock("../field/sync.service", async () => ({
+  // Budget de traces : logique pure du service, gardee reelle (D9, point 4).
+  creerBudgetTraces: (await vi.importActual<typeof import("../field/sync.service")>("../field/sync.service")).creerBudgetTraces,
   TYPES_ACCEPTES: new Set(["Observation", "Defaut"]),
   OPERATIONS_ACCEPTEES: { Observation: ["CREATE", "UPDATE", "DELETE"], Defaut: ["CREATE"] },
+  estRefusDeDroits: () => false,
+  refuserPourDroits: vi.fn(),
   appliquer: vi.fn(async (op: { operationId: string }) => {
     h.applique.push(op.operationId);
     return { operationId: op.operationId, statut: "SYNCHRONISE", entityId: "e1", version: 2 };
@@ -210,6 +217,7 @@ describe("POST /push", () => {
       .send({ appareilId: uuid(9), operations: [op(1)] });
 
     expect(r.status).toBe(403);
+    expect(r.body.code).toBe("APPAREIL_INCONNU");
     // Et surtout : rien n'a ete applique.
     expect(h.applique).toHaveLength(0);
   });

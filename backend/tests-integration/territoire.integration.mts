@@ -238,8 +238,11 @@ async function main() {
   const cvHors = await appeler("post", `/api/ordres-travaux/${otR2.id}/convertir-chantier`, T.regional);
   const cvInconnue = await appeler("post", `/api/ordres-travaux/${otSansRegion.id}/convertir-chantier`, T.regional);
   const cvDans = await appeler("post", `/api/ordres-travaux/${otR1.id}/convertir-chantier`, T.regional);
-  verifier("conversion d'OT en chantier : OT de R2 refuse (HORS_PERIMETRE) ; OT SANS region refuse (REGION_INCONNUE) ; OT de R1 accepte",
-    refus(cvHors, "HORS_PERIMETRE") && refus(cvInconnue, "REGION_INCONNUE") && cvDans.status === 200
+  // C1 (controle d'acces cote serveur) : un OT hors perimetre ou sans region est desormais INTROUVABLE (404, meme reponse qu'un OT
+  // inconnu) pour le compte regional, avant la garde `territoireConversionOt` (403) qui reste en defense en profondeur. Le contrat
+  // de ce test etait 403 HORS_PERIMETRE / REGION_INCONNUE ; voir controle-acces.integration.mts pour la lecture et les autres ecritures.
+  verifier("conversion d'OT en chantier : OT de R2 refuse (404, introuvable) ; OT SANS region refuse (404, introuvable) ; OT de R1 accepte",
+    cvHors.status === 404 && cvInconnue.status === 404 && cvDans.status === 200
     && await compter(`SELECT count(*) n FROM chantiers WHERE intitule LIKE '[Ex-OT-TERR-2]%' OR intitule LIKE '[Ex-OT-TERR-3]%'`) === 0
     && await compter(`SELECT count(*) n FROM chantiers WHERE intitule LIKE '[Ex-OT-TERR-1]%'`) === 1, [cvHors.body, cvInconnue.body, cvDans.body]);
   const cvNat = await appeler("post", `/api/ordres-travaux/${otR2.id}/convertir-chantier`, T.national);
@@ -291,14 +294,41 @@ async function main() {
   };
   const opHors = opDefaut(T2), opDans = opDefaut(T1);
   const push = await appeler("post", "/api/v2/sync/push", T.regional, { appareilId: appareil.id, operations: [opHors, opDans] });
-  const statuts = new Map<string, { statut: string; motif?: string }>((push.body.resultats ?? []).map((r: { operationId: string; statut: string; motif?: string }) => [r.operationId, r]));
-  verifier("sync : lot de deux operations : celle de R2 est REJETE (HORS_PERIMETRE), celle de R1 SYNCHRONISE",
-    push.status === 200 && statuts.get(opHors.operationId)?.statut === "REJETE" && statuts.get(opHors.operationId)?.motif === "HORS_PERIMETRE"
-    && statuts.get(opDans.operationId)?.statut === "SYNCHRONISE", push.body);
-  verifier("sync : l'operation rejetee n'est PAS enregistree (aucune ligne operations_sync, aucun defaut), l'autre l'est",
-    await compter(`SELECT count(*) n FROM operations_sync WHERE "operationId" = $1`, opHors.operationId) === 0
-    && await compter(`SELECT count(*) n FROM defauts WHERE id = $1`, opHors.entityId) === 0
-    && await compter(`SELECT count(*) n FROM defauts WHERE id = $1`, opDans.entityId) === 1);
+  type Resultat = { operationId: string; statut: string; motif?: string; cause?: string; definitif?: boolean; reessayerDansMs?: number };
+  const statuts = new Map<string, Resultat>((push.body.resultats ?? []).map((r: Resultat) => [r.operationId, r]));
+  const rHors = statuts.get(opHors.operationId);
+  verifier("sync : lot de deux operations : celle de R2 est REJETE, celle de R1 SYNCHRONISE (le refus de l'une ne perturbe pas l'autre)",
+    push.status === 200 && rHors?.statut === "REJETE" && statuts.get(opDans.operationId)?.statut === "SYNCHRONISE", push.body);
+  verifier("sync : le refus de perimetre est un refus de DROITS DEFINITIF : motif DROITS_MODIFIES, cause HORS_PERIMETRE, definitif true, aucun delai de reessai, compteur refusDroits = 1",
+    rHors?.motif === "DROITS_MODIFIES" && rHors?.cause === "HORS_PERIMETRE" && rHors?.definitif === true
+    && rHors?.reessayerDansMs === undefined && push.body.refusDroits === 1, [rHors, push.body.refusDroits]);
+  const traceHors = await sql<{ statut: string; derniereErreur: string | null; payloadCaviarde: boolean; contenuAbsent: boolean; userId: string; appareilId: string; entityType: string }>(
+    `SELECT statut::text AS statut, "derniereErreur", (payload = '{"redacted": true}'::jsonb) AS "payloadCaviarde",
+            (payload::text NOT LIKE '%NID_TERR%' AND payload::text NOT LIKE '%-13.59%') AS "contenuAbsent",
+            "userId", "appareilId", "entityType"
+       FROM operations_sync WHERE "operationId" = $1`, opHors.operationId);
+  verifier("sync : le refus laisse une TRACE durable : une ligne operations_sync REJETE, derniereErreur = DROITS_MODIFIES:HORS_PERIMETRE, rattachee au compte et a l'appareil",
+    traceHors.length === 1 && traceHors[0].statut === "REJETE" && traceHors[0].derniereErreur === "DROITS_MODIFIES:HORS_PERIMETRE"
+    && traceHors[0].userId === regional.id && traceHors[0].appareilId === appareil.id && traceHors[0].entityType === "Defaut", traceHors);
+  verifier("sync : la trace du refus ne conserve PAS le contenu de l'operation : payload caviarde ({\"redacted\":true}), ni code de catalogue ni coordonnees",
+    traceHors.length === 1 && traceHors[0].payloadCaviarde === true && traceHors[0].contenuAbsent === true, traceHors);
+  verifier("sync : l'operation refusee ne cree AUCUN defaut ; l'operation de R1 est enregistree (ligne operations_sync SYNCHRONISE) et son defaut existe",
+    await compter(`SELECT count(*) n FROM defauts WHERE id = $1`, opHors.entityId) === 0
+    && await compter(`SELECT count(*) n FROM defauts WHERE id = $1`, opDans.entityId) === 1
+    && await compter(`SELECT count(*) n FROM operations_sync WHERE "operationId" = $1 AND statut = 'SYNCHRONISE'`, opDans.operationId) === 1);
+
+  // Region non determinable (GPS seul) : meme famille de refus, autre cause.
+  const opGps = (() => {
+    const id = randomUUID();
+    return { operationId: id, entityType: "Defaut", entityId: id, operation: "CREATE", baseVersion: null,
+      payload: { catalogueCode: "NID_TERR", lat: 9.651, lon: -13.591, precisionM: 4, mesures: { nombre: 1 }, gravite: 2 } };
+  })();
+  const pushGps = await appeler("post", "/api/v2/sync/push", T.regional, { appareilId: appareil.id, operations: [opGps] });
+  const rGps = (pushGps.body.resultats ?? [])[0] as Resultat | undefined;
+  verifier("sync : operation localisee par GPS seul (region inconnue) pour un compte regional : DROITS_MODIFIES, cause REGION_INCONNUE, definitif, trace DROITS_MODIFIES:REGION_INCONNUE au payload caviarde, aucun defaut",
+    pushGps.status === 200 && rGps?.motif === "DROITS_MODIFIES" && rGps?.cause === "REGION_INCONNUE" && rGps?.definitif === true
+    && await compter(`SELECT count(*) n FROM operations_sync WHERE "operationId" = $1 AND "derniereErreur" = 'DROITS_MODIFIES:REGION_INCONNUE' AND payload = '{"redacted": true}'::jsonb`, opGps.operationId) === 1
+    && await compter(`SELECT count(*) n FROM defauts WHERE id = $1`, opGps.entityId) === 0, [pushGps.status, pushGps.body]);
 
   // ================================================================ 5. Perimetre vide, region inconnue, administration
   console.log("\n== 5. Perimetre vide, region inconnue, administration des perimetres ==");

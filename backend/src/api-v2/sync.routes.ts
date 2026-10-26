@@ -1,14 +1,17 @@
-import { Router } from "express";
+import { Router, type NextFunction, type Request, type Response } from "express";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { requireAuth } from "../middleware/auth.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
+import { modulesAutorisesDe, moduleAutorise } from "../lib/access";
 import { prisma } from "../lib/prisma";
 import { logAuditTransactionnelle } from "../utils/audit";
-import { appliquer, statutAppareil, TYPES_ACCEPTES, OPERATIONS_ACCEPTEES } from "../field/sync.service";
+import { appliquer, creerBudgetTraces, estRefusDeDroits, refuserPourDroits, statutAppareil, TYPES_ACCEPTES, OPERATIONS_ACCEPTEES } from "../field/sync.service";
+import { refuserAppareil } from "./devices.routes";
 import { preparerPayloadObservationSync } from "../field/observation-sync-payload";
 import { perimetreDe } from "../territoire/territoire.service";
 import { verdictOperationSync } from "../territoire/territoire.v2";
+import { et, filtreRegionDefaut, filtreRegionObservation, regionsVisibles } from "../territoire/territoire.lecture";
 import { peutArbitrer, resolutionsPossibles } from "../field/conflits";
 
 /**
@@ -54,26 +57,93 @@ const operation = z.object({
  *       n'ecrase jamais : les deux etats sont conserves pour arbitrage.
  *     tags: [Sync v2]
  */
-syncV2Router.post("/push", requireAuth, requireModuleAccess("inspections"), async (req, res, next) => {
-  try {
-    const corps = z.object({
-      appareilId: z.string().uuid(),
-      operations: z.array(operation).min(1).max(LOT_MAX_OPERATIONS),
-    }).parse(req.body);
+const corpsPush = z.object({
+  appareilId: z.string().uuid(),
+  operations: z.array(operation).min(1).max(LOT_MAX_OPERATIONS),
+});
 
-    // L'appareil doit exister ET ne pas etre revoque. Un telephone perdu dont on a
-    // revoque l'acces ne doit pas pouvoir vider sa file dans le referentiel.
+type CorpsPush = z.infer<typeof corpsPush>;
+interface ContextePush { corps: CorpsPush; appareil: { id: string; userId: string } }
+
+/** Reponse de `push` : les memes compteurs que le chemin normal, quel que soit le chemin qui les a produits. */
+function reponsePush(resultats: Array<{ statut: string; motif?: string }>, refusNonTraces = 0) {
+  return {
+    total: resultats.length,
+    synchronisees: resultats.filter((r) => r.statut === "SYNCHRONISE").length,
+    rejouees: resultats.filter((r) => r.statut === "REJOUEE").length,
+    // Compte a part des rejets : un conflit attend une decision humaine, pas un
+    // reessai. Les confondre ferait boucler un client a vide.
+    conflits: resultats.filter((r) => r.statut === "CONFLIT").length,
+    rejetees: resultats.filter((r) => r.statut === "REJETE").length,
+    // Refus de DROITS (module retire, perimetre modifie, mission non assignee) : a part des refus de donnee. Ce
+    // sont des operations que l'agent ne doit pas rejouer tant que ses droits n'ont pas change.
+    refusDroits: resultats.filter((r) => r.statut === "REJETE" && estRefusDeDroits(r.motif)).length,
+    // Refus de droits rendus SANS trace durable parce que le budget de traces de l'appel etait epuise
+    // (`REFUS_DROITS_TRACES_MAX_PAR_LOT`). Meme motif, meme cause, meme `definitif` que les refus traces.
+    refusNonTraces,
+    resultats,
+  };
+}
+
+/**
+ * Garde propre a `push`, posee entre `requireAuth` et `requireModuleAccess` : l'appareil, puis le module, et
+ * pour le module une reponse PAR OPERATION plutot qu'un 403 muet pour tout le lot.
+ *
+ * L'APPAREIL (D4, defaut 3) : inconnu et revoque ont chacun leur code stable (`APPAREIL_INCONNU`,
+ * `APPAREIL_REVOQUE`, 403). Un appareil d'un AUTRE compte, revoque ou non, est « inconnu » : on ne dit pas a un compte
+ * qu'un identifiant appartient a autrui. L'appareil revoque passe avant le module : le client doit d'abord apprendre
+ * qu'il est coupe.
+ *
+ * LE MODULE (D4, point 4) : un compte dont le module `inspections` a ete retire pendant que son telephone etait hors
+ * ligne recevait un 403 sans trace, identique pour tout le lot ; un client qui ne sait pas que le refus est definitif
+ * le rejoue a chaque retour du reseau. Chaque operation est maintenant refusee individuellement et TRACEE
+ * (`DROITS_MODIFIES`, cause `MODULE_RETIRE`), une operation deja appliquee rendant son resultat precedent. La lecture
+ * du module est refaite par `requireModuleAccess` juste apres (garde de defense en profondeur, et ce que l'inventaire
+ * des routes verifie) : une lecture par cle primaire de plus, sur une route appelee par lot.
+ */
+async function controlerPush(req: Request, res: Response, next: NextFunction) {
+  try {
+    const corps = corpsPush.parse(req.body);
     const user = req.user!;
-    const appareil = await prisma.appareil.findFirst({
-      where: { id: corps.appareilId, revoqueA: null },
-      select: { id: true, userId: true },
+    const appareil = await prisma.appareil.findUnique({
+      where: { id: corps.appareilId },
+      select: { id: true, userId: true, revoqueA: true },
     });
     // Un UUID d'appareil ne constitue pas une autorisation. Sans cette comparaison,
     // un compte du module terrain qui connaît l'ID d'un autre appareil pourrait faire
     // attribuer ses opérations au propriétaire de cet appareil.
-    if (!appareil || appareil.userId !== user.id) {
-      return res.status(403).json({ message: "Appareil inconnu, révoqué ou non autorisé" });
+    if (!appareil || appareil.userId !== user.id) return refuserAppareil(res, "APPAREIL_INCONNU");
+    // L'appareil doit exister ET ne pas etre revoque. Un telephone perdu dont on a
+    // revoque l'acces ne doit pas pouvoir vider sa file dans le referentiel.
+    if (appareil.revoqueA) return refuserAppareil(res, "APPAREIL_REVOQUE");
+
+    const contexte: ContextePush = { corps, appareil: { id: appareil.id, userId: appareil.userId } };
+    res.locals.push = contexte;
+
+    if (!moduleAutorise(await modulesAutorisesDe(user), "inspections")) {
+      // Au plus `REFUS_DROITS_TRACES_MAX_PAR_LOT` refus tracees par appel (D9, point 4) : les suivants sont rendus tels quels,
+      // comptes dans `refusNonTraces`. Un type d'entite inconnu est refuse comme une donnee (`TYPE_NON_SUPPORTE`), sans ecriture.
+      const budget = creerBudgetTraces();
+      const resultats = [];
+      for (const op of corps.operations) {
+        const tracer = budget.peutTracer();
+        const r = await refuserPourDroits(op, { appareilId: appareil.id, userId: user.id }, "MODULE_RETIRE", { tracer });
+        budget.compter(r, tracer);
+        resultats.push(r);
+      }
+      await prisma.appareil.update({ where: { id: appareil.id }, data: { dernierVuA: new Date() } });
+      return res.json(reponsePush(resultats, budget.refusNonTraces));
     }
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+}
+
+syncV2Router.post("/push", requireAuth, controlerPush, requireModuleAccess("inspections"), async (req, res, next) => {
+  try {
+    const { corps, appareil } = res.locals.push as ContextePush;
+    const user = req.user!;
 
     /**
      * EN SERIE, et c'est structurel ici.
@@ -82,31 +152,34 @@ syncV2Router.post("/push", requireAuth, requireModuleAccess("inspections"), asyn
      * voir le resultat de la premiere, sinon elle partirait d'une version perimee et
      * serait mise en conflit avec son propre predecesseur.
      */
-    // Controle territorial (A10) : perimetre lu une fois ; une operation hors perimetre est
-    // rejetee seule, sans etre enregistree (un reessai aboutit si le perimetre change).
+    // Controle territorial (A10) : perimetre lu une fois ; une operation hors perimetre est rejetee seule.
+    //
+    // ELLE EST DESORMAIS TRACEE (D4, point 4) : ligne `operations_sync` REJETE `DROITS_MODIFIES:<HORS_PERIMETRE|
+    // REGION_INCONNUE>`, contenu caviarde, rendue `definitif: true`. Avant, le refus ne laissait aucune trace et le
+    // client ne savait pas s'il fallait reessayer. Le controle est evalue PAR `appliquer`, APRES l'idempotence : une
+    // operation deja appliquee puis rejouee apres un changement de perimetre rend son resultat precedent. Un renvoi
+    // explicite d'une operation refusee est reevalue sur les droits du moment : si le perimetre a ete rendu, elle passe.
     const perimetre = await perimetreDe(user);
+    // Meme budget de traces que pour le module retire (D9, point 4) : un compte dont le perimetre a change ne peut pas non plus
+    // ecrire une ligne `operations_sync` par operation refusee a chaque appel.
+    const budget = creerBudgetTraces();
     const resultats = [];
     for (const op of corps.operations) {
-      const territoire = await verdictOperationSync(perimetre, op);
-      if (!territoire.ok) {
-        resultats.push({ operationId: op.operationId, statut: "REJETE" as const, motif: territoire.code });
-        continue;
-      }
-      resultats.push(await appliquer(op, { appareilId: appareil.id, userId: user.id }));
+      const tracer = budget.peutTracer();
+      const r = await appliquer(op, { appareilId: appareil.id, userId: user.id }, {
+        controleDroits: async () => {
+          const territoire = await verdictOperationSync(perimetre, op);
+          return territoire.ok ? null : { cause: territoire.code };
+        },
+        tracerRefusDroits: tracer,
+      });
+      budget.compter(r, tracer);
+      resultats.push(r);
     }
 
     await prisma.appareil.update({ where: { id: appareil.id }, data: { dernierVuA: new Date() } });
 
-    return res.json({
-      total: resultats.length,
-      synchronisees: resultats.filter((r) => r.statut === "SYNCHRONISE").length,
-      rejouees: resultats.filter((r) => r.statut === "REJOUEE").length,
-      // Compte a part des rejets : un conflit attend une decision humaine, pas un
-      // reessai. Les confondre ferait boucler un client a vide.
-      conflits: resultats.filter((r) => r.statut === "CONFLIT").length,
-      rejetees: resultats.filter((r) => r.statut === "REJETE").length,
-      resultats,
-    });
+    return res.json(reponsePush(resultats, budget.refusNonTraces));
   } catch (err) {
     return next(err);
   }
@@ -159,6 +232,12 @@ syncV2Router.post("/pull", requireAuth, requireModuleAccess("inspections"), asyn
         ],
       };
     }
+
+    // Perimetre territorial (A10) : un compte regional ne redescend que les lignes de ses regions, tombstones compris. Le pull
+    // est le pendant en lecture du push, qui rejette deja l'operation hors perimetre : sans ce filtre, un responsable regional
+    // recevait par ici toutes les observations et tous les defauts du pays.
+    const regions = await regionsVisibles(user);
+    if (regions) scope = et(scope, entityType === "Observation" ? filtreRegionObservation(regions) : filtreRegionDefaut(regions));
 
     const where = {
       updatedAt: { gt: depuis },
@@ -553,13 +632,17 @@ syncV2Router.get("/status", requireAuth, requireModuleAccess("inspections"), asy
     const user = req.user!;
     const appareil = await prisma.appareil.findUnique({
       where: { id: appareilId },
-      select: { id: true, userId: true },
+      select: { id: true, userId: true, revoqueA: true },
     });
     if (!appareil || (appareil.userId !== user.id && user.role !== "ADMIN")) {
       return res.status(404).json({ message: "Appareil introuvable" });
     }
+    // Le porteur d'un appareil revoque l'apprend par le meme code que `push` (D4, defaut 3). Un ADMIN qui consulte
+    // l'appareil d'un autre compte lit son etat (et sa date de revocation) sans erreur.
+    if (appareil.revoqueA && appareil.userId === user.id) return refuserAppareil(res, "APPAREIL_REVOQUE");
     return res.json({
       ...(await statutAppareil(appareilId)),
+      revoqueA: appareil.revoqueA ?? null,
       typesAcceptes: [...TYPES_ACCEPTES],
       operationsAcceptees: OPERATIONS_ACCEPTEES,
     });

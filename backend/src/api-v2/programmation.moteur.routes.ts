@@ -7,6 +7,8 @@ import { prisma } from "../lib/prisma";
 import * as moteur from "../programmation/moteur.service";
 import * as depot from "../programmation/moteur.depot";
 import * as ppe from "../programmation/ppe.service";
+import { requireTerritoire, requireTerritoireMasque } from "../middleware/territoire.middleware";
+import { regionsCorpsSimulation, regionsFicheIntervention, regionsScenario, regionsVisibles } from "../territoire/territoire.lecture";
 
 /**
  * `/api/v2/programmation/moteur` : le moteur de risque et de programmation (paragraphe 7.7, A22).
@@ -42,6 +44,18 @@ moteurProgrammationV2Router.use(requireAuth, requireModuleAccess("programmation"
 
 const ecriture = requireRole("ADMIN", "GESTIONNAIRE");
 const admin = requireRole("ADMIN");
+
+/**
+ * CONTROLE TERRITORIAL (A10). Un scenario porte la region de son perimetre (`perimetre.regionId`) ; une fiche figee, celle
+ * de son troncon. Un compte regional ne calcule que sur UNE region de son perimetre (un calcul national lui est refuse :
+ * 403) et ne lit, rejoue, supprime ou fait avancer que ce qui est dans son perimetre. Hors perimetre, la ressource est
+ * INTROUVABLE (404, meme corps que la route : voir territoire.lecture.ts). Les versions de PARAMETRES (ponderations et
+ * seuils) sont des reglages nationaux, pas des donnees regionales : elles ne sont pas filtrees.
+ */
+const scenarioVisible = (message = "scénario introuvable ou supprimé") =>
+  requireTerritoireMasque((req) => regionsScenario(req.params.id), { corps: { error: message, code: "INTROUVABLE" } });
+const ficheVisible = requireTerritoireMasque((req) => regionsFicheIntervention(req.params.id), { corps: { error: "fiche introuvable", code: "INTROUVABLE" } });
+const simulationDansPerimetre = requireTerritoire((req) => regionsCorpsSimulation(req.body));
 
 const montant = z.string().regex(/^\d{1,18}$/, "chiffres attendus, en chaîne (GNF entiers, 18 chiffres au plus)");
 const identifiant = z.string().min(1).max(64);
@@ -123,12 +137,12 @@ moteurProgrammationV2Router.get("/simulations", async (req, res, next) => {
     const { page: p, pageSize, decalage } = page(req);
     const annee = req.query.annee ? Number(req.query.annee) : null;
     if (annee !== null && !Number.isInteger(annee)) { res.status(400).json({ error: "annee : entier attendu" }); return; }
-    const r = await depot.listerScenarios(prisma, { annee, limite: pageSize, decalage });
+    const r = await depot.listerScenarios(prisma, { annee, limite: pageSize, decalage, regions: await regionsVisibles(req.user!) });
     res.json({ data: r.lignes.map(moteur.resumeScenarioApi), total: r.total, page: p, pageSize });
   } catch (err) { next(err); }
 });
 
-moteurProgrammationV2Router.post("/simulations", ecriture, async (req, res, next) => {
+moteurProgrammationV2Router.post("/simulations", ecriture, simulationDansPerimetre, async (req, res, next) => {
   const p = corpsSimulation.safeParse(req.body);
   if (!p.success) { invalide(res, p.error.flatten().fieldErrors); return; }
   try {
@@ -141,7 +155,7 @@ moteurProgrammationV2Router.post("/simulations", ecriture, async (req, res, next
   } catch (err) { refus(err, res, next); }
 });
 
-moteurProgrammationV2Router.get("/simulations/:id", async (req, res, next) => {
+moteurProgrammationV2Router.get("/simulations/:id", scenarioVisible(), async (req, res, next) => {
   try { res.json(await moteur.lireScenarioComplet(prisma, req.params.id)); } catch (err) { refus(err, res, next); }
 });
 
@@ -150,22 +164,22 @@ moteurProgrammationV2Router.get("/praticabilite", async (_req, res, next) => {
   try { res.json(await ppe.statutPraticabilite(prisma)); } catch (err) { next(err); }
 });
 
-moteurProgrammationV2Router.get("/simulations/:id/praticabilite", async (req, res, next) => {
+moteurProgrammationV2Router.get("/simulations/:id/praticabilite", scenarioVisible(), async (req, res, next) => {
   try {
     const { resultat } = await moteur.lireScenarioComplet(prisma, req.params.id);
     res.json(await ppe.alertesPraticabilite(prisma, ppe.tronconsRetenusDe(resultat)));
   } catch (err) { refus(err, res, next); }
 });
 
-moteurProgrammationV2Router.post("/simulations/:id/rejouer", async (req, res, next) => {
+moteurProgrammationV2Router.post("/simulations/:id/rejouer", scenarioVisible(), async (req, res, next) => {
   try { res.json(await moteur.rejouer(prisma, req.params.id)); } catch (err) { refus(err, res, next); }
 });
 
-moteurProgrammationV2Router.post("/simulations/:id/supprimer", ecriture, async (req, res, next) => {
+moteurProgrammationV2Router.post("/simulations/:id/supprimer", ecriture, scenarioVisible("scénario introuvable ou déjà supprimé"), async (req, res, next) => {
   try { res.json(await moteur.supprimerScenario(prisma, req.params.id, contexte(req))); } catch (err) { refus(err, res, next); }
 });
 
-moteurProgrammationV2Router.post("/simulations/:id/fiches", ecriture, async (req, res, next) => {
+moteurProgrammationV2Router.post("/simulations/:id/fiches", ecriture, scenarioVisible(), async (req, res, next) => {
   const p = corpsFiches.safeParse(req.body ?? {});
   if (!p.success) { invalide(res, p.error.flatten().fieldErrors); return; }
   try { res.status(201).json(await moteur.figerFiches(prisma, req.params.id, p.data, contexte(req))); } catch (err) { refus(err, res, next); }
@@ -181,20 +195,21 @@ moteurProgrammationV2Router.get("/fiches", async (req, res, next) => {
     const r = await depot.listerFiches(prisma, {
       annee, scenarioId: req.query.scenarioId ? String(req.query.scenarioId) : null,
       statut: req.query.statut ? String(req.query.statut) : null, limite: pageSize, decalage,
+      regions: await regionsVisibles(req.user!),
     });
     res.json({ data: r.lignes.map(moteur.ficheCouranteApi), total: r.total, page: p, pageSize });
   } catch (err) { next(err); }
 });
 
-moteurProgrammationV2Router.get("/fiches/:id", async (req, res, next) => {
+moteurProgrammationV2Router.get("/fiches/:id", ficheVisible, async (req, res, next) => {
   try { res.json(await moteur.lireFicheComplete(prisma, req.params.id)); } catch (err) { refus(err, res, next); }
 });
 
-moteurProgrammationV2Router.get("/fiches/:id/verification", async (req, res, next) => {
+moteurProgrammationV2Router.get("/fiches/:id/verification", ficheVisible, async (req, res, next) => {
   try { res.json(await moteur.verifierFicheStockee(prisma, req.params.id)); } catch (err) { refus(err, res, next); }
 });
 
-moteurProgrammationV2Router.post("/fiches/:id/statut", ecriture, async (req, res, next) => {
+moteurProgrammationV2Router.post("/fiches/:id/statut", ecriture, ficheVisible, async (req, res, next) => {
   const p = corpsStatut.safeParse(req.body);
   if (!p.success) { invalide(res, p.error.flatten().fieldErrors); return; }
   try { res.status(201).json(await moteur.changerStatutFiche(prisma, req.params.id, p.data.vers, p.data.motif ?? null, contexte(req))); } catch (err) { refus(err, res, next); }

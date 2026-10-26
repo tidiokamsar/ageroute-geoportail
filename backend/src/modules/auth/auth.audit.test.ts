@@ -69,6 +69,8 @@ vi.mock("../../lib/prisma", () => {
       create: vi.fn(() => ({ __maj: "refreshTokenCree" })),
       findFirst: vi.fn(async () => null),
     },
+    // Verrou de ligne du compte (D9, point 1) : un element du lot, execute dans l'ordre comme les autres.
+    $queryRaw: vi.fn(() => ({ __verrou: true })),
     $transaction: vi.fn(async (arg: unknown) => {
       if (typeof arg === "function") return (arg as (t: unknown) => Promise<unknown>)(client);
       h.lots.push(arg as unknown[]);
@@ -108,6 +110,14 @@ describe("Les actes de securite partent avec leur trace", () => {
     expect(audit).toMatchObject({ action: "SECURITY_EVENT", entityType: "RefreshToken", userId: "admin-1" });
     expect(audit?.after).toMatchObject({ evenement: "REFRESH_TOKENS_REVOKED", motif: "PASSWORD_RESET" });
     expect(audit?.ipAddress).toBe("10.0.0.1");
+  });
+
+  it("la revocation prend d'abord le verrou du compte (D9, point 1), dans le MEME lot que la coupure et la trace", async () => {
+    await revokeAllForUser("u1", "LOGOUT_ALL", "u1");
+    const lot = h.lots.find((l) => l.some((o) => o && typeof o === "object" && "__maj" in (o as object)));
+    expect(lot).toBeDefined();
+    expect((lot![0] as { __verrou?: boolean }).__verrou).toBe(true);
+    expect(lot).toHaveLength(3);
   });
 
   it("DESACTIVE le second facteur dans une transaction qui porte sa trace", async () => {

@@ -180,10 +180,16 @@ Constaté, **non corrigé** (voir §5) : un rejet territorial est rendu sans `re
 - **Pas de suppression locale d'une saisie abandonnée.** L'écran propose « Relancer l'envoi », pas « Supprimer » : une
   saisie de terrain ne se supprime pas en un clic. Conséquence : une saisie définitivement refusée reste dans la liste
   et dans `pendingCount` tant qu'un humain ne décide pas de son sort. À arbitrer.
-- **Un rejet territorial (`HORS_PERIMETRE`) est rendu sans `reessayerDansMs`** par `/sync/push`, alors que le commentaire de
-  la route dit qu'un réessai peut aboutir si le périmètre change. Le client suit la règle du protocole (absence de
-  `reessayerDansMs` = définitif) : la saisie passe `abandonnee`, et l'agent doit la relancer à la main. Incohérence
-  serveur à trancher, non corrigée ici.
+- **Un rejet territorial n'est plus rendu sous le motif `HORS_PERIMETRE`** (chantier serveur D4, poste de développement,
+  non déployé). `/sync/push` rend désormais `motif: "DROITS_MODIFIES"` avec `cause: "HORS_PERIMETRE"` (ou
+  `"REGION_INCONNUE"`, ou `"MODULE_RETIRE"`) et `definitif: true`, toujours sans `reessayerDansMs`. Le serveur conserve
+  une ligne `operations_sync` (`derniereErreur = DROITS_MODIFIES:<cause>`, contenu caviardé) ; un renvoi explicite de la
+  même opération (même `operationId`) est réévalué sur les droits du jour, ce qui lève l'incohérence signalée jusqu'ici
+  (le commentaire de la route disait qu'un réessai peut aboutir si le périmètre change : c'est vrai pour un renvoi
+  volontaire, jamais pour un réessai automatique). `MISSION_NON_AUTORISEE` reste un motif propre de la même famille.
+  Contrat complet : `docs/securite/SESSION-HORS-LIGNE-SERVEUR.md` §2.3. Prouvé par le banc `territoire` (section 4).
+  **Le client n'est pas encore aligné** : il traite toujours le refus par l'absence de `reessayerDansMs` (la saisie passe
+  `abandonnee`) et n'affiche pas le motif « droits modifiés » ni la cause ; à corriger côté client.
 - **L'écran ne propose ni mission ni tronçon** à la saisie (aucun sélecteur) : il n'envoie que type, gravité,
   description et position. `tronconId` et `missionId` sont acceptés par `construireObservation` mais aucun écran ne les
   renseigne.

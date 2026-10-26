@@ -2,6 +2,7 @@ import { Router, type Request } from "express";
 import { createHash } from "node:crypto";
 import { readFile, unlink } from "node:fs/promises";
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
 import { requireAuth } from "../middleware/auth.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
 import { prisma } from "../lib/prisma";
@@ -10,6 +11,7 @@ import { enregistrerQualite } from "../lib/qualite";
 import { validationPermise, EXPLICATIONS } from "../governance/validation";
 import { verdictDelegation } from "../governance/delegation.service";
 import { territoireObservation } from "../territoire/territoire.v2";
+import { et, filtreRegionObservation, regionsVisibles } from "../territoire/territoire.lecture";
 import { requireRole } from "../middleware/rbac.middleware";
 import { apparier, type Appariement } from "../geo/appariement";
 import { uploadPhoto } from "../middleware/upload-photo.middleware";
@@ -33,7 +35,19 @@ import { photoAbsolutePath } from "../lib/photos";
 
 export const observationsV2Router = Router();
 
-async function perimetreObservations(user: { id: string; role: string }) {
+/**
+ * Ce qu'un compte a le droit de voir : les observations de son affectation (un agent voit les siennes et celles
+ * de ses missions, un responsable tout) ET celles de sa region (A10). Le responsable REGIONAL n'etait filtre que
+ * par son role : il lisait les observations de toutes les regions. La region d'une observation est celle de
+ * son premier lien renseigne (troncon, ouvrage, chantier, mission), comme pour les ecritures.
+ */
+async function perimetreObservations(user: { id: string; role: string }): Promise<Prisma.ObservationWhereInput> {
+  const affectation = await perimetreAffectation(user);
+  const regions = await regionsVisibles(user);
+  return (regions === null ? affectation : et(affectation, filtreRegionObservation(regions))) as Prisma.ObservationWhereInput;
+}
+
+async function perimetreAffectation(user: { id: string; role: string }): Promise<Record<string, unknown>> {
   if (user.role === "ADMIN" || user.role === "GESTIONNAIRE") return {};
   const missions = await prisma.mission.findMany({
     where: { deletedAt: null, OR: [{ assigneId: user.id }, { createurId: user.id }] },

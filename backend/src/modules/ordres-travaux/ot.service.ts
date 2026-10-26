@@ -2,6 +2,7 @@ import { prisma } from "../../lib/prisma";
 import { nextNumeroOT } from "../../lib/numero";
 import { construireAudit, logAuditTransactionnelle } from "../../utils/audit";
 import { ApiError } from "../../middleware/error.middleware";
+import { Prisma } from "@prisma/client";
 import type { StatutOT, Role } from "@prisma/client";
 
 // Seuil au-delà duquel un OT devrait devenir un chantier/marché (paramétrable plus tard
@@ -42,6 +43,8 @@ async function pushHistorique(otId: string, action: string, userId: string | nul
 async function list(params: {
   page?: number; pageSize?: number; statut?: string; priorite?: string;
   region?: string; assigneA?: string; type?: string; search?: string; aTraiter?: boolean; userId?: string;
+  /** Regions visibles du compte (A10) ; `null` ou absent = toutes. Un OT sans region n'est jamais visible d'un compte regional. */
+  regions?: readonly number[] | null;
 }) {
   const page = Math.max(1, params.page ?? 1);
   const pageSize = Math.min(100, params.pageSize ?? 20);
@@ -49,6 +52,7 @@ async function list(params: {
   if (params.statut) where.statut = params.statut;
   if (params.priorite) where.priorite = params.priorite;
   if (params.region) where.region = { nom: params.region };
+  if (params.regions) where.regionId = { in: [...params.regions] };
   if (params.assigneA) where.assigneAId = params.assigneA;
   if (params.type) where.typeIntervention = params.type;
   if (params.search) where.OR = [
@@ -309,15 +313,17 @@ async function remove(id: string, userId: string) {
 }
 
 // KPI du module pour le tableau de bord exécutif
-async function stats() {
-  const notDeleted = { deletedAt: null };
+async function stats(regions?: readonly number[] | null) {
+  // Compte regional (A10) : les chiffres ne portent que sur ses regions, jamais sur le national.
+  const notDeleted = regions ? { deletedAt: null, regionId: { in: [...regions] } } : { deletedAt: null };
+  const filtreRegionSql = regions ? Prisma.sql`AND ot."regionId" IN (${Prisma.join([...regions])})` : Prisma.empty;
   const [ouverts, parPriorite, parRegion, termines, avecPhotosApres] = await Promise.all([
     prisma.ordreTravaux.count({ where: { ...notDeleted, statut: { in: ["BROUILLON", "ASSIGNE", "EN_COURS", "SUSPENDU"] } } }),
     prisma.ordreTravaux.groupBy({ by: ["priorite"], where: { ...notDeleted, statut: { in: ["ASSIGNE", "EN_COURS", "SUSPENDU"] } }, _count: { _all: true } }),
     prisma.$queryRaw<{ region: string; nb: bigint }[]>`
       SELECT COALESCE(r.nom, 'Non renseignée') AS region, count(*) AS nb
       FROM ordres_travaux ot LEFT JOIN regions r ON r.id = ot."regionId"
-      WHERE ot."deletedAt" IS NULL AND ot.statut IN ('BROUILLON','ASSIGNE','EN_COURS','SUSPENDU')
+      WHERE ot."deletedAt" IS NULL AND ot.statut IN ('BROUILLON','ASSIGNE','EN_COURS','SUSPENDU') ${filtreRegionSql}
       GROUP BY 1 ORDER BY nb DESC`,
     prisma.ordreTravaux.findMany({
       where: { ...notDeleted, statut: "TERMINE", dateFinReelle: { not: null } },

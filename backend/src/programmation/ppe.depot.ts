@@ -41,11 +41,13 @@ export async function lirePlan(db: Db, id: string): Promise<LignePlanDb | null> 
   return r[0] ?? null;
 }
 
-export async function listerPlans(db: Db, f: { anneeDebut?: number | null; limite: number; decalage: number }): Promise<{ total: number; lignes: ResumePlanDb[] }> {
+/** `regions` (A10) : regions visibles d'un compte regional (`perimetre.regionId`) ; `null` ou absent = toutes. Un plan national n'est visible que d'un compte national. */
+export async function listerPlans(db: Db, f: { anneeDebut?: number | null; limite: number; decalage: number; regions?: readonly number[] | null }): Promise<{ total: number; lignes: ResumePlanDb[] }> {
   const debut = f.anneeDebut != null ? Prisma.sql`AND "anneeDebut" = ${f.anneeDebut}` : Prisma.empty;
-  const total = await db.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS "n" FROM "plans_pluriannuels" WHERE "deletedAt" IS NULL ${debut}`;
+  const region = f.regions ? Prisma.sql`AND "perimetre"->>'regionId' IN (${Prisma.join(f.regions.map(String))})` : Prisma.empty;
+  const total = await db.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS "n" FROM "plans_pluriannuels" WHERE "deletedAt" IS NULL ${debut} ${region}`;
   const lignes = await db.$queryRaw<ResumePlanDb[]>`
-    SELECT ${COLONNES_RESUME} FROM "plans_pluriannuels" WHERE "deletedAt" IS NULL ${debut}
+    SELECT ${COLONNES_RESUME} FROM "plans_pluriannuels" WHERE "deletedAt" IS NULL ${debut} ${region}
      ORDER BY "creeLe" DESC, "id" ASC LIMIT ${f.limite} OFFSET ${f.decalage}`;
   return { total: total[0].n, lignes };
 }

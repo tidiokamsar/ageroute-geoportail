@@ -6,6 +6,7 @@ import { hashRefreshToken, newRefreshTokenId } from "../../utils/tokens";
 import { ApiError } from "../../middleware/error.middleware";
 import { logAudit, construireAudit } from "../../utils/audit";
 import { env } from "../../config/env";
+import { verrouillerPourRevocation, verrouillerPourRotation } from "./session-verrou";
 
 const MAX_FAILED_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
@@ -224,6 +225,9 @@ export async function revokeAllForUser(userId: string, motif: string, actorId?: 
   // sans le motif, on ne distingue plus un changement de mot de passe d'un verrouillage
   // apres incident.
   await prisma.$transaction([
+    // Le verrou du compte d'abord (D9, point 1) : une rotation en vol ne peut plus laisser un jeton vivant
+    // derriere cette coupure. Voir `session-verrou.ts`.
+    verrouillerPourRevocation(prisma, userId),
     prisma.refreshToken.updateMany({
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
@@ -250,6 +254,10 @@ export async function refresh(token: string, ipAddress?: string) {
   }
 
   const result = await prisma.$transaction(async (tx) => {
+    // PREMIERE instruction de la transaction (D9, point 1) : la rotation et la revocation des sessions d'un meme
+    // compte se serialisent. Sans ce verrou, une revocation concurrente repondait 200 `sessions: 0` et laissait
+    // vivant le jeton que cette rotation venait d'inserer. Voir `session-verrou.ts` (aussi pour l'ordre des verrous).
+    await verrouillerPourRotation(tx, payload.sub);
     const stored = await tx.refreshToken.findUnique({ where: { tokenHash: hashRefreshToken(token) } });
     if (!stored) throw new ApiError(401, "Jeton de rafraichissement invalide ou expire");
 

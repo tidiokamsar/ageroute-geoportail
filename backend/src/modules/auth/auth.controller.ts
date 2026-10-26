@@ -3,6 +3,7 @@ import { loginSchema, refreshSchema, twoFaLoginVerifySchema, twoFaConfirmSchema,
 import * as authService from "./auth.service";
 import { ApiError } from "../../middleware/error.middleware";
 import { poserCookieRefresh, effacerCookieRefresh, REFRESH_COOKIE } from "../../lib/session-cookie";
+import { perimetreDe } from "../../territoire/territoire.service";
 
 export async function loginHandler(req: Request, res: Response, next: NextFunction) {
   try {
@@ -83,6 +84,11 @@ export async function meHandler(req: Request, res: Response, next: NextFunction)
         peutDeleguerValidation: true,
       },
     });
+    // DROITS EFFECTIFS, lus en base (D4, point 6) : `role` vient deja de la base via `requireAuth`, les modules
+    // sont lus ci-dessus, et le perimetre territorial est lu ici. Le client compare ces trois valeurs a celles de
+    // sa session locale a la reconnexion (`SESSION-HORS-LIGNE.md` section 8) : un changement invalide la session.
+    // `regions` vide ne veut PAS dire « aucune region » : c'est un compte national (`perimetreNational`).
+    const perimetre = await perimetreDe(req.user);
     res.json({
       user: {
         ...req.user,
@@ -90,6 +96,8 @@ export async function meHandler(req: Request, res: Response, next: NextFunction)
         nomComplet: dbUser?.nomComplet,
         modulesAutorises: dbUser?.modulesAutorises ?? [],
         peutDeleguerValidation: dbUser?.peutDeleguerValidation ?? false,
+        perimetreNational: perimetre.national,
+        regions: perimetre.national ? [] : [...perimetre.regions].sort((a, b) => a - b),
       },
     });
   } catch (err) {

@@ -34,15 +34,37 @@ export function perimetreDeRegions(role: string, regions: readonly number[]): Pe
   return { national: false, regions: new Set(regions) };
 }
 
+/**
+ * Nature de l'acces controle : le libelle du refus doit dire ce qui est refuse. `ecriture` (defaut) garde les libelles
+ * historiques, que des tests et des clients lisent ; `lecture` est neutre pour une demande qui ne modifie rien (le
+ * rapport de qualite d'une region, par exemple : D9, point 7c).
+ */
+export type NatureAcces = "ecriture" | "lecture";
+
+const MOTIFS: Record<NatureAcces, { inconnue: string; hors: string }> = {
+  ecriture: {
+    inconnue: "La region de cette fiche est inconnue : un compte regional ne peut pas l'ecrire.",
+    hors: "Cette ecriture touche une region hors de votre perimetre.",
+  },
+  lecture: {
+    inconnue: "La region demandee est inconnue ou invalide : un compte regional ne peut pas la consulter.",
+    hors: "Cette demande vise une region hors de votre perimetre.",
+  },
+};
+
 /** `regionsTouchees` : chaque region que l'ecriture touche ; `null` = region inconnue. */
-export function verifierTerritoire(perimetre: Perimetre, regionsTouchees: readonly (number | null | undefined)[]): VerdictTerritoire {
+export function verifierTerritoire(
+  perimetre: Perimetre,
+  regionsTouchees: readonly (number | null | undefined)[],
+  nature: NatureAcces = "ecriture",
+): VerdictTerritoire {
   if (perimetre.national) return { ok: true };
   for (const r of regionsTouchees) {
     if (r === null || r === undefined) {
-      return { ok: false, code: "REGION_INCONNUE", motif: "La region de cette fiche est inconnue : un compte regional ne peut pas l'ecrire." };
+      return { ok: false, code: "REGION_INCONNUE", motif: MOTIFS[nature].inconnue };
     }
     if (!perimetre.regions.has(r)) {
-      return { ok: false, code: "HORS_PERIMETRE", motif: "Cette ecriture touche une region hors de votre perimetre." };
+      return { ok: false, code: "HORS_PERIMETRE", motif: MOTIFS[nature].hors };
     }
   }
   return { ok: true };

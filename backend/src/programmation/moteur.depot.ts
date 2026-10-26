@@ -207,11 +207,16 @@ export async function lireScenario(db: Db, id: string): Promise<LigneScenarioDb 
   return r[0] ?? null;
 }
 
-export async function listerScenarios(db: Db, f: { annee?: number | null; limite: number; decalage: number }): Promise<{ total: number; lignes: ResumeScenarioDb[] }> {
+/**
+ * `regions` (A10) : regions visibles d'un compte regional ; `null` ou absent = toutes (compte national). Un scenario porte sa
+ * region dans `perimetre.regionId` ; un calcul national (region nulle) n'est visible que d'un compte national.
+ */
+export async function listerScenarios(db: Db, f: { annee?: number | null; limite: number; decalage: number; regions?: readonly number[] | null }): Promise<{ total: number; lignes: ResumeScenarioDb[] }> {
   const annee = f.annee != null ? Prisma.sql`AND "annee" = ${f.annee}` : Prisma.empty;
-  const total = await db.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS "n" FROM "scenarios_programmation" WHERE "deletedAt" IS NULL ${annee}`;
+  const region = f.regions ? Prisma.sql`AND "perimetre"->>'regionId' IN (${Prisma.join(f.regions.map(String))})` : Prisma.empty;
+  const total = await db.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS "n" FROM "scenarios_programmation" WHERE "deletedAt" IS NULL ${annee} ${region}`;
   const lignes = await db.$queryRaw<ResumeScenarioDb[]>`
-    SELECT ${COLONNES_RESUME_SCENARIO} FROM "scenarios_programmation" WHERE "deletedAt" IS NULL ${annee}
+    SELECT ${COLONNES_RESUME_SCENARIO} FROM "scenarios_programmation" WHERE "deletedAt" IS NULL ${annee} ${region}
      ORDER BY "creeLe" DESC, "id" ASC LIMIT ${f.limite} OFFSET ${f.decalage}`;
   return { total: total[0].n, lignes };
 }
@@ -256,16 +261,18 @@ export async function lireFicheCourante(db: Db, id: string): Promise<LigneFicheC
   return r[0] ?? null;
 }
 
-export async function listerFiches(db: Db, f: { annee?: number | null; scenarioId?: string | null; statut?: string | null; limite: number; decalage: number }): Promise<{ total: number; lignes: LigneFicheCourante[] }> {
+/** `regions` (A10) : une fiche est visible si la region de son troncon est dans la liste ; `null` ou absent = toutes. */
+export async function listerFiches(db: Db, f: { annee?: number | null; scenarioId?: string | null; statut?: string | null; limite: number; decalage: number; regions?: readonly number[] | null }): Promise<{ total: number; lignes: LigneFicheCourante[] }> {
   const annee = f.annee != null ? Prisma.sql`AND c."annee" = ${f.annee}` : Prisma.empty;
   const scenario = f.scenarioId ? Prisma.sql`AND c."scenarioId" = ${f.scenarioId}` : Prisma.empty;
   const statut = f.statut ? Prisma.sql`AND c."statut" = ${f.statut}` : Prisma.empty;
-  const total = await db.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS "n" FROM "fiches_intervention_courantes" c WHERE true ${annee} ${scenario} ${statut}`;
+  const region = f.regions ? Prisma.sql`AND c."tronconId" IN (SELECT "id" FROM "troncons" WHERE "regionId" IN (${Prisma.join([...f.regions])}))` : Prisma.empty;
+  const total = await db.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS "n" FROM "fiches_intervention_courantes" c WHERE true ${annee} ${scenario} ${statut} ${region}`;
   // Le code du troncon est joint pour la lecture humaine ; la fiche, elle, ne cite que l'identifiant.
   const lignes = await db.$queryRaw<LigneFicheCourante[]>`
     SELECT c.*, t."code" AS "tronconCode"
       FROM "fiches_intervention_courantes" c LEFT JOIN "troncons" t ON t."id" = c."tronconId"
-     WHERE true ${annee} ${scenario} ${statut}
+     WHERE true ${annee} ${scenario} ${statut} ${region}
      ORDER BY c."figeLe" DESC, c."id" ASC LIMIT ${f.limite} OFFSET ${f.decalage}`;
   return { total: total[0].n, lignes };
 }

@@ -3,8 +3,10 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
 import { requireRole } from "../middleware/rbac.middleware";
+import { requireTerritoire, requireTerritoireMasque } from "../middleware/territoire.middleware";
 import { prisma } from "../lib/prisma";
 import { logAuditTransactionnelle } from "../utils/audit";
+import { filtreRegionDuTroncon, regionsCorpsPrevision, regionsPrevision } from "../territoire/territoire.lecture";
 
 /**
  * `/api/v2/programmation` — la prévision budgétaire devient un objet saisissable.
@@ -38,6 +40,20 @@ import { logAuditTransactionnelle } from "../utils/audit";
 
 export const programmationV2Router = Router();
 programmationV2Router.use(requireAuth, requireModuleAccess("programmation"));
+
+/**
+ * CONTROLE TERRITORIAL (A10). Une prevision n'a pas de region propre : elle herite de celle de son TRONCON
+ * (meme derivation que les defauts et les portions). Un compte regional ne voit, ne modifie, ne supprime et
+ * ne cree que les previsions dont le troncon est dans son perimetre ; une prevision SANS troncon a une
+ * region inconnue, donc hors perimetre (decision D-C1-2 : enveloppes nationales visibles en lecture ?).
+ * Hors perimetre, une prevision designee par son identifiant est introuvable (404, voir territoire.lecture.ts).
+ */
+const horsPerimetre = requireTerritoireMasque(
+  (req) => regionsPrevision(req.params.id),
+  { corps: { error: "prévision introuvable ou supprimée", code: "INTROUVABLE" } },
+);
+const creationDansPerimetre = requireTerritoire((req) => regionsCorpsPrevision(req.body, true));
+const rattachementDansPerimetre = requireTerritoire((req) => regionsCorpsPrevision(req.body, false));
 
 const STATUTS = ["PROPOSE", "RETENU", "REPORTE", "ANNULE", "REALISE"] as const;
 
@@ -92,7 +108,7 @@ function ligneApi(l: {
 programmationV2Router.get("/", async (req, res, next) => {
   try {
     const { page, pageSize } = pageParams(req);
-    const where: Record<string, unknown> = { deletedAt: null };
+    const where: Record<string, unknown> = { deletedAt: null, ...(await filtreRegionDuTroncon(req.user!)) };
     if (req.query.annee) where["annee"] = Number(req.query.annee);
     if (req.query.statut) where["statut"] = String(req.query.statut);
     if (req.query.bailleur) where["bailleur"] = String(req.query.bailleur);
@@ -112,10 +128,10 @@ programmationV2Router.get("/", async (req, res, next) => {
 });
 
 /** Agrégats par année et statut — ce que l'écran compare aux chantiers. */
-programmationV2Router.get("/totaux", async (_req, res, next) => {
+programmationV2Router.get("/totaux", async (req, res, next) => {
   try {
     const lignes = await prisma.programmeBudgetaire.findMany({
-      where: { deletedAt: null },
+      where: { deletedAt: null, ...(await filtreRegionDuTroncon(req.user!)) },
       select: { annee: true, statut: true, montantPrevuGnf: true },
     });
     const parAnnee = new Map<number, { annee: number; nb: number; montantGnf: bigint; parStatut: Record<string, { nb: number; montantGnf: string }> }>();
@@ -138,7 +154,7 @@ programmationV2Router.get("/totaux", async (_req, res, next) => {
 
 /** Saisir une prévision. GESTIONNAIRE et ADMIN : poser un montant est un acte de
  *  programmation, pas une lecture ni un relevé de terrain. */
-programmationV2Router.post("/", requireRole("ADMIN", "GESTIONNAIRE"), async (req, res, next) => {
+programmationV2Router.post("/", requireRole("ADMIN", "GESTIONNAIRE"), creationDansPerimetre, async (req, res, next) => {
   try {
     const p = corpsCreation.safeParse(req.body);
     if (!p.success) {
@@ -182,7 +198,7 @@ programmationV2Router.post("/", requireRole("ADMIN", "GESTIONNAIRE"), async (req
 
 /** Réviser une prévision : l'exercice budgétaire se corrige en cours d'année, chaque
  *  correction s'écrit. Le statut change par la même porte (arbitrage tracé). */
-programmationV2Router.patch("/:id", requireRole("ADMIN", "GESTIONNAIRE"), async (req, res, next) => {
+programmationV2Router.patch("/:id", requireRole("ADMIN", "GESTIONNAIRE"), horsPerimetre, rattachementDansPerimetre, async (req, res, next) => {
   try {
     const existante = await prisma.programmeBudgetaire.findFirst({
       where: { id: req.params.id, deletedAt: null },
@@ -227,7 +243,7 @@ programmationV2Router.patch("/:id", requireRole("ADMIN", "GESTIONNAIRE"), async 
 });
 
 /** Retirer une prévision d'un programme : suppression logique, jamais physique. */
-programmationV2Router.post("/:id/supprimer", requireRole("ADMIN", "GESTIONNAIRE"), async (req, res, next) => {
+programmationV2Router.post("/:id/supprimer", requireRole("ADMIN", "GESTIONNAIRE"), horsPerimetre, async (req, res, next) => {
   try {
     const existante = await prisma.programmeBudgetaire.findFirst({
       where: { id: req.params.id, deletedAt: null },

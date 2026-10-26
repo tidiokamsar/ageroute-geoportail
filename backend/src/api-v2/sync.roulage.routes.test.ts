@@ -31,6 +31,8 @@ vi.mock("../middleware/auth.middleware", () => ({
 vi.mock("../middleware/module-access.middleware", () => ({
   requireModuleAccess: () => (_q: express.Request, _s: express.Response, n: express.NextFunction) => n(),
 }));
+// La garde de push lit le module par lib/access (D4) : le compte d'essai a le module de collecte.
+vi.mock("../lib/access", () => ({ modulesAutorisesDe: async () => null, moduleAutorise: () => true }));
 
 const h = vi.hoisted(() => ({
   operations: new Map<string, Record<string, unknown>>(),
@@ -54,7 +56,7 @@ vi.mock("../roulage/session.service", () => ({
 vi.mock("../lib/prisma", () => {
   const prisma = {
     appareil: {
-      findFirst: vi.fn(async () => ({ id: "app-1", userId: "agent-1" })),
+      findUnique: vi.fn(async () => ({ id: "app-1", userId: "agent-1", revoqueA: null })),
       update: vi.fn(async () => ({})),
     },
     operationSync: {
@@ -220,7 +222,7 @@ describe("POST /push avec une SessionRoulage", () => {
 
   it("un appareil revoque ou d'un autre compte n'ecrit rien", async () => {
     const { prisma } = await import("../lib/prisma");
-    (prisma.appareil.findFirst as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+    (prisma.appareil.findUnique as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
     const r = await push([sessionOp(1)]);
     expect(r.status).toBe(403);
     expect(h.preparer).not.toHaveBeenCalled();

@@ -27,6 +27,7 @@ import {
 } from "../field/defauts.regles";
 import { validationPermise, EXPLICATIONS as EXPLICATIONS_VALIDATION } from "../governance/validation";
 import { territoireCreationDefaut, territoireDefaut } from "../territoire/territoire.v2";
+import { et, filtreRegionDefaut, regionsVisibles } from "../territoire/territoire.lecture";
 
 /**
  * `/api/v2/defauts` — la degradation devient un objet qu'on peut mesurer, arbitrer,
@@ -141,8 +142,19 @@ function typeDefaut(c: {
   };
 }
 
-/** Les agents voient leurs relevés et ceux des missions qui leur sont affectées. */
-async function perimetreDefauts(user: { id: string; role: string }) {
+/**
+ * Les agents voient leurs relevés et ceux des missions qui leur sont affectées ; tout compte REGIONAL (A10) ne voit
+ * que les defauts de ses regions. Le responsable regional n'etait filtre que par son role : il lisait les defauts
+ * de toutes les regions. La region d'un defaut est celle de son troncon, de son ouvrage, de sa mission, a defaut
+ * de son observation, comme pour les ecritures (`territoire.v2.regionDefaut`).
+ */
+async function perimetreDefauts(user: { id: string; role: string }): Promise<Prisma.DefautWhereInput> {
+  const affectation = await perimetreAffectation(user);
+  const regions = await regionsVisibles(user);
+  return (regions === null ? affectation : et(affectation, filtreRegionDefaut(regions))) as Prisma.DefautWhereInput;
+}
+
+async function perimetreAffectation(user: { id: string; role: string }): Promise<Record<string, unknown>> {
   if (user.role === "ADMIN" || user.role === "GESTIONNAIRE") return {};
   const missions = await prisma.mission.findMany({
     where: { deletedAt: null, OR: [{ assigneId: user.id }, { createurId: user.id }] },
