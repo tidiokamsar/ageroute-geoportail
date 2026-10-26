@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { fermerCompte, ouvrirCompte, type Chiffreur } from "./compteCourant";
 import {
   dureeEffectiveMs, etatSessionVue, lireEnvoiConfirme, noterEnvoiConfirme, oublierEnvoi, PROFILS_PRECISION, profilParCode, qualiteTrace,
   segmentsPourCarte, sessionVide, stockageProche, vitesseKmH,
@@ -109,8 +110,32 @@ describe("etat d'une session pour l'agent", () => {
   });
 });
 
+// ADAPTATION AU STOCKAGE PAR COMPTE : la confirmation d'envoi est une cle localStorage posee sous le prefixe du compte
+// courant (compteCourant.ts). Le chiffreur est factice : ces cles ne chiffrent rien.
+const chiffreurFactice = { estDeverrouille: () => true } as unknown as Chiffreur;
+const EMPREINTE_A = "aaaaaaaaaaaaaaaa";
+const EMPREINTE_B = "bbbbbbbbbbbbbbbb";
+
 describe("envoi confirme, retenu sur l'appareil", () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {
+    localStorage.clear();
+    fermerCompte();
+    ouvrirCompte({ compteId: "agent-A", empreinte: EMPREINTE_A, chiffreur: chiffreurFactice });
+  });
+  afterEach(() => fermerCompte());
+
+  it("la confirmation d'un compte n'est pas celle d'un autre, et sans compte rien n'est retenu", () => {
+    noterEnvoiConfirme("s1", new Date("2026-10-24T08:00:00.000Z"));
+    ouvrirCompte({ compteId: "agent-B", empreinte: EMPREINTE_B, chiffreur: chiffreurFactice });
+    expect(lireEnvoiConfirme("s1")).toBeNull();
+    fermerCompte();
+    expect(lireEnvoiConfirme("s1")).toBeNull();
+    noterEnvoiConfirme("s2");
+    expect(Object.keys(localStorage).some((k) => k.includes("roulage.envoi.s2"))).toBe(false);
+    ouvrirCompte({ compteId: "agent-A", empreinte: EMPREINTE_A, chiffreur: chiffreurFactice });
+    expect(lireEnvoiConfirme("s1")).toBe("2026-10-24T08:00:00.000Z");
+    expect(lireEnvoiConfirme("s2")).toBeNull();
+  });
 
   it("rien n'est retenu avant la confirmation, puis la date de confirmation est lisible", () => {
     expect(lireEnvoiConfirme("s1")).toBeNull();

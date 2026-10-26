@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { ecrireStockageLocal, lireStockageLocal } from "./compteCourant";
 
 export type MesureDefaut = "NOMBRE" | "LONGUEUR" | "LARGEUR" | "PROFONDEUR" | "QUANTITE";
 
@@ -31,23 +32,27 @@ export interface ReferentielsDefautsTerrain {
 /** Plafond de securite du nombre de pages (200 par page : 20 000 troncons). Au-dela, le pack se dit INCOMPLET. */
 const PAGES_MAX = 100;
 
-const CACHE_TERRAIN = "bdri_terrain_referentiels";
-const CACHE_CATALOGUE = "bdri_terrain_catalogue_defauts";
+/**
+ * Noms des copies locales. Elles vivent sous le prefixe du COMPTE COURANT (compteCourant.ts : `bdri:<empreinte>:<nom>`),
+ * en clair mais cloisonnees : un autre agent du meme telephone ne les lit pas par l'application. Sans compte ouvert, rien
+ * n'est lu ni ecrit.
+ */
+export const CACHE_TERRAIN = "terrain.referentiels";
+const CACHE_CATALOGUE = "terrain.catalogue_defauts";
 
 function lireCache<T>(key: string, fallback: T): T {
   try {
-    const value = localStorage.getItem(key);
+    const value = lireStockageLocal(key);
     return value ? JSON.parse(value) as T : fallback;
   } catch {
     return fallback;
   }
 }
 
-/** Vrai si la copie a ete ecrite. Faux (quota, mode prive) : le formulaire reste utilisable en ligne, mais le pack n'est PAS sur l'appareil. */
+/** Vrai si la copie a ete ecrite. Faux (quota, mode prive, aucun compte ouvert) : le formulaire reste utilisable en ligne, mais le pack n'est PAS sur l'appareil. */
 function ecrireCache(key: string, value: unknown): boolean {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
-    return true;
+    return ecrireStockageLocal(key, JSON.stringify(value));
   } catch {
     return false;
   }

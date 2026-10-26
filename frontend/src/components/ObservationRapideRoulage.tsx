@@ -3,6 +3,7 @@ import { Camera, MapPinned, X } from "lucide-react";
 import { GRAVITES_OBSERVATION, TYPES_OBSERVATION, type TypeObservation } from "../lib/offlineDb";
 import { LIBELLES_GRAVITE, LIBELLES_TYPE, PHOTOS_MAX_PAR_OBSERVATION, enregistrerObservation, motifRefusPhoto, type PhotoSaisie } from "../lib/observationsTerrain";
 import { toast } from "../lib/toast";
+import { AlerteStockageLocal, messageStockageLocal } from "./AlerteStockageLocal";
 
 /**
  * Observation RAPIDE pendant l'enregistrement : deux appuis (le type, puis la gravité), sans formulaire.
@@ -41,6 +42,8 @@ export function ObservationRapideRoulage({ position, userId, sessionId, missionI
   const [enCours, setEnCours] = useState(false);
   const [nombre, setNombre] = useState(0);
   const [photos, setPhotos] = useState<PhotoSaisie[]>([]);
+  // Ecriture refusee par le stockage local : l'observation n'est PAS conservee. Reste affichee (un toast s'efface en 6 s).
+  const [erreurStockage, setErreurStockage] = useState<string | null>(null);
   const champPhoto = useRef<HTMLInputElement>(null);
 
   function ajouterPhotos(fichiers: FileList | null) {
@@ -64,6 +67,7 @@ export function ObservationRapideRoulage({ position, userId, sessionId, missionI
   async function enregistrer(gravite: string | undefined) {
     if (!type || !position) return;
     setEnCours(true);
+    setErreurStockage(null);
     try {
       const age = Math.round(position.ageMs / 1000);
       const description = `Relevé en roulant, session ${sessionId.slice(0, 8)}${position.ageMs > AGE_POSITION_ANCIENNE_MS ? ` (position de ${age} s avant l'observation)` : ""}`;
@@ -76,9 +80,12 @@ export function ObservationRapideRoulage({ position, userId, sessionId, missionI
       onEnregistree?.();
       setType(null);
       setPhotos([]);
-      toast.success("Observation conservée sur ce téléphone, elle partira avec le réseau.");
-    } catch {
-      toast.error("L'observation n'a pas pu être conservée sur ce téléphone (stockage refusé). La noter autrement.");
+      toast.success("Observation conservée sur ce téléphone, son envoi sera tenté dès que le réseau le permet.");
+    } catch (e) {
+      // Ni le type ni les photos ne sont vides : l'agent peut reessayer apres avoir deverrouille ou libere de la place.
+      const message = messageStockageLocal(e, "enregistrer") ?? "L'observation n'a pas pu être conservée sur ce téléphone (stockage refusé). La noter autrement.";
+      setErreurStockage(message);
+      toast.error(message);
     } finally {
       setEnCours(false);
     }
@@ -143,6 +150,7 @@ export function ObservationRapideRoulage({ position, userId, sessionId, missionI
           <button type="button" onClick={() => { setType(null); setPhotos([]); }} className="mt-2 text-xs text-gray-700 underline">Changer de type</button>
         </>
       )}
+      <AlerteStockageLocal message={erreurStockage} className="mt-2" />
       {nombre > 0 && <p className="mt-2 text-xs text-gray-700" role="status">{nombre} observation(s) rapide(s) pendant cette session. Ce sont des propositions : un responsable les valide.</p>}
     </fieldset>
   );

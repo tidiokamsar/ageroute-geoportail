@@ -3,6 +3,8 @@ import { AlertTriangle, Crosshair } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { Select } from "../components/ui/Input";
 import { toast } from "../lib/toast";
+import { AlerteStockageLocal, messageStockageLocal } from "../components/AlerteStockageLocal";
+import { PanneauRefusDroits } from "../components/session/PanneauRefusDroits";
 import { useAuth } from "../lib/auth";
 import { usePositionGps } from "../hooks/usePositionGps";
 import { useOfflineSync } from "../hooks/useOfflineSync";
@@ -36,7 +38,7 @@ function heure(iso: string): string {
 
 export function ObservationsTerrainPage() {
   const { user } = useAuth();
-  const { pendingCount, conflitCount, abandonCount, syncing, online } = useOfflineSync();
+  const { pendingCount, conflitCount, abandonCount, refusDroitsCount = 0, syncing, online } = useOfflineSync();
   const gps = usePositionGps();
 
   const [type, setType] = useState("");
@@ -45,18 +47,31 @@ export function ObservationsTerrainPage() {
   const [erreurs, setErreurs] = useState<string[]>([]);
   const [enCours, setEnCours] = useState(false);
   const [file, setFile] = useState<PendingObservation[]>([]);
+  // File locale illisible ou action sur la file refusee (coffre verrouille, aucun compte...) : dite, sans rejet non gere.
+  const [erreurFile, setErreurFile] = useState<string | null>(null);
+  // Le panneau des saisies refusees pour droits se monte des qu'il y en a, et RESTE monte : le compte rendu d'un renvoi reussi ne doit
+  // pas disparaitre avec la derniere saisie de la quarantaine.
+  const [panneauRefusDroits, setPanneauRefusDroits] = useState(false);
+  useEffect(() => { if (refusDroitsCount > 0) setPanneauRefusDroits(true); }, [refusDroitsCount]);
 
+  /** Ne leve jamais : un echec est dit (`erreurFile`) et la liste est videe, rien de periime n'est montre. */
   const charger = useCallback(async () => {
-    const toutes = await getAllPendingObservations();
-    setFile(
-      toutes
-        .filter((o) => o.ownerUserId === user?.id)
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
-    );
+    try {
+      const toutes = await getAllPendingObservations();
+      setFile(
+        toutes
+          .filter((o) => o.ownerUserId === user?.id)
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+      );
+      setErreurFile(null);
+    } catch (e) {
+      setFile([]);
+      setErreurFile(messageStockageLocal(e) ?? "Les saisies de ce téléphone n'ont pas pu être lues. Elles ne sont pas perdues.");
+    }
   }, [user?.id]);
 
   // Le magasin change hors de React (synchronisation, autre onglet) : les compteurs du store en sont le signal.
-  useEffect(() => { void charger(); }, [charger, pendingCount, conflitCount, abandonCount, syncing]);
+  useEffect(() => { void charger(); }, [charger, pendingCount, conflitCount, abandonCount, refusDroitsCount, syncing]);
 
   async function enregistrer(e: React.FormEvent) {
     e.preventDefault();
@@ -76,11 +91,12 @@ export function ObservationsTerrainPage() {
       }
       setErreurs([]);
       setType(""); setGravite(""); setDescription("");
-      toast.success("Observation conservée sur ce téléphone. Elle partira dès que le réseau le permet.");
+      toast.success("Observation conservée sur ce téléphone. Son envoi sera tenté dès que le réseau le permet.");
       await charger();
-    } catch {
-      // Le stockage local a refuse (espace, mode prive) : la saisie N'EST PAS conservee, il faut le dire.
-      setErreurs(["La saisie n'a pas pu être conservée sur ce téléphone (stockage refusé). Ne quittez pas l'écran : notez-la autrement."]);
+    } catch (e) {
+      // Le stockage local a refuse (espace, coffre verrouille, photos...) : la saisie N'EST PAS conservee, il faut le dire.
+      // Le formulaire reste rempli : rien n'est vide avant la confirmation de l'ecriture.
+      setErreurs([messageStockageLocal(e, "enregistrer") ?? "La saisie n'a pas pu être conservée sur ce téléphone (stockage refusé). Ne quittez pas l'écran : notez-la autrement."]);
     } finally {
       setEnCours(false);
     }
@@ -110,6 +126,8 @@ export function ObservationsTerrainPage() {
           échecs répétés). Elle reste dans la liste ci-dessous, avec le motif.
         </div>
       )}
+
+      {panneauRefusDroits && <PanneauRefusDroits compteId={user?.id} />}
 
       <form onSubmit={enregistrer} noValidate className="space-y-3 rounded-lg border bg-white p-4" aria-label="Nouvelle observation">
         <h2 className="font-semibold">Nouvelle observation</h2>
@@ -176,13 +194,15 @@ export function ObservationsTerrainPage() {
       <section aria-labelledby="obs-file-titre" className="space-y-2 rounded-lg border bg-white p-4">
         <div className="flex items-center justify-between gap-3">
           <h2 id="obs-file-titre" className="font-semibold">Saisies sur ce téléphone ({file.length})</h2>
-          <Button type="button" variant="outline" onClick={() => void syncPendingOfflineData()} disabled={syncing || !online || pendingCount === 0}>
+          {/* Geste de l'agent : il reessaie l'enregistrement de l'appareil meme pendant un delai de revocation recente. */}
+          <Button type="button" variant="outline" onClick={() => void syncPendingOfflineData({ manuel: true })} disabled={syncing || !online || pendingCount === 0}>
             {syncing ? "Envoi en cours…" : "Envoyer maintenant"}
           </Button>
         </div>
         {!online && <p className="text-sm text-amber-800">Hors ligne : les saisies partiront au retour du réseau.</p>}
 
-        {file.length === 0 && <p className="text-sm text-slate-600">Aucune observation en attente sur ce téléphone.</p>}
+        <AlerteStockageLocal message={erreurFile} />
+        {file.length === 0 && !erreurFile && <p className="text-sm text-slate-600">Aucune observation en attente sur ce téléphone.</p>}
 
         <ul className="space-y-2">
           {file.map((o) => {
@@ -194,7 +214,7 @@ export function ObservationsTerrainPage() {
                   <span
                     className={
                       o.status === "conflit" ? "rounded bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800"
-                        : o.status === "abandonnee" ? "rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900"
+                        : o.status === "abandonnee" || o.status === "refus_droits" ? "rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900"
                         : "rounded bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700"
                     }
                   >
@@ -212,7 +232,17 @@ export function ObservationsTerrainPage() {
                   <div className="mt-2">
                     <Button
                       type="button" size="sm" variant="outline"
-                      onClick={async () => { await relancerObservation(o); await charger(); void syncPendingOfflineData(); }}
+                      onClick={async () => {
+                        try {
+                          await relancerObservation(o);
+                        } catch (e) {
+                          setErreurFile(messageStockageLocal(e, "enregistrer") ?? "La saisie n'a pas pu être remise en file sur ce téléphone.");
+                          return;
+                        }
+                        await charger();
+                        // « Relancer l'envoi » est un geste de l'agent, comme « Envoyer maintenant ».
+                        void syncPendingOfflineData({ manuel: true });
+                      }}
                     >
                       Relancer l'envoi
                     </Button>

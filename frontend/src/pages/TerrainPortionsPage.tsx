@@ -9,6 +9,8 @@ import { useAuth } from "../lib/auth";
 import { addPendingPortion } from "../lib/offlineDb";
 import { refreshPendingCount, syncPendingOfflineData } from "../lib/offlineSync";
 import { useOfflineSync } from "../hooks/useOfflineSync";
+import { AlerteStockageLocal, messageStockageLocal } from "../components/AlerteStockageLocal";
+import { PanneauRefusDroits } from "../components/session/PanneauRefusDroits";
 
 /**
  * Mode terrain : qualifier la portion où je me trouve.
@@ -102,7 +104,11 @@ function ecartM(a: { lat: number; lon: number }, b: { lat: number; lon: number }
 export function TerrainPortionsPage() {
   const gps = usePositionGps();
   const { user } = useAuth();
-  const { pendingCount, syncing } = useOfflineSync();
+  const { pendingCount, syncing, refusDroitsCount = 0 } = useOfflineSync();
+  // Le panneau des saisies refusees pour droits se monte des qu'il y en a, et RESTE monte : le compte rendu d'un renvoi reussi ne doit
+  // pas disparaitre avec la derniere saisie de la quarantaine (meme regle que ObservationsTerrainPage).
+  const [panneauRefusDroits, setPanneauRefusDroits] = useState(false);
+  useEffect(() => { if (refusDroitsCount > 0) setPanneauRefusDroits(true); }, [refusDroitsCount]);
   const [contexte, setContexte] = useState<Contexte | null>(null);
   const [chargement, setChargement] = useState(false);
   const [refs, setRefs] = useState<Referentiels | null>(null);
@@ -112,6 +118,8 @@ export function TerrainPortionsPage() {
   const [longueurM, setLongueurM] = useState("1000");
   const [valideDu, setValideDu] = useState("");
   const [envoi, setEnvoi] = useState(false);
+  // Mise en file refusee par le stockage local : le releve n'est PAS conserve, le formulaire reste rempli.
+  const [erreurFile, setErreurFile] = useState<string | null>(null);
   const derniereInterrogee = useRef<{ lat: number; lon: number } | null>(null);
 
   useEffect(() => {
@@ -153,6 +161,7 @@ export function TerrainPortionsPage() {
       return;
     }
     setEnvoi(true);
+    setErreurFile(null);
     /**
      * La CLÉ D'IDEMPOTENCE est forgée une seule fois, avant de savoir si l'on est en ligne.
      *
@@ -180,16 +189,28 @@ export function TerrainPortionsPage() {
         "HIGH" | "MEDIUM" | "LOW",
     };
 
+    /**
+     * Met le releve en file locale. Ne leve JAMAIS : si l'ecriture echoue (stockage plein, coffre verrouille, aucun
+     * compte...), le releve n'est pas conserve, l'alerte le dit et le formulaire reste tel quel. « Conserve » n'est
+     * annonce qu'apres une ecriture reussie.
+     */
     async function mettreEnFile(raison: string) {
-      await addPendingPortion({
-        localId,
-        ownerUserId: user?.id,
-        payload,
-        createdAt: new Date().toISOString(),
-        status: "pending",
-      });
-      await refreshPendingCount();
-      toast.success(`${raison} Relevé conservé sur l'appareil, il partira au retour du réseau.`);
+      try {
+        await addPendingPortion({
+          localId,
+          ownerUserId: user?.id,
+          payload,
+          createdAt: new Date().toISOString(),
+          status: "pending",
+        });
+      } catch (err) {
+        setErreurFile(messageStockageLocal(err, "enregistrer") ?? `${raison} Le relevé n'a pas pu être conservé sur cet appareil : il n'est PAS enregistré. Réessayez, ou notez-le autrement.`);
+        return;
+      }
+      try {
+        await refreshPendingCount();
+      } catch { /* compteur d'information seulement : le releve est ecrit */ }
+      toast.success(`${raison} Relevé conservé sur l'appareil, son envoi sera tenté au retour du réseau.`);
     }
 
     try {
@@ -233,13 +254,16 @@ export function TerrainPortionsPage() {
         dans le référentiel officiel qu'après validation par un tiers habilité.
       </div>
 
+      {panneauRefusDroits && <PanneauRefusDroits compteId={user?.id} files={["portions"]} />}
+
       {pendingCount > 0 && (
         <div className="flex items-center justify-between gap-3 rounded-lg border bg-slate-50 p-3 text-sm">
           <span>
             <strong>{pendingCount}</strong> relevé(s) en attente sur cet appareil.
             {syncing && " Envoi en cours…"}
           </span>
-          <Button variant="outline" onClick={() => void syncPendingOfflineData()} disabled={syncing || !navigator.onLine}>
+          {/* Geste de l'agent : il reessaie l'enregistrement de l'appareil meme pendant un delai de revocation recente. */}
+          <Button variant="outline" onClick={() => void syncPendingOfflineData({ manuel: true })} disabled={syncing || !navigator.onLine}>
             Envoyer maintenant
           </Button>
         </div>
@@ -447,6 +471,7 @@ export function TerrainPortionsPage() {
               </span>
             </label>
 
+            <AlerteStockageLocal message={erreurFile} />
             <Button onClick={qualifier} disabled={!peutQualifier || envoi} className="w-full">
               {envoi ? "Envoi…" : "Proposer cette portion"}
             </Button>

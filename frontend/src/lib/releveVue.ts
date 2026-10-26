@@ -1,4 +1,5 @@
 import type { EchantillonRetenu, ParametresRoulage, ResumeSession } from "../roulage";
+import { ecrireStockageLocal, lireStockageLocal, majCompteursCourant, retirerStockageLocal } from "./compteCourant";
 
 /**
  * Ce que l'ecran d'enregistrement en roulant AFFICHE, calcule hors du composant pour etre testable.
@@ -127,22 +128,24 @@ export const LIBELLES_ETAT: Record<EtatSessionVue, { libelle: string; ton: "neut
 
 // ------------------------------------------------------------------ envoi confirme, garde sur l'appareil
 
-const cleEnvoi = (sessionId: string) => `bdri.roulage.envoi.${sessionId}`;
+// Nom de la cle, pose sous le prefixe du compte courant (compteCourant.ts) : la confirmation d'un compte n'est pas celle d'un autre.
+const cleEnvoi = (sessionId: string) => `roulage.envoi.${sessionId}`;
 
 /**
  * Le serveur a confirme la session : on le retient sur l'appareil, pour qu'un rechargement de la page ne la
  * presente plus comme « pas encore envoyee ». Jamais ecrit avant la confirmation du serveur.
  */
 export function noterEnvoiConfirme(sessionId: string, quand: Date = new Date()): void {
-  try { localStorage.setItem(cleEnvoi(sessionId), quand.toISOString()); } catch { /* stockage indisponible : la session reste « a envoyer », un renvoi est idempotent */ }
+  // Stockage indisponible ou aucun compte ouvert : la session reste « a envoyer », un renvoi est idempotent.
+  if (ecrireStockageLocal(cleEnvoi(sessionId), quand.toISOString())) majCompteursCourant({ releves: 0 });
 }
 
 export function lireEnvoiConfirme(sessionId: string): string | null {
-  try { return localStorage.getItem(cleEnvoi(sessionId)); } catch { return null; }
+  return lireStockageLocal(cleEnvoi(sessionId));
 }
 
 export function oublierEnvoi(sessionId: string): void {
-  try { localStorage.removeItem(cleEnvoi(sessionId)); } catch { /* rien a faire */ }
+  retirerStockageLocal(cleEnvoi(sessionId));
 }
 
 // ------------------------------------------------------------------ vitesse, stockage

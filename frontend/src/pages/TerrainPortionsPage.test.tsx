@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 /**
@@ -39,24 +39,53 @@ const h = vi.hoisted(() => ({
   succes: null as ((p: unknown) => void) | null,
   enFile: [] as unknown[],
   syncLance: 0,
+  /** Options passees a chaque `syncPendingOfflineData` (le bouton « Envoyer maintenant » doit passer `{ manuel: true }`). */
+  syncOptions: [] as unknown[],
   pendingCount: 0,
+  /** Erreur que l'ecriture locale doit lever (stockage plein, coffre verrouille...). */
+  echecFile: null as unknown,
+  /** Portions deja presentes dans la file locale, lues par le panneau des saisies refusees pour droits. */
+  portionsFile: [] as Record<string, unknown>[],
+  /** `relancerRefusDroits` : le renvoi explicite d'une saisie en quarantaine. */
+  relancerDroits: vi.fn(),
+  /** Lectures des deux autres files par le panneau : il ne doit lire QUE celle des portions (`files={["portions"]}`). */
+  lireDefauts: vi.fn(async (): Promise<unknown[]> => []),
+  lireObservations: vi.fn(async (): Promise<unknown[]> => []),
 }));
 
 vi.mock("../lib/api", () => ({ api: h }));
 vi.mock("../lib/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("../lib/auth", () => ({ useAuth: () => ({ user: { id: "u-agent" } }) }));
 vi.mock("../hooks/useOfflineSync", () => ({
-  useOfflineSync: () => ({ pendingCount: h.pendingCount, syncing: false }),
+  useOfflineSync: () => ({
+    pendingCount: h.pendingCount, syncing: false,
+    refusDroitsCount: h.portionsFile.filter((p) => p.status === "refus_droits" && p.ownerUserId === "u-agent").length,
+  }),
 }));
 vi.mock("../lib/offlineDb", () => ({
-  addPendingPortion: async (item: unknown) => { h.enFile.push(item); },
+  addPendingPortion: async (item: unknown) => { if (h.echecFile) throw h.echecFile; h.enFile.push(item); },
+  getAllPendingPortions: async () => h.portionsFile,
+  getAllPendingDefauts: () => h.lireDefauts(),
+  getAllPendingObservations: () => h.lireObservations(),
+  STATUT_REFUS_DROITS: "refus_droits",
 }));
 vi.mock("../lib/offlineSync", () => ({
   refreshPendingCount: async () => {},
-  syncPendingOfflineData: async () => { h.syncLance += 1; },
+  syncPendingOfflineData: async (options?: unknown) => { h.syncLance += 1; h.syncOptions.push(options); },
+  relancerRefusDroits: (localId: string, file: string) => h.relancerDroits(localId, file),
+  etatSynchronisation: () => ({ appareilRevoque: false, compteInactif: false, message: null }),
+  MESSAGES_REFUS_DROITS: {
+    HORS_PERIMETRE: "Cette saisie est hors de votre périmètre territorial actuel.",
+    REGION_INCONNUE: "La région de cette saisie n'a pas pu être rattachée à votre périmètre.",
+    MODULE_RETIRE: "Le module de cette saisie a été retiré de votre compte.",
+    MISSION_NON_AUTORISEE: "La mission de cette saisie ne vous est plus assignée.",
+    NON_PRECISEE: "Le serveur a refusé cette saisie parce que vos droits ont changé.",
+  },
 }));
 
 import { TerrainPortionsPage } from "./TerrainPortionsPage";
+import { toast } from "../lib/toast";
+import { ErreurStockageLocal } from "../lib/compteCourant";
 
 const TRONCON = {
   tronconId: "11111111-1111-4111-8111-111111111111",
@@ -80,7 +109,15 @@ beforeEach(() => {
   h.succes = null;
   h.enFile.length = 0;
   h.syncLance = 0;
+  h.syncOptions.length = 0;
   h.pendingCount = 0;
+  h.echecFile = null;
+  h.portionsFile = [];
+  h.relancerDroits.mockReset().mockResolvedValue("ENVOYEE");
+  h.lireDefauts.mockClear();
+  h.lireObservations.mockClear();
+  vi.mocked(toast.success).mockClear();
+  vi.mocked(toast.error).mockClear();
   Object.defineProperty(navigator, "onLine", { configurable: true, value: true });
   h.contexte = contexte();
   h.get.mockImplementation(async (url: string) => {
@@ -346,6 +383,70 @@ describe("Hors ligne : le relevé est conservé, jamais perdu", () => {
   });
 });
 
+describe("Stockage local qui refuse : le relevé n'est JAMAIS annoncé conservé", () => {
+  async function proposerHorsLigne() {
+    Object.defineProperty(navigator, "onLine", { configurable: true, value: false });
+    render(<TerrainPortionsPage />);
+    const user = await localiser();
+    const longueur = screen.getByLabelText("Longueur de la portion en mètres") as HTMLInputElement;
+    fireEvent.change(longueur, { target: { value: "1500" } });
+    await user.click(screen.getByRole("button", { name: /Proposer cette portion/ }));
+    return { user, longueur };
+  }
+
+  it("stockage plein : alerte accessible avec le message du stockage, aucun succès annoncé, formulaire intact", async () => {
+    h.echecFile = new ErreurStockageLocal("STOCKAGE_PLEIN");
+    const { longueur } = await proposerHorsLigne();
+    const alerte = await screen.findByRole("alert");
+    expect(alerte).toHaveTextContent(/Stockage de l'appareil plein/);
+    expect(alerte).toHaveTextContent(/PAS enregistrée/);
+    expect(h.enFile).toHaveLength(0);
+    expect(vi.mocked(toast.success)).not.toHaveBeenCalled();
+    // Le formulaire reste tel quel et le bouton redevient disponible pour reessayer.
+    expect(longueur.value).toBe("1500");
+    expect(screen.getByRole("button", { name: /Proposer cette portion/ })).toBeEnabled();
+  });
+
+  it("coffre verrouillé : le message dit de déverrouiller avec le PIN, et le relevé repart une fois déverrouillé", async () => {
+    h.echecFile = new ErreurStockageLocal("COFFRE_VERROUILLE");
+    const { user } = await proposerHorsLigne();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Déverrouillez avec votre PIN pour enregistrer.");
+    expect(h.enFile).toHaveLength(0);
+
+    h.echecFile = null;
+    await user.click(screen.getByRole("button", { name: /Proposer cette portion/ }));
+    await waitFor(() => expect(h.enFile).toHaveLength(1));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(vi.mocked(toast.success)).toHaveBeenCalledTimes(1);
+  });
+
+  it("aucun compte ouvert : le message du stockage est affiché tel quel", async () => {
+    h.echecFile = new ErreurStockageLocal("AUCUN_COMPTE");
+    await proposerHorsLigne();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Aucun compte n'est ouvert sur cet appareil/);
+    expect(h.enFile).toHaveLength(0);
+  });
+
+  it("réseau coupé en cours d'envoi ET stockage refusé : une seule alerte, pas de rejet non géré", async () => {
+    // Avant : l'erreur typee de la mise en file etait relancee depuis le `catch` et finissait en rejet non gere.
+    h.echecFile = new ErreurStockageLocal("STOCKAGE_PLEIN");
+    h.post.mockRejectedValueOnce({ message: "Network Error" });
+    render(<TerrainPortionsPage />);
+    const user = await localiser();
+    await user.click(screen.getByRole("button", { name: /Proposer cette portion/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Stockage de l'appareil plein/);
+    expect(vi.mocked(toast.success)).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /Proposer cette portion/ })).toBeEnabled();
+  });
+
+  it("une erreur non typée du stockage est dite avec un message général, jamais comme un succès", async () => {
+    h.echecFile = new Error("QuotaExceededError");
+    await proposerHorsLigne();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/n'est PAS enregistré/);
+    expect(vi.mocked(toast.success)).not.toHaveBeenCalled();
+  });
+});
+
 describe("Le bandeau de file d'attente", () => {
   it("reste invisible quand la file est vide", async () => {
     render(<TerrainPortionsPage />);
@@ -359,5 +460,72 @@ describe("Le bandeau de file d'attente", () => {
     expect(screen.getByText("3")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Envoyer maintenant/ }));
     expect(h.syncLance).toBe(1);
+    // Geste de l'agent : cycle MANUEL (il leve la suspension de l'enregistrement d'appareil).
+    expect(h.syncOptions).toEqual([{ manuel: true }]);
+  });
+});
+
+describe("Saisies refusées pour droits modifiés (quarantaine)", () => {
+  const quarantaine = (localId: string, over: Record<string, unknown> = {}) => ({
+    localId, ownerUserId: "u-agent", status: "refus_droits", causeRefusDroits: "REGION_INCONNUE",
+    errorMessage: "La région de cette saisie n'a pas pu être rattachée à votre périmètre.",
+    payload: { tronconId: "t", debutM: 100, finM: 250, observeeLe: "2026-10-22T08:00:00.000Z" },
+    createdAt: "2026-10-22T08:00:00.000Z", ...over,
+  });
+
+  it("PAS de panneau quand rien n'est en quarantaine, et aucune lecture des autres files", async () => {
+    h.portionsFile = [{ ...quarantaine("p-ordinaire"), status: "error", causeRefusDroits: undefined }];
+    h.pendingCount = 1;
+    render(<TerrainPortionsPage />);
+    expect(await screen.findByText(/relevé\(s\) en attente/)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Saisies refusées : droits modifiés/ })).not.toBeInTheDocument();
+    expect(h.lireDefauts).not.toHaveBeenCalled();
+    expect(h.lireObservations).not.toHaveBeenCalled();
+  });
+
+  it("une portion refus_droits apparaît avec sa cause, sans photo, et ne montre que la file des portions", async () => {
+    h.portionsFile = [quarantaine("p-q")];
+    h.pendingCount = 1;
+    render(<TerrainPortionsPage />);
+    const panneau = (await screen.findByRole("heading", { name: /Saisies refusées : droits modifiés \(1\)/ })).closest("section")!;
+    expect(within(panneau).getByText(/Portion de 100 m à 250 m/)).toBeInTheDocument();
+    expect(within(panneau).getByText(/n'a pas pu être rattachée à votre périmètre/)).toBeInTheDocument();
+    expect(within(panneau).getByText("Portion en quarantaine")).toBeInTheDocument();
+    expect(within(panneau).getByText(/aucune photo/)).toBeInTheDocument();
+    expect(h.lireDefauts).not.toHaveBeenCalled();
+    expect(h.lireObservations).not.toHaveBeenCalled();
+    // Aucune suppression n'est proposee dans le panneau.
+    expect(within(panneau).queryByRole("button", { name: /supprimer|effacer|retirer/i })).not.toBeInTheDocument();
+  });
+
+  it("« Renvoyer » appelle relancerRefusDroits(localId, \"portions\") et le compte rendu reste affiché quand la portion est partie", async () => {
+    h.portionsFile = [quarantaine("p-q")];
+    h.pendingCount = 1;
+    h.relancerDroits.mockImplementation(async () => { h.portionsFile = []; return "ENVOYEE"; });
+    render(<TerrainPortionsPage />);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    await user.click(await screen.findByRole("button", { name: /Renvoyer cette saisie : Portion de 100 m à 250 m/ }));
+    expect(h.relancerDroits).toHaveBeenCalledTimes(1);
+    expect(h.relancerDroits).toHaveBeenCalledWith("p-q", "portions");
+    expect(await screen.findByText(/le serveur a accepté cette saisie/)).toBeInTheDocument();
+  });
+
+  it("un renvoi encore refusé le DIT : la portion reste en quarantaine, rien n'est perdu", async () => {
+    h.portionsFile = [quarantaine("p-q")];
+    h.pendingCount = 1;
+    h.relancerDroits.mockResolvedValue("TOUJOURS_REFUSEE");
+    render(<TerrainPortionsPage />);
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    await user.click(await screen.findByRole("button", { name: /Renvoyer cette saisie/ }));
+    expect(await screen.findByText(/refuse toujours cette saisie/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Renvoyer cette saisie/ })).toBeInTheDocument();
+  });
+
+  it("ne montre PAS la quarantaine d'un autre compte", async () => {
+    h.portionsFile = [quarantaine("p-q"), quarantaine("p-autre", { ownerUserId: "u-autre", payload: { tronconId: "t", debutM: 900, finM: 990, observeeLe: "2026-10-21T08:00:00.000Z" } })];
+    h.pendingCount = 2;
+    render(<TerrainPortionsPage />);
+    await screen.findByRole("heading", { name: /Saisies refusées : droits modifiés \(1\)/ });
+    expect(screen.queryByText(/Portion de 900 m à 990 m/)).not.toBeInTheDocument();
   });
 });

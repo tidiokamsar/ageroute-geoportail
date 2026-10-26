@@ -1,9 +1,12 @@
 import path from "path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { precachePlugin } from "./vite-plugin-precache";
 
 export default defineConfig({
-  plugins: [react()],
+  // `precachePlugin` n'agit qu'a la construction (apply: "build") : le serveur de developpement
+  // et les essais de bout en bout (e2e/vite.e2e.config.ts reprend cette liste) ne sont pas touches.
+  plugins: [react(), precachePlugin()],
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },
   },

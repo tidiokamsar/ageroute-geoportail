@@ -1,10 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AlertTriangle, Download, Flag, LogOut, MapPin, Pause, Play, RotateCcw, Send, Square, Trash2 } from "lucide-react";
 import { api } from "../lib/api";
 import { useAuth } from "../lib/auth";
 import { toast } from "../lib/toast";
-import { refreshPendingCount } from "../lib/offlineSync";
+import { etatSynchronisation, MESSAGE_APPAREIL_REVOQUE, MESSAGE_COMPTE_INACTIF, MESSAGE_REVOCATION_RECENTE, refreshPendingCount } from "../lib/offlineSync";
+import {
+  abonnerCompte, ecrireStockageLocal, etatCompte, lireStockageLocal, NOM_CLE_APPAREIL_SYNC, resumeAutresComptes, retirerStockageLocal,
+  type ResumeAutresComptes,
+} from "../lib/compteCourant";
+import { declarerRoulageActif, signalerActivite } from "../session/activiteExterne";
+import { AlerteStockageLocal, messageStockageLocal } from "../components/AlerteStockageLocal";
 import { Button } from "../components/ui/Button";
 import { Card } from "../components/ui/Card";
 import { libelleDuree, libelleKm } from "../lib/releve";
@@ -63,22 +69,22 @@ import { indiceIrregularite, type EchantillonAccel } from "../roulage/indices";
 const CODE_REPERE = "POINT_A_VERIFIER";
 const CODE_SEGMENT = "SEGMENT";
 
-const cleMission = (sessionId: string) => `bdri.roulage.mission.${sessionId}`;
+// Cles posees sous le prefixe du compte courant (lib/compteCourant.ts).
+const cleMission = (sessionId: string) => `roulage.mission.${sessionId}`;
 function lireMissionGardee(sessionId: string): string {
-  try { return localStorage.getItem(cleMission(sessionId)) ?? ""; } catch { return ""; }
+  return lireStockageLocal(cleMission(sessionId)) ?? "";
 }
 function garderMission(sessionId: string, missionId: string): void {
-  try {
-    if (missionId) localStorage.setItem(cleMission(sessionId), missionId); else localStorage.removeItem(cleMission(sessionId));
-  } catch { /* le choix reste valable pour cet ecran, pas apres une fermeture */ }
+  // Le choix reste valable pour cet ecran, pas apres une fermeture, si le stockage refuse.
+  if (missionId) ecrireStockageLocal(cleMission(sessionId), missionId); else retirerStockageLocal(cleMission(sessionId));
 }
 
-const cleIntitule = (sessionId: string) => `bdri.roulage.intitule.${sessionId}`;
+const cleIntitule = (sessionId: string) => `roulage.intitule.${sessionId}`;
 function lireIntitule(sessionId: string): string {
-  try { return localStorage.getItem(cleIntitule(sessionId)) ?? ""; } catch { return ""; }
+  return lireStockageLocal(cleIntitule(sessionId)) ?? "";
 }
 function garderIntitule(sessionId: string, intitule: string): void {
-  try { if (intitule) localStorage.setItem(cleIntitule(sessionId), intitule); else localStorage.removeItem(cleIntitule(sessionId)); } catch { /* sans effet sur la collecte */ }
+  if (intitule) ecrireStockageLocal(cleIntitule(sessionId), intitule); else retirerStockageLocal(cleIntitule(sessionId)); // sans effet sur la collecte
 }
 
 /** Etat du reseau, suivi sans jamais le supposer meilleur qu'il n'est : `navigator.onLine` vrai ne prouve pas l'acces au serveur. */
@@ -93,6 +99,12 @@ function useEnLigne(): boolean {
   }, []);
   return enLigne;
 }
+
+/**
+ * Au plus un signal d'activite par intervalle : le verrou d'inactivite se compte en minutes (5 par defaut), un point GNSS
+ * arrive environ chaque seconde. Un signal toutes les 10 s suffit a le differer sans reveiller la session a chaque fix.
+ */
+const INTERVALLE_ACTIVITE_MS = 10_000;
 
 type Phase = "repos" | "en_cours" | "pause" | "arretee";
 
@@ -116,17 +128,113 @@ function phaseDe(etat: Readonly<EtatSession>): Phase {
   return etat.statut === "EN_COURS" ? "en_cours" : etat.statut === "EN_PAUSE" ? "pause" : "arretee";
 }
 
-async function obtenirAppareil(userId: string): Promise<string> {
-  const cle = `bdri.sync.device.${userId}`;
+/**
+ * L'appareil de synchronisation de ce compte. Meme regle que la file (offlineSync.ts, contrat SESSION-HORS-LIGNE-SERVEUR.md 2.1 et 2.2) :
+ *
+ *   - synchronisation deja ARRETEE (appareil retire par l'administration, compte inactif) : AUCUN appareil neuf n'est demande,
+ *     le message est dit et l'envoi s'arrete. S'enregistrer sous une autre identite annulerait la decision de l'administration ;
+ *   - le serveur repond 403 APPAREIL_REVOQUE ou 401 COMPTE_INACTIF (lus dans le CODE, jamais dans le texte) : meme arret, sans
+ *     nouvel essai. L'identifiant deja memorise n'est PAS efface (rien n'est perdu, une decision humaine peut le rendre) ;
+ *   - `reenregistrer` : le serveur a repondu APPAREIL_INCONNU a un envoi (identifiant inexistant). L'appelant demande UNE seule fois
+ *     un appareil neuf, en oubliant l'identifiant memorise ; une seconde reponse « inconnu » ne doit pas relancer cette demande.
+ *
+ * L'arret leve une erreur de nom `SynchronisationArretee` dont le message est celui a montrer a l'agent (aussi annonce par un toast).
+ * `envoyer()` la reconnait par son nom : elle n'est PAS une panne de reseau, donc ni « Envoi impossible (reseau) » ni reprise automatique.
+ */
+const NOM_ERREUR_ARRET = "SynchronisationArretee";
+
+/**
+ * Le serveur refuse d'enregistrer un appareil NEUF pendant la duree du jeton d'acces qui suit la retraite d'un autre appareil du
+ * meme compte : 403 `APPAREIL_REVOCATION_RECENTE` (avec `reessayerDansMs`). Ce n'est ni un reseau muet ni un arret decide par
+ * l'administration contre CET appareil : aucune reprise automatique, la session reste sur le telephone, et l'agent peut relancer
+ * l'envoi a la main apres quelques minutes. Code lu dans le corps, jamais dans le texte.
+ *
+ * Le texte vit dans offlineSync.ts (la file de synchronisation tient la meme conduite) ; il est reexporte ici pour les appelants
+ * et les tests de cet ecran, sans second exemplaire.
+ */
+export { MESSAGE_REVOCATION_RECENTE };
+
+function arreterSynchronisation(message: string): never {
+  toast.error(message);
+  const erreur = new Error(message);
+  erreur.name = NOM_ERREUR_ARRET;
+  throw erreur;
+}
+
+/** Statut HTTP et `code` du corps d'une erreur de requete. Le `code` est LU, jamais deduit du texte du message. */
+function reponseDe(err: unknown): { statut?: number; code?: string } {
+  const reponse = (err as { response?: { status?: unknown; data?: { code?: unknown } | null } } | null)?.response;
+  return {
+    statut: typeof reponse?.status === "number" ? reponse.status : undefined,
+    code: typeof reponse?.data?.code === "string" ? reponse.data.code : undefined,
+  };
+}
+
+/** Le serveur a retire cet appareil (403 APPAREIL_REVOQUE) ou desactive le compte (401 COMPTE_INACTIF) : arret, jamais de nouvel essai. */
+function arretImposeParLeServeur(err: unknown): string | null {
+  const { statut, code } = reponseDe(err);
+  if (statut === 403 && code === "APPAREIL_REVOQUE") return MESSAGE_APPAREIL_REVOQUE;
+  if (statut === 401 && code === "COMPTE_INACTIF") return MESSAGE_COMPTE_INACTIF;
+  return null;
+}
+
+async function obtenirAppareil(userId: string, options: { reenregistrer?: boolean } = {}): Promise<string> {
+  const arret = etatSynchronisation();
+  if (arret.message !== null) return arreterSynchronisation(arret.message);
+  // Meme cle que la synchronisation (offlineSync.ts), sous le prefixe du compte courant.
+  if (options.reenregistrer) retirerStockageLocal(NOM_CLE_APPAREIL_SYNC, userId);
+  const connu = lireStockageLocal(NOM_CLE_APPAREIL_SYNC, userId);
+  if (connu) return connu; // stockage indisponible ou aucun compte : on enregistre un appareil pour cet envoi
+  let data: { id?: unknown } | undefined;
   try {
-    const connu = localStorage.getItem(cle);
-    if (connu) return connu;
-  } catch { /* stockage indisponible : on enregistre un appareil pour cette session */ }
-  const { data } = await api.post("/v2/devices", { nom: "BDRI — navigateur terrain", plateforme: "web", modele: navigator.userAgent.slice(0, 120) });
+    ({ data } = await api.post("/v2/devices", { nom: "BDRI — navigateur terrain", plateforme: "web", modele: navigator.userAgent.slice(0, 120) }));
+  } catch (err) {
+    const message = arretImposeParLeServeur(err);
+    if (message !== null) return arreterSynchronisation(message);
+    const { statut, code } = reponseDe(err);
+    if (statut === 403 && code === "APPAREIL_REVOCATION_RECENTE") return arreterSynchronisation(MESSAGE_REVOCATION_RECENTE);
+    throw err;
+  }
   const id = data?.id;
   if (typeof id !== "string" || id.length === 0) throw new Error("L'appareil de synchronisation n'a pas été enregistré.");
-  try { localStorage.setItem(cle, id); } catch { /* l'identifiant reste valable pour cet envoi */ }
+  ecrireStockageLocal(NOM_CLE_APPAREIL_SYNC, id, userId); // refuse : l'identifiant reste valable pour cet envoi
   return id;
+}
+
+/**
+ * Pousse l'operation de la session (`POST /v2/sync/push`). Contrat : SESSION-HORS-LIGNE-SERVEUR.md 2.1 et 2.2, code lu dans
+ * `response.data.code`.
+ *
+ *   403 APPAREIL_INCONNU   l'identifiant memorise n'existe pas cote serveur : UN SEUL rappel de `obtenirAppareil(..., { reenregistrer })`,
+ *                          puis l'operation repart (meme cle d'idempotence : la session). Un second « inconnu » arrete l'envoi : jamais
+ *                          de boucle, jamais d'appareil enregistre en serie.
+ *   403 APPAREIL_REVOQUE   arret : message, aucun nouvel appareil, aucune reprise automatique.
+ *   401 COMPTE_INACTIF     meme arret.
+ *
+ * Tout autre echec (reseau muet, 5xx, autre 403) remonte tel quel a `envoyer()`.
+ */
+async function pousserSession(userId: string, operation: ReturnType<typeof operationPourSynchronisation>) {
+  const pousser = (appareilId: string) => api.post("/v2/sync/push", { appareilId, operations: [operation] });
+  const arretOuInconnu = (err: unknown): "INCONNU" | null => {
+    const message = arretImposeParLeServeur(err);
+    if (message !== null) return arreterSynchronisation(message);
+    const { statut, code } = reponseDe(err);
+    return statut === 403 && code === "APPAREIL_INCONNU" ? "INCONNU" : null;
+  };
+  try {
+    return await pousser(await obtenirAppareil(userId));
+  } catch (err) {
+    if (arretOuInconnu(err) === null) throw err;
+  }
+  const appareilNeuf = await obtenirAppareil(userId, { reenregistrer: true });
+  try {
+    return await pousser(appareilNeuf);
+  } catch (err) {
+    if (arretOuInconnu(err) === "INCONNU") {
+      return arreterSynchronisation("Le serveur ne reconnaît pas l'appareil qu'il vient d'enregistrer. Rien n'a été envoyé ; la session reste sur ce téléphone.");
+    }
+    throw err;
+  }
 }
 
 export function EnregistrementRoulagePage() {
@@ -162,9 +270,17 @@ export function EnregistrementRoulagePage() {
   // Le journal n'a pas encore repondu : « Démarrer » reste inactif. `demarrer()` vide le journal, et un appui
   // avant la fin de la lecture effacait une session interrompue pourtant recuperable.
   const [journalLu, setJournalLu] = useState(false);
-  // Journal retrouve mais ecrit par un AUTRE compte (telephone partage) : jamais propose a l'envoi, a la reprise ni a la
-  // suppression, jamais efface par un nouveau depart. `reduit` : l'agent a pris acte (« Garder »), seul un rappel reste.
-  const [autreCompte, setAutreCompte] = useState<{ positions: number; reduit: boolean } | null>(null);
+  // Le journal est PAR COMPTE (base chiffree propre a l'agent connecte) : le releve d'un autre compte n'est plus lisible ici.
+  // On n'en connait que le NOMBRE (compteur en clair, sans contenu), dit sans jamais bloquer le depart d'un releve.
+  const [autresComptes, setAutresComptes] = useState<ResumeAutresComptes>(() => resumeAutresComptes());
+  // Etat du compte local (aucun / verrouille / ouvert) : relit le journal des que le coffre est deverrouille.
+  const etatDuCompte = useSyncExternalStore(abonnerCompte, etatCompte);
+  // Journal illisible pour une raison typee (coffre verrouille, aucun compte...) : « Demarrer » reste inactif, sinon il
+  // viderait un journal que l'on n'a pas pu lire.
+  const [erreurJournal, setErreurJournal] = useState<string | null>(null);
+  // Geste refuse par le stockage local (demarrer, effacer) : dit, et rien n'est fait a moitie.
+  const [erreurAction, setErreurAction] = useState<string | null>(null);
+  const derniereActivite = useRef(0);
   // Ecritures du journal echouees DEPUIS le depart de cette session (le compteur du stockage court depuis son ouverture).
   const [echecsJournal, setEchecsJournal] = useState(0);
   const echecsDepart = useRef(0);
@@ -220,21 +336,31 @@ export function EnregistrementRoulagePage() {
 
   const stockageOuvert = useCallback((): StockageJournal => (stockage.current ??= ouvrirStockage()), []);
 
+  // Au demontage, le journal ferme ses ecouteurs (abonnement au compte, visibilite de la page, delai d'ecriture) : sans cela,
+  // chaque passage sur cet ecran en laissait un de plus. `fermer` n'ecrit PAS le tampon : si des entrees attendent encore (coffre
+  // verrouille), le journal reste ouvert, son abonnement au compte les ecrira au deverrouillage (limite assumee : cet unique
+  // ecouteur survit alors a la page). Un journal en memoire n'a rien a fermer.
+  useEffect(() => () => {
+    const ouvert = stockage.current;
+    if (ouvert === null) return;
+    if ((ouvert.enAttente?.() ?? 0) > 0) return;
+    ouvert.fermer?.();
+    stockage.current = null;
+  }, []);
+
+  // Autres comptes du telephone : un compteur d'information, relu quand le compte courant change.
+  useEffect(() => { setAutresComptes(resumeAutresComptes()); }, [userId, etatDuCompte]);
+
   // Au chargement : une session interrompue (page fermee, telephone redemarre) est proposee a la reprise.
-  // Attend le compte connecte : le journal est celui du TELEPHONE, partage par tous les comptes qui s'y connectent.
+  // Attend le compte connecte : le journal lu est celui de CE compte seulement (une base chiffree par compte). Coffre
+  // verrouille ou aucun compte : l'erreur typee est dite, et la lecture est refaite au deverrouillage (`etatDuCompte`).
   useEffect(() => {
     if (!userId) return undefined;
     let vivant = true;
+    setErreurJournal(null);
     void stockageOuvert().toutes().then((entrees) => {
       // Une session deja en cours dans cet ecran ne se remplace jamais par une relecture.
       if (!vivant || entrees.length === 0 || session.current) return;
-      const debut = entrees.find((e) => e.type === "DEMARRAGE");
-      const agentRef = debut && debut.type === "DEMARRAGE" ? debut.agentRef : null;
-      if (agentRef && agentRef !== userId) {
-        // Pas de rejeu : cette session n'est pas la notre. On la compte seulement, pour que l'ecran puisse la dire.
-        setAutreCompte({ positions: entrees.filter((e) => e.type === "ECHANTILLON").length, reduit: false });
-        return;
-      }
       const r = SessionRoulage.rejouer(entrees, { horloge: horlogeSysteme(), genererId: () => crypto.randomUUID(), journal: stockageOuvert().ajouter });
       if (!r.ok) { if (vivant) setRepriseRefusee(r.raison); return; }
       echecsDepart.current = stockageOuvert().echecs();
@@ -248,9 +374,19 @@ export function EnregistrementRoulagePage() {
       if (envoyeLe) setEnvoi("envoye");
       setInterrompue({ positions: r.session.etat.echantillons.length, arretee: r.session.etat.statut === "ARRETEE", envoyeLe });
       rafraichir();
-    }).catch(() => undefined).finally(() => { if (vivant) setJournalLu(true); });
+    }).then(() => { if (vivant) setJournalLu(true); }).catch((e: unknown) => {
+      if (!vivant) return;
+      const message = messageStockageLocal(e);
+      if (message !== null) {
+        // Illisible pour une raison connue : on ne laisse pas partir un nouveau releve qui viderait ce journal.
+        setErreurJournal(message);
+        if (!session.current) setJournalLu(false);
+        return;
+      }
+      setJournalLu(true);
+    });
     return () => { vivant = false; };
-  }, [rafraichir, stockageOuvert, userId]);
+  }, [rafraichir, stockageOuvert, userId, etatDuCompte]);
 
   // Les ecritures du journal sont lancees sans attendre (le noyau les appelle en rappel synchrone) : un echec ne se voit
   // que dans le compteur du stockage. Lu ici chaque demi-seconde, il rend l'alerte « le journal n'est plus ecrit ».
@@ -295,6 +431,16 @@ export function EnregistrementRoulagePage() {
     return () => window.removeEventListener("devicemotion", ecouter);
   }, [accelActif]);
 
+  // Un releve ACTIF (en cours, ni en pause ni arrete) empeche le verrou d'inactivite de fermer le coffre : le journal chiffre
+  // s'ecrit avec la cle de donnees, et l'agent qui roule ne touche pas l'ecran. Decision de conduite PROVISOIRE
+  // (src/session/activiteExterne.ts). Une session retrouvee, non reprise, n'enregistre pas : elle ne compte pas.
+  const releveActif = vue.phase === "en_cours" && !interrompue;
+  useEffect(() => {
+    if (!releveActif) return undefined;
+    declarerRoulageActif(true);
+    return () => declarerRoulageActif(false);
+  }, [releveActif]);
+
   const demarrerSuivi = useCallback(async () => {
     if (!("geolocation" in navigator)) { toast.error("Ce navigateur ne donne pas la position."); return; }
     veille.current = await garderEcranAllume();
@@ -303,6 +449,14 @@ export function EnregistrementRoulagePage() {
       (p) => {
         const s = session.current;
         if (!s) return;
+        // Chaque point recu differe le verrou d'inactivite, mais seulement pendant que le releve enregistre.
+        if (s.etat.statut === "EN_COURS") {
+          const maintenant = Date.now();
+          if (maintenant < derniereActivite.current || maintenant - derniereActivite.current >= INTERVALLE_ACTIVITE_MS) {
+            derniereActivite.current = maintenant;
+            signalerActivite();
+          }
+        }
         const r = s.ajouterEchantillon(positionVersEchantillon(p));
         if (r.accepte) {
           if (s.etat.interruptions.some((i) => i.cause === "GNSS_PERDU" && i.finMs === null)) s.signalerSysteme({ type: "GNSS_DISPONIBLE" });
@@ -386,9 +540,16 @@ export function EnregistrementRoulagePage() {
   }
 
   async function demarrer() {
-    // Garde-fous : la lecture du journal doit avoir repondu, et le journal ne doit pas porter la session d'un autre compte.
-    if (!journalLu || autreCompte) return;
-    await stockageOuvert().vider();
+    // Garde-fou : la lecture du journal doit avoir repondu (le depart vide le journal).
+    if (!journalLu) return;
+    setErreurAction(null);
+    try {
+      await stockageOuvert().vider();
+    } catch (e) {
+      // Journal impossible a preparer (coffre verrouille, stockage refuse...) : le releve ne demarre PAS, rien n'est ecrit a moitie.
+      setErreurAction(messageStockageLocal(e, "enregistrer") ?? "Le journal de ce téléphone n'a pas pu être préparé : le relevé n'a pas démarré.");
+      return;
+    }
     echecsDepart.current = stockageOuvert().echecs();
     setEchecsJournal(0);
     const r = SessionRoulage.demarrer({
@@ -423,6 +584,14 @@ export function EnregistrementRoulagePage() {
   }
 
   async function oublier() {
+    setErreurAction(null);
+    try {
+      await stockageOuvert().vider();
+    } catch (e) {
+      // Le journal n'a pas pu etre efface : la session reste telle quelle a l'ecran et sur le telephone, rien n'est annonce supprime.
+      setErreurAction(messageStockageLocal(e) ?? "Le journal de ce téléphone n'a pas pu être effacé : la session est conservée.");
+      return;
+    }
     arreterSuivi();
     if (session.current) {
       const id = session.current.etat.sessionId;
@@ -430,7 +599,6 @@ export function EnregistrementRoulagePage() {
       garderIntitule(id, "");
       oublierEnvoi(id);
     }
-    await stockageOuvert().vider();
     setIndiceAccel(null);
     setRepriseRefusee(null);
     setConfirmerSuppression(false);
@@ -539,8 +707,7 @@ export function EnregistrementRoulagePage() {
     setEnvoi("en_cours");
     setEnvoiRetentable(false);
     try {
-      const appareilId = await obtenirAppareil(user.id);
-      const { data } = await api.post("/v2/sync/push", { appareilId, operations: [operationPourSynchronisation(p.payload)] });
+      const { data } = await pousserSession(user.id, operationPourSynchronisation(p.payload));
       const suite = interpreterReponse(data?.resultats?.[0]);
       if (suite.action === "RETIRER_DE_LA_FILE") {
         // Retenu sur l'appareil SEULEMENT apres la confirmation du serveur.
@@ -555,8 +722,18 @@ export function EnregistrementRoulagePage() {
           ? `Refusée par le serveur (${suite.motif}). La session reste sur ce téléphone ; le GPX peut être téléchargé.`
           : `Pas confirmée (${suite.motif}). On peut réessayer ; la session reste sur ce téléphone.`);
       }
-    } catch {
+    } catch (erreur) {
       setEnvoi("echec");
+      // Reconnue par son NOM (champ `name`), pas par `instanceof Error` : l'erreur peut traverser une frontiere (autre module, autre
+      // contexte, objet simple) ou la classe differe, et elle tomberait alors dans « Envoi impossible (reseau) » avec une reprise.
+      if ((erreur as { name?: unknown } | null)?.name === NOM_ERREUR_ARRET) {
+        // Arret decide par le serveur (appareil retire, compte inactif...) : ce n'est pas le reseau, et reessayer seul ne changerait
+        // rien. Pas de reprise automatique (`envoiRetentable` faux) ; le bouton reste a la main de l'agent, la session est intacte.
+        setEnvoiRetentable(false);
+        const motif = (erreur as { message?: unknown }).message;
+        setMessageEnvoi(`${typeof motif === "string" && motif.length > 0 ? motif : "La synchronisation est arrêtée."} La session reste sur ce téléphone ; le GPX peut être téléchargé.`);
+        return;
+      }
       setEnvoiRetentable(true);
       setMessageEnvoi("Envoi impossible (réseau). La session reste sur ce téléphone : réessayer plus tard, ou télécharger le GPX.");
     }
@@ -670,28 +847,16 @@ export function EnregistrementRoulagePage() {
           )}
         </section>
       )}
-      {autreCompte && (
-        <section aria-labelledby="autre-compte" className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-          <h2 id="autre-compte" className="font-semibold">Session d'un autre compte sur ce téléphone</h2>
-          {autreCompte.reduit ? (
-            <p className="mt-1" role="status">Gardée telle quelle ({autreCompte.positions} position(s)). Aucun nouvel enregistrement ne peut démarrer tant qu'elle est là.</p>
-          ) : (
-            <>
-              <p className="mt-1">
-                Un relevé de {autreCompte.positions} position(s) a été enregistré ici avec un autre compte. Il reste <strong>intact</strong> sur ce téléphone :
-                il n'est ni envoyé, ni repris, ni supprimé sous le compte actuel.
-              </p>
-              <p className="mt-1 text-xs">
-                Seul le compte qui l'a enregistré peut le reprendre, l'envoyer ou le supprimer : s'y reconnecter, ou contacter la DSI. Pour ne pas l'écraser,
-                aucun nouvel enregistrement ne démarre tant qu'elle est sur ce téléphone.
-              </p>
-              <div className="mt-3">
-                <Button type="button" onClick={() => setAutreCompte((a) => (a ? { ...a, reduit: true } : a))}>Garder</Button>
-              </div>
-            </>
-          )}
-        </section>
+      {autresComptes.releves > 0 && (
+        <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+          {autresComptes.releves === 1
+            ? "Un relevé d'un autre compte est en attente sur ce téléphone."
+            : `${autresComptes.releves} relevés d'autres comptes sont en attente sur ce téléphone.`}
+          {" "}Leur contenu reste chiffré et illisible depuis ce compte. Cela n'empêche pas de démarrer votre propre relevé.
+        </p>
       )}
+      <AlerteStockageLocal message={erreurJournal} />
+      <AlerteStockageLocal message={erreurAction} />
       {!session.current && !interrompue && (
         <Card>
           <h2 className="font-semibold flex items-center gap-2"><Download className="h-4 w-4" aria-hidden="true" /> Préparer la mission (avant de partir)</h2>
@@ -763,7 +928,7 @@ export function EnregistrementRoulagePage() {
         </section>
       )}
 
-      {vue.phase === "repos" && !interrompue && !autreCompte && (
+      {vue.phase === "repos" && !interrompue && (
         <section aria-labelledby="preparation" className="max-w-xl space-y-4 rounded-lg border border-gray-300 bg-white p-4">
           <h2 id="preparation" className="text-lg font-semibold">Préparer le relevé</h2>
           <div>
@@ -803,7 +968,7 @@ export function EnregistrementRoulagePage() {
             </div>
           </dl>
           <Button size="lg" onClick={() => void demarrer()} disabled={!journalLu}>
-            <MapPin className="h-4 w-4" aria-hidden="true" />{journalLu ? "Démarrer l'enregistrement" : "Lecture de ce téléphone…"}
+            <MapPin className="h-4 w-4" aria-hidden="true" />{journalLu ? "Démarrer l'enregistrement" : erreurJournal ? "Démarrage impossible pour l'instant" : "Lecture de ce téléphone…"}
           </Button>
         </section>
       )}
@@ -1032,6 +1197,10 @@ export function EnregistrementRoulagePage() {
                   {messageEnvoi}{envoi === "echec" && envoiRetentable && !enLigne ? " Un nouvel envoi sera tenté automatiquement au retour du réseau." : ""}
                 </p>
               )}
+              {envoi === "envoye" && etatBrut && (
+                <p className="text-sm"><Link className="font-medium underline" to={`/inspections/releve/envoyes/${encodeURIComponent(etatBrut.sessionId)}`}>Voir ce relevé sur le serveur</Link></p>
+              )}
+              <p className="text-xs text-gray-600">Les relevés déjà reçus par le serveur se consultent dans <Link className="underline" to="/inspections/releve/envoyes">Relevés envoyés</Link>.</p>
               <p className="text-xs text-gray-600">Le fichier GPX peut ensuite être analysé dans <Link className="underline" to="/inspections/releve">Relevé en véhicule</Link> : tronçons parcourus, parties hors référentiel, indicateurs de qualité. Une trace GPS n'est pas une inspection validée.</p>
             </div>
           )}

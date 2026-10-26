@@ -12,7 +12,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
  */
 
 type Entree = Record<string, unknown>;
-const journal: { entrees: Entree[]; nature: "indexeddb" | "memoire"; lectureEchoue: boolean } = { entrees: [], nature: "indexeddb", lectureEchoue: false };
+const journal: {
+  entrees: Entree[]; nature: "indexeddb" | "memoire"; lectureEchoue: boolean; ouvertures: number; fermetures: number; fermetureEchoue: boolean;
+} = { entrees: [], nature: "indexeddb", lectureEchoue: false, ouvertures: 0, fermetures: 0, fermetureEchoue: false };
 
 vi.mock("./api", () => ({ api: { post: vi.fn(async () => ({ data: {} })) } }));
 vi.mock("./offlineDb", () => ({
@@ -26,20 +28,29 @@ vi.mock("./offlineDb", () => ({
   updatePendingObservation: vi.fn(), removePendingObservation: vi.fn(),
 }));
 vi.mock("./roulageHote", () => ({
-  ouvrirStockage: () => ({
-    get nature() { return journal.nature; },
-    ajouter: () => undefined,
-    vider: async () => undefined,
-    echecs: () => 0,
-    toutes: async () => {
-      if (journal.lectureEchoue) throw new Error("journal illisible");
-      return journal.entrees;
-    },
-  }),
+  ouvrirStockage: () => {
+    journal.ouvertures += 1;
+    return {
+      get nature() { return journal.nature; },
+      ajouter: () => undefined,
+      vider: async () => undefined,
+      echecs: () => 0,
+      toutes: async () => {
+        if (journal.lectureEchoue) throw new Error("journal illisible");
+        return journal.entrees;
+      },
+      // Fermeture : retire les ecouteurs du journal reel (roulageHote.ts). Comptee ici pour prouver qu'un cache remplace est ferme.
+      fermer: () => {
+        journal.fermetures += 1;
+        if (journal.fermetureEchoue) throw new Error("fermeture impossible");
+      },
+    };
+  },
 }));
 
 import { configurerUtilisateurSync, getSyncState, refreshPendingCount } from "./offlineSync";
 import { noterEnvoiConfirme } from "./releveVue";
+import { fermerCompte, ouvrirCompte, type Chiffreur } from "./compteCourant";
 
 function session(options: { agent?: string | null; sessionId?: string; positions?: number; arretee?: boolean } = {}): Entree[] {
   const { agent = "u1", sessionId = "sess-1", positions = 3, arretee = true } = options;
@@ -51,10 +62,17 @@ function session(options: { agent?: string | null; sessionId?: string; positions
   return entrees;
 }
 
+// ADAPTATION AU STOCKAGE PAR COMPTE : la confirmation d'envoi est une cle localStorage posee sous le prefixe du compte courant
+// (compteCourant.ts). Le journal reste simule ici (ouvrirStockage est mocke) : un chiffreur factice suffit, il ne chiffre rien.
+const chiffreurFactice = { estDeverrouille: () => true } as unknown as Chiffreur;
+
 beforeEach(() => {
+  fermerCompte();
+  ouvrirCompte({ compteId: "u1", empreinte: "0123456789abcdef", chiffreur: chiffreurFactice });
   journal.entrees = [];
   journal.nature = "indexeddb";
   journal.lectureEchoue = false;
+  journal.fermetureEchoue = false;
   localStorage.clear();
   configurerUtilisateurSync("u1");
 });
@@ -126,5 +144,54 @@ describe("badge global : session de roulage arretee et non confirmee", () => {
     configurerUtilisateurSync(null);
     await refreshPendingCount();
     expect(getSyncState().pendingCount).toBe(0);
+  });
+});
+
+describe("journal de roulage de la synchronisation : l'ancienne instance est fermee quand le cache est remplace", () => {
+  const empreintes = { u1: "0123456789abcdef", u2: "fedcba9876543210" } as const;
+  const basculerVers = (id: keyof typeof empreintes) => {
+    fermerCompte();
+    ouvrirCompte({ compteId: id, empreinte: empreintes[id], chiffreur: chiffreurFactice });
+    configurerUtilisateurSync(id);
+  };
+
+  it("un changement de compte ferme l'ancien journal, une seule fois ; le meme compte ne ferme ni ne rouvre rien", async () => {
+    basculerVers("u1");
+    await refreshPendingCount();
+    const fermeesAvant = journal.fermetures;
+    const ouvertesAvant = journal.ouvertures;
+
+    // Meme compte : le journal en cache sert, aucune ouverture, aucune fermeture (une connexion par rafraichissement fuirait).
+    await refreshPendingCount();
+    await refreshPendingCount();
+    expect(journal.ouvertures).toBe(ouvertesAvant);
+    expect(journal.fermetures).toBe(fermeesAvant);
+
+    // Autre compte : un journal neuf, et l'ancien est FERME (ses ecouteurs retires), une fois.
+    basculerVers("u2");
+    await refreshPendingCount();
+    expect(journal.ouvertures).toBe(ouvertesAvant + 1);
+    expect(journal.fermetures).toBe(fermeesAvant + 1);
+    await refreshPendingCount();
+    expect(journal.fermetures).toBe(fermeesAvant + 1);
+
+    // Retour au premier : encore un remplacement, encore une fermeture. Un seul journal ouvert a la fois.
+    basculerVers("u1");
+    await refreshPendingCount();
+    expect(journal.ouvertures).toBe(ouvertesAvant + 2);
+    expect(journal.fermetures).toBe(fermeesAvant + 2);
+  });
+
+  it("une fermeture qui echoue ne casse pas le decompte : le nouveau compte compte ses saisies", async () => {
+    basculerVers("u1");
+    await refreshPendingCount();
+    journal.fermetureEchoue = true;
+    journal.entrees = session({ agent: "u2" });
+
+    basculerVers("u2");
+    await expect(refreshPendingCount()).resolves.toBeUndefined();
+
+    // u2 n'a pas de defaut en file (celui du mock est a u1) : seule sa session de roulage arretee compte.
+    expect(getSyncState().pendingCount).toBe(1);
   });
 });

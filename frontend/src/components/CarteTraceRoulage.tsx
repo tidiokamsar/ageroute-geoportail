@@ -1,5 +1,7 @@
 import { memo, useEffect } from "react";
 import { CircleMarker, MapContainer, Polyline, TileLayer, useMap } from "react-leaflet";
+// Feuille de style de Leaflet servie par l'application elle-meme (precachee par le service worker) : plus de CDN tiers, la carte garde sa mise en forme hors ligne.
+import "leaflet/dist/leaflet.css";
 import type { PointCarte } from "../lib/releveVue";
 
 /**

@@ -17,6 +17,14 @@
 import type { EntreeJournal } from "../roulage/journal";
 import type { EchantillonGnss } from "../roulage/types";
 import type { EtatSession } from "../roulage/etat";
+import { nomBaseRoulage } from "../session/compteLocal";
+import {
+  aadEnregistrement, abonnerCompte, ErreurStockageLocal, estErreurStockageLocal, exigerCompte, exigerDeverrouille, majCompteurs,
+  traduireErreurChiffrement, type ContexteCompte,
+} from "./compteCourant";
+
+/** Ce que les AUTRES comptes de ce telephone ont en attente, sans contenu (voir compteCourant.ts). */
+export { resumeAutresComptes, type ResumeAutresComptes } from "./compteCourant";
 
 // ------------------------------------------------------------------ position -> echantillon
 
@@ -95,6 +103,17 @@ export interface StockageJournal {
   echecs(): number;
   /** `memoire` : rien ne survivra a un redemarrage de la page. */
   nature: "indexeddb" | "memoire";
+  /** Lots du journal chiffre qui n'ont pas pu etre relus (altere, autre cle) : ecartes, jamais supprimes. */
+  lotsIllisibles?(): number;
+  /** Entrees retenues en memoire faute de cle (verrou) ou de compte : ecrites des que possible, jamais en clair. */
+  enAttente?(): number;
+  /**
+   * Fermeture : retire les ecouteurs poses a la creation (abonnement au compte, visibilite de la page) et arrete le delai
+   * d'ecriture en attente. Sans elle, chaque instance creee (changement de compte, migration) laissait ses ecouteurs vivants
+   * pour toujours. Les entrees encore en tampon NE sont PAS ecrites par la fermeture : ecrire avant (`toutes()` ou un arret).
+   * Une instance fermee ne reagit plus au compte ni a la page ; ses autres methodes restent utilisables.
+   */
+  fermer?(): void;
 }
 
 export function stockageMemoire(): StockageJournal {
@@ -108,44 +127,197 @@ export function stockageMemoire(): StockageJournal {
   };
 }
 
-const NOM_BASE = "bdri-roulage";
-const MAGASIN = "journal";
+/**
+ * JOURNAL CHIFFRE, PAR COMPTE (docs/securite/SESSION-HORS-LIGNE.md, sections 3 et 4).
+ *
+ * Base `bdri-roulage-<empreinte>` (nomBaseRoulage) : le releve d'un agent n'est plus lu ni efface par un autre, et un
+ * second compte n'est plus bloque par le releve du premier. Chaque enregistrement est un LOT d'entrees, chiffre d'un
+ * bloc (AES-GCM, AAD `compteId|journal.<seq du lot>|1`) ; en clair, seulement la cle (numero de la premiere entree), le
+ * numero de la derniere et le nombre d'entrees.
+ *
+ * DEBIT D'ECRITURE. Le GNSS produit une entree par fix (de l'ordre de 1 Hz). Chiffrer et ecrire chaque entree seule
+ * est le comportement par defaut (`tailleLot` = 1) ; `tailleLot` > 1 regroupe les ECHANTILLONS (les autres entrees :
+ * demarrage, arret, marqueurs, qualifications... declenchent toujours l'ecriture immediate du tampon). Le cout des deux
+ * regimes a ete mesure : voir `roulageHote.debit.test.ts` et la section « debit » du rapport.
+ *
+ * VERROU. Chiffreur verrouille ou compte absent : les entrees sont RETENUES EN MEMOIRE (jamais ecrites en clair, jamais
+ * perdues tant que la page vit) et ecrites au deverrouillage (`ouvrirCompte` rappele) ou a l'entree suivante. Un plafond
+ * (`maxEnAttente`) borne la memoire : au-dela, la plus ancienne entree est abandonnee ET comptee dans `echecs()`.
+ * Une page tuee pendant un verrou perd ce tampon : c'est la limite de la journalisation, comme avant pour toute entree
+ * non encore ecrite.
+ *
+ * LA LIAISON AU COMPTE se fait au premier usage : une instance creee sous un compte ne sert jamais un autre.
+ */
+export interface OptionsJournal {
+  /** Echantillons regroupes dans un meme bloc chiffre. 1 : un bloc par entree. */
+  tailleLot?: number;
+  /** Delai maximal avant l'ecriture d'un lot incomplet. */
+  delaiLotMs?: number;
+  /** Entrees retenues en memoire au plus pendant un verrou. */
+  maxEnAttente?: number;
+}
 
-function ouvrir(): Promise<IDBDatabase> {
+export const OPTIONS_JOURNAL_DEFAUT: Required<OptionsJournal> = { tailleLot: 1, delaiLotMs: 1000, maxEnAttente: 50_000 };
+
+/** Version de format des lots (entre dans l'AAD). */
+const VERSION_LOT_JOURNAL = 1;
+const MAGASIN = "journal";
+const VERSION_BASE_JOURNAL = 1;
+
+interface LotJournal { seq: number; dernier: number; n: number; compteId: string; fmt: number; paquet: Uint8Array }
+
+const aadLot = (compteId: string, seq: number) => aadEnregistrement(compteId, `journal.${seq}`, VERSION_LOT_JOURNAL);
+
+function ouvrirBaseJournal(empreinte: string): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const r = indexedDB.open(NOM_BASE, 1);
+    const r = indexedDB.open(nomBaseRoulage(empreinte), VERSION_BASE_JOURNAL);
     r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains(MAGASIN)) r.result.createObjectStore(MAGASIN, { keyPath: "seq" }); };
     r.onsuccess = () => resolve(r.result);
     r.onerror = () => reject(r.error);
   });
 }
 
-/** IndexedDB natif (sans dependance). Rend `null` si le navigateur n'en a pas ou le refuse (navigation privee). */
-export function stockageIndexedDb(): StockageJournal | null {
+/** Une transaction sur le journal, qui se termine (ou est annulee : quota) avant de rendre la main. */
+function transactionJournal<T>(db: IDBDatabase, mode: IDBTransactionMode, travail: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const t = db.transaction(MAGASIN, mode);
+    const req = travail(t.objectStore(MAGASIN));
+    t.oncomplete = () => resolve(req.result);
+    t.onerror = () => reject(t.error);
+    t.onabort = () => reject(t.error ?? new ErreurStockageLocal("ECRITURE_ANNULEE"));
+  });
+}
+
+/** IndexedDB natif (sans dependance), chiffre. Rend `null` si le navigateur n'en a pas (navigation privee, vieux navigateur). */
+export function stockageIndexedDb(options: OptionsJournal = {}): StockageJournal | null {
   if (typeof indexedDB === "undefined") return null;
+  const { tailleLot, delaiLotMs, maxEnAttente } = { ...OPTIONS_JOURNAL_DEFAUT, ...options };
   let echecs = 0;
-  let base: Promise<IDBDatabase> | null = null;
-  const db = () => (base ??= ouvrir());
-  const demander = <T,>(mode: IDBTransactionMode, f: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> =>
-    db().then((d) => new Promise<T>((resolve, reject) => {
-      const t = d.transaction(MAGASIN, mode);
-      const req = f(t.objectStore(MAGASIN));
-      t.oncomplete = () => resolve(req.result);
-      t.onerror = () => reject(t.error);
-      t.onabort = () => reject(t.error);
-    }));
+  let lotsIllisibles = 0;
+  let lie: string | null = null;
+  let base: { empreinte: string; db: Promise<IDBDatabase> } | null = null;
+  let tampon: EntreeJournal[] = [];
+  let minuteur: ReturnType<typeof setTimeout> | null = null;
+  let chaine: Promise<void> = Promise.resolve();
+
+  /** Le compte courant, a condition que ce soit celui auquel cette instance est liee. */
+  const compte = (): ContexteCompte => {
+    const c = exigerCompte();
+    if (lie !== null && lie !== c.compteId) throw new ErreurStockageLocal("COMPTE_INCOHERENT", "Le journal de roulage est celui d'un autre compte.");
+    lie = c.compteId;
+    return c;
+  };
+  const connexion = (c: ContexteCompte): Promise<IDBDatabase> => {
+    if (base === null || base.empreinte !== c.empreinte) {
+      const db = ouvrirBaseJournal(c.empreinte);
+      const courante = { empreinte: c.empreinte, db };
+      base = courante;
+      db.then((d) => { d.onversionchange = () => { d.close(); if (base === courante) base = null; }; }, () => { if (base === courante) base = null; });
+    }
+    return base.db;
+  };
+
+  async function ecrireLot(c: ContexteCompte, lot: EntreeJournal[]): Promise<void> {
+    const seq = lot[0].seq;
+    const paquet = await c.chiffreur.chiffrer(lot, aadLot(c.compteId, seq));
+    const enregistrement: LotJournal = { seq, dernier: lot[lot.length - 1].seq, n: lot.length, compteId: c.compteId, fmt: VERSION_LOT_JOURNAL, paquet };
+    const db = await connexion(c);
+    await transactionJournal(db, "readwrite", (s) => s.put(enregistrement));
+    // Le compteur d'information (lu SANS cle, coffre verrouille) dit « un releve non confirme existe » des les premiers points, pas
+    // seulement a l'ARRET : une page tuee en plein releve ne l'arrete jamais, et ses points n'existent que sur ce telephone.
+    if (lot.some((e) => e.type === "ARRET" || e.type === "ECHANTILLON")) majCompteurs(c.empreinte, { releves: 1 });
+  }
+
+  /**
+   * Ecrit le tampon par blocs d'au plus `tailleLot` entrees. `tout` : jusqu'a la derniere entree, meme si le dernier bloc
+   * est incomplet (arret, lecture, delai ecoule, page cachee) ; sinon seulement les blocs COMPLETS, le reste attend
+   * d'autres echantillons.
+   */
+  async function viderTampon(tout: boolean): Promise<void> {
+    while (tampon.length >= (tout ? 1 : tailleLot)) {
+      let c: ContexteCompte;
+      try { c = compte(); exigerDeverrouille(c); } catch { return; } // retenu en memoire : rien n'est ecrit sans cle
+      const lot = tampon.splice(0, tailleLot);
+      try {
+        await ecrireLot(c, lot);
+      } catch (e) {
+        const t = traduireErreurChiffrement(e);
+        if (estErreurStockageLocal(t, "COFFRE_VERROUILLE")) { tampon = [...lot, ...tampon]; return; } // verrouille entre-temps : on garde
+        echecs += lot.length;
+      }
+    }
+  }
+
+  function declencher(tout = true): Promise<void> {
+    if (minuteur !== null) { clearTimeout(minuteur); minuteur = null; }
+    chaine = chaine.then(() => viderTampon(tout));
+    return chaine;
+  }
+
+  // Au deverrouillage (ouvrirCompte rappele) et quand la page se cache : ecrire ce qui attend. Les deux ecouteurs sont
+  // retires par `fermer()`.
+  const desabonnerCompte = abonnerCompte(() => { if (tampon.length > 0) void declencher(); });
+  const surVisibilite = () => { if (document.visibilityState === "hidden" && tampon.length > 0) void declencher(); };
+  if (typeof document !== "undefined") document.addEventListener("visibilitychange", surVisibilite);
+
   return {
     nature: "indexeddb",
-    ajouter: (e) => { void demander("readwrite", (s) => s.put(JSON.parse(JSON.stringify(e)))).catch(() => { echecs += 1; }); },
-    toutes: () => demander("readonly", (s) => s.getAll() as IDBRequest<EntreeJournal[]>),
-    vider: () => demander("readwrite", (s) => s.clear()).then(() => undefined),
+    ajouter: (e) => {
+      tampon.push(JSON.parse(JSON.stringify(e)) as EntreeJournal);
+      if (tampon.length > maxEnAttente) { tampon.shift(); echecs += 1; }
+      if (e.type !== "ECHANTILLON") void declencher(true);
+      else if (tampon.length >= tailleLot) void declencher(false);
+      else if (minuteur === null) minuteur = setTimeout(() => { minuteur = null; void declencher(); }, delaiLotMs);
+    },
+    toutes: async () => {
+      const c = compte();
+      exigerDeverrouille(c);
+      await declencher();
+      const db = await connexion(c);
+      const lots = await transactionJournal(db, "readonly", (s) => s.getAll() as IDBRequest<unknown[]>);
+      const parSeq = new Map<number, EntreeJournal>();
+      for (const brut of lots) {
+        const l = brut as Partial<LotJournal> | null;
+        try {
+          if (!l || typeof l.seq !== "number" || l.compteId !== c.compteId || l.fmt !== VERSION_LOT_JOURNAL || !(l.paquet instanceof Uint8Array)) throw new ErreurStockageLocal("DONNEES_ALTEREES");
+          const entrees = await c.chiffreur.dechiffrerJson<EntreeJournal[]>(l.paquet, aadLot(c.compteId, l.seq));
+          if (!Array.isArray(entrees)) throw new ErreurStockageLocal("DONNEES_ALTEREES");
+          for (const e of entrees) parSeq.set(e.seq, e);
+        } catch (err) {
+          const t = traduireErreurChiffrement(err);
+          if (estErreurStockageLocal(t, "DONNEES_ALTEREES")) { lotsIllisibles += 1; continue; } // le noyau signalera le trou au rejeu
+          throw t;
+        }
+      }
+      return [...parSeq.values()].sort((a, b) => a.seq - b.seq);
+    },
+    vider: async () => {
+      const c = compte();
+      exigerDeverrouille(c);
+      tampon = [];
+      if (minuteur !== null) { clearTimeout(minuteur); minuteur = null; }
+      const effacement = chaine.then(async () => {
+        const db = await connexion(c);
+        await transactionJournal(db, "readwrite", (s) => s.clear());
+        majCompteurs(c.empreinte, { releves: 0 });
+      });
+      chaine = effacement.catch(() => undefined);
+      await effacement;
+    },
     echecs: () => echecs,
+    lotsIllisibles: () => lotsIllisibles,
+    enAttente: () => tampon.length,
+    fermer: () => {
+      desabonnerCompte();
+      if (typeof document !== "undefined") document.removeEventListener("visibilitychange", surVisibilite);
+      if (minuteur !== null) { clearTimeout(minuteur); minuteur = null; }
+    },
   };
 }
 
 /** IndexedDB si possible, sinon la memoire (et l'ecran le dit). */
-export function ouvrirStockage(): StockageJournal {
-  return stockageIndexedDb() ?? stockageMemoire();
+export function ouvrirStockage(options?: OptionsJournal): StockageJournal {
+  return stockageIndexedDb(options) ?? stockageMemoire();
 }
 
 // ------------------------------------------------------------------ veille de l'ecran

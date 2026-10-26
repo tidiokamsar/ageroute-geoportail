@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "eslint src",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test --config ../e2e/playwright.config.ts"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",
@@ -42,6 +43,7 @@
   "devDependencies": {
     "@capacitor/cli": "^8.5.3",
     "@eslint/js": "9.39.5",
+    "@playwright/test": "1.63.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.1.0",
     "@testing-library/user-event": "^14.5.2",
@@ -55,6 +57,7 @@
     "eslint": "9.39.5",
     "eslint-plugin-jsx-a11y": "6.10.2",
     "eslint-plugin-react-hooks": "7.1.1",
+    "fake-indexeddb": "6.2.5",
     "globals": "17.13.0",
     "jsdom": "^25.0.1",
     "postcss": "^8.4.47",

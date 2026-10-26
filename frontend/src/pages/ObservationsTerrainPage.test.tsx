@@ -18,12 +18,18 @@ import { violationsAccessibilite } from "../test/accessibilite";
  */
 
 const h = vi.hoisted(() => ({
-  etat: { pendingCount: 0, conflitCount: 0, abandonCount: 0, syncing: false, online: true },
+  etat: { pendingCount: 0, conflitCount: 0, abandonCount: 0, refusDroitsCount: 0, syncing: false, online: true },
   file: [] as Record<string, unknown>[],
+  /** Saisies des deux autres files, lues par le panneau des refus de droits. */
+  defauts: [] as Record<string, unknown>[],
+  portions: [] as Record<string, unknown>[],
+  relancerDroits: vi.fn(),
   enregistrer: vi.fn(),
   relancer: vi.fn(),
   sync: vi.fn(),
   toastSucces: vi.fn(),
+  /** Erreur que la lecture de la file locale doit lever (coffre verrouille, aucun compte...). */
+  lireEchec: null as unknown,
 }));
 
 vi.mock("../lib/auth", () => ({ useAuth: () => ({ user: { id: "u1", role: "INSPECTEUR" } }) }));
@@ -31,11 +37,22 @@ vi.mock("../lib/toast", () => ({ toast: { success: h.toastSucces, error: vi.fn()
 vi.mock("../hooks/useOfflineSync", () => ({ useOfflineSync: () => ({ ...h.etat, syncNow: h.sync }) }));
 vi.mock("../lib/offlineDb", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  getAllPendingObservations: async () => h.file,
+  getAllPendingObservations: async () => { if (h.lireEchec) throw h.lireEchec; return h.file; },
+  getAllPendingDefauts: async () => h.defauts,
+  getAllPendingPortions: async () => h.portions,
 }));
 vi.mock("../lib/offlineSync", () => ({
   relancerObservation: (...a: unknown[]) => h.relancer(...a),
   syncPendingOfflineData: (...a: unknown[]) => h.sync(...a),
+  relancerRefusDroits: (...a: unknown[]) => h.relancerDroits(...a),
+  etatSynchronisation: () => ({ appareilRevoque: false, compteInactif: false, message: null }),
+  MESSAGES_REFUS_DROITS: {
+    HORS_PERIMETRE: "Cette saisie est hors de votre périmètre territorial actuel.",
+    REGION_INCONNUE: "La région de cette saisie n'a pas pu être rattachée à votre périmètre.",
+    MODULE_RETIRE: "Le module de cette saisie a été retiré de votre compte.",
+    MISSION_NON_AUTORISEE: "La mission de cette saisie ne vous est plus assignée.",
+    NON_PRECISEE: "Le serveur a refusé cette saisie parce que vos droits ont changé.",
+  },
 }));
 vi.mock("../lib/observationsTerrain", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
@@ -43,6 +60,7 @@ vi.mock("../lib/observationsTerrain", async (importOriginal) => ({
 }));
 
 import { ObservationsTerrainPage } from "./ObservationsTerrainPage";
+import { ErreurStockageLocal } from "../lib/compteCourant";
 
 function saisie(localId: string, over: Record<string, unknown> = {}) {
   return {
@@ -53,12 +71,16 @@ function saisie(localId: string, over: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
-  h.etat = { pendingCount: 0, conflitCount: 0, abandonCount: 0, syncing: false, online: true };
+  h.etat = { pendingCount: 0, conflitCount: 0, abandonCount: 0, refusDroitsCount: 0, syncing: false, online: true };
   h.file = [];
+  h.defauts = [];
+  h.portions = [];
+  h.relancerDroits.mockReset().mockResolvedValue("ENVOYEE");
   h.enregistrer.mockReset().mockResolvedValue({ ok: true });
   h.relancer.mockReset().mockResolvedValue(undefined);
   h.sync.mockReset().mockResolvedValue(undefined);
   h.toastSucces.mockReset();
+  h.lireEchec = null;
 });
 
 describe("Signalement du conflit au telephone", () => {
@@ -105,7 +127,17 @@ describe("Signalement du conflit au telephone", () => {
 
     await user.click(within(item).getByRole("button", { name: "Relancer l'envoi" }));
     expect(h.relancer).toHaveBeenCalledWith(abandonnee);
-    await waitFor(() => expect(h.sync).toHaveBeenCalled());
+    await waitFor(() => expect(h.sync).toHaveBeenCalledWith({ manuel: true }));
+  });
+
+  it("« Envoyer maintenant » est un geste de l'agent : cycle MANUEL", async () => {
+    h.file = [saisie("a")]; h.etat = { ...h.etat, pendingCount: 1 };
+    const user = userEvent.setup();
+    render(<ObservationsTerrainPage />);
+    await screen.findByText("description a");
+    await user.click(screen.getByRole("button", { name: "Envoyer maintenant" }));
+    expect(h.sync).toHaveBeenCalledTimes(1);
+    expect(h.sync).toHaveBeenCalledWith({ manuel: true });
   });
 
   it("ne montre PAS les saisies d'un autre compte", async () => {
@@ -120,6 +152,74 @@ describe("Signalement du conflit au telephone", () => {
     render(<ObservationsTerrainPage />);
     expect(await screen.findByText(/Hors ligne : les saisies partiront au retour du réseau/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Envoyer maintenant" })).toBeDisabled();
+  });
+});
+
+describe("Saisies refusees pour droits modifies (quarantaine)", () => {
+  const quarantaine = (localId: string, cause = "HORS_PERIMETRE") => saisie(localId, {
+    status: "refus_droits", causeRefusDroits: cause, errorMessage: "Cette saisie est hors de votre périmètre territorial actuel.", nbPhotos: 2,
+  });
+
+  it("PAS de panneau quand rien n'est en quarantaine", async () => {
+    h.file = [saisie("a")]; h.etat = { ...h.etat, pendingCount: 1 };
+    render(<ObservationsTerrainPage />);
+    await screen.findByText("description a");
+    expect(screen.queryByRole("heading", { name: /Saisies refusées : droits modifiés/ })).not.toBeInTheDocument();
+  });
+
+  it("montre le panneau (cause en clair, photos) ET la saisie dans la liste avec son propre libelle, sans bouton « Relancer l'envoi »", async () => {
+    h.file = [quarantaine("q")]; h.etat = { ...h.etat, pendingCount: 1, refusDroitsCount: 1 };
+    render(<ObservationsTerrainPage />);
+    const panneau = (await screen.findByRole("heading", { name: /Saisies refusées : droits modifiés \(1\)/ })).closest("section")!;
+    expect(within(panneau).getByText(/hors de votre périmètre territorial actuel/)).toBeInTheDocument();
+    expect(within(panneau).getByText(/2 photos/)).toBeInTheDocument();
+    const item = (await screen.findByText("description q")).closest("li")!;
+    expect(item).toHaveAttribute("data-statut", "refus_droits");
+    expect(within(item).getByText("Refusée : droits modifiés")).toBeInTheDocument();
+    expect(within(item).getByText(/ne part pas toute seule/)).toBeInTheDocument();
+    expect(within(item).queryByText("En attente d'envoi")).not.toBeInTheDocument();
+    expect(within(item).queryByRole("button")).not.toBeInTheDocument();
+    // Aucune suppression n'est proposee, nulle part.
+    expect(screen.queryByRole("button", { name: /supprimer|effacer/i })).not.toBeInTheDocument();
+  });
+
+  it("couvre aussi les defauts et les portions en quarantaine, et renvoie dans la bonne file", async () => {
+    h.defauts = [{ localId: "d1", ownerUserId: "u1", status: "refus_droits", causeRefusDroits: "MODULE_RETIRE", createdAt: "2026-10-23T08:00:00.000Z", payload: { catalogueCode: "NID_POULE", constateA: "2026-10-23T08:00:00.000Z" }, nbPhotos: 1 }];
+    h.portions = [{ localId: "p1", ownerUserId: "u1", status: "refus_droits", causeRefusDroits: "REGION_INCONNUE", createdAt: "2026-10-22T08:00:00.000Z", payload: { tronconId: "t", debutM: 100, finM: 250 } }];
+    h.etat = { ...h.etat, pendingCount: 2, refusDroitsCount: 2 };
+    const user = userEvent.setup();
+    render(<ObservationsTerrainPage />);
+    await screen.findByText(/Défaut NID_POULE/);
+    expect(screen.getByText(/Portion de 100 m à 250 m/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Renvoyer cette saisie : Portion/ }));
+    await waitFor(() => expect(h.relancerDroits).toHaveBeenCalledWith("p1", "portions"));
+  });
+
+  it("« Renvoyer » appelle relancerRefusDroits(localId, \"observations\") et le compte rendu reste affiche quand la saisie est partie", async () => {
+    h.file = [quarantaine("q")]; h.etat = { ...h.etat, pendingCount: 1, refusDroitsCount: 1 };
+    h.relancerDroits.mockImplementation(async () => { h.file = []; h.etat = { ...h.etat, pendingCount: 0, refusDroitsCount: 0 }; return "ENVOYEE"; });
+    const user = userEvent.setup();
+    const { rerender } = render(<ObservationsTerrainPage />);
+    await user.click(await screen.findByRole("button", { name: /Renvoyer cette saisie/ }));
+    expect(h.relancerDroits).toHaveBeenCalledWith("q", "observations");
+    expect(await screen.findByText(/le serveur a accepté cette saisie/)).toBeInTheDocument();
+    rerender(<ObservationsTerrainPage />);
+    // La quarantaine est vide : le panneau reste monte pour garder le compte rendu.
+    expect(screen.getByText(/le serveur a accepté cette saisie/)).toBeInTheDocument();
+  });
+
+  it("ne montre PAS la quarantaine d'un autre compte", async () => {
+    h.file = [quarantaine("q"), { ...quarantaine("autre"), ownerUserId: "u2" }]; h.etat = { ...h.etat, pendingCount: 2, refusDroitsCount: 1 };
+    render(<ObservationsTerrainPage />);
+    await screen.findByRole("heading", { name: /\(1\)/ });
+    expect(screen.queryByText("description autre")).not.toBeInTheDocument();
+  });
+
+  it("0 violation d'accessibilite avec le panneau", async () => {
+    h.file = [quarantaine("q"), saisie("a")]; h.etat = { ...h.etat, pendingCount: 2, refusDroitsCount: 1 };
+    const { container } = render(<ObservationsTerrainPage />);
+    await screen.findByText("description q");
+    expect(await violationsAccessibilite(container)).toEqual([]);
   });
 });
 
@@ -162,6 +262,62 @@ describe("Saisie", () => {
     await user.click(screen.getByRole("button", { name: "Enregistrer sur ce téléphone" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/n'a pas pu être conservée/);
     expect(h.toastSucces).not.toHaveBeenCalled();
+  });
+});
+
+describe("Erreurs typees du stockage local", () => {
+  async function saisirEtEnregistrer() {
+    const user = userEvent.setup();
+    render(<ObservationsTerrainPage />);
+    await user.selectOptions(screen.getByLabelText("Type"), "INCIDENT");
+    await user.type(screen.getByLabelText("Description"), "Arbre sur la chaussée");
+    await user.click(screen.getByRole("button", { name: "Enregistrer sur ce téléphone" }));
+    return user;
+  }
+
+  it("stockage plein : le message du stockage est affiché, aucun succès annoncé, le formulaire reste rempli", async () => {
+    h.enregistrer.mockRejectedValue(new ErreurStockageLocal("STOCKAGE_PLEIN"));
+    await saisirEtEnregistrer();
+    const alerte = await screen.findByRole("alert");
+    expect(alerte).toHaveTextContent(/Stockage de l'appareil plein/);
+    expect(alerte).toHaveTextContent(/PAS enregistrée/);
+    expect(h.toastSucces).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Description")).toHaveValue("Arbre sur la chaussée");
+    expect(screen.getByLabelText("Type")).toHaveValue("INCIDENT");
+  });
+
+  it("trop de photos : le message du stockage est affiché tel quel", async () => {
+    h.enregistrer.mockRejectedValue(new ErreurStockageLocal("TROP_DE_PHOTOS"));
+    await saisirEtEnregistrer();
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Cinq photos au maximum par saisie/);
+  });
+
+  it("coffre verrouillé : « Déverrouillez avec votre PIN pour enregistrer »", async () => {
+    h.enregistrer.mockRejectedValue(new ErreurStockageLocal("COFFRE_VERROUILLE"));
+    await saisirEtEnregistrer();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Déverrouillez avec votre PIN pour enregistrer.");
+    expect(h.toastSucces).not.toHaveBeenCalled();
+  });
+
+  it("la file locale illisible (coffre verrouillé) est dite, sans rejet non géré ni faux « aucune observation en attente »", async () => {
+    h.lireEchec = new ErreurStockageLocal("COFFRE_VERROUILLE");
+    render(<ObservationsTerrainPage />);
+    const alerte = await screen.findByRole("alert");
+    expect(alerte).toHaveTextContent(/session locale est verrouillée/);
+    expect(screen.queryByText(/Aucune observation en attente/)).not.toBeInTheDocument();
+  });
+
+  it("relancer une saisie abandonnée quand l'écriture est refusée : l'alerte le dit et rien n'est renvoyé", async () => {
+    const abandonnee = saisie("x", { status: "abandonnee", errorMessage: "Refusé." });
+    h.file = [abandonnee];
+    h.etat = { ...h.etat, pendingCount: 1, abandonCount: 1 };
+    h.relancer.mockRejectedValue(new ErreurStockageLocal("STOCKAGE_PLEIN"));
+    const user = userEvent.setup();
+    render(<ObservationsTerrainPage />);
+    const item = (await screen.findByText("description x")).closest("li")!;
+    await user.click(within(item).getByRole("button", { name: "Relancer l'envoi" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Stockage de l'appareil plein/);
+    expect(h.sync).not.toHaveBeenCalled();
   });
 });
 

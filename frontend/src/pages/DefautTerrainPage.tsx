@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, CheckCircle2, CloudOff, MapPin, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { TronconPickerGeo } from "../components/TronconPickerGeo";
+import { useApercusPhotos } from "../hooks/useApercusPhotos";
 import { useOfflineSync } from "../hooks/useOfflineSync";
 import { usePositionGps } from "../hooks/usePositionGps";
 import { api } from "../lib/api";
@@ -18,9 +19,12 @@ import {
   updatePendingDefaut,
   type PendingDefaut,
 } from "../lib/offlineDb";
-import { refreshPendingCount, relancerDefaut, syncPendingOfflineData } from "../lib/offlineSync";
+import { MESSAGE_REVOCATION_RECENTE, refreshPendingCount, relancerDefaut, syncPendingOfflineData } from "../lib/offlineSync";
+import { creerUrlApercu, revoquerUrlApercu } from "../session/urlsApercu";
 import { toast } from "../lib/toast";
 import { useAuth } from "../lib/auth";
+import { AlerteStockageLocal, messageStockageLocal } from "../components/AlerteStockageLocal";
+import { PanneauRefusDroits } from "../components/session/PanneauRefusDroits";
 
 const MESURES: Record<MesureDefaut, { key: keyof NonNullable<PendingDefaut["payload"]["mesures"]>; label: string; unite: string }> = {
   NOMBRE: { key: "nombre", label: "Nombre", unite: "unités" },
@@ -66,6 +70,11 @@ const MESURES_VIDES: MesuresForm = {
   quantiteSaisie: "",
 };
 
+/** Libere les apercus de ces photos (un apercu deja revoque par le verrou vaut `""` : rien a liberer). */
+function libererApercus(photos: readonly PhotoForm[]): void {
+  for (const photo of photos) if (photo.previewUrl) revoquerUrlApercu(photo.previewUrl);
+}
+
 function uuid(): string {
   if (crypto.randomUUID) return crypto.randomUUID();
   return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
@@ -91,8 +100,12 @@ function mesureDansForm(item: PendingDefaut, key: keyof NonNullable<PendingDefau
 
 export function DefautTerrainPage() {
   const navigate = useNavigate();
-  const { online, syncing } = useOfflineSync();
+  const { online, syncing, refusDroitsCount = 0, enregistrementSuspendu = false } = useOfflineSync();
   const { user } = useAuth();
+  // Le panneau des saisies refusees pour droits se monte des qu'il y en a, et RESTE monte : le compte rendu d'un renvoi reussi ne doit
+  // pas disparaitre avec la derniere saisie de la quarantaine (meme regle que ObservationsTerrainPage).
+  const [panneauRefusDroits, setPanneauRefusDroits] = useState(false);
+  useEffect(() => { if (refusDroitsCount > 0) setPanneauRefusDroits(true); }, [refusDroitsCount]);
   const [catalogue, setCatalogue] = useState<TypeCatalogueDefaut[]>([]);
   const [troncons, setTroncons] = useState<{ id: string; code: string; nom: string }[]>([]);
   const [catalogueEnCache, setCatalogueEnCache] = useState(false);
@@ -110,9 +123,13 @@ export function DefautTerrainPage() {
   const [etendue, setEtendue] = useState<PendingDefaut["payload"]["etendue"] | "">("");
   const [mesures, setMesures] = useState<MesuresForm>(MESURES_VIDES);
   const [photos, setPhotos] = useState<PhotoForm[]>([]);
+  // Apercus des photos : revoques au verrou, recrees au deverrouillage, liberes au demontage (hooks/useApercusPhotos.ts).
+  useApercusPhotos(photos, setPhotos);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [erreurFormulaire, setErreurFormulaire] = useState("");
+  // File locale illisible ou action sur la file refusee (coffre verrouille, aucun compte...) : dite en bas de page, sans plantage.
+  const [erreurFile, setErreurFile] = useState<string | null>(null);
   const gpsContour = usePositionGps();
   const [contour, setContour] = useState<ContourEtat>(CONTOUR_VIDE);
   const [refusSommet, setRefusSommet] = useState("");
@@ -151,9 +168,16 @@ export function DefautTerrainPage() {
       });
   }, [contour.etat, contour.emprise, online]);
 
+  /** Relit la file locale. Ne leve jamais : un echec est dit (`erreurFile`) et la liste est videe, rien de periime n'est montre. */
   async function rafraichirQueue() {
-    const items = await getAllPendingDefauts();
-    setQueue(items.filter((item) => item.ownerUserId === user?.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+    try {
+      const items = await getAllPendingDefauts();
+      setQueue(items.filter((item) => item.ownerUserId === user?.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+      setErreurFile(null);
+    } catch (err) {
+      setQueue([]);
+      setErreurFile(messageStockageLocal(err) ?? "La file locale des défauts n'a pas pu être lue. Elle n'est pas perdue.");
+    }
   }
 
   useEffect(() => {
@@ -228,7 +252,7 @@ export function DefautTerrainPage() {
 
   function reinitialiserFormulaire() {
     retirerContour();
-    photos.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
+    libererApercus(photos);
     setPhotos([]);
     setCatalogueCode(catalogue[0]?.code ?? "");
     setDateConstat(dateMaintenantPourInput());
@@ -280,8 +304,8 @@ export function DefautTerrainPage() {
       profondeurM: mesureDansForm(item, "profondeurM"),
       quantiteSaisie: mesureDansForm(item, "quantiteSaisie"),
     });
-    photos.forEach((photo) => URL.revokeObjectURL(photo.previewUrl));
-    setPhotos((item.photos ?? []).map((photo) => ({ ...photo, previewUrl: URL.createObjectURL(photo.blob) })));
+    libererApercus(photos);
+    setPhotos((item.photos ?? []).map((photo) => ({ ...photo, previewUrl: creerUrlApercu(photo.blob) })));
     // Le contour du brouillon est repris tel quel : corriger une autre saisie ne doit pas le faire disparaitre en silence.
     gpsContour.arreter();
     setRefusSommet("");
@@ -302,18 +326,21 @@ export function DefautTerrainPage() {
     });
     if (selection.length > disponibles) toast.error("Cinq photos au maximum peuvent être jointes à un défaut.");
     const capturedA = new Date().toISOString();
-    setPhotos((current) => [...current, ...acceptes.map((file) => ({
+    // Les URL d'apercu sont creees ICI, pas dans la fonction de mise a jour : React peut l'appeler deux fois, la seconde URL fuirait.
+    const ajoutees: PhotoForm[] = acceptes.map((file) => ({
       name: file.name,
       blob: file,
       capturedA,
       ...(position ? { lat: position.lat, lon: position.lon, precisionM: position.precisionM } : {}),
-      previewUrl: URL.createObjectURL(file),
-    }))]);
+      previewUrl: creerUrlApercu(file),
+    }));
+    setPhotos((current) => [...current, ...ajoutees]);
   }
 
   function retirerPhoto(index: number) {
     setPhotos((current) => {
-      URL.revokeObjectURL(current[index].previewUrl);
+      // Revoquer deux fois est sans effet (idempotent) : la fonction peut etre rappelee sans fuite ni erreur.
+      if (current[index]?.previewUrl) revoquerUrlApercu(current[index].previewUrl);
       return current.filter((_, currentIndex) => currentIndex !== index);
     });
   }
@@ -325,18 +352,30 @@ export function DefautTerrainPage() {
    */
   async function reprendreEnvoi(item: PendingDefaut) {
     if (item.status === "abandonnee") {
-      await relancerDefaut(item);
+      try {
+        await relancerDefaut(item);
+      } catch (err) {
+        setErreurFile(messageStockageLocal(err, "enregistrer") ?? "Le défaut n'a pas pu être remis en file sur cet appareil.");
+        return;
+      }
       await rafraichirQueue();
     }
-    void syncPendingOfflineData();
+    // « Reprendre les photos » est un geste de l'agent : il reessaie l'enregistrement de l'appareil meme pendant un delai de revocation recente.
+    void syncPendingOfflineData({ manuel: true });
   }
 
   async function supprimerBrouillon(item: PendingDefaut) {
     if (!window.confirm("Retirer ce défaut non synchronisé de cet appareil ?")) return;
-    await removePendingDefaut(item.localId);
+    try {
+      await removePendingDefaut(item.localId);
+    } catch (err) {
+      // Rien n'est retire : le brouillon reste dans la liste.
+      setErreurFile(messageStockageLocal(err, "enregistrer") ?? "Le brouillon n'a pas pu être retiré de cet appareil.");
+      return;
+    }
     if (editingId === item.localId) reinitialiserFormulaire();
     await rafraichirQueue();
-    await refreshPendingCount();
+    try { await refreshPendingCount(); } catch { /* compteur d'information seulement */ }
   }
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -462,13 +501,19 @@ export function DefautTerrainPage() {
           status: "pending",
         });
       }
-      await refreshPendingCount();
+    } catch (err) {
+      // Rien n'est enregistre : aucun « enregistre », le formulaire reste rempli (photos et contour compris).
+      setErreurFormulaire(messageStockageLocal(err, "enregistrer") ?? (err instanceof Error ? err.message : "Impossible d'enregistrer le défaut sur cet appareil."));
+      setSubmitting(false);
+      return;
+    }
+    // Le defaut EST ecrit : le compteur et la liste ne sont que de l'information, leur echec ne le fait pas passer pour perdu.
+    try {
+      try { await refreshPendingCount(); } catch { /* compteur d'information seulement */ }
       await rafraichirQueue();
-      toast.success(online ? "Défaut enregistré — synchronisation en cours…" : "Défaut enregistré hors-ligne — il sera envoyé au retour du réseau.");
+      toast.success(online ? "Défaut enregistré — synchronisation en cours…" : "Défaut enregistré hors-ligne — son envoi sera tenté au retour du réseau.");
       reinitialiserFormulaire();
       if (online) void syncPendingOfflineData();
-    } catch (err) {
-      setErreurFormulaire(err instanceof Error ? err.message : "Impossible d'enregistrer le défaut sur cet appareil.");
     } finally {
       setSubmitting(false);
     }
@@ -488,7 +533,7 @@ export function DefautTerrainPage() {
             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-gold" />
             <div>
               <h1 className="text-base font-bold">Relevé de défaut routier</h1>
-              <p className="mt-1 text-xs text-white/70">Saisie mesurée, enregistrée sur cet appareil puis synchronisée automatiquement.</p>
+              <p className="mt-1 text-xs text-white/70">Saisie mesurée, enregistrée sur cet appareil, puis envoyée par la synchronisation. Un refus ou un échec reste dans la file locale, en bas de page.</p>
             </div>
           </div>
           {!online && <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-400/20 px-2 py-1 text-[11px] font-medium text-amber-100"><CloudOff className="h-3 w-3" /> Hors-ligne</span>}
@@ -718,7 +763,7 @@ export function DefautTerrainPage() {
               <input aria-label="Choisir des photos existantes du défaut" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => { ajouterPhotos(event.target.files); event.target.value = ""; }} className="sr-only" />
             </label>
           </div>
-          {photos.length > 0 && <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">{photos.map((photo, index) => <li key={`${photo.name}-${index}`} className="overflow-hidden rounded-lg border border-gray-200"><img src={photo.previewUrl} alt={`Aperçu de ${photo.name}`} className="h-28 w-full object-cover" /><div className="p-2"><p className="truncate text-xs font-medium">{photo.name}</p><p className="text-[11px] text-gray-500">{photo.lat !== undefined ? `GPS ${photo.lat.toFixed(5)}, ${photo.lon?.toFixed(5)}` : "Sans position GPS"}</p><Button type="button" variant="ghost" size="sm" onClick={() => retirerPhoto(index)}>Retirer</Button></div></li>)}</ul>}
+          {photos.length > 0 && <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3">{photos.map((photo, index) => <li key={`${photo.name}-${index}`} className="overflow-hidden rounded-lg border border-gray-200">{photo.previewUrl ? <img src={photo.previewUrl} alt={`Aperçu de ${photo.name}`} className="h-28 w-full object-cover" /> : <div className="flex h-28 w-full items-center justify-center bg-gray-100 px-2 text-center text-xs text-gray-500">Aperçu masqué</div>}<div className="p-2"><p className="truncate text-xs font-medium">{photo.name}</p><p className="text-[11px] text-gray-500">{photo.lat !== undefined ? `GPS ${photo.lat.toFixed(5)}, ${photo.lon?.toFixed(5)}` : "Sans position GPS"}</p><Button type="button" variant="ghost" size="sm" onClick={() => retirerPhoto(index)}>Retirer</Button></div></li>)}</ul>}
         </fieldset>
 
         {erreurFormulaire && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{erreurFormulaire}</p>}
@@ -732,16 +777,23 @@ export function DefautTerrainPage() {
         {editingId && <p className="text-xs text-gray-500">La clé d'idempotence est conservée pendant la correction pour éviter de créer un doublon si l'envoi précédent a déjà été reçu.</p>}
       </form>
 
+      {panneauRefusDroits && <PanneauRefusDroits compteId={user?.id} files={["defauts"]} />}
+
       <section className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold text-navy">File locale des défauts</h2>
             <p className="text-xs text-gray-500">Les erreurs restent sur cet appareil pour être corrigées ou renvoyées.</p>
           </div>
-          {queue.length > 0 && <Button type="button" variant="secondary" size="sm" disabled={!online || syncing} onClick={() => void syncPendingOfflineData()}><RefreshCw className="h-3.5 w-3.5" /> Synchroniser</Button>}
+          {/* Une saisie en quarantaine (droits modifies) n'est jamais rejouee par la synchronisation : le bouton ne ferait rien pour elle. */}
+          {queue.some((item) => item.status !== "refus_droits") && <Button type="button" variant="secondary" size="sm" disabled={!online || syncing} onClick={() => void syncPendingOfflineData({ manuel: true })}><RefreshCw className="h-3.5 w-3.5" /> Synchroniser</Button>}
         </div>
+        <AlerteStockageLocal message={erreurFile} className="mb-3" />
+        {/* Enregistrement de l'appareil suspendu (403 APPAREIL_REVOCATION_RECENTE) : ce n'est ni un appareil retire ni un echec des saisies. */}
+        {enregistrementSuspendu && <p role="status" className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{MESSAGE_REVOCATION_RECENTE} Vos défauts restent sur ce téléphone ; « Synchroniser » réessaie tout de suite.</p>}
         {queue.length === 0 ? (
-          <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-500">Aucun défaut en attente.</p>
+          // File illisible : « aucun defaut » serait faux, l'alerte ci-dessus dit pourquoi on ne voit rien.
+          erreurFile ? null : <p className="rounded-lg bg-gray-50 p-3 text-sm text-gray-500">Aucun défaut en attente.</p>
         ) : (
           <ul className="divide-y divide-gray-100">
             {queue.map((item) => {
@@ -754,7 +806,10 @@ export function DefautTerrainPage() {
                     <p className="text-xs text-gray-500">{new Date(item.payload.constateA).toLocaleString("fr-FR")}</p>
                     <p className={`mt-1 inline-flex items-center gap-1 text-xs font-medium ${error ? "text-red-700" : "text-amber-700"}`}>
                       {error ? <AlertTriangle className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}
-                      {item.status === "abandonnee" ? "À reprendre manuellement" : item.status === "error" ? "Échec — à corriger ou réessayer" : "En attente de synchronisation"}
+                      {item.status === "abandonnee" ? "À reprendre manuellement"
+                        : item.status === "error" ? "Échec — à corriger ou réessayer"
+                        : item.status === "refus_droits" ? "Refusée : droits modifiés — ne part pas toute seule, à renvoyer depuis « Saisies refusées »"
+                        : "En attente de synchronisation"}
                     </p>
                     {item.errorMessage && <p className="mt-1 break-words text-xs text-red-700">{item.errorMessage}</p>}
                   </div>

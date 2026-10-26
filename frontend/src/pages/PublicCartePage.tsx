@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, GeoJSON, Tooltip, useMap, useMapEvents } from "react-leaflet";
+// Feuille de style de Leaflet servie par l'application elle-meme (precachee par le service worker) : plus de CDN tiers, la carte garde sa mise en forme hors ligne.
+import "leaflet/dist/leaflet.css";
 import { canvas, divIcon, latLngBounds, type LatLngBounds, type Map as CarteLeaflet } from "leaflet";
 import { LogIn, AlertTriangle, LocateFixed, Loader2, Plus, Minus, MapPin, X, Link2, Check } from "lucide-react";
 import { ecrireVue, lireVue } from "../lib/permalien";

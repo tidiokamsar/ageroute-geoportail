@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { MapPin, Camera, X, CloudOff, CheckCircle2, ClipboardList } from "lucide-react";
 import { api } from "../lib/api";
@@ -6,12 +6,17 @@ import { Button } from "../components/ui/Button";
 import { toast } from "../lib/toast";
 import { addPendingInspection, getAllPending, type PendingInspection } from "../lib/offlineDb";
 import { refreshPendingCount, syncPendingOfflineData } from "../lib/offlineSync";
+import { useApercusPhotos } from "../hooks/useApercusPhotos";
 import { useOfflineSync } from "../hooks/useOfflineSync";
 import { useAuth } from "../lib/auth";
+import { ecrireStockageLocal, lireStockageLocal } from "../lib/compteCourant";
+import { AlerteStockageLocal, messageStockageLocal } from "../components/AlerteStockageLocal";
+import { creerUrlApercu, revoquerUrlApercu } from "../session/urlsApercu";
 
 // ── Cache local des référentiels (troncons/ouvrages) pour usage hors-ligne ────────
 
-const CACHE_KEY = "bdri_terrain_referentiels";
+// Meme nom que la copie du pack de mission (lib/defautsTerrain.ts), sous le prefixe du compte courant.
+const CACHE_KEY = "terrain.referentiels";
 
 interface Referentiels {
   troncons: { id: string; code: string; nom: string }[];
@@ -31,13 +36,13 @@ async function loadReferentiels(): Promise<Referentiels> {
         ouvrages: (oRes.data.data ?? []).map((o: { id: string; nom: string; type: string }) => ({ id: o.id, nom: o.nom, type: o.type })),
         cachedAt: new Date().toISOString(),
       };
-      localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+      ecrireStockageLocal(CACHE_KEY, JSON.stringify(data));
       return data;
     } catch {
       // repli sur le cache local si la requete echoue malgre navigator.onLine=true
     }
   }
-  const cached = localStorage.getItem(CACHE_KEY);
+  const cached = lireStockageLocal(CACHE_KEY);
   if (cached) return JSON.parse(cached) as Referentiels;
   return { troncons: [], ouvrages: [], cachedAt: "" };
 }
@@ -62,15 +67,35 @@ export function InspectionTerrainPage() {
   const [defautsConstates, setDefautsConstates] = useState("");
   const [recommandations, setRecommandations] = useState("");
   const [photos, setPhotos] = useState<{ name: string; blob: Blob; previewUrl: string }[]>([]);
+  // Apercus des photos : revoques au verrou, recrees au deverrouillage, liberes au demontage (hooks/useApercusPhotos.ts).
+  useApercusPhotos(photos, setPhotos);
   const [geoloc, setGeoloc] = useState<{ lat: number; lon: number; precisionM: number } | null>(null);
   const [geolocError, setGeolocError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [recentSubmissions, setRecentSubmissions] = useState<PendingInspection[]>([]);
+  // Ecriture refusee par le stockage local (plein, verrouille, trop de photos...) : la saisie n'est PAS enregistree.
+  const [erreurEnregistrement, setErreurEnregistrement] = useState<string | null>(null);
+  // Lecture des dernieres saisies impossible (coffre verrouille, aucun compte...) : dite, sans faire planter l'ecran.
+  const [erreurLecture, setErreurLecture] = useState<string | null>(null);
+
+  /** Relit les dernieres saisies du compte. Ne leve jamais : un echec est dit et la liste est videe (rien de periime n'est montre). */
+  const relireSaisiesRecentes = useCallback(async () => {
+    try {
+      const all = await getAllPending();
+      setRecentSubmissions(all.filter((item) => item.ownerUserId === user?.id).slice(-5).reverse());
+      setErreurLecture(null);
+    } catch (e) {
+      setRecentSubmissions([]);
+      setErreurLecture(messageStockageLocal(e) ?? "Les dernières saisies de ce téléphone n'ont pas pu être lues. Elles ne sont pas perdues.");
+    }
+  }, [user?.id]);
 
   useEffect(() => {
-    loadReferentiels().then(setReferentiels);
-    getAllPending().then((all) => setRecentSubmissions(all.filter((item) => item.ownerUserId === user?.id).slice(-5).reverse()));
-  }, [user?.id]);
+    let vivant = true;
+    loadReferentiels().then((r) => { if (vivant) setReferentiels(r); }).catch(() => undefined);
+    void relireSaisiesRecentes();
+    return () => { vivant = false; };
+  }, [relireSaisiesRecentes]);
 
   function captureGeoloc() {
     if (!navigator.geolocation) { setGeolocError("Géolocalisation non disponible sur cet appareil."); return; }
@@ -93,20 +118,22 @@ export function InspectionTerrainPage() {
 
   function handlePhotoCapture(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? []);
-    const added = files.map((f) => ({ name: f.name, blob: f, previewUrl: URL.createObjectURL(f) }));
+    // Les URL sont creees ICI, pas dans la fonction de mise a jour : React peut l'appeler deux fois, la seconde URL fuirait.
+    const added = files.map((f) => ({ name: f.name, blob: f, previewUrl: creerUrlApercu(f) }));
     setPhotos((prev) => [...prev, ...added]);
     e.target.value = "";
   }
 
   function removePhoto(idx: number) {
     setPhotos((prev) => {
-      URL.revokeObjectURL(prev[idx].previewUrl);
+      // Un apercu deja revoque par le verrou vaut `""` ; revoquer deux fois est sans effet (la fonction peut etre rappelee).
+      if (prev[idx]?.previewUrl) revoquerUrlApercu(prev[idx].previewUrl);
       return prev.filter((_, i) => i !== idx);
     });
   }
 
   function resetForm() {
-    photos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
+    photos.forEach((p) => { if (p.previewUrl) revoquerUrlApercu(p.previewUrl); });
     setTronconId(""); setOuvrageId(""); setDefautsConstates(""); setRecommandations("");
     setPhotos([]); setGeoloc(null); setEtatObserve("BON");
     setDateInspection(new Date().toISOString().slice(0, 10));
@@ -117,6 +144,7 @@ export function InspectionTerrainPage() {
   async function handleSubmit() {
     if (!objetValid) { toast.error("Sélectionnez un tronçon ou un ouvrage."); return; }
     setSubmitting(true);
+    setErreurEnregistrement(null);
     try {
       const pending: PendingInspection = {
         localId: uuid(),
@@ -137,11 +165,21 @@ export function InspectionTerrainPage() {
         status: "pending",
       };
       await addPendingInspection(pending);
+    } catch (e) {
+      // Rien n'est enregistre : aucun « enregistree », le formulaire reste rempli pour que l'agent puisse reessayer.
+      setErreurEnregistrement(messageStockageLocal(e, "enregistrer") ?? "L'inspection n'a pas pu être enregistrée sur cet appareil. Votre saisie reste à l'écran : réessayez, ou notez-la autrement.");
+      setSubmitting(false);
+      return;
+    }
+    // La saisie EST ecrite : ce qui suit (badge, liste, envoi) ne doit jamais la faire passer pour un echec.
+    try {
       await refreshPendingCount();
+    } catch { /* compteur d'information seulement */ }
+    try {
       toast.success(online ? "Inspection enregistrée — synchronisation en cours…" : "Inspection enregistrée hors-ligne — sera synchronisée au retour du réseau.");
       resetForm();
-      getAllPending().then((all) => setRecentSubmissions(all.filter((item) => item.ownerUserId === user?.id).slice(-5).reverse()));
-      if (online) syncPendingOfflineData();
+      void relireSaisiesRecentes();
+      if (online) void syncPendingOfflineData();
     } finally {
       setSubmitting(false);
     }
@@ -196,10 +234,11 @@ export function InspectionTerrainPage() {
 
       {/* Sélection objet */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1.5">
+        <label htmlFor="inspection-terrain-objet" className="block text-sm font-medium text-gray-700 mb-1.5">
           {objetType === "troncon" ? "Tronçon inspecté" : "Ouvrage inspecté"}
         </label>
         <select
+          id="inspection-terrain-objet"
           value={objetType === "troncon" ? tronconId : ouvrageId}
           onChange={(e) => objetType === "troncon" ? setTronconId(e.target.value) : setOuvrageId(e.target.value)}
           className="w-full rounded-lg border border-gray-300 px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-navy/30"
@@ -288,7 +327,9 @@ export function InspectionTerrainPage() {
           <div className="grid grid-cols-3 gap-2 mt-2">
             {photos.map((p, i) => (
               <div key={i} className="relative aspect-square rounded-lg overflow-hidden border border-gray-200">
-                <img src={p.previewUrl} alt="" className="w-full h-full object-cover" />
+                {p.previewUrl
+                  ? <img src={p.previewUrl} alt="" className="w-full h-full object-cover" />
+                  : <div className="flex h-full w-full items-center justify-center bg-gray-100 px-1 text-center text-[11px] text-gray-500">Aperçu masqué</div>}
                 <button
                   onClick={() => removePhoto(i)}
                   className="absolute top-1 right-1 h-6 w-6 flex items-center justify-center rounded-full bg-black/60 text-white"
@@ -302,11 +343,13 @@ export function InspectionTerrainPage() {
       </div>
 
       {/* Soumission */}
+      <AlerteStockageLocal message={erreurEnregistrement} />
       <Button onClick={handleSubmit} disabled={submitting || !objetValid} className="w-full py-3.5 text-base">
         {submitting ? "Enregistrement…" : "Enregistrer l'inspection"}
       </Button>
 
       {/* Dernières saisies locales */}
+      <AlerteStockageLocal message={erreurLecture} />
       {recentSubmissions.length > 0 && (
         <div className="rounded-xl border border-gray-200 p-3">
           <p className="text-xs font-medium text-gray-500 mb-2">Dernières saisies (en attente ou récemment synchronisées)</p>

@@ -3,6 +3,8 @@ import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { chargerChemin, cleChemin } from "../lib/cheminVilles";
 import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, GeoJSON, Tooltip, ZoomControl, useMap, useMapEvents } from "react-leaflet";
+// Feuille de style de Leaflet servie par l'application elle-meme (precachee par le service worker) : plus de CDN tiers, la carte garde sa mise en forme hors ligne.
+import "leaflet/dist/leaflet.css";
 import type { Layer } from "leaflet";
 import type { Feature, Geometry } from "geojson";
 import MarkerClusterGroup from "react-leaflet-cluster";

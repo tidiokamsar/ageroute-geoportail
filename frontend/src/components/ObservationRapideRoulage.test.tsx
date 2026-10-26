@@ -13,7 +13,7 @@ import { violationsAccessibilite } from "../test/accessibilite";
  */
 const h = vi.hoisted(() => ({
   appels: [] as { saisie: Record<string, unknown>; userId: string }[],
-  resultat: "ok" as "ok" | "refus" | "stockage",
+  resultat: "ok" as "ok" | "refus" | "stockage" | "plein" | "photos" | "verrou" | "aucun_compte",
 }));
 vi.mock("../lib/observationsTerrain", async (importOriginal) => {
   const reel = await importOriginal<typeof import("../lib/observationsTerrain")>();
@@ -22,6 +22,10 @@ vi.mock("../lib/observationsTerrain", async (importOriginal) => {
     enregistrerObservation: vi.fn(async (saisie: Record<string, unknown>, userId: string) => {
       h.appels.push({ saisie, userId });
       if (h.resultat === "stockage") throw new Error("QuotaExceededError");
+      if (h.resultat === "plein") throw new ErreurStockageLocal("STOCKAGE_PLEIN");
+      if (h.resultat === "photos") throw new ErreurStockageLocal("TROP_DE_PHOTOS");
+      if (h.resultat === "verrou") throw new ErreurStockageLocal("COFFRE_VERROUILLE");
+      if (h.resultat === "aucun_compte") throw new ErreurStockageLocal("AUCUN_COMPTE");
       if (h.resultat === "refus") return { ok: false as const, erreurs: ["Choisissez le type d'observation."] };
       return { ok: true as const, observation: {} };
     }),
@@ -31,6 +35,7 @@ vi.mock("../lib/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 import { ObservationRapideRoulage } from "./ObservationRapideRoulage";
 import { toast } from "../lib/toast";
+import { ErreurStockageLocal } from "../lib/compteCourant";
 
 const POSITION = { lat: 9.64, lon: -13.6, precisionM: 7, ageMs: 800 };
 const MISSION = "11111111-1111-4111-8111-111111111111";
@@ -91,6 +96,49 @@ describe("observation rapide", () => {
     expect(vi.mocked(toast.error).mock.calls[0][0]).toMatch(/stockage refusé/);
     expect(vi.mocked(toast.success)).not.toHaveBeenCalled();
     expect(screen.queryByText(/observation\(s\) rapide\(s\)/)).not.toBeInTheDocument();
+  });
+
+  it("stockage plein : alerte FIXE avec le message du stockage (un toast s'efface), type conservé pour réessayer", async () => {
+    h.resultat = "plein";
+    rendre();
+    fireEvent.click(screen.getByRole("button", { name: "Incident" }));
+    fireEvent.click(screen.getByRole("button", { name: "Moyenne" }));
+    const alerte = await screen.findByRole("alert");
+    expect(alerte).toHaveTextContent(/Stockage de l'appareil plein/);
+    expect(alerte).toHaveTextContent(/PAS enregistrée/);
+    expect(vi.mocked(toast.success)).not.toHaveBeenCalled();
+    expect(screen.queryByText(/observation\(s\) rapide\(s\)/)).not.toBeInTheDocument();
+    // L'agent peut reessayer sans tout ressaisir : on est toujours a l'etape de la gravite.
+    expect(screen.getByText(/Gravité de « Incident »/)).toBeInTheDocument();
+  });
+
+  it("trop de photos : le message du stockage est affiché tel quel", async () => {
+    h.resultat = "photos";
+    rendre();
+    fireEvent.click(screen.getByRole("button", { name: "Incident" }));
+    fireEvent.click(screen.getByRole("button", { name: "Moyenne" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Cinq photos au maximum par saisie/);
+  });
+
+  it("coffre verrouillé : « Déverrouillez avec votre PIN pour enregistrer », et l'alerte disparaît au nouvel essai réussi", async () => {
+    h.resultat = "verrou";
+    rendre();
+    fireEvent.click(screen.getByRole("button", { name: "Incident" }));
+    fireEvent.click(screen.getByRole("button", { name: "Moyenne" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Déverrouillez avec votre PIN pour enregistrer.");
+
+    h.resultat = "ok";
+    fireEvent.click(screen.getByRole("button", { name: "Moyenne" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(vi.mocked(toast.success)).toHaveBeenCalled();
+  });
+
+  it("aucun compte ouvert : le message du stockage est affiché", async () => {
+    h.resultat = "aucun_compte";
+    rendre();
+    fireEvent.click(screen.getByRole("button", { name: "Incident" }));
+    fireEvent.click(screen.getByRole("button", { name: "Moyenne" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Aucun compte n'est ouvert sur cet appareil/);
   });
 
   it("un refus de validation est rendu avec son motif", async () => {

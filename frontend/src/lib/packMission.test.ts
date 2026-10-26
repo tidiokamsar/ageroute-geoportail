@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fermerCompte, ouvrirCompte, type Chiffreur } from "./compteCourant";
 
 /**
  * Pack de mission (phase 2 SMART FIELD) : le téléchargement descend TOUT le référentiel
@@ -25,10 +26,17 @@ function lot(debut: number, n: number) {
   return Array.from({ length: n }, (_, i) => ({ id: `t${debut + i}`, code: `GN N${String(debut + i).padStart(4, "0")}`, nom: `Tronçon ${debut + i}` }));
 }
 
+// ADAPTATION AU STOCKAGE PAR COMPTE : la copie du pack est une cle localStorage posee sous le prefixe du compte courant
+// (compteCourant.ts), en clair mais cloisonnee. Le chiffreur est factice : ces copies ne sont pas chiffrees.
+const chiffreurFactice = { estDeverrouille: () => true } as unknown as Chiffreur;
+
 beforeEach(() => {
   localStorage.clear();
+  fermerCompte();
+  ouvrirCompte({ compteId: "agent-A", empreinte: "aaaaaaaaaaaaaaaa", chiffreur: chiffreurFactice });
   h.pages = [lot(1, 200), lot(201, 120)];
 });
+afterEach(() => fermerCompte());
 
 describe("pack de mission", () => {
   it("descend toutes les pages du référentiel et dater la copie", async () => {
@@ -44,6 +52,24 @@ describe("pack de mission", () => {
   it("etatPackMission ne touche pas au réseau : il lit le cache", async () => {
     expect(etatPackMission().troncons).toBe(0);
     expect(etatPackMission().tronconsLe).toBeNull();
+  });
+});
+
+describe("pack cloisonne par compte", () => {
+  it("la copie d'un agent n'est pas lue par un autre agent du meme telephone, et sans compte ouvert la copie n'est ni lue ni ecrite", async () => {
+    await chargerReferentielsDefautsTerrain();
+    expect(etatPackMission().troncons).toBe(320);
+    expect(Object.keys(localStorage).every((k) => k.startsWith("bdri:aaaaaaaaaaaaaaaa:"))).toBe(true);
+
+    ouvrirCompte({ compteId: "agent-B", empreinte: "bbbbbbbbbbbbbbbb", chiffreur: chiffreurFactice });
+    expect(etatPackMission().troncons).toBe(0);
+    fermerCompte();
+    expect(etatPackMission().troncons).toBe(0);
+    const avant = localStorage.length;
+    const r = await chargerReferentielsDefautsTerrain();
+    expect(localStorage.length).toBe(avant);       // rien d'ecrit sans compte
+    expect(r.tronconsEnCache).toBe(false);
+    expect(r.tronconsIncomplets).toBe(true);        // le pack n'est PAS sur l'appareil : dit, jamais passe sous silence
   });
 });
 

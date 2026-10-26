@@ -4,6 +4,10 @@ import { useEffect } from "react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { useAuth } from "../../lib/auth";
+import { routeDisponibleHorsLigne, useSessionLocaleOptionnelle } from "../../session/useSessionLocale";
+import { BandeauSession } from "../session/BandeauSession";
+import { BandeauSynchronisation } from "../session/BandeauSynchronisation";
+import { IndisponibleHorsLigne } from "../session/IndisponibleHorsLigne";
 import { configurerUtilisateurSync, refreshPendingCount, syncPendingOfflineData } from "../../lib/offlineSync";
 
 export function AppLayout() {
@@ -13,6 +17,9 @@ export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const location = useLocation();
   const { user } = useAuth();
+  // Hors ligne, seules les routes qui utilisent la file locale fonctionnent : les autres disent qu il faut le reseau.
+  const horsLigne = useSessionLocaleOptionnelle()?.session.horsLigne === true;
+  const indisponible = horsLigne && !routeDisponibleHorsLigne(location.pathname);
 
   // Ferme le tiroir mobile a chaque changement de page (l'utilisateur a navigue).
   useEffect(() => setSidebarOpen(false), [location.pathname]);
@@ -28,8 +35,10 @@ export function AppLayout() {
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <div className="flex-1 flex flex-col min-w-0">
         <Header title={title} onMenuClick={() => setSidebarOpen(true)} />
+        <BandeauSession />
+        <BandeauSynchronisation />
         <main className="flex-1 overflow-y-auto bg-gray-50 p-4 md:p-6">
-          <Outlet />
+          {indisponible ? <IndisponibleHorsLigne /> : <Outlet />}
         </main>
       </div>
     </div>

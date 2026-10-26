@@ -188,7 +188,9 @@ export async function enregistrerObservation(
   const construit = construireObservation(saisie, { userId });
   if (!construit.ok) return construit;
   await addPendingObservation(construit.observation);
-  await refreshPendingCount();
+  // La saisie est ECRITE a ce stade. Le rafraichissement du badge peut lever une erreur typee (coffre verrouille entre
+  // temps) : elle ne doit pas faire croire que la saisie est perdue.
+  try { await refreshPendingCount(); } catch { /* le badge se mettra a jour a la prochaine lecture */ }
   if (navigator.onLine) void syncPendingOfflineData();
   return construit;
 }
@@ -203,9 +205,18 @@ export function libelleStatutObservation(o: Pick<PendingObservation, "status" | 
         libelle: o.refusDefinitif ? "Refusée" : "Abandonnée",
         action: "Plus retentée automatiquement. Lisez le motif ; vous pouvez la relancer après correction.",
       };
+    case "refus_droits":
+      // Quarantaine d'un refus de DROITS (offlineSync.ts, SESSION-HORS-LIGNE-SERVEUR.md 2.3). Ni « en attente d'envoi » (elle ne part
+      // pas toute seule : la synchronisation l'ignore), ni « abandonnee » (aucun bouton « Relancer » : un renvoi se fait par le panneau
+      // des saisies refusees, qui dit la cause). La cause precise est dans `errorMessage` de la saisie.
+      return {
+        libelle: "Refusée : droits modifiés",
+        action: "Elle ne part pas toute seule et reste conservée sur ce téléphone. Contactez votre responsable ; une fois vos droits rendus, renvoyez-la depuis « Saisies refusées : droits modifiés ».",
+      };
     case "error":
-      return { libelle: "Erreur, nouvel essai prévu", action: "Elle sera renvoyée au prochain retour du réseau." };
+      return { libelle: "Erreur, nouvel essai prévu", action: "Un nouvel envoi sera tenté au prochain retour du réseau." };
     default:
-      return { libelle: "En attente d'envoi", action: "Elle partira dès que le réseau le permet." };
+      // « tenté » et non « partira » : la synchronisation peut etre arretee (appareil retire, compte inactif) ou le serveur refuser.
+      return { libelle: "En attente d'envoi", action: "Son envoi sera tenté dès que le réseau le permet." };
   }
 }

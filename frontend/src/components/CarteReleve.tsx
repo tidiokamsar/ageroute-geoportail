@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 import { MapContainer, TileLayer, Polyline, GeoJSON, Tooltip, useMap } from "react-leaflet";
+// Feuille de style de Leaflet servie par l'application elle-meme (precachee par le service worker) : plus de CDN tiers, la carte garde sa mise en forme hors ligne.
+import "leaflet/dist/leaflet.css";
 import { latLngBounds } from "leaflet";
 import { decouperEnFragments, type AnalyseTrace } from "../lib/releve";
 

@@ -41,7 +41,7 @@ export const VILLES: Ville[] = [
   { nom: "Koubia", lat: 11.47, lon: -11.56, region: "Labé" },
   { nom: "Mali", lat: 12.13, lon: -11.97, region: "Labé" },
   { nom: "Faranah", lat: 10.03, lon: -10.74, region: "Faranah" },
-  { nom: "Dabola", lat: 10.00, lon: -11.11, region: "Faranah" },
+  { nom: "Dabola", lat: 10.75, lon: -11.12, region: "Faranah" },
   { nom: "Dinguiraye", lat: 10.72, lon: -10.72, region: "Faranah" },
   { nom: "Kankan", lat: 10.38, lon: -9.31, region: "Kankan" },
   { nom: "Kouroussa", lat: 10.66, lon: -9.89, region: "Kankan" },

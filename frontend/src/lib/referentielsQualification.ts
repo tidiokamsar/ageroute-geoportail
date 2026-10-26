@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { ecrireStockageLocal, lireStockageLocal } from "./compteCourant";
 import { lireReferentiels, missionsRattachables, type MissionListee, type ReferentielsQualification } from "./qualificationSegment";
 
 /**
@@ -19,11 +20,12 @@ export interface VocabulairesChargement {
   copieDuLe: string | null;
 }
 
-const CLE = "bdri.roulage.referentiels";
+/** Nom de la copie, sous le prefixe du compte courant (compteCourant.ts) : en clair, cloisonnee par compte. */
+const CLE = "roulage.referentiels";
 
 function lireCopie(): { refs: ReferentielsQualification; chargeLe: string } | null {
   try {
-    const brut = localStorage.getItem(CLE);
+    const brut = lireStockageLocal(CLE);
     if (!brut) return null;
     const o = JSON.parse(brut) as { refs?: unknown; chargeLe?: unknown };
     const refs = lireReferentiels(o.refs);
@@ -41,7 +43,7 @@ export async function chargerVocabulairesQualification(): Promise<VocabulairesCh
     const { data } = await api.get("/v2/referentiels");
     const refs = lireReferentiels(data);
     if (!refs) return repli;
-    try { localStorage.setItem(CLE, JSON.stringify({ refs, chargeLe: new Date().toISOString() })); } catch { /* copie impossible : l'ecran reste utilisable en ligne */ }
+    ecrireStockageLocal(CLE, JSON.stringify({ refs, chargeLe: new Date().toISOString() })); // copie impossible (quota, aucun compte) : l'ecran reste utilisable en ligne
     return { refs, enCache: false, copieDuLe: null };
   } catch {
     return repli;

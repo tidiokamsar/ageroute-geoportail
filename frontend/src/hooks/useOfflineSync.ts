@@ -1,8 +1,11 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
+import { abonnerCompte, etatCompte } from "../lib/compteCourant";
 import { getSyncState, subscribeSync, syncPendingOfflineData } from "../lib/offlineSync";
 
 export function useOfflineSync() {
   const state = useSyncExternalStore(subscribeSync, getSyncState, getSyncState);
+  // La file est illisible tant que la session locale est verrouillee (ou qu aucun compte n est ouvert) : le badge le sait.
+  const fileVerrouillee = useSyncExternalStore(abonnerCompte, () => etatCompte() !== "OUVERT", () => true);
   const [online, setOnline] = useState(navigator.onLine);
 
   useEffect(() => {
@@ -16,5 +19,5 @@ export function useOfflineSync() {
     };
   }, []);
 
-  return { ...state, online, syncNow: syncPendingOfflineData };
+  return { ...state, online, fileVerrouillee, syncNow: syncPendingOfflineData };
 }

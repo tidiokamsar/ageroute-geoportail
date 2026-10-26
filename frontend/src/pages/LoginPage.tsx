@@ -5,10 +5,12 @@ import { Input } from "../components/ui/Input";
 import { Button } from "../components/ui/Button";
 import { isAxiosError } from "axios";
 import { ShieldCheck } from "lucide-react";
+import { useSessionLocaleOptionnelle } from "../session/useSessionLocale";
 
 export function LoginPage() {
   const { login, verifyTwoFa } = useAuth();
   const navigate = useNavigate();
+  const sessionLocale = useSessionLocaleOptionnelle();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -107,10 +109,24 @@ export function LoginPage() {
             required
           />
         </div>
-        {error && <p className="text-red-600 text-xs text-center mt-3">{error}</p>}
+        {sessionLocale?.session.messageFermeture && (
+          <p role="status" className="text-amber-800 text-xs text-center mt-3">{sessionLocale.session.messageFermeture}</p>
+        )}
+        {error && <p role="alert" className="text-red-600 text-xs text-center mt-3">{error}</p>}
         <Button type="submit" disabled={submitting} className="w-full mt-5">
           {submitting ? "Connexion..." : "Se connecter"}
         </Button>
+        {/* Hors ligne, une session locale existe : le mot de passe ne sert a rien sans reseau, le code PIN, si. */}
+        {sessionLocale && !sessionLocale.session.utilisateur && sessionLocale.session.candidats.length > 0 && (
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full mt-3"
+            onClick={() => { sessionLocale.controleur.retourAuDeverrouillage(); navigate("/", { replace: true }); }}
+          >
+            Déverrouiller avec mon code PIN
+          </Button>
+        )}
       </form>
     </div>
   );

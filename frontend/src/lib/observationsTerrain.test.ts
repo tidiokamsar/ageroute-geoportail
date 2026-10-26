@@ -126,6 +126,29 @@ describe("libelleStatutObservation", () => {
     expect(libelleStatutObservation({ status: "error" }).action).toMatch(/retour du réseau/);
     expect(libelleStatutObservation({ status: "pending" }).libelle).toMatch(/attente/);
   });
+
+  it("une saisie en quarantaine pour droits n'est NI « en attente d'envoi » NI « abandonnee » : libelle et action propres", () => {
+    const q = libelleStatutObservation({ status: "refus_droits" });
+    expect(q.libelle).toBe("Refusée : droits modifiés");
+    expect(q.libelle).not.toMatch(/attente/);
+    // L'action qui revient a l'agent : contacter le responsable, puis renvoyer depuis le panneau. Pas un « elle partira » qui serait faux.
+    expect(q.action).toMatch(/responsable/);
+    expect(q.action).toMatch(/Saisies refusées : droits modifiés/);
+    expect(q.action).toMatch(/ne part pas toute seule/);
+    expect(q.action).not.toMatch(/partira/);
+  });
+
+  it("chaque statut a un libelle et une action non vides, tous distincts les uns des autres (rien ne tombe dans le cas par defaut)", () => {
+    const statuts = ["pending", "error", "abandonnee", "conflit", "refus_droits"] as const;
+    const libelles = statuts.map((status) => libelleStatutObservation({ status }));
+    for (const l of libelles) { expect(l.libelle.length).toBeGreaterThan(0); expect(l.action.length).toBeGreaterThan(0); }
+    expect(new Set(libelles.map((l) => l.libelle)).size).toBe(statuts.length);
+    expect(libelles[0]).toEqual({ libelle: "En attente d'envoi", action: "Son envoi sera tenté dès que le réseau le permet." });
+    expect(libelles[1].action).toMatch(/retour du réseau/);
+    // Seuls pending et error promettent un envoi ; les trois autres statuts ne partent pas seuls.
+    expect(libelles[2].action).toMatch(/Plus retentée automatiquement/);
+    expect(libelles[3].action).toMatch(/Rien à refaire/);
+  });
 });
 
 /**
