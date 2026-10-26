@@ -8,7 +8,7 @@ Ce qu'il prouve est donc ce que l'utilisateur verrait : un ecran, un serveur et 
 
 ```bash
 cd frontend
-npx playwright test --config ../e2e-eo/playwright.config.ts          # tout (comptez 8 a 10 minutes)
+npx playwright test --config ../e2e-eo/playwright.config.ts          # tout (mesure : 17 a 19 minutes sur un poste charge a 100 % de CPU par d'autres travaux, 7 minutes quand il est calme)
 npx playwright test --config ../e2e-eo/playwright.config.ts specs/03  # une spec (les suivantes dependent de l'etat des precedentes)
 E2E_LOGS=1 ...                                                        # journaux de l'API et de Vite (silence par defaut)
 E2E_CONSERVER=1 ...                                                   # garde la base et les identifiants apres le lancement
@@ -74,6 +74,43 @@ Toutes les valeurs de l'ecran sont comparees a l'API (jeton du meme compte) ET a
 - Le texte « Active » apparait dans la legende repliee « Echelle d'etat des sources » comme NOM d'etape : un test d'etat vise les cellules du tableau, pas la section.
 - Reseau du navigateur (`lib/fixtures.ts`) : les routes Playwright s'executent dans l'ordre INVERSE de leur declaration ; la feuille Leaflet (copie locale de la
   1.9.4) doit etre declaree APRES le filet generique d'unpkg, sinon elle est masquee et la carte n'est plus mise en page. La spec 07 garde ce point par une assertion.
+
+## Defauts reels reveles (constats)
+
+Un defaut non corrige est porte par un test `test.fail` qui previent quand il est corrige (Playwright dit alors « le test devait echouer » : retirer la ligne). Aucun n'est contourne dans les assertions.
+
+| Ref | Gravite | Constat | Reproduction et lieu probable | Correctif propose |
+|---|---|---|---|---|
+| E2E-EO-1 | Haute | La carte declare « illisibles » les propositions dont la geometrie deposee est une LIGNE (nouvelle route, coupure) : 18 sur 42 dans le semis (`{Point:6, LineString:18, Polygon:18}` servis, 24 marqueurs). Elles restent dans la liste, pas sur la carte. | Deposer une proposition en `LineString` (accepte par `backend/src/teledetection/api.noyau.ts` l.329), ouvrir `/teledetection` : « 18 propositions illisibles ignorees ». `api.lecture.ts` l.128 rend `ST_AsGeoJSON(pt.geom)` tel quel ; `frontend/src/lib/teledetectionCarte.ts` `lireProposition` (~l.289-315) ne lit que Point et Polygon. | Servir le `centre` (Point garanti, deja calcule) comme geometrie du GeoJSON et garder le contour en propriete, ou dessiner les Multi*/LineString. |
+| E2E-EO-2 | Faible | La recherche annonce « Rechercher une zone, un troncon » et la liste affiche la region comme « zone », mais chercher le nom de la region ne trouve rien. | `api.lecture.ts` l.84-88 : `q` ne porte que sur code et nom du troncon, methode, debut d'identifiant. | Ajouter `r."nom" ILIKE` ou changer le texte indicatif. |
+| E2E-EO-3 | Moyenne (hors module) | Un compte dont la liste de modules est VIDE : le serveur dit « aucun module » (403 `MODULE_NON_AUTORISE`), le frontend dit « tout autorise » : entree de menu visible, ecran ouvert, panneaux en « acces refuse ». | `frontend/src/lib/modules.ts` `hasModuleAccess` l.35 (`length === 0` renvoie vrai) contre `backend/src/lib/access.ts` (correction du 05/09/2026). | Aligner le frontend : liste vide = aucun module (hors ADMIN). |
+| E2E-EO-4 | Moyenne, CORRIGE dans le worktree | Apres un verdict, le message « Decision enregistree » disparaissait : la fiche bascule (detail relu) avant que le composant ne rende le succes ; seul un toast fugitif restait. | `frontend/src/components/observation-terre/ActionsProposition.tsx` (correction et test `PanneauDetail.test.tsx` presents). | Verifier qu'elle est dans le commit. |
+| E2E-EO-5 | Faible | L'ecriture du lien `propositions_teledetection.missionId` (affectation a une inspection) n'a pas de ligne d'audit sous l'identifiant de la proposition ; elle est tracee par la ligne `Mission/CREATE`, dont `after.propositionTeledetectionId` cite la proposition. | `teledetection.service.ts` ~l.535-540. | Une ligne `PropositionTeledetection/UPDATE` (`missionId`) dans la meme transaction, ou documenter que la trace est celle de la mission. |
+| E2E-EO-6 | Moyenne | Sous forte charge, une decision echoue : « Transaction already closed ... timeout 5000 ms, 5253 ms passed » (500 `ERREUR_INTERNE`). Constate pendant un lancement ou la machine etait a 100 % de CPU (semis 716 s au lieu de 25 a 50 s). | `backend/src/teledetection/teledetection.service.ts` l.49 : `$transaction` sans delai explicite (5 s par defaut de Prisma) pour `changerStatut`, qui verrouille, ecrit le journal, les preuves, l'audit et relit. | Passer un delai (`{ timeout: 15000 }`) comme `OPTIONS_LOT`, et reduire les allers-retours de la transaction. |
+| E2E-EO-D | Moyenne (hors module) | Deux connexions du MEME compte dans la meme seconde : la seconde rend 409 « Une entree avec cette valeur unique existe deja » ; un rechargement de page dans la seconde suivant la connexion renvoie sur /login (le rafraichissement regenere le meme jeton). | `backend/src/modules/auth/auth.service.ts` l.79 `signRefreshToken` : JWT sans identifiant (`jti`), contrainte d'unicite de `refresh_tokens.tokenHash`. Test : `00-pile.spec.ts` (`test.fail`). | Ajouter un `jti` aleatoire au jeton. |
+
+Constats d'interface sans test bloquant : la carte « Derniere acquisition » affiche le code de la source (`SENTINEL2 · 10 m`) alors que le tableau des sources dit « Sentinel-2 » (`derniereAcquisition.source` = `coalesce(sourceCode, source)`, `teledetection.service.ts` ~l.602) ; a 768 px l'en-tete de l'application (hors ecran) coupe le badge de role et le bouton « Deconnexion » ; la feuille de style Leaflet est chargee depuis unpkg par `frontend/index.html` (sans reseau public, la carte n'est pas mise en page : le harnais la sert depuis la copie locale de la meme version).
+
+## Resultats mesures (26/10/2026, worktree `feat/observation-terre`)
+
+Deux executions COMPLETES consecutives, sur la meme pile, chacune depuis une base fraiche : **48 tests, 48 reussis** (dont 4 tests `test.fail` qui echouent comme prevu : E2E-EO-D, E2E-EO-1, E2E-EO-2, E2E-EO-3 ; le bilan Playwright les compte parmi les reussis).
+
+| Execution | Duree totale | Semis (base, comptes, catalogue reel, depots) | Prechauffage Vite | Bilan |
+|---|---|---|---|---|
+| 1 | 1 091 s (18 min 11 s) | 302 s | 32 s | 48 reussis |
+| 2 | 1 135 s (18 min 55 s) | 70 s | 15 s | 48 reussis |
+
+Les durees sont celles d'un poste dont le processeur etait a 100 % (d'autres travaux : tests unitaires, compilateur) : le semis est passe de 25 s a 716 s selon la charge. Valeurs relevees dans les executions : semis 42 propositions (region A : 22, region B : 14, non rattachees : 6) sur 9 produits reels du catalogue Copernicus ; apercu reel : 404 `APERCU_INDISPONIBLE` en 16 s (produit apres) et 19 s (produit avant) ; verification reelle de Sentinel-2 : HTTP 200 en 1,8 s, etat `PRODUIT_DISPONIBLE`, message du catalogue enregistre ; panne reelle de l'API : 500 du proxy, message « Erreur du serveur », rien a zero ; ecritures auditees du parcours 3 : `Mission/CREATE=1`, `PropositionTeledetection/UPDATE=5, VALIDATE=1, REJECT=1`. Cibles tactiles sous 44 px : 0 a 768 et 375 px ; a 1440 px 16 (hors exigence, liste dans la sortie).
+
+Executions intermediaires ecartees (disent ce que la charge fait a un banc) : une avec la feuille Leaflet masquee (corrigee), deux ou une decision a echoue par le delai de transaction de 5 s du serveur (E2E-EO-6, 08 en cascade), une ou la connexion par l'interface a depasse 30 s (delai porte a 120 s).
+
+Nettoyage verifie apres chaque execution : ports 3401 et 5410 libres, base `essai_eo_e2e` supprimee, `run.json` supprime, aucun processus du harnais restant (`lib/ports.ts` arrete au besoin les serveurs orphelins). Aucun mot de passe, jeton ni adresse de serveur n'est ecrit dans le depot.
+
+## Ce qui est couvert, ce qui ne l'est pas
+
+Couvert : connexion UI et cookie, indicateurs vs API vs base, carte (marqueurs, vue d'ouverture, troncature), liste et pagination, filtres, detail, onglets, apercu reel, decisions (toutes, journal, audit, mission, double clic), sources (etats reels, verification reelle), droits (national, regional, inspecteur, lecteur, sans module, modules vides), etats d'erreur (coupure, 500, donnees perimees, 403, panne reelle), integrite du referentiel (empreinte SHA-256 avant/apres), 1440/768/375 px.
+
+Non couvert : ajout de preuves de terrain par l'inspecteur sur une mission affectee (observations de test absentes : seul le refus `MISSION_NON_AFFECTEE` est prouve), liaison d'observations a un verdict (le verdict passe par une reference de constat), synchronisation du catalogue par l'ecran (aucun bouton : seulement par l'API, au semis), filtre par troncon (selecteur partage), plein ecran de la carte, clavier et lecteur d'ecran (couverts par les tests unitaires du frontend), Firefox et WebKit, navigateur tactile reel, comptes a perimetre de plusieurs regions.
 
 ## Limites
 
