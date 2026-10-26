@@ -265,7 +265,7 @@ Classes : **publique** (sans jeton, par conception), **gardée** (rôle, module,
 | GET | `/api/public/metadonnees` | - | - | - | /api/public : limiteur 60/min/adresse ; /api/health : aucune donnée métier | carte publique réduite (sans entreprise, bailleur, montant, contrat), métadonnées ISO 19115, sonde d'état | publique |
 | GET | `/api/public/metadonnees/:id.xml` | - | - | - | /api/public : limiteur 60/min/adresse ; /api/health : aucune donnée métier | carte publique réduite (sans entreprise, bailleur, montant, contrat), métadonnées ISO 19115, sonde d'état | publique |
 
-#### V2 : terrain (geo, sync, appareils, missions, observations, defauts, portions, referentiels) (51 routes)
+#### V2 : terrain (geo, sync, appareils, missions, observations, defauts, portions, referentiels, consultation des releves en roulage) (53 routes)
 
 | Methode | Chemin | Rôle | Module | Région | Contrôles internes | Données / effet | Classe |
 |---|---|---|---|---|---|---|---|
@@ -320,6 +320,8 @@ Classes : **publique** (sans jeton, par conception), **gardée** (rôle, module,
 | GET | `/api/v2/referentiels` | - | géoportail | - | module `geoportail` ; pas de filtre de région (référentiel national) | contexte terrain, portions homogènes, référentiels, recherche de tronçons : données du réseau | ouverte, voulue |
 | GET | `/api/v2/mobile/apk/info` | - | - | - | téléchargement journalisé (SECURITY_EVENT) | application de terrain | gardée |
 | GET | `/api/v2/mobile/apk` | - | - | - | téléchargement journalisé (SECURITY_EVENT) | application de terrain | gardée |
+| GET | `/api/v2/roulage/sessions` | - | inspections | - | **portée du compte lue en base à chaque requête, appliquée dans la clause SQL** : ADMIN et GESTIONNAIRE national tous ; GESTIONNAIRE régional les siens + ceux dont une portion créée est sur un tronçon de ses régions ; INSPECTEUR, LECTEUR et tout autre rôle les siens seulement ; relevé supprimé logiquement invisible de tous ; `total` limité à ce que le compte voit ; entrées hostiles (limite, curseur, dates, userId) : 400 sans toucher la base ; aucune écriture ni audit | liste paginée des relevés de roulage (agent : nom seulement, pas d'e-mail) | gardée |
+| GET | `/api/v2/roulage/sessions/:id` | - | inspections | - | même portée ; **404 identique** (même corps `RELEVE_INTROUVABLE`) pour inexistant, supprimé, hors portée et identifiant mal formé, y compris avec des paramètres invalides (identifiant et portée contrôlés AVANT les options) ; `?avecPoints=1` borné à 20 000 points ; `Cache-Control: private, no-store` | détail d'un relevé : géométrie, marqueurs, événements et portions, analyse | gardée |
 
 #### V2 : programmation, baremes, export, recherche, tableau de bord, fiche 360, qualite, reseau, imports (56 routes)
 

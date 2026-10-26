@@ -250,6 +250,23 @@ const SANS_GARDE_TERRITORIALE: Exception[] = [
   { motif: /^GET \/api\/v2\/programmation\/moteur\/praticabilite$/, raison: "etat de branchement d'un referentiel national (D-02), aucune donnee regionale" },
 ];
 
+describe("Consultation des releves en roulage (/api/v2/roulage)", () => {
+  const roulage = lignes.filter((l) => l.chemin.startsWith("/api/v2/roulage"));
+
+  it("expose exactement la liste et le detail, en lecture seule", () => {
+    expect(roulage.map(cle).sort()).toEqual(["GET /api/v2/roulage/sessions", "GET /api/v2/roulage/sessions/:id"]);
+  });
+
+  it("les deux routes exigent un compte connecte ET le module `inspections` (le meme que la collecte), sans reserve de role", () => {
+    for (const l of roulage) {
+      expect(l.auth, cle(l)).toBe(true);
+      expect(l.modules, cle(l)).toEqual(["inspections"]);
+      // La visibilite par compte (siens / regions / tous) est dans la clause SQL, prouvee par roulage.routes.test.ts et le banc.
+      expect(l.roles, cle(l)).toEqual([]);
+    }
+  });
+});
+
 describe("Gardes structurelles : aucune route ne passe sans qu'on ait decide de son acces", () => {
   it("toute route authentifiee non publique sans module ni reserve ADMIN est une exception DOCUMENTEE", () => {
     const sansModule = lignes.filter((l) => !estPublique(l) && l.modules.length === 0 && !adminSeul(l));

@@ -28,6 +28,8 @@ const MarchesPage = lazy(() => import("./pages/MarchesPage").then((m) => ({ defa
 const InspectionTerrainPage = lazy(() => import("./pages/InspectionTerrainPage").then((m) => ({ default: m.InspectionTerrainPage })));
 const DefautTerrainPage = lazy(() => import("./pages/DefautTerrainPage").then((m) => ({ default: m.DefautTerrainPage })));
 const EnregistrementRoulagePage = lazy(() => import("./pages/EnregistrementRoulagePage").then((m) => ({ default: m.EnregistrementRoulagePage })));
+const ReleveEnvoyesPage = lazy(() => import("./pages/ReleveEnvoyesPage").then((m) => ({ default: m.ReleveEnvoyesPage })));
+const ReleveEnvoyeDetailPage = lazy(() => import("./components/roulage/ReleveEnvoyeDetailPage").then((m) => ({ default: m.ReleveEnvoyeDetailPage })));
 const ReleveVehiculePage = lazy(() => import("./pages/ReleveVehiculePage").then((m) => ({ default: m.ReleveVehiculePage })));
 const TerrainPortionsPage = lazy(() => import("./pages/TerrainPortionsPage").then((m) => ({ default: m.TerrainPortionsPage })));
 const ObservationsTerrainPage = lazy(() => import("./pages/ObservationsTerrainPage").then((m) => ({ default: m.ObservationsTerrainPage })));
@@ -91,6 +93,8 @@ const router = createBrowserRouter(
           <Route path="marches" element={<LazyPage><MarchesPage /></LazyPage>} handle={{ title: "Marchés" }} />
           <Route path="inspections" element={<LazyPage><InspectionsPage /></LazyPage>} handle={{ title: "Inspections" }} />
           <Route path="inspections/releve/enregistrer" element={<LazyPage><EnregistrementRoulagePage /></LazyPage>} handle={{ title: "Enregistrer en roulant" }} />
+          <Route path="inspections/releve/envoyes" element={<LazyPage><ReleveEnvoyesPage /></LazyPage>} handle={{ title: "Relevés envoyés" }} />
+          <Route path="inspections/releve/envoyes/:id" element={<LazyPage><ReleveEnvoyeDetailPage /></LazyPage>} handle={{ title: "Relevé envoyé" }} />
           <Route path="inspections/releve" element={<LazyPage><ReleveVehiculePage /></LazyPage>} handle={{ title: "Relevé en véhicule" }} />
           <Route path="inspections/terrain" element={<LazyPage><InspectionTerrainPage /></LazyPage>} handle={{ title: "Inspection terrain" }} />
           <Route path="inspections/terrain/defauts" element={<LazyPage><DefautTerrainPage /></LazyPage>} handle={{ title: "Défauts terrain" }} />

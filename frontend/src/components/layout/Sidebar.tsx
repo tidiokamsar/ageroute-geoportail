@@ -52,6 +52,7 @@ const sections = [
     title: "RELEVÉ TERRAIN",
     items: [
       { to: "/inspections/releve/enregistrer", label: "Enregistrer en roulant" },
+      { to: "/inspections/releve/envoyes", label: "Relevés envoyés" },
       { to: "/inspections/releve", label: "Relevé en véhicule" },
       { to: "/inspections/terrain", label: "Inspection terrain" },
       { to: "/inspections/terrain/defauts", label: "Défauts terrain" },
