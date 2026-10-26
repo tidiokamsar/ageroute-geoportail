@@ -10,7 +10,7 @@ import { usePropositionDetail } from "../../lib/teledetectionHooks";
 import type { PropositionDetail } from "../../lib/teledetectionApi";
 import { PanneauDetail } from "./PanneauDetail";
 import { rendreAvecClient } from "./rendre.testutil";
-import { detail, echec, routeurGet } from "./synthetique.testutil";
+import { detail, echec, echecBlob, routeurGet } from "./synthetique.testutil";
 
 /**
  * Panneau Detail et decisions.
@@ -203,7 +203,7 @@ describe("onglets Apercu, Comparaison, Terrain, Historique", () => {
 
   it("apercu present : charge par le client authentifie (blob), alt descriptif, date", async () => {
     h.get.mockImplementation(async (url: string) => {
-      if (url === "/v2/teledetection/produits/prod-1/apercu") return { data: new Blob(["x"]) };
+      if (url === "/v2/teledetection/produits/prod-1/apercu") return { data: new Blob(["x"], { type: "image/png" }) };
       return { data: detail({ apercus: { avant: { url: null, date: null }, apres: { url: "/api/v2/teledetection/produits/prod-1/apercu", date: "2026-10-20T10:00:00Z" } } }) };
     });
     await ouvrir();
@@ -237,10 +237,56 @@ describe("onglets Apercu, Comparaison, Terrain, Historique", () => {
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
   });
 
+  it("apercu : 404 APERCU_INDISPONIBLE rendu en BLOB (forme reelle d'axios en responseType blob) : « indisponible chez le fournisseur »", async () => {
+    h.get.mockImplementation(async (url: string) => {
+      if (url.endsWith("/apercu")) throw echecBlob(404, { error: "Aperçu indisponible : le fournisseur a répondu 404", code: "APERCU_INDISPONIBLE" });
+      return { data: detail({ apercus: { avant: { url: null, date: null }, apres: { url: "/api/v2/teledetection/produits/prod-1/apercu", date: null } } }) };
+    });
+    await ouvrir();
+    expect(await screen.findByText("Aperçu indisponible chez le fournisseur")).toBeInTheDocument();
+    expect(screen.queryByText(/rouvrant la proposition|n'a pas pu être chargé/)).not.toBeInTheDocument();
+  });
+
+  it("apercu : une panne 500 rendue en Blob reste l'erreur generique (jamais « indisponible chez le fournisseur »)", async () => {
+    h.get.mockImplementation(async (url: string) => {
+      if (url.endsWith("/apercu")) throw echecBlob(500, { error: "Erreur interne" });
+      return { data: detail({ apercus: { avant: { url: null, date: null }, apres: { url: "/api/v2/teledetection/produits/prod-1/apercu", date: null } } }) };
+    });
+    await ouvrir();
+    expect(await screen.findByText(/L'aperçu n'a pas pu être chargé/)).toBeInTheDocument();
+    expect(screen.queryByText("Aperçu indisponible chez le fournisseur")).not.toBeInTheDocument();
+  });
+
+  it("apercu : reponse 200 dont le contenu n'est pas une image (HTML de repli) : « aperçu illisible », jamais affiche comme image", async () => {
+    h.get.mockImplementation(async (url: string) => {
+      if (url.endsWith("/apercu")) return { data: new Blob(["<!doctype html><html></html>"], { type: "text/html" }) };
+      return { data: detail({ apercus: { avant: { url: null, date: null }, apres: { url: "/api/v2/teledetection/produits/prod-1/apercu", date: null } } }) };
+    });
+    await ouvrir();
+    expect(await screen.findByText(/Aperçu illisible/)).toBeInTheDocument();
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+  });
+
+  it("comparaison : un cote dont le contenu n'est pas une image est dit illisible, l'autre reste affiche", async () => {
+    h.get.mockImplementation(async (url: string) => {
+      if (url.includes("avant")) return { data: new Blob(["<html></html>"], { type: "text/html" }) };
+      if (url.endsWith("/apercu")) return { data: new Blob(["x"], { type: "image/png" }) };
+      return { data: detail({ apercus: { avant: { url: "/api/v2/teledetection/produits/avant/apercu", date: null }, apres: { url: "/api/v2/teledetection/produits/apres/apercu", date: null } } }) };
+    });
+    const u = userEvent.setup();
+    await ouvrir();
+    await u.click(await screen.findByRole("tab", { name: "Comparaison" }));
+    expect(await screen.findByText(/Image avant illisible/, undefined, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /vignette satellite après/ })).toBeInTheDocument();
+    expect(screen.getByRole("slider")).toBeDisabled();
+    expect(screen.getByText(/Comparaison impossible : l'image avant est illisible/)).toBeInTheDocument();
+  });
+
   it("comparaison : seule l'image avant est indisponible chez le fournisseur : l'image apres reste affichee, le curseur est desactive et dit pourquoi", async () => {
     h.get.mockImplementation(async (url: string) => {
       if (url.includes("avant")) throw echec(404, "Aperçu indisponible", "APERCU_INDISPONIBLE");
-      if (url.endsWith("/apercu")) return { data: new Blob(["x"]) };
+      if (url.endsWith("/apercu")) return { data: new Blob(["x"], { type: "image/png" }) };
       return { data: detail({ apercus: { avant: { url: "/api/v2/teledetection/produits/avant/apercu", date: "2026-09-15T10:00:00Z" }, apres: { url: "/api/v2/teledetection/produits/apres/apercu", date: "2026-10-20T10:00:00Z" } } }) };
     });
     const u = userEvent.setup();
@@ -256,7 +302,7 @@ describe("onglets Apercu, Comparaison, Terrain, Historique", () => {
   it("comparaison : une panne autre que 404 sur l'image avant n'efface pas l'image apres non plus", async () => {
     h.get.mockImplementation(async (url: string) => {
       if (url.includes("avant")) throw echec(500, "Erreur interne");
-      if (url.endsWith("/apercu")) return { data: new Blob(["x"]) };
+      if (url.endsWith("/apercu")) return { data: new Blob(["x"], { type: "image/png" }) };
       return { data: detail({ apercus: { avant: { url: "/api/v2/teledetection/produits/avant/apercu", date: null }, apres: { url: "/api/v2/teledetection/produits/apres/apercu", date: null } } }) };
     });
     const u = userEvent.setup();

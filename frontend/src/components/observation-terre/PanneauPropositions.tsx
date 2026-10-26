@@ -82,7 +82,9 @@ export function PanneauPropositions({
   const pages = liste.data?.pages;
   const items = useMemo(() => pages?.flatMap((pg) => pg.items) ?? [], [pages]);
   const total = pages?.[0]?.total ?? null;
-  const erreur = liste.isError && !liste.isFetchNextPageError ? classerErreur(liste.error) : null;
+  // Erreur SANS donnees : seule elle remplace la liste. Avec des donnees deja lues, le bandeau « perime » est l'unique message
+  // (il porte la cause et la date) : le titre et le total restent ceux de la derniere lecture, pas « indisponible ».
+  const erreur = liste.isError && !liste.isFetchNextPageError && !liste.data ? classerErreur(liste.error) : null;
   const ongletActif = ONGLETS_STATUT.find((o) => o.statut === statut);
   const libelleOnglet = ongletActif?.libelle ?? "";
   // Compteur d'onglet (synthese : region et periode) et total filtre (liste : tous les filtres) : jamais l'un sans l'autre
@@ -168,8 +170,8 @@ export function PanneauPropositions({
 
       <div role="tabpanel" id="panneau-propositions" aria-labelledby={`onglet-${statut}`} className="mt-3 xl:max-h-[640px] xl:overflow-y-auto xl:pr-1">
         {liste.isPending && <EtatChargement libelle="Chargement des propositions…" />}
-        {erreur && !liste.data && <EtatErreur panneau="Propositions" erreur={erreur} onReessayer={() => void liste.refetch()} reessaiEnCours={liste.isFetching} />}
-        {liste.isError && liste.data && !liste.isFetchNextPageError && <div className="mb-2"><BandeauPerime panneau="Propositions" misAJourLe={liste.dataUpdatedAt} onReessayer={() => void liste.refetch()} /></div>}
+        {erreur && <EtatErreur panneau="Propositions" erreur={erreur} onReessayer={() => void liste.refetch()} reessaiEnCours={liste.isFetching} />}
+        {liste.isError && liste.data && !liste.isFetchNextPageError && <div className="mb-2"><BandeauPerime panneau="Propositions" cause={classerErreur(liste.error).message} misAJourLe={liste.dataUpdatedAt} onReessayer={() => void liste.refetch()} /></div>}
         {liste.data && items.length === 0 && (
           <EtatVide
             titre={`Aucune proposition « ${libelleOnglet} »`}

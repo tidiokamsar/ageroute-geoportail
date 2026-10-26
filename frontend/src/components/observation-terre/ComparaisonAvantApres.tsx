@@ -34,10 +34,10 @@ export function ComparaisonAvantApres({ avant, apres, libelleZone }: Comparaison
   const [chargees, setChargees] = useState<Record<Cote, string | null>>({ avant: null, apres: null });
 
   const sources: Record<Cote, CoteComparaison> = { avant, apres };
-  const etat = (c: Cote): "absente" | "indisponible" | "echec" | "ok" => {
+  const etat = (c: Cote): "absente" | "indisponible" | "illisible" | "echec" | "ok" => {
     const { url, panne } = sources[c];
     // Pas d'URL mais une panne connue : le cote est dit en panne (et non « non disponible »), l'autre image reste montree.
-    if (!url) return panne === "indisponible" ? "indisponible" : panne === "echec" ? "echec" : "absente";
+    if (!url) return panne ?? "absente";
     return echecs[c] === url ? "echec" : "ok";
   };
   const etats = { avant: etat("avant"), apres: etat("apres") };
@@ -53,6 +53,9 @@ export function ComparaisonAvantApres({ avant, apres, libelleZone }: Comparaison
     // Un cote « indisponible » (404 APERCU_INDISPONIBLE) le dit ; seul, il ne devient pas « n'a pas pu etre chargee ».
     const tousIndisponibles = manquantes.every((c) => etats[c] === "indisponible");
     if (tousIndisponibles) return `Comparaison impossible : ${sujet} ${manquantes.length > 1 ? "sont indisponibles" : "est indisponible"} chez le fournisseur.`;
+    // Un cote « illisible » (200 sans image) le dit aussi : ce n'est ni une absence ni un echec de chargement.
+    const tousIllisibles = manquantes.every((c) => etats[c] === "illisible");
+    if (tousIllisibles) return `Comparaison impossible : ${sujet} ${manquantes.length > 1 ? "sont illisibles" : "est illisible"} (le serveur n'a pas renvoyé d'image).`;
     const verbe = manquantes.length > 1 ? (absente ? "ne sont pas disponibles" : "n'ont pas pu être chargées") : absente ? "n'est pas disponible" : "n'a pas pu être chargée";
     return `Comparaison impossible : ${sujet} ${verbe}.`;
   })();
@@ -75,6 +78,8 @@ export function ComparaisonAvantApres({ avant, apres, libelleZone }: Comparaison
   const substitut = (c: Cote) =>
     etats[c] === "indisponible" ? (
       <p role="status" className="px-3 text-center text-sm font-medium text-gray-700">Image {NOM[c]} indisponible chez le fournisseur</p>
+    ) : etats[c] === "illisible" ? (
+      <p role="alert" className="px-3 text-center text-sm font-medium text-red-700">Image {NOM[c]} illisible (le serveur n&apos;a pas renvoyé une image)</p>
     ) : etats[c] === "echec" ? (
       <p role="alert" className="px-3 text-center text-sm font-medium text-red-700">
         Image {NOM[c]} impossible à charger

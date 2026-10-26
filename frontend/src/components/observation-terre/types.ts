@@ -48,9 +48,9 @@ export interface CarteObservationTerreProps {
 
 /**
  * Un cote de la comparaison. `panne` dit POURQUOI `url` est nul alors qu'une image etait attendue : `indisponible` = le serveur a repondu
- * 404 APERCU_INDISPONIBLE (« indisponible chez le fournisseur »), `echec` = l'image n'a pas pu etre chargee. Absent : pas d'image prevue.
+ * 404 APERCU_INDISPONIBLE (« indisponible chez le fournisseur »), `illisible` = le serveur a repondu mais sans image (contenu d'un autre type), `echec` = l'image n'a pas pu etre chargee. Absent : pas d'image prevue.
  */
-export interface CoteComparaison { url: string | null; date: string | null; panne?: "indisponible" | "echec" }
+export interface CoteComparaison { url: string | null; date: string | null; panne?: "indisponible" | "illisible" | "echec" }
 
 export interface ComparaisonProps {
   avant: CoteComparaison;

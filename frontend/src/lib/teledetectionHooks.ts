@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "./api";
 import {
-  affecterAUneInspection, classerErreur, estErreurAutorisation, lirePropositionsGeo, lireProposition, lirePropositions,
+  affecterAUneInspection, ApercuIllisible, classerErreur, estErreurAutorisation, lirePropositionsGeo, lireProposition, lirePropositions,
   lireApercu, lireQualiteMethodes, lireSources, lireSynthese, poserTransition, verifierSource,
   type CorpsTransition, type Emprise, type ErreurTd, type FiltresPropositions, type FiltresSynthese,
 } from "./teledetectionApi";
@@ -109,8 +109,11 @@ export function useVerificationSource() {
   });
 }
 
-/** `indisponible` : l'URL existe mais le serveur dit 404 APERCU_INDISPONIBLE (le fournisseur n'a pas rendu d'image) ; `erreur` : tout autre echec. */
-export type EtatApercu = "aucun" | "chargement" | "pret" | "indisponible" | "erreur";
+/**
+ * `indisponible` : l'URL existe mais le serveur dit 404 APERCU_INDISPONIBLE (le fournisseur n'a pas rendu d'image) ;
+ * `illisible` : le serveur a repondu 200 mais le contenu n'est pas une image ; `erreur` : tout autre echec.
+ */
+export type EtatApercu = "aucun" | "chargement" | "pret" | "indisponible" | "illisible" | "erreur";
 
 /**
  * Charge un apercu servi derriere l'authentification et le rend en URL de blob. `url` nul = pas
@@ -118,7 +121,7 @@ export type EtatApercu = "aucun" | "chargement" | "pret" | "indisponible" | "err
  * `APERCU_INDISPONIBLE` est un etat a part (« indisponible chez le fournisseur »), pas l'erreur generique.
  */
 export function useApercu(url: string | null | undefined): { src: string | null; etat: EtatApercu } {
-  const [resultat, setResultat] = useState<{ pour: string; src: string } | { pour: string; erreur: true; indisponible: boolean } | null>(null);
+  const [resultat, setResultat] = useState<{ pour: string; src: string } | { pour: string; erreur: "indisponible" | "illisible" | "autre" } | null>(null);
   useEffect(() => {
     if (!url) return;
     let annule = false;
@@ -131,15 +134,16 @@ export function useApercu(url: string | null | undefined): { src: string | null;
       },
       (e: unknown) => {
         if (annule) return;
+        if (e instanceof ApercuIllisible) { setResultat({ pour: url, erreur: "illisible" }); return; }
         const t = classerErreur(e);
-        setResultat({ pour: url, erreur: true, indisponible: t.status === 404 && t.code === "APERCU_INDISPONIBLE" });
+        setResultat({ pour: url, erreur: t.status === 404 && t.code === "APERCU_INDISPONIBLE" ? "indisponible" : "autre" });
       },
     );
     return () => { annule = true; if (objet) URL.revokeObjectURL(objet); };
   }, [url]);
   if (!url) return { src: null, etat: "aucun" };
   if (!resultat || resultat.pour !== url) return { src: null, etat: "chargement" };
-  if ("erreur" in resultat) return { src: null, etat: resultat.indisponible ? "indisponible" : "erreur" };
+  if ("erreur" in resultat) return { src: null, etat: resultat.erreur === "autre" ? "erreur" : resultat.erreur };
   return { src: resultat.src, etat: "pret" };
 }
 

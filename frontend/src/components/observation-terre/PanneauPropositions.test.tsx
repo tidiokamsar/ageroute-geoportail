@@ -300,6 +300,28 @@ describe("etats de la liste", () => {
     expect(screen.getByRole("button", { name: "Actualiser : Propositions" })).toBeInTheDocument();
   });
 
+  it("liste en erreur AVEC donnees anciennes : le message unique porte la cause ET la date des donnees affichees, le titre garde le total lu", async () => {
+    let n = 0;
+    h.get.mockImplementation(async (url: string) => {
+      if (url === "/v2/teledetection/synthese") return { data: SYNTHESE };
+      n += 1;
+      if (n === 1) return { data: page([proposition()], { total: 7 }) };
+      throw echec(500, "Panne liste");
+    });
+    const { qc } = rendreAvecClient(<Harnais />);
+    await screen.findByRole("button", { name: /Inondation/ });
+    await act(async () => { await qc.invalidateQueries({ queryKey: ["teledetection", "propositions"] }).catch(() => {}); });
+    const bandeau = (await screen.findByText(/Propositions : l'actualisation a échoué/, undefined, { timeout: 5000 })).closest("[data-etat='perime']") as HTMLElement;
+    expect(bandeau).toHaveTextContent("Panne liste");
+    expect(bandeau).toHaveTextContent(/ces données datent du .*20\d\d/);
+    // Un seul message d'etat pour la liste : ni alerte, ni second bandeau.
+    expect(document.querySelectorAll("#panneau-propositions [data-etat]")).toHaveLength(1);
+    expect(within(screen.getByRole("tabpanel")).queryByRole("alert")).not.toBeInTheDocument();
+    // Les donnees affichees sont celles de la derniere lecture : le titre ne dit pas « indisponible » en face d'une liste lue.
+    expect(screen.getByRole("heading", { name: /Propositions/ })).toHaveTextContent("(7)");
+    expect(screen.getByRole("heading", { name: /Propositions/ })).not.toHaveTextContent("indisponible");
+  });
+
   it("permission refusee : message dedie (statut), ni alerte ni liste vide", async () => {
     routes(echec(403, "Hors périmètre"));
     rendreAvecClient(<Harnais />);

@@ -68,6 +68,14 @@ export const page = (items: Proposition[], over: Partial<PagePropositions> = {})
 export function echec(status: number, error?: string, code?: string) {
   return Object.assign(new Error(`HTTP ${status}`), { response: { status, data: { ...(error ? { error } : {}), ...(code ? { code } : {}) } } });
 }
+/**
+ * Erreur de forme axios telle que la rend une requete en `responseType: "blob"` : le corps JSON de l'erreur est un BLOB,
+ * pas un objet (c'est la forme que `echec` ne reproduit pas, et que les tests d'origine ne couvraient donc pas).
+ */
+export function echecBlob(status: number, corps: unknown, type = "application/json") {
+  const data = new Blob([typeof corps === "string" ? corps : JSON.stringify(corps)], { type });
+  return Object.assign(new Error(`HTTP ${status}`), { response: { status, data } });
+}
 export function echecReseau() {
   return Object.assign(new Error("Network Error"), {});
 }

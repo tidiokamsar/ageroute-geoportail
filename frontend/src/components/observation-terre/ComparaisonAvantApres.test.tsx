@@ -132,6 +132,23 @@ describe("ComparaisonAvantApres : image absente", () => {
   });
 });
 
+describe("ComparaisonAvantApres : contenu illisible (200 sans image)", () => {
+  it("un cote illisible est dit illisible (ni absent, ni echec de chargement) et le curseur est desactive", () => {
+    render(<ComparaisonAvantApres avant={{ url: null, date: "2026-09-15", panne: "illisible" }} apres={APRES} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Image avant illisible");
+    expect(screen.queryByText(/non disponible|impossible à charger/)).toBeNull();
+    expect(images()).toHaveLength(1);
+    expect(curseur()).toBeDisabled();
+    expect(screen.getByText(/Comparaison impossible : l'image avant est illisible/)).toBeInTheDocument();
+  });
+
+  it("les deux cotes illisibles : message au pluriel, aucune image", () => {
+    render(<ComparaisonAvantApres avant={{ url: null, date: null, panne: "illisible" }} apres={{ url: null, date: null, panne: "illisible" }} />);
+    expect(images()).toHaveLength(0);
+    expect(screen.getByText(/les images avant et après sont illisibles/)).toBeInTheDocument();
+  });
+});
+
 describe("ComparaisonAvantApres : echec de chargement", () => {
   it("une image qui ne charge pas est remplacee par une alerte, et le curseur se desactive", () => {
     render(<ComparaisonAvantApres avant={AVANT} apres={APRES} />);

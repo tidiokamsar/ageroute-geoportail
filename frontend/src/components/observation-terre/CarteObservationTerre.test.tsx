@@ -201,11 +201,29 @@ describe("dessin des propositions", () => {
     expect(screen.getByText("3 propositions affichées, dont 1 non rattachée à un tronçon.")).toBeInTheDocument();
   });
 
-  it("chaque marqueur porte un nom accessible : type, statut, priorite, rattachement", () => {
+  it("chaque marqueur porte un nom accessible : type, statut, priorite, rattachement (prefixe « Marqueur : »)", () => {
     rendre({ propositions: trois });
-    expect(screen.getByRole("img", { name: "Coupure probable, à vérifier, priorité haute, rattachée à un tronçon" })).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Coupure probable, confirmée, priorité faible, non rattachée à un tronçon" })).toBeInTheDocument();
-    expect(screen.getByRole("img", { name: "Inondation, en attente, priorité moyenne, rattachée à un tronçon" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Marqueur : Coupure probable, à vérifier, priorité haute, rattachée à un tronçon" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Marqueur : Coupure probable, confirmée, priorité faible, non rattachée à un tronçon" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Marqueur : Inondation, en attente, priorité moyenne, rattachée à un tronçon" })).toBeInTheDocument();
+  });
+
+  it("un marqueur de la carte et son entree dans la liste alternative n'ont jamais le meme nom accessible", async () => {
+    const user = userEvent.setup();
+    rendre({ propositions: trois });
+    await user.click(screen.getByRole("button", { name: /Liste des propositions affichées/ }));
+    const liste = within(screen.getByRole("list", { name: "Propositions affichées sur la carte" }));
+    const nomsMarqueurs = screen.getAllByRole("img").map((i) => i.getAttribute("aria-label")).filter((n): n is string => !!n && n.startsWith("Marqueur"));
+    expect(nomsMarqueurs).toHaveLength(3);
+    expect(liste.getAllByRole("button")).toHaveLength(3);
+    // Meme proposition, meme texte de fond, mais deux noms distincts : un lecteur d'ecran ne lit pas deux fois la meme chose.
+    for (const nomMarqueur of nomsMarqueurs) {
+      const libelle = nomMarqueur.replace(/^Marqueur : /, "");
+      expect(libelle).not.toBe(nomMarqueur);
+      const entree = liste.getByRole("button", { name: libelle });
+      expect(entree).toBeInTheDocument();
+      expect(screen.queryAllByRole("img", { name: libelle })).toHaveLength(0);
+    }
   });
 
   it("le dessin differe par statut ET par priorite, sans dependre de la couleur", () => {

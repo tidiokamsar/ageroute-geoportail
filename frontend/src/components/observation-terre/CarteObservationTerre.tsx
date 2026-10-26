@@ -82,6 +82,8 @@ const echapper = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").r
 const TAILLE_CIBLE = 44; // zone cliquable (px) : un doigt, pas un pixel
 
 const icones = new Map<string, L.DivIcon>();
+// Le nom du marqueur est PREFIXE : l'entree de la liste alternative porte le libelle nu (c'est son texte visible, WCAG 2.5.3),
+// et deux elements de meme nom pour la meme proposition seraient lus deux fois sans qu'on sache lequel est la carte.
 function iconeProposition(p: PropositionCarte, selectionne: boolean): L.DivIcon {
   const cle = `${cleIcone(p, selectionne)}|${p.type}`;
   let icone = icones.get(cle);
@@ -91,7 +93,7 @@ function iconeProposition(p: PropositionCarte, selectionne: boolean): L.DivIcon 
       className: "bdri-proposition-eo",
       iconSize: [TAILLE_CIBLE, TAILLE_CIBLE],
       iconAnchor: [TAILLE_CIBLE / 2, TAILLE_CIBLE / 2],
-      html: `<span role="img" aria-label="${echapper(libelleMarqueur(p))}" style="display:flex;width:${TAILLE_CIBLE}px;height:${TAILLE_CIBLE}px;align-items:center;justify-content:center;cursor:pointer">${svg}</span>`,
+      html: `<span role="img" aria-label="${echapper(`Marqueur : ${libelleMarqueur(p)}`)}" style="display:flex;width:${TAILLE_CIBLE}px;height:${TAILLE_CIBLE}px;align-items:center;justify-content:center;cursor:pointer">${svg}</span>`,
     });
     icones.set(cle, icone);
   }

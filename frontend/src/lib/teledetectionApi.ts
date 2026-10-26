@@ -291,10 +291,61 @@ export function cheminApercuSur(url: unknown): string | null {
   return chemin.startsWith("//") || /^\/[a-z][a-z\d+\-.]*:/i.test(chemin) ? null : chemin;
 }
 
+/** Le serveur a repondu 200 mais le contenu n'est pas une image (ex. le HTML de repli de l'application) : a ne jamais afficher comme image. */
+export class ApercuIllisible extends Error {
+  constructor(public readonly typeRecu: string) {
+    super("Aperçu illisible : le serveur n'a pas renvoyé une image.");
+    this.name = "ApercuIllisible";
+  }
+}
+
+// Un corps d'erreur JSON tient en quelques centaines d'octets : au-dela, ce n'est pas lui et on ne le lit pas.
+const TAILLE_MAX_CORPS_ERREUR = 64 * 1024;
+
+function estBlob(v: unknown): v is Blob {
+  return (typeof Blob !== "undefined" && v instanceof Blob) || (typeof v === "object" && v !== null && typeof (v as Blob).size === "number" && typeof (v as Blob).type === "string" && typeof (v as Blob).slice === "function");
+}
+
+function texteDuBlob(b: Blob): Promise<string> {
+  if (typeof b.text === "function") return b.text();
+  // Environnements sans Blob.text (jsdom) : meme resultat par FileReader.
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result ?? ""));
+    r.onerror = () => reject(r.error);
+    r.readAsText(b);
+  });
+}
+
+/**
+ * Avec `responseType: "blob"`, axios fournit AUSSI le corps des reponses d'erreur sous forme de Blob : `data.code` est alors
+ * indefini et `classerErreur` ne reconnait ni le code stable (APERCU_INDISPONIBLE) ni le message du serveur. On relit donc le
+ * Blob en JSON avant de classer ; un corps vide, trop gros ou non JSON est tolere (le statut HTTP suffit au genre).
+ */
+async function avecCorpsLisible(e: unknown): Promise<unknown> {
+  const r = (e as { response?: { data?: unknown } } | null | undefined)?.response;
+  if (!r || !estBlob(r.data) || r.data.size > TAILLE_MAX_CORPS_ERREUR) return e;
+  try {
+    const lu: unknown = JSON.parse(await texteDuBlob(r.data));
+    r.data = lu !== null && typeof lu === "object" ? lu : undefined;
+  } catch {
+    r.data = undefined;
+  }
+  return e;
+}
+
 export async function lireApercu(url: string): Promise<Blob> {
   const chemin = cheminApercuSur(url);
   if (chemin === null) throw new Error("Aperçu refusé : seule une adresse relative du serveur est admise.");
-  return (await api.get<Blob>(chemin, { responseType: "blob" })).data;
+  let corps: Blob;
+  try {
+    corps = (await api.get<Blob>(chemin, { responseType: "blob" })).data;
+  } catch (e) {
+    throw await avecCorpsLisible(e);
+  }
+  // Un 200 qui n'est pas une image (repli SPA en HTML, JSON, texte) ne s'affiche jamais comme image.
+  if (!estBlob(corps) || !/^image\//i.test(corps.type)) throw new ApercuIllisible(estBlob(corps) ? corps.type : typeof corps);
+  return corps;
 }
 
 /** Verdicts par type et methode (compte NATIONAL seulement : 403 HORS_PERIMETRE pour un compte regional). */

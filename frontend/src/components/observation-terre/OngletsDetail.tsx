@@ -18,6 +18,10 @@ export function OngletApercu({ detail }: { detail: PropositionDetail }) {
   if (apres.etat === "indisponible") {
     return <EtatVide titre="Aperçu indisponible chez le fournisseur" detail="Le fournisseur n'a pas rendu d'image pour cette proposition. Aucune image de remplacement n'est affichée ; la décision peut se fonder sur les autres éléments du dossier." />;
   }
+  // 200 mais pas une image (ex. page de repli de l'application) : jamais affiche comme image.
+  if (apres.etat === "illisible") {
+    return <p role="alert" className="rounded border border-red-200 bg-red-50 p-2 text-sm text-red-900">Aperçu illisible : le serveur n&apos;a pas renvoyé une image. Aucune image de remplacement n&apos;est affichée.</p>;
+  }
   if (apres.etat === "erreur") return <p role="alert" className="rounded border border-red-200 bg-red-50 p-2 text-sm text-red-900">L&apos;aperçu n&apos;a pas pu être chargé. Réessayez en rouvrant la proposition.</p>;
   if (apres.etat === "aucun" || !apres.src) {
     return <EtatVide titre="Aucun aperçu disponible" detail="Le serveur n'a pas d'image pour cette proposition. Aucune image de remplacement n'est affichée." />;
@@ -38,7 +42,8 @@ export function OngletComparaison({ detail }: { detail: PropositionDetail }) {
   }
   // Une image qui manque ne masque pas l'autre : le cote en panne est dit en panne, l'image disponible reste affichee
   // (le curseur est alors desactive par la comparaison elle-meme).
-  const panne = (e: typeof avant.etat): "indisponible" | "echec" | undefined => (e === "indisponible" ? "indisponible" : e === "erreur" ? "echec" : undefined);
+  const panne = (e: typeof avant.etat): "indisponible" | "illisible" | "echec" | undefined =>
+    e === "indisponible" ? "indisponible" : e === "illisible" ? "illisible" : e === "erreur" ? "echec" : undefined;
   return (
     <ComparaisonAvantApres
       avant={{ url: avant.src, date: detail.apercus?.avant?.date ?? detail.dateReference, panne: panne(avant.etat) }}

@@ -87,14 +87,14 @@ describe("appels (URL et corps conformes au contrat paragraphe 5)", () => {
     expect(h.post).toHaveBeenLastCalledWith("/v2/teledetection/sources/SRC%20A/verifier", {});
   });
   it("apercu : le prefixe /api est retire (l'instance l'ajoute deja) et la reponse est un blob", async () => {
-    h.get.mockResolvedValue({ data: new Blob(["x"]) });
+    h.get.mockResolvedValue({ data: new Blob(["x"], { type: "image/png" }) });
     await lireApercu("/api/v2/teledetection/produits/p/apercu");
     expect(h.get).toHaveBeenLastCalledWith("/v2/teledetection/produits/p/apercu", { responseType: "blob" });
     await lireApercu("/v2/teledetection/produits/q/apercu");
     expect(h.get).toHaveBeenLastCalledWith("/v2/teledetection/produits/q/apercu", { responseType: "blob" });
   });
   it("apercu : une URL absolue ne recoit JAMAIS le jeton (refusee avant tout appel reseau), seuls les chemins relatifs du serveur passent", async () => {
-    h.get.mockResolvedValue({ data: new Blob(["x"]) });
+    h.get.mockResolvedValue({ data: new Blob(["x"], { type: "image/png" }) });
     for (const url of [
       "https://autre.example/api/v2/teledetection/produits/p/apercu", "http://localhost:4000/api/v2/x", "//autre.example/api/v2/x", "///autre.example/x",
       "\\\\autre.example\\x", "/\\autre.example/x", "javascript:alert(1)", "data:image/png;base64,AAAA", "api/v2/x", "", "   ", "/api/../etc/passwd", "/api/v2/%2e%2e/x",

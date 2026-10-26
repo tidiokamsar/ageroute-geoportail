@@ -62,12 +62,12 @@ export function EtatErreur({ panneau, erreur, onReessayer, reessaiEnCours }: { p
 }
 
 /** Donnees affichees = derniere lecture reussie, alors que la lecture suivante a echoue. */
-export function BandeauPerime({ panneau, misAJourLe, onReessayer }: { panneau: string; misAJourLe: number; onReessayer?: () => void }) {
+export function BandeauPerime({ panneau, misAJourLe, onReessayer, cause }: { panneau: string; misAJourLe: number; onReessayer?: () => void; cause?: string }) {
   return (
     <div role="status" data-etat="perime" className="flex flex-wrap items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
       <AlertCircle aria-hidden="true" className="h-4 w-4 shrink-0" />
       <span className="min-w-0 flex-1">
-        {panneau} : l'actualisation a échoué, ces données datent du {formaterDateHeure(new Date(misAJourLe).toISOString())} et peuvent être périmées.
+        {panneau} : l'actualisation a échoué{cause ? ` (${cause})` : ""}, ces données datent du {formaterDateHeure(new Date(misAJourLe).toISOString())} et peuvent être périmées.
       </span>
       {onReessayer && <Button type="button" size="sm" variant="ghost" className="min-h-[44px] xl:min-h-0" aria-label={`Actualiser : ${panneau}`} onClick={onReessayer}>Actualiser</Button>}
     </div>
