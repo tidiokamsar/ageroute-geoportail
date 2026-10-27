@@ -181,6 +181,7 @@ beforeEach(() => {
     "/v2/teledetection/synthese": synthese(),
     "/v2/teledetection/propositions": page([proposition()]),
     "/v2/teledetection/sources": [source()],
+    "/v2/teledetection/coherence": { bloquantes: 1, aExaminer: 1, tronquee: false, anomalies: [{ propositionId: "p-1", regle: "HORS_EMPRISE_PRODUIT", detail: "S1", gravite: "BLOQUANTE" }, { propositionId: "p-2", regle: "MISSION_SANS_VERDICT", detail: "VER-1", gravite: "A_EXAMINER" }] },
     "/v2/teledetection/qualite-methodes": { seuilEchantillon: 30, definition: "Confirmées ÷ (confirmées + infirmées).", lignes: [] },
     // Lots d'import : liste, formats, sources, details (un lot conforme, un lot rejete) et apercus.
     "/v2/imports": { lots: [LOT_CONFORME, LOT_REJETE], suivant: null, total: 2 },

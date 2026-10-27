@@ -3,7 +3,7 @@ import { Settings2 } from "lucide-react";
 import { useAuth } from "../../lib/auth";
 import { classerErreur, type Emprise, type Proposition, type StatutProposition } from "../../lib/teledetectionApi";
 import {
-  usePropositionDetail, usePropositionsGeo, usePropositionsListe, useQualiteMethodes, useRegions, useSources, useSynthese, useValeurDifferee,
+  useCoherence, usePropositionDetail, usePropositionsGeo, usePropositionsListe, useQualiteMethodes, useRegions, useSources, useSynthese, useValeurDifferee,
 } from "../../lib/teledetectionHooks";
 import { FILTRES_VIDES, versFiltresPropositions, versFiltresSynthese, type FiltresEcran } from "../../lib/teledetectionFiltres";
 import { arrondirEmprise, empriseAutour, peutGererSources } from "../../lib/teledetectionAffichage";
@@ -16,6 +16,7 @@ import { IndicateursSynthese } from "./IndicateursSynthese";
 import { PanneauDetail } from "./PanneauDetail";
 import { PanneauPropositions } from "./PanneauPropositions";
 import { QualiteMethodes } from "./QualiteMethodes";
+import { PanneauCoherence } from "./PanneauCoherence";
 import { TableauSources } from "./TableauSources";
 import type { CouchesCarte } from "./types";
 import { WidgetTauxConfirmation } from "./WidgetTauxConfirmation";
@@ -56,6 +57,7 @@ export function EcranObservationTerre() {
   const synthese = useSynthese(versFiltresSynthese(filtresDiff));
   const sources = useSources();
   const qualite = useQualiteMethodes();
+  const coherence = useCoherence();
   const regions = useRegions();
   const liste = usePropositionsListe(versFiltresPropositions(filtresDiff, statut));
   const detail = usePropositionDetail(selectionId);
@@ -187,6 +189,7 @@ export function EcranObservationTerre() {
         <div className="flex flex-col gap-4 xl:col-start-1 xl:row-start-2">
           <WidgetTauxConfirmation synthese={synthese} />
           <QualiteMethodes qualite={qualite} />
+          <PanneauCoherence coherence={coherence} />
         </div>
 
         <div className="xl:col-span-3 xl:row-start-3">

@@ -35,6 +35,20 @@ Docker + Traefik). Voir `README.md` pour la stack et l'installation.
   sur le serveur), les phases SMART FIELD récentes (observation rapide, photo
   d'observation, historique par section) et tout ce qui a été commité après le dernier
   déploiement consigné. Cette liste n'est pas exhaustive.
+- **Branche d'intégration `integration/depuis-vendredi`** (27/10/2026, locale, non
+  poussée) : elle réunit en une seule branche testable les lignes de travail parallèles
+  ouvertes depuis le 23/10 : `lot/03-map-matching` (Lots 0 et 1 : session hors ligne,
+  sécurité serveur, imports, e2e), `fusion/observation-terre` (Aide à la décision,
+  Observation de la Terre, relevés envoyés), `origin/lot/17-consignes-dt`,
+  `origin/lot/18-bdri-troncons` (page Tronçons, registre d'anomalies, chantiers
+  multi-tronçons, fiche d'inspection) et `origin/fix/geoportail-tabulation-traces`
+  (qui porte l'autre lignée de l'Aide à la décision, lot 6, et la tabulation des
+  cartes). Le dépôt y compte **93 migrations**. Sur la base du seul relevé daté
+  (79 migrations appliquées le 23/10, tracker T-41), **14 migrations sont en attente**
+  (voir le commentaire de `ATTENDUES_EN_ATTENTE` dans `infra/deployer-console.sh`) ;
+  le script refuse tout autre nombre. Deux couples d'horodatages sont identiques
+  (`20261027100000`, `20261027110000`) : ils se rejouent dans l'ordre du nom de dossier.
+  Rien n'est déployé depuis cette branche.
 - **L'état exact de la production se vérifie au moment du déploiement**, jamais depuis
   ce fichier : `infra/deployer-console.sh` relève les migrations appliquées, les
   compteurs et l'état de santé avant tout geste. Ne rien déduire d'une ancienne

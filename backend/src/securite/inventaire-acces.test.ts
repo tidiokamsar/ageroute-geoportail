@@ -349,6 +349,7 @@ describe("Gardes structurelles : aucune route ne passe sans qu'on ait decide de 
       /^POST \/api\/v2\/exploitation\/(main-courante|veille\/escalades\/evaluer)/, // D-C1-4 : ecriture ouverte a tout compte par decision documentee (exploitation.routes.ts, veille.routes.ts)
       /^POST \/api\/v2\/programmation\/moteur\/(ppe\/)?simulations\/:id\/rejouer$/, // recalcul sans ecriture
       /^POST \/api\/v2\/aide-decision\/scenarios\/(comparer|:id\/rejouer)$/, // AD : comparaison (lecture) et rejeu (recalcul sans ecriture), module et perimetre verifies dans le routeur
+      /^POST \/api\/v2\/referentiel\/troncons\/anomalies\/previsualisation$/, // BDRI lot C : calcule ce que l'application ferait, SANS rien ecrire ; module `troncons` verifie par le routeur, meme ouverture que la lecture du registre (a relire : aucune garde de role)
       /^POST \/api\/v2\/export\/selection$/,         // lecture (export), module controle dans le handler
       /^POST \/api\/simulateur\/budget$/,            // calcul sans ecriture, module `programmation`
       /^POST \/api\/v2\/taches-internes/,            // ROLES_ECRITURE verifie dans le handler (ADMIN, GESTIONNAIRE, INSPECTEUR)

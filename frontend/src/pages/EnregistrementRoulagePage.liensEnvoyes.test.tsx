@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { violationsAccessibilite } from "../test/accessibilite";
 import { deplacer } from "../roulage";
 import { fermerCompte, ouvrirCompte, type Chiffreur } from "../lib/compteCourant";
@@ -58,7 +59,8 @@ function emettre(s: number) {
 
 async function terminerSession() {
   installerGeolocalisation();
-  render(<MemoryRouter><EnregistrementRoulagePage /></MemoryRouter>);
+  // « Mes sessions envoyees » (lot 17, MesSessions) lit par React Query : l'ecran a besoin d'un fournisseur.
+  render(<MemoryRouter><QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><EnregistrementRoulagePage /></QueryClientProvider></MemoryRouter>);
   fireEvent.click(await screen.findByRole("button", { name: /Démarrer l'enregistrement/ }));
   await screen.findByText("Enregistrement en cours");
   for (let s = 0; s < 5; s += 1) emettre(s);

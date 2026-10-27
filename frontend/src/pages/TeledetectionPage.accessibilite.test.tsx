@@ -47,6 +47,7 @@ beforeEach(() => {
       source({ code: "D", nom: "Source D", etat: "EN_ATTENTE_CONFIGURATION", requiertIdentifiants: true }),
     ],
     "/regions": [{ id: 1, nom: "Conakry" }],
+    "/v2/teledetection/coherence": { bloquantes: 1, aExaminer: 1, tronquee: false, anomalies: [{ propositionId: "p-1", regle: "HORS_EMPRISE_PRODUIT", detail: "S1", gravite: "BLOQUANTE" }, { propositionId: "p-2", regle: "MISSION_SANS_VERDICT", detail: "VER-1", gravite: "A_EXAMINER" }] },
     "/v2/teledetection/qualite-methodes": { seuilEchantillon: 30, definition: "d", lignes: [
       { type: "INONDATION", methode: "seuil-sar v0", methodeNom: "seuil-sar", methodeVersion: "0", total: 12, aVerifier: 0, enAttente: 0, nonConcluantes: 0, confirmees: 8, infirmees: 4, jugees: 12, tauxConfirmation: 0.667, echantillonSuffisant: false, seuilEchantillon: 30 },
       { type: "VEGETATION", methode: "seuil-sar v0", methodeNom: "seuil-sar", methodeVersion: "0", total: 3, aVerifier: 3, enAttente: 0, nonConcluantes: 0, confirmees: 0, infirmees: 0, jugees: 0, tauxConfirmation: null, echantillonSuffisant: false, seuilEchantillon: 30 },

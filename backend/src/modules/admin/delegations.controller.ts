@@ -2,7 +2,6 @@ import type { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { queryBoolean } from "../../lib/list-query";
 import { prisma } from "../../lib/prisma";
-import { queryBoolean } from "../../lib/list-query";
 import { ApiError } from "../../middleware/error.middleware";
 import { logAuditTransactionnelle, construireAudit } from "../../utils/audit";
 import {

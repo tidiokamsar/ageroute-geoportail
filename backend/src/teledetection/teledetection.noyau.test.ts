@@ -385,10 +385,9 @@ describe("Gravite des regles de coherence (reportee du lot 17)", () => {
   });
   it("chaque regle de la vue est connue du noyau (les deux migrations sont relues)", () => {
     const migrations = ["20261022020000_teledetection_coherence", "20261025120000_teledetection_coherence_complements"]
-      .map((m) => readFileSync(join(__dirname, "..", "..", "prisma", "migrations", m, "migration.sql"), "utf8")).join("
-");
+      .map((m) => readFileSync(join(__dirname, "..", "..", "prisma", "migrations", m, "migration.sql"), "utf8")).join("\n");
     const vue = migrations.slice(migrations.lastIndexOf('CREATE OR REPLACE VIEW "coherence_teledetection"'));
-    const regles = [...vue.matchAll(/SELECT pt."id"(?: AS "propositionId")?, '([A-Z_]+)'/g)].map((m) => m[1]);
+    const regles = [...vue.matchAll(/SELECT pt\."id"(?: AS "propositionId")?, '([A-Z_]+)'/g)].map((m) => m[1]);
     expect(regles.length).toBe(8);
     for (const r of regles) expect(Object.keys(GRAVITE_COHERENCE)).toContain(r);
   });

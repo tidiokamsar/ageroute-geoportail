@@ -39,6 +39,10 @@ interface Props {
 
 const CASE = "h-5 w-5 shrink-0 accent-navy";
 const LIGNE = "flex min-h-11 cursor-pointer items-center gap-2 xl:min-h-8";
+// Deux constantes plutot qu'un ternaire de litteraux : le test de contraste (test/contraste.ts) lit une chaine par ligne et prendrait
+// le blanc du choix actif pour le texte du choix inactif (faux positif « gray-800 sur navy »).
+const FOND_ACTIF = "border-navy bg-navy text-white";
+const FOND_INACTIF = "border-gray-300 text-gray-800 hover:bg-gray-50";
 const TITRE_GROUPE = "text-xs font-semibold uppercase tracking-wide text-gray-700";
 const CHAMP = "h-11 w-full rounded-md border border-gray-300 bg-white px-2 text-sm text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60 xl:h-9";
 
@@ -256,7 +260,7 @@ export function PanneauFiltresCarte(p: Props) {
                   type="button"
                   aria-pressed={fond === k}
                   onClick={() => onFond(k)}
-                  className={`min-h-11 rounded-md border px-1.5 text-center text-xs leading-tight xl:min-h-9 ${fond === k ? "border-navy bg-navy text-white" : "border-gray-300 text-gray-800 hover:bg-gray-50"}`}
+                  className={`min-h-11 rounded-md border px-1.5 text-center text-xs leading-tight xl:min-h-9 ${fond === k ? FOND_ACTIF : FOND_INACTIF}`}
                 >
                   {FONDS[k].label}
                 </button>

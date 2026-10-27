@@ -288,6 +288,10 @@ const LIGNES_COUCHES: { cle: Exclude<keyof CouchesCarte, "observationsTerrain">;
   { cle: "limites", libelle: LIBELLE_COUCHE.limites },
 ];
 
+// Deux constantes plutot qu'un ternaire de litteraux : le test de contraste (test/contraste.ts) lit une chaine par ligne et prendrait
+// le blanc du choix actif pour le texte du choix inactif (faux positif « gray-800 sur navy »).
+const FOND_ACTIF = "border-navy bg-navy text-white";
+const FOND_INACTIF = "border-gray-300 text-gray-800 hover:bg-gray-50";
 const CLASSES_COMMANDE = "flex h-11 w-11 items-center justify-center rounded-lg border border-gray-300 bg-white text-navy shadow-md hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/60";
 
 export function CarteObservationTerre(p: CarteObservationTerreProps) {
@@ -488,7 +492,7 @@ export function CarteObservationTerre(p: CarteObservationTerreProps) {
                           type="button"
                           aria-pressed={fond === k}
                           onClick={() => setFond(k)}
-                          className={`min-h-11 rounded-md border px-1.5 text-center text-xs leading-tight xl:min-h-9 ${fond === k ? "border-navy bg-navy text-white" : "border-gray-300 text-gray-800 hover:bg-gray-50"}`}
+                          className={`min-h-11 rounded-md border px-1.5 text-center text-xs leading-tight xl:min-h-9 ${fond === k ? FOND_ACTIF : FOND_INACTIF}`}
                         >
                           {FONDS[k].label}
                         </button>

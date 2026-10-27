@@ -3,7 +3,7 @@ import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClie
 import { api } from "./api";
 import {
   affecterAUneInspection, ApercuIllisible, classerErreur, estErreurAutorisation, lirePropositionsGeo, lireProposition, lirePropositions,
-  lireApercu, lireQualiteMethodes, lireSources, lireSynthese, poserTransition, verifierSource,
+  lireApercu, lireCoherence, lireQualiteMethodes, lireSources, lireSynthese, poserTransition, verifierSource,
   type CorpsTransition, type Emprise, type ErreurTd, type FiltresPropositions, type FiltresSynthese,
 } from "./teledetectionApi";
 
@@ -62,6 +62,11 @@ export function usePropositionDetail(id: string | null) {
 /** Verdicts par methode : agregat NATIONAL (403 HORS_PERIMETRE pour un compte regional, jamais retente : c'est un etat, pas une panne). */
 export function useQualiteMethodes() {
   return useQuery({ queryKey: [CLE, "qualite-methodes"], queryFn: lireQualiteMethodes, ...OPTIONS_LECTURE });
+}
+
+/** Anomalies de coherence : agregat NATIONAL comme la qualite par methode (403 HORS_PERIMETRE pour un compte regional, etat et non panne). */
+export function useCoherence() {
+  return useQuery({ queryKey: [CLE, "coherence"], queryFn: lireCoherence, ...OPTIONS_LECTURE });
 }
 
 export function useSources() {

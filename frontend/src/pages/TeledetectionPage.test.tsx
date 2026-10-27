@@ -61,6 +61,7 @@ const URL_LISTE = "/v2/teledetection/propositions";
 const URL_GEO = "/v2/teledetection/propositions.geojson";
 const URL_SRC = "/v2/teledetection/sources";
 const URL_QUALITE = "/v2/teledetection/qualite-methodes";
+const URL_COHERENCE = "/v2/teledetection/coherence";
 
 const GEO = { type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "Point", coordinates: [-13.5, 9.5] }, properties: { id: "p-1", type: "INONDATION", statut: "A_VERIFIER", priorite: "HAUTE", rattachee: true } }] };
 
@@ -84,6 +85,7 @@ beforeEach(() => {
     [URL_GEO]: GEO,
     [URL_SRC]: [source({ code: "SRC-A", nom: "Source A" }), source({ code: "SRC-B", nom: "Source B", etat: "ACCESSIBLE" })],
     "/regions": [{ id: 1, nom: "Conakry" }],
+    [URL_COHERENCE]: { bloquantes: 0, aExaminer: 0, tronquee: false, anomalies: [] },
     [URL_QUALITE]: { seuilEchantillon: 30, definition: "d", lignes: [{ type: "INONDATION", methode: "seuil-sar v0", methodeNom: "seuil-sar", methodeVersion: "0", total: 5, aVerifier: 3, enAttente: 0, nonConcluantes: 0, confirmees: 1, infirmees: 1, jugees: 2, tauxConfirmation: 0.5, echantillonSuffisant: false, seuilEchantillon: 30 }] },
     "/v2/teledetection/propositions/p-1": detail(),
     "/v2/teledetection/propositions/p-77": detail({ id: "p-77", type: "COUPURE_PROBABLE" }),
@@ -641,7 +643,7 @@ describe("decision depuis l'ecran : ecriture puis rechargement", () => {
   });
 
   it("dit les anomalies de coherence, bloquantes et a examiner distinguees", async () => {
-    h.get["/v2/teledetection/coherence"] = {
+    table[URL_COHERENCE] = {
       bloquantes: 1, aExaminer: 1, tronquee: false,
       anomalies: [
         { propositionId: "pr-9", regle: "HORS_EMPRISE_PRODUIT", detail: "S1", gravite: "BLOQUANTE" },
@@ -656,8 +658,17 @@ describe("decision depuis l'ecran : ecriture puis rechargement", () => {
   });
 
   it("sans anomalie, le dit", async () => {
-    h.get["/v2/teledetection/coherence"] = { bloquantes: 0, aExaminer: 0, tronquee: false, anomalies: [] };
+    table[URL_COHERENCE] = { bloquantes: 0, aExaminer: 0, tronquee: false, anomalies: [] };
     rendre();
     expect(await screen.findByText("Aucune anomalie.")).toBeInTheDocument();
+  });
+
+  it("compte regional : 403 HORS_PERIMETRE sur /coherence -> message dedie, ni panne ni « Aucune anomalie » ; le reste de la page fonctionne", async () => {
+    table[URL_COHERENCE] = echec(403, "Agrégat national", "HORS_PERIMETRE");
+    rendre();
+    await screen.findByRole("button", { name: /Inondation/ });
+    expect(await screen.findByText(/Cohérence : accès refusé/)).toBeInTheDocument();
+    expect(screen.queryByText("Aucune anomalie.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });

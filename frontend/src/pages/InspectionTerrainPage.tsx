@@ -434,7 +434,7 @@ export function InspectionTerrainPage() {
               <div key={i} className="relative aspect-square rounded-lg overflow-hidden border border-gray-200">
                 {p.previewUrl
                   ? <img src={p.previewUrl} alt="" className="w-full h-full object-cover" />
-                  : <div className="flex h-full w-full items-center justify-center bg-gray-100 px-1 text-center text-[11px] text-gray-500">Aperçu masqué</div>}
+                  : <div className="flex h-full w-full items-center justify-center bg-gray-100 px-1 text-center text-[11px] text-gray-600">Aperçu masqué</div>}
                 <button
                   onClick={() => removePhoto(i)}
                   className="absolute top-1 right-1 h-6 w-6 flex items-center justify-center rounded-full bg-black/60 text-white"

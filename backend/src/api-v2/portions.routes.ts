@@ -4,7 +4,6 @@ import { queryBoolean } from "../lib/list-query";
 import { requireAuth } from "../middleware/auth.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
 import { prisma } from "../lib/prisma";
-import { queryBoolean } from "../lib/list-query";
 import { verdictDelegation } from "../governance/delegation.service";
 import { dateEffet } from "../reseau/date-effet";
 import { chronologie, lirePortionsALaDate, RefusCurseur, type Emprise } from "../reseau/curseur.service";

@@ -5,7 +5,6 @@ import { requireAuth } from "../middleware/auth.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
 import { requireRole } from "../middleware/rbac.middleware";
 import { requireTerritoire } from "../middleware/territoire.middleware";
-import { queryBoolean } from "../lib/list-query";
 import { CORRECTION_PROPOSEE, GRAVITE_PAR_FAMILLE } from "../qualite/anomalies";
 import {
   actifsSansValidation,

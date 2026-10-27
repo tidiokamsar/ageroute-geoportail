@@ -5,7 +5,7 @@ import { CloudOff } from "lucide-react";
 export function IndisponibleHorsLigne() {
   return (
     <div className="flex h-[60vh] flex-col items-center justify-center gap-3 px-6 text-center">
-      <CloudOff className="h-10 w-10 text-amber-600" aria-hidden="true" />
+      <CloudOff className="h-10 w-10 text-amber-700" aria-hidden="true" />
       <h1 className="text-lg font-bold text-navy">Disponible en ligne seulement</h1>
       <p className="max-w-sm text-sm text-gray-700">
         Cette page a besoin du réseau. Hors ligne, seuls le relevé en roulant et la saisie de terrain fonctionnent : vos saisies sont

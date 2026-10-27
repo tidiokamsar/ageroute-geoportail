@@ -352,3 +352,12 @@ export async function lireApercu(url: string): Promise<Blob> {
 export async function lireQualiteMethodes(): Promise<QualiteMethodes> {
   return (await api.get<QualiteMethodes>(`${BASE}/qualite-methodes`)).data;
 }
+
+/** Une anomalie de la vue `coherence_teledetection` (ajout du lot 17, reporte sur l'ecran EO). */
+export interface AnomalieCoherence { propositionId: string; regle: string; detail: string | null; gravite: "BLOQUANTE" | "A_EXAMINER" }
+export interface Coherence { bloquantes: number; aExaminer: number; tronquee: boolean; anomalies: AnomalieCoherence[] }
+
+/** Anomalies entre registre, propositions, missions et verdicts (compte NATIONAL seulement : 403 HORS_PERIMETRE pour un compte regional). */
+export async function lireCoherence(): Promise<Coherence> {
+  return (await api.get<Coherence>(`${BASE}/coherence`)).data;
+}
