@@ -1,5 +1,6 @@
 /**
- * PARAMETRES DU MOTEUR DE RISQUE ET DE PROGRAMMATION (paragraphe 7.7). AUCUN IMPORT.
+ * PARAMETRES DU MOTEUR DE RISQUE ET DE PROGRAMMATION (paragraphe 7.7). AUCUN IMPORT, sauf le bloc optionnel
+ * `priorite` (priorite.parametres.ts, lui-meme sans import ; ajout du lot AD-3, voir PRIORISATION.md).
  *
  * « Aucun calcul normatif n'est active comme officiel avant approbation des parametres. »
  * (MAINTENANCE_PROGRAMMING_DESIGN.md, paragraphe 7.7 du mandat V10.)
@@ -23,6 +24,8 @@
  * l'an dernier doit rester explicable, ce qui suppose que ses parametres n'aient pas change sous
  * lui. Chaque fiche d'intervention embarque d'ailleurs une COPIE INTEGRALE des parametres.
  */
+
+import { validerBlocPriorite, type BlocPriorite } from "./priorite.parametres";
 
 export const ETIQUETTE_PROVISOIRE = "PROVISOIRE, non approuvé";
 export const ETIQUETTE_APPROUVE = "paramètres approuvés";
@@ -54,6 +57,11 @@ export interface ValeursParametres {
   horizonAnnees: number;
   /** Risque courant en dessous duquel un troncon n'est pas candidat ; `null` = aucun seuil. */
   seuilRisqueMinimal: number | null;
+  /**
+   * OPTIONNEL (lot AD-3). Poids et regles de la priorite technique explicable. Absent des versions anterieures : le calcul
+   * de priorite prend alors le bloc d'amorcage du code et DIT que la version ne le porte pas.
+   */
+  priorite?: BlocPriorite;
 }
 
 export type SourceParametres = "amorcage_provisoire" | "saisie";
@@ -117,8 +125,12 @@ export function validerValeurs(v: unknown): { ok: true; valeurs: ValeursParametr
   const o = v as Record<string, unknown>;
 
   const attendues = ["poidsRisque", "etatVersRisque", "traficPlafondJma", "pointsNoirsPlafond", "populationPlafond", "seuilsClasseTrafic", "facteursMinimum", "couvertureMinimale", "horizonAnnees", "seuilRisqueMinimal"];
-  for (const k of Object.keys(o)) if (!attendues.includes(k)) e.push(`cle inconnue : ${k}`);
+  for (const k of Object.keys(o)) if (!attendues.includes(k) && k !== "priorite") e.push(`cle inconnue : ${k}`);
   for (const k of attendues) if (!(k in o)) e.push(`cle manquante : ${k}`);
+  if ("priorite" in o) {
+    const bloc = validerBlocPriorite(o.priorite);
+    if (!bloc.ok) e.push(...bloc.erreurs);
+  }
 
   const poids = o.poidsRisque as Record<string, unknown> | undefined;
   if (poids && typeof poids === "object") {

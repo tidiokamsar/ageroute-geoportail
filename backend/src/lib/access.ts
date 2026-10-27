@@ -69,6 +69,22 @@ export const MODULE_PAR_ENTITE: Record<string, ModuleKey | null> = {
   Marche: "marches",
   Decompte: "marches",
   Bailleur: "marches",
+  // Module Aide a la decision (lot AD-7). Ces objets sont ecrits ET audites par le moteur de programmation, mais l'historique
+  // etait illisible (type absent de la table, donc refuse a tous, ADMIN compris). Ils suivent le module des routes qui les
+  // ecrivent : le moteur v2 (parametres, scenarios, fiches, plans pluriannuels) et les previsions sont sous `programmation` ;
+  // les baremes (/api/v2/baremes) sont sous `decision`. Un LECTEUR qui a le module lit donc l'historique, comme pour les autres
+  // entites : les valeurs avant/apres sont celles qu'il peut deja lire par l'API du module.
+  ParametresProgrammation: "programmation",
+  ScenarioProgrammation: "programmation",
+  FicheIntervention: "programmation",
+  PlanPluriannuel: "programmation",
+  ProgrammeBudgetaire: "programmation",
+  BaremeIntervention: "decision",
+  ExportJournal: "rapports",
+  // Trace de l'export d'un scenario du simulateur (GET /api/v2/aide-decision/scenarios/:id/export, entityId = identifiant du
+  // scenario) : meme module que le journal des exports. Le contenu audite (format, intitule, periode, perimetre, territoire,
+  // nombre de lignes, droit financier) ne porte aucun montant.
+  ExportScenario: "rapports",
   Document: "documents",
   SignalementCitoyen: "signalements",
   User: null,

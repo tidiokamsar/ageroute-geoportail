@@ -62,6 +62,7 @@ const codeRefus = (m: string | null) => (m ? m.split("|")[0] : null);
 const U_ADMIN = "00000000-0000-4000-8000-0000000000a1";
 const U_GEST = "00000000-0000-4000-8000-0000000000a2";
 const ctxGest = { userId: U_GEST, email: "gest@essai.invalid" };
+const ctxAdminPpe = { userId: U_ADMIN, email: "admin@essai.invalid", role: "ADMIN" };
 
 async function troncon(code: string, o: { etat: string; rev?: string; jma?: number | null; longueurKm: number; region?: string; lat?: number; src?: string | null; statut?: string | null; supprime?: boolean }) {
   const wkt = `LINESTRING(-13.6 ${o.lat ?? 9.6}, -13.58 ${o.lat ?? 9.6})`;
@@ -75,6 +76,20 @@ async function pointNoir(code: string, n: number) {
     await sql(
       `INSERT INTO points_noirs (id, description, "regionId", "tronconId", gravite, "updatedAt")
        VALUES (gen_random_uuid()::text, 'pn essai', (SELECT "regionId" FROM troncons WHERE code = $1), (SELECT id FROM troncons WHERE code = $1), 'FORTE'::"Gravite", now())`, code);
+  }
+}
+
+/**
+ * REGISTRE EXPLOITE (revue, item 5) : depuis que le moteur applique la regle des points noirs de la liste priorisee (`resoudreSecurite`), un troncon
+ * sans point noir n'a « zero point noir » QUE si le registre de sa region compte au moins 5 points confirmes ; sinon le facteur securite est ABSENT.
+ * L'oracle SQL compte les points noirs rattaches au troncon : les regions PPE1 et PPE2 recoivent donc 5 points « de registre » (rattaches a la
+ * region, a aucun troncon). La region PPE3, sans facteur exploitable, n'en recoit pas : son facteur securite reste absent, comme le reseau reel.
+ */
+async function registreDeRegion(nomRegion: string, n: number) {
+  for (let i = 0; i < n; i++) {
+    await sql(
+      `INSERT INTO points_noirs (id, description, "regionId", "tronconId", gravite, "updatedAt")
+       VALUES (gen_random_uuid()::text, 'pn essai', (SELECT id FROM regions WHERE nom = $1), NULL, 'FORTE'::"Gravite", now())`, nomRegion);
   }
 }
 
@@ -220,6 +235,7 @@ async function main() {
   await troncon("PPE-S2", { etat: "CRITIQUE", jma: null, longueurKm: 1, region: "Region PPE3", lat: 9.76 });
   // Le registre des points noirs est non vide : la facette securite est LUE (0 point noir = aucun enregistre).
   await pointNoir("PPE-01", 2); await pointNoir("PPE-02", 1); await pointNoir("PPE-05", 3); await pointNoir("PPE-06", 1); await pointNoir("PPE-08", 1);
+  await registreDeRegion("Region PPE1", 5); await registreDeRegion("Region PPE2", 5);
   const regionId = (await lire<{ id: number }>(`SELECT id FROM regions WHERE nom = 'Region PPE3'`))[0].id;
 
   // ---------- Plan [4 Md, 6 Md, 3 Md] contre l'oracle independant
@@ -394,7 +410,7 @@ async function main() {
   verifier("apres PROPOSE : statut courant PROPOSE, historique en ajout seul BROUILLON puis PROPOSE (origine GEOPORTAIL, motif conserve)", f2.statut === "PROPOSE" && f2.rangStatut === 2
     && f2.historique.map((h: any) => `${h.rang}:${h.vers}:${h.origine}`).join() === "1:BROUILLON:GEOPORTAIL,2:PROPOSE:GEOPORTAIL" && f2.historique[1].motif === "relue en essai", f2);
   await moteur.changerStatutFiche(prisma, f1.id, "ARBITRE", "arbitree en essai", ctxGest);
-  await moteur.changerStatutFiche(prisma, f1.id, "APPROUVE", "approuvee en essai", ctxGest);
+  await moteur.changerStatutFiche(prisma, f1.id, "APPROUVE", "approuvee en essai", ctxAdminPpe); // AD-07 : un autre compte que celui qui a fige la fiche approuve
   verifier("TRANSMIS ne se saisit pas depuis le Geoportail (origine DigitalRoad exigee) : refus ORIGINE_INTERDITE, l'historique du volet ne bouge pas",
     codeRefus(await echec(() => moteur.changerStatutFiche(prisma, f1.id, "TRANSMIS", "tentative", ctxGest))) === "ORIGINE_INTERDITE"
     && (await voletProgrammation(prisma, t0.id)).interventionsFigees.fiches[0].historique.length === 4

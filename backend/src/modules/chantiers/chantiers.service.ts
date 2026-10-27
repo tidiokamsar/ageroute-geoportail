@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { localisationDe, REGION_NON_RENSEIGNEE } from "../../lib/localisation";
 import { createCrudService, type ListParams } from "../../lib/crud-factory";
@@ -105,7 +106,17 @@ async function list(params: ChantierListParams) {
  * vaut une absence qu'une position inventee.
  */
 
-async function listGeo() {
+/**
+ * Fragment SQL de perimetre territorial (lot AD-7) : `null` = toutes les regions (compte national, comportement d'avant),
+ * sinon les regions du compte. Une liste VIDE ne vaut pas « tout » : elle ne laisse rien passer.
+ */
+function perimetreSql(regions: readonly number[] | null | undefined): Prisma.Sql {
+  if (regions == null) return Prisma.empty;
+  if (regions.length === 0) return Prisma.sql`AND FALSE`;
+  return Prisma.sql`AND c."regionId" IN (${Prisma.join([...regions])})`;
+}
+
+async function listGeo(regions: readonly number[] | null = null) {
   const rows = await prisma.$queryRaw<
     {
       id: string; intitule: string; statut: string; avancementPct: number; region: string | null;
@@ -130,6 +141,7 @@ async function listGeo() {
     LEFT JOIN limites_admin la
       ON la.niveau = 1 AND unaccent(lower(la.nom)) = unaccent(lower(r.nom))
     WHERE c."deletedAt" IS NULL
+    ${perimetreSql(regions)}
   `;
   return rows
     .map((r) => {
@@ -196,7 +208,7 @@ async function listGeo() {
  * liste est le pendant necessaire de leur retrait de la carte — sans elle, retirer
  * les 50 reviendrait a les effacer.
  */
-async function listSansLocalisation() {
+async function listSansLocalisation(regions: readonly number[] | null = null) {
   const rows = await prisma.$queryRaw<
     { id: string; intitule: string; statut: string; entreprise: string | null; region: string | null }[]
   >`
@@ -204,6 +216,7 @@ async function listSansLocalisation() {
     FROM chantiers c
     LEFT JOIN regions r ON r.id = c."regionId"
     WHERE c."deletedAt" IS NULL
+      ${perimetreSql(regions)}
       AND c.geom IS NULL
       AND c."tronconId" IS NULL
       -- Le troisieme cas est le pendant obligatoire du retrait cote carte : un chantier
@@ -240,9 +253,9 @@ const EXPORT_COLUMNS = [
   { key: "observations", header: "Observations" },
 ];
 
-async function exportXlsx(): Promise<Buffer> {
+async function exportXlsx(regions: readonly number[] | null = null): Promise<Buffer> {
   const rows = await prisma.chantier.findMany({
-    where: { deletedAt: null },
+    where: { deletedAt: null, ...(regions === null ? {} : { regionId: { in: [...regions] } }) },
     include: { region: true, troncon: true },
     orderBy: { createdAt: "desc" },
   });

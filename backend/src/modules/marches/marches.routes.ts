@@ -4,6 +4,7 @@ import { evaluerCriteres, calculerScore } from "../../lib/priorisation";
 import { requireAuth } from "../../middleware/auth.middleware";
 import { requireRole } from "../../middleware/rbac.middleware";
 import { requireModuleAccess } from "../../middleware/module-access.middleware";
+import { regionsVisibles } from "../../territoire/territoire.lecture";
 import { simulateurBudgetSchema } from "./marches.schema";
 import { computeAlertesContractuelles } from "./alertes.service";
 import { sendAlertesEmail } from "../../jobs/alertes-contractuelles";
@@ -55,14 +56,21 @@ type ScoredTroncon = {
 async function computeScores(opts: {
   wEtat: number; wTrafic: number; wStrat: number; wCout: number;
   region?: string; classe?: string; limit?: number;
+  /**
+   * Regions que le COMPTE voit (lot AD-7) ; `null` ou absent = toutes (compte national, ou appelant qui n'a pas encore ete
+   * migre). C'est le perimetre du compte, jamais celui de la requete : `region` (un nom saisi par le
+   * client) ne fait que RESTREINDRE DAVANTAGE, il ne remplace pas le perimetre.
+   */
+  regionIds?: readonly number[] | null;
 }): Promise<ScoredTroncon[]> {
-  const { wEtat, wTrafic, wStrat, wCout, region, classe, limit = 200 } = opts;
+  const { wEtat, wTrafic, wStrat, wCout, region, classe, limit = 200, regionIds = null } = opts;
 
   const notDeleted = { deletedAt: null };
   const where: Record<string, unknown> = {
     ...notDeleted,
     etat: { in: ["MAUVAIS", "CRITIQUE", "MOYEN"] },
   };
+  if (regionIds !== null) where["regionId"] = { in: [...regionIds] };
   if (region) where["region"] = { nom: region };
   if (classe) where["classe"] = classe;
 
@@ -148,6 +156,9 @@ marchesRouter.get("/priorisation/scores", requireAuth, requireModuleAccess("deci
       region: region as string | undefined,
       classe: classe as string | undefined,
       limit: Math.min(Number(limit), 500),
+      // La region vient du COMPTE : un compte regional ne recoit que les troncons de son perimetre, quelle que soit la
+      // region demandee dans la requete.
+      regionIds: await regionsVisibles(req.user!),
     });
 
     res.json({
@@ -178,6 +189,9 @@ marchesRouter.post("/simulateur/budget", requireAuth, requireModuleAccess("progr
       region: filtres.region,
       classe: filtres.classe,
       limit: 500,
+      // Meme restriction que `/priorisation/scores` : le perimetre vient du COMPTE (relu en base), jamais du corps. Sans elle un
+      // compte regional recevait jusqu'a 500 troncons nationaux ; `filtres.region` ne fait que restreindre davantage.
+      regionIds: await regionsVisibles(req.user!),
     });
 
     // Un plan de financement suppose des couts. Le cout de rehabilitation est vide sur

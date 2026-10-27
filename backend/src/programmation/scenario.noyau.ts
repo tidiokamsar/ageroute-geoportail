@@ -39,6 +39,17 @@
  *
  * LA PORTEE EST LE TRONCON ENTIER. `portions` compte zero ligne : la plage lineaire d'une fiche
  * est donc [0 ; longueur du troncon]. Ce n'est pas un choix de methode, c'est l'etat des donnees.
+ *
+ * EXTENSION DU SIMULATEUR (AD-LOT-4), EN ADDITIF STRICT
+ *
+ * `EntreesScenario.simulation` est un champ OPTIONNEL ET VERSIONNE (`OptionsSimulation.version`). Absent, rien
+ * ne change : `construireScenario`, `entreesVersJson` et `entreesDepuisJson` produisent EXACTEMENT les memes
+ * octets qu'avant l'extension, si bien qu'un scenario deja scelle (entrees et resultat canoniques, empreintes
+ * SHA-256 verifiees par la base) se rejoue identique octet pour octet. Un test le prouve avec les empreintes
+ * relevees sur le code d'avant l'extension. Present, le scenario porte en plus : une periode, une logique
+ * d'arbitrage nommee, des contraintes (obligatoires, groupes non divisibles, equilibre territorial), la version des
+ * baremes (empreinte + liste) et le bloc `simulation` du resultat (bilan, deficit, avertissements). Voir
+ * `contraintes.noyau.ts`, `logiques.noyau.ts`, `deficit.noyau.ts`, `comparaison.baremes.noyau.ts`.
  */
 
 import { estimer, formaterMontant, type LigneBareme } from "../engines/cout.noyau";
@@ -49,6 +60,13 @@ import {
   type ChoixTraitement, type ClasseTrafic, type ConditionTraitement, type LigneMatrice, type ProjectionDegradation, type Traitement,
 } from "../engines/traitement.noyau";
 import { etiquetteParametres, sontProvisoires, validerParametres, type ParametresProgrammation } from "./parametres.noyau";
+import { motifPeremption, type BaremeRef } from "./comparaison.baremes.noyau";
+import {
+  optionsDepuisJson, optionsVersJson, selectionner, validerOptions,
+  type ContrainteInsatisfaite, type OptionsSimulation, type PhaseSelection, type ResumeEquilibre, type ResumeGroupe,
+} from "./contraintes.noyau";
+import { MENTION_SIMULATION, bilanBudgetaire, pourcentage, type BilanBudgetaire } from "./deficit.noyau";
+import { logiqueDe, ordonner, type ElementClassable } from "./logiques.noyau";
 
 export const METHODE_PROGRAMMATION = { id: "programmation-glouton-explicable", version: "1" } as const;
 
@@ -69,6 +87,12 @@ export interface CandidatTroncon extends EntreesRisque {
   longueurM: number | null;
   /** D'ou vient la longueur : la colonne `longueurKm`, ou la geometrie quand la colonne est vide. `null` = non precise. */
   longueurOrigine?: "LONGUEUR_KM" | "GEOMETRIE" | null;
+  /**
+   * La colonne `longueurKm` est-elle DERIVEE de la geometrie (`valeurs_qualite` DERIVED) et non saisie ? `null` / absent : inconnu ou
+   * sans objet (pas de longueur metier). FAIT DE CHARGEMENT POUR L'AFFICHAGE (liste des candidats) : il n'entre dans aucun calcul et
+   * N'EST PAS SERIALISE dans les entrees scellees (`entreesVersJson`) : les empreintes des scenarios sont inchangees.
+   */
+  longueurMetierDerivee?: boolean | null;
 }
 
 export interface EntreesScenario {
@@ -83,6 +107,8 @@ export interface EntreesScenario {
   catalogue: Traitement[];
   conditions: ConditionTraitement[];
   matrices: LigneMatrice[];
+  /** OPTIONNEL ET VERSIONNE : options du simulateur (periode, logique, contraintes, version des baremes). Absent = scenario annuel herite. */
+  simulation?: OptionsSimulation;
 }
 
 export type CodeExclusion =
@@ -90,11 +116,15 @@ export type CodeExclusion =
   | "SOUS_SEUIL_RISQUE"
   | "AUCUN_TRAITEMENT"
   | "COUT_NON_ESTIMABLE"
+  /** Simulateur : la fenetre de validite du bareme ne couvre pas la periode ; le cout n'est pas simule comme fiable. */
+  | "COUT_PERIME"
   | "BUDGET_INSUFFISANT"
-  | "PLAFOND_REGIONAL";
+  | "PLAFOND_REGIONAL"
+  /** Simulateur : ecartee par une contrainte (groupe non divisible incomplet). */
+  | "EXCLUE_CONTRAINTE";
 
 /** Ordre dans lequel les lignes ecartees avant classement sont listees. */
-const ORDRE_EXCLUSION: readonly CodeExclusion[] = ["RISQUE_NON_CALCULABLE", "SOUS_SEUIL_RISQUE", "AUCUN_TRAITEMENT", "COUT_NON_ESTIMABLE", "BUDGET_INSUFFISANT", "PLAFOND_REGIONAL"];
+const ORDRE_EXCLUSION: readonly CodeExclusion[] = ["RISQUE_NON_CALCULABLE", "SOUS_SEUIL_RISQUE", "AUCUN_TRAITEMENT", "COUT_NON_ESTIMABLE", "COUT_PERIME", "BUDGET_INSUFFISANT", "PLAFOND_REGIONAL", "EXCLUE_CONTRAINTE"];
 
 export interface FacteurTrace {
   facteur: string; poids: number; disponible: boolean; valeur: number | null; brut: number | string | null; origine: string | null; note: string;
@@ -130,6 +160,65 @@ export interface LigneScenario {
   budget: { resteAvantGnf: string; resteApresGnf: string } | null;
   etiquette: string;
   justification: string;
+  /** Present dans un scenario du simulateur seulement. */
+  simulation?: LigneSimulation;
+}
+
+/** Ce que le simulateur ajoute a une ligne : ordre d'arbitrage ET priorite technique, separes ; la source du cout. */
+export interface LigneSimulation {
+  /** Position dans l'ordre de la logique choisie (parmi les chiffrables) ; `null` si ecartee avant classement. */
+  ordreArbitrage: number | null;
+  /** Rang d'examen reel (obligatoires, plancher regional, puis ordre) ; `null` si ecartee avant classement. */
+  examen: number | null;
+  phase: PhaseSelection | null;
+  /** Priorite technique, AFFICHEE a cote de l'ordre d'arbitrage et ne le remplacant jamais. */
+  prioriteTechnique: { rang: number | null; source: "lot3_priorite_technique" | "moteur_v2_risque_courant" };
+  obligatoire: boolean;
+  groupe: number | null;
+  /** D'ou vient le cout : ligne de bareme, version, unite, fenetre de validite, approbation. `null` sans cout calcule. */
+  coutSource: (Pick<BaremeRef, "version" | "uniteCout" | "devise" | "validDe" | "validA" | "anneeReference"> & { baremeId: number | string; baremeCode: string | null; approuve: boolean }) | null;
+  /** Vrai si le cout est utilise dans le bilan : faux pour un cout manquant, perime ou refuse. */
+  coutFiable: boolean;
+}
+
+export interface AvertissementSimulation { code: string; niveau: "ALERTE" | "INFO"; nb: number | null; message: string }
+
+export interface ResultatSimulation {
+  version: 1;
+  mention: string;
+  periode: { debut: string; fin: string };
+  devise: "GNF";
+  logique: { code: string; libelle: string; explication: string; regle: string; provisoire: boolean; ordrePersonnalise: string[]; equilibre: { partMinimaleParRegionPct: number } | null };
+  bilan: BilanBudgetaire;
+  /** Candidats dont le cout n'est pas utilisable (manquant, perime, sans traitement, risque non calculable), par motif. */
+  coutsNonFiables: { code: string; nb: number; troncons: string[] }[];
+  contraintes: {
+    obligatoires: { demandees: string[]; effectives: string[]; retenues: string[]; nonRetenues: string[] };
+    groupesNonDivisibles: ResumeGroupe[];
+    plafondsRegionauxGnf: Record<string, string>;
+    equilibre: ResumeEquilibre[] | null;
+    insatisfaisables: ContrainteInsatisfaite[];
+  };
+  kilometres: {
+    /** Somme des longueurs METIER (colonne `longueurKm`) des interventions retenues, en metres ; `null` si aucune n'a de longueur metier. */
+    metierM: number | null;
+    metierKm: string | null;
+    lignesAvecLongueurMetier: number;
+    lignesSansLongueurMetier: number;
+    /** Longueur calculee sur la geometrie des lignes SANS longueur metier : AFFICHEE A PART, jamais ajoutee au metier. */
+    geometriqueM: number | null;
+    geometriqueKm: string | null;
+    note: string;
+  };
+  risqueCouvert: {
+    retenuMicro: number; totalChiffrableMicro: number; totalCalculableMicro: number;
+    partChiffrablePct: string | null; partCalculablePct: string | null; nbSansRisqueCalculable: number;
+  };
+  distributionRegionale: { regionId: number | null; nbRetenues: number; engageGnf: string; nbEcartees: number; besoinGnf: string }[];
+  baremes: { empreinte: string; nbLignes: number; nbApprouvees: number; nbProvisoires: number; liste: BaremeRef[] };
+  parametresVersion: string;
+  rangsTechniquesSource: "lot3_priorite_technique" | "moteur_v2_risque_courant";
+  avertissements: AvertissementSimulation[];
 }
 
 export interface Scenario {
@@ -151,6 +240,8 @@ export interface Scenario {
     engageParRegionGnf: Record<string, string>;
   };
   lignes: LigneScenario[];
+  /** Present dans un scenario du simulateur seulement. */
+  simulation?: ResultatSimulation;
 }
 
 export type ResultatConstruction = { ok: true; scenario: Scenario } | { ok: false; code: "ENTREES_INVALIDES"; erreurs: string[] };
@@ -187,6 +278,11 @@ export function validerEntrees(e: EntreesScenario): string[] {
   }
   for (const [nom, tab] of [["baremes", e.baremes], ["catalogue", e.catalogue], ["conditions", e.conditions], ["matrices", e.matrices]] as const) {
     if (!Array.isArray(tab)) err.push(`${nom} : tableau attendu`);
+  }
+  // Options du simulateur : jugees seulement si elles sont presentes (un scenario herite n'est jamais touche).
+  if (e.simulation !== undefined && Array.isArray(e.candidats) && Array.isArray(e.baremes)) {
+    const regions = [...new Set(e.candidats.map((c) => c.regionId).filter((r): r is number => typeof r === "number"))];
+    err.push(...validerOptions(e.simulation, { annee: e.annee, candidatIds: new Set(e.candidats.map((c) => c.id)), regionsCandidates: regions, baremes: e.baremes }));
   }
   return err;
 }
@@ -247,6 +343,15 @@ function evaluer(c: CandidatTroncon, e: EntreesScenario): Evalue {
   );
   if (!est.ok) {
     return { ...base, traitement: ch, cout: { ok: false, code: est.code, motif: est.motif }, exclusion: { code: "COUT_NON_ESTIMABLE", detail: `${est.code} : ${est.motif}` } };
+  }
+  if (e.simulation) {
+    // AD-09 : un cout dont la fenetre de validite ne couvre pas la periode n'est PAS simule comme s'il etait fiable.
+    const ref = e.simulation.baremes.liste.find((r) => String(r.id) === String(est.bareme.id));
+    const peremption = ref ? motifPeremption(ref, e.simulation.periode) : `la ligne de barème ${String(est.bareme.id)} n'est pas dans la version enregistrée`;
+    if (peremption !== null) {
+      const motif = `le coût n'est pas fiable pour la période : ${peremption}`;
+      return { ...base, traitement: ch, cout: { ok: false, code: "COUT_PERIME", motif }, exclusion: { code: "COUT_PERIME", detail: `COUT_PERIME : ${motif}` } };
+    }
   }
   if (est.montant <= 0n) {
     const motif = "le montant estime est nul : la longueur est inferieure a un demi-metre";
@@ -323,12 +428,34 @@ const LIMITES: readonly string[] = [
 ];
 
 /**
+ * Ce qui rend le scenario provisoire : chaque cause est nommee, rien n'est suppose approuve. `retenues` : les lignes
+ * RETENUES seulement (un cout, un traitement ou une matrice non approuves d'une ligne ecartee ne rendent pas le resultat provisoire).
+ */
+function motifsProvisoireDe(p: ParametresProgrammation, retenues: readonly LigneScenario[]): string[] {
+  const motifs: string[] = [];
+  if (sontProvisoires(p)) motifs.push(`paramètres de programmation non approuvés (version ${p.version}, source ${p.source})`);
+  const coutsProv = retenues.filter((l) => l.cout && l.cout.ok && l.cout.provisoire);
+  if (coutsProv.length > 0) {
+    const hyp = [...new Set(coutsProv.flatMap((l) => (l.cout as { hypothesesManquantes: string[] }).hypothesesManquantes))].sort();
+    motifs.push(`${coutsProv.length} ligne(s) retenue(s) chiffrée(s) sur un barème provisoire : ${hyp.join(", ")}`);
+  }
+  const traitNonAppr = [...new Set(retenues.filter((l) => l.traitement && l.traitement.ok && !l.traitement.traitement.approuve).map((l) => (l.traitement as { ok: true; traitement: { code: string } }).traitement.code))].sort();
+  if (traitNonAppr.length > 0) motifs.push(`traitement(s) du catalogue non approuvé(s) : ${traitNonAppr.join(", ")}`);
+  const longueursCalculees = retenues.filter((l) => l.troncon.longueurOrigine === "GEOMETRIE").length;
+  if (longueursCalculees > 0) motifs.push(`${longueursCalculees} ligne(s) retenue(s) chiffrée(s) sur une longueur calculée sur la géométrie, non saisie`);
+  const matNonAppr = retenues.filter((l) => l.projection && l.projection.ok && !l.projection.matrice.approuvee).length;
+  if (matNonAppr > 0) motifs.push(`${matNonAppr} ligne(s) retenue(s) projetée(s) par une matrice de dégradation non approuvée`);
+  return motifs;
+}
+
+/**
  * Construit le scenario. Fonction pure : appelee deux fois avec les memes entrees, elle rend deux
  * objets dont `canonique()` est identique octet pour octet.
  */
 export function construireScenario(entrees: EntreesScenario): ResultatConstruction {
   const erreurs = validerEntrees(entrees);
   if (erreurs.length > 0) return { ok: false, code: "ENTREES_INVALIDES", erreurs };
+  if (entrees.simulation !== undefined) return { ok: true, scenario: construireSimulation(entrees, entrees.simulation) };
 
   const p = entrees.parametres;
   const etiquette = etiquetteParametres(p);
@@ -399,20 +526,7 @@ export function construireScenario(entrees: EntreesScenario): ResultatConstructi
   const lignes = [...lignesClassees, ...lignesExclues];
   const retenues = lignes.filter((l) => l.decision === "RETENUE");
 
-  // Ce qui rend le scenario provisoire : chaque cause est nommee, rien n'est suppose approuve.
-  const motifsProvisoire: string[] = [];
-  if (sontProvisoires(p)) motifsProvisoire.push(`paramètres de programmation non approuvés (version ${p.version}, source ${p.source})`);
-  const coutsProv = lignesClassees.filter((l) => l.decision === "RETENUE" && l.cout && l.cout.ok && l.cout.provisoire);
-  if (coutsProv.length > 0) {
-    const hyp = [...new Set(coutsProv.flatMap((l) => (l.cout as { hypothesesManquantes: string[] }).hypothesesManquantes))].sort();
-    motifsProvisoire.push(`${coutsProv.length} ligne(s) retenue(s) chiffrée(s) sur un barème provisoire : ${hyp.join(", ")}`);
-  }
-  const traitNonAppr = [...new Set(retenues.filter((l) => l.traitement && l.traitement.ok && !l.traitement.traitement.approuve).map((l) => (l.traitement as { ok: true; traitement: { code: string } }).traitement.code))].sort();
-  if (traitNonAppr.length > 0) motifsProvisoire.push(`traitement(s) du catalogue non approuvé(s) : ${traitNonAppr.join(", ")}`);
-  const longueursCalculees = retenues.filter((l) => l.troncon.longueurOrigine === "GEOMETRIE").length;
-  if (longueursCalculees > 0) motifsProvisoire.push(`${longueursCalculees} ligne(s) retenue(s) chiffrée(s) sur une longueur calculée sur la géométrie, non saisie`);
-  const matNonAppr = retenues.filter((l) => l.projection && l.projection.ok && !l.projection.matrice.approuvee).length;
-  if (matNonAppr > 0) motifsProvisoire.push(`${matNonAppr} ligne(s) retenue(s) projetée(s) par une matrice de dégradation non approuvée`);
+  const motifsProvisoire = motifsProvisoireDe(p, retenues);
 
   const ecartesParMotif: Record<string, number> = {};
   for (const l of lignes) if (l.motifExclusion) ecartesParMotif[l.motifExclusion.code] = (ecartesParMotif[l.motifExclusion.code] ?? 0) + 1;
@@ -441,6 +555,247 @@ export function construireScenario(entrees: EntreesScenario): ResultatConstructi
 }
 
 // ---------------------------------------------------------------------------------------------
+// Simulateur (AD-LOT-4) : meme evaluation des candidats, autre selection
+// ---------------------------------------------------------------------------------------------
+
+const LIMITES_SIMULATION: readonly string[] = [
+  "Règles de financement : aucune n'existe dans le modèle de données (source de financement en texte libre sur le chantier, clé étrangère sur le marché) ; elles ne sont pas modélisées.",
+  "« Coûts non divisibles » : lu comme un groupe de tronçons financé en entier ou pas du tout, une intervention n'étant jamais fractionnée ; faute de définition métier, c'est une convention provisoire.",
+  "Une intervention obligatoire dont le risque, le traitement ou le coût n'est pas calculable n'est pas financée : le simulateur n'invente aucun coût pour la retenir.",
+  "Le déficit est un minorant lorsque des coûts sont manquants ou périmés : ces interventions ne sont pas comptées dans le besoin.",
+  "La priorité technique affichée est celle du moteur v2 (risque courant décroissant) tant que le lot de priorisation ne fournit pas ses rangs ; l'ordre d'arbitrage ne la remplace jamais.",
+  "L'enveloppe couvre toute la période simulée : aucune répartition entre les années d'une période pluriannuelle n'est faite ici (voir le plan pluriannuel).",
+];
+
+/** Motifs dont le cout n'est pas utilisable : l'intervention n'entre pas dans le besoin, le deficit est alors un minorant. */
+const CODES_COUT_NON_FIABLE: readonly CodeExclusion[] = ["RISQUE_NON_CALCULABLE", "AUCUN_TRAITEMENT", "COUT_NON_ESTIMABLE", "COUT_PERIME"];
+
+const LIBELLE_PHASE: Record<PhaseSelection, string> = { OBLIGATOIRE: "intervention obligatoire", PLANCHER_REGIONAL: "plancher régional", ORDRE: "ordre d'arbitrage" };
+
+const kmDe = (m: number): string => `${Math.floor(m / 1000)}.${String(m % 1000).padStart(3, "0")}`;
+
+const comparerTexte = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+function construireSimulation(entrees: EntreesScenario, optionsBrutes: OptionsSimulation): Scenario {
+  // Les options sont normalisees (tableaux sans ordre propre tries) : le rejeu, qui relit le texte stocke deja normalise, doit voir les memes numeros de groupe.
+  const opts = optionsDepuisJson(optionsVersJson(optionsBrutes));
+  if (!opts.ok) throw new Error(`options illisibles apres normalisation : ${opts.erreurs.join(" ; ")}`);
+  const o = opts.options;
+  const p = entrees.parametres;
+  const etiquette = etiquetteParametres(p);
+  const logique = logiqueDe(o.logique);
+
+  const evalues = entrees.candidats.map((c) => evaluer(c, entrees));
+  const eligibles = evalues.filter((x) => x.exclusion === null);
+  const exclus = evalues.filter((x) => x.exclusion !== null);
+  const parId = new Map(evalues.map((ev) => [ev.c.id, ev] as const));
+  const micro = (ev: Evalue): number => (ev.risqueCalc as { scoreMicro: number }).scoreMicro;
+
+  const elements: ElementClassable[] = eligibles.map((ev) => ({
+    id: ev.c.id, code: ev.c.code, regionId: ev.c.regionId, coutGnf: ev.coutMontant as bigint,
+    risqueMicro: micro(ev), attenduMicro: (ev.attendu as { scoreMicro: number }).scoreMicro, etat: ev.c.etat,
+  }));
+  const ordre = ordonner(elements, o.logique, o.ordrePersonnalise);
+  const rangArbitrage = new Map(ordre.map((x, i) => [x.id, i + 1] as const));
+  const regionsCandidates = [...new Set(entrees.candidats.map((c) => c.regionId).filter((r): r is number => r !== null))].sort((a, b) => a - b);
+
+  const sel = selectionner({
+    ordre, enveloppeGnf: entrees.budgetGnf, plafondsRegionauxGnf: entrees.plafondsRegionauxGnf,
+    obligatoires: o.obligatoires, groupes: o.groupesNonDivisibles, equilibre: o.equilibre, regionsCandidates,
+    exclus: new Map(exclus.map((ev) => [ev.c.id, ev.exclusion as { code: string; detail: string }] as const)),
+    idsCandidats: new Set(entrees.candidats.map((c) => c.id)),
+    codeDe: (id) => parId.get(id)?.c.code ?? id,
+  });
+  const obligatoires = new Set(sel.obligatoires.effectives);
+  const groupeDe = (id: string): number | null => { const i = o.groupesNonDivisibles.findIndex((g) => g.includes(id)); return i < 0 ? null : i + 1; };
+
+  // Priorite technique : les rangs du lot 3 s'ils sont fournis, sinon le risque courant du moteur v2. Affichee, jamais substituee a l'ordre d'arbitrage.
+  const sourceRang = o.rangsTechniques !== null ? "lot3_priorite_technique" as const : "moteur_v2_risque_courant" as const;
+  const rangV2 = new Map<string, number>();
+  if (o.rangsTechniques === null) {
+    evalues.filter((ev) => ev.risqueCalc.ok)
+      .sort((a, b) => micro(b) - micro(a) || comparerTexte(a.c.code, b.c.code) || comparerTexte(a.c.id, b.c.id))
+      .forEach((ev, i) => rangV2.set(ev.c.id, i + 1));
+  }
+  const prioriteTechnique = (id: string) => ({ rang: o.rangsTechniques !== null ? (o.rangsTechniques[id] ?? null) : (rangV2.get(id) ?? null), source: sourceRang });
+
+  const coutSourceDe = (ev: Evalue): LigneSimulation["coutSource"] => {
+    const c = ev.cout;
+    if (!c || !c.ok) return null;
+    const ref = o.baremes.liste.find((r) => String(r.id) === String(c.bareme.id));
+    return {
+      baremeId: c.bareme.id, baremeCode: c.bareme.code, approuve: c.bareme.approuve, version: ref?.version ?? null, uniteCout: ref?.uniteCout ?? "KM",
+      devise: c.devise, validDe: ref?.validDe ?? null, validA: ref?.validA ?? null, anneeReference: c.bareme.anneeReference,
+    };
+  };
+
+  const retenuesEnOrdre = ordre.filter((x) => sel.decisions.get(x.id)?.retenue === true);
+  const rangRetenuDe = new Map(retenuesEnOrdre.map((x, i) => [x.id, i + 1] as const));
+
+  const lignesClassees: LigneScenario[] = ordre.map((x) => {
+    const ev = parId.get(x.id) as Evalue;
+    const d = sel.decisions.get(x.id);
+    if (!d) throw new Error(`selection incomplete : aucune decision pour ${x.id}`);
+    const att = ev.attendu as { score: number; scoreMicro: number };
+    const ratio = ratioPointsParMilliard(att.scoreMicro, x.coutGnf);
+    const risque = (ev.risqueCalc as { score: number }).score;
+    const longueurNote = ev.c.longueurOrigine === "GEOMETRIE" ? ` sur ${ev.c.longueurM} m calculés sur la géométrie` : ev.c.longueurM !== null ? ` sur ${ev.c.longueurM} m` : "";
+    const resume = `risque ${risque} (attendu ${att.score}), traitement ${(ev.traitement as { ok: true; traitement: { code: string } }).traitement.code}, coût ${formaterMontant(x.coutGnf, "GNF")}${longueurNote} (${(ev.cout as { classePrecision: string }).classePrecision}${ev.provisoireCout ? ", provisoire" : ""}), ${ratio} point(s) de risque par milliard de GNF`;
+    const rangA = rangArbitrage.get(x.id) as number;
+    const simulation: LigneSimulation = {
+      ordreArbitrage: rangA, examen: d.examen, phase: d.phase, prioriteTechnique: prioriteTechnique(x.id),
+      obligatoire: obligatoires.has(x.id), groupe: d.groupe, coutSource: coutSourceDe(ev), coutFiable: true,
+    };
+    const base = {
+      rangPriorite: rangA, priorite: { ratioPointsParMilliardGnf: ratio, formule: FORMULE_PRIORITE },
+      budget: { resteAvantGnf: d.resteAvantGnf.toString(), resteApresGnf: d.resteApresGnf.toString() }, simulation,
+    };
+    if (d.retenue) {
+      const rr = rangRetenuDe.get(x.id) as number;
+      return ligneDe(ev, {
+        ...base, decision: "RETENUE", rangRetenu: rr,
+        justification: `Retenue (rang ${rr}, arbitrage ${rangA}/${ordre.length}, logique ${logique.libelle}, ${LIBELLE_PHASE[d.phase as PhaseSelection]}) : ${resume} ; reste de l'enveloppe ${d.resteAvantGnf.toString()} puis ${d.resteApresGnf.toString()} GNF.`,
+      }, etiquette);
+    }
+    const motif = d.motif as { code: CodeExclusion; detail: string };
+    return ligneDe(ev, {
+      ...base, decision: "ECARTEE", motifExclusion: motif,
+      justification: `Écartée (arbitrage ${rangA}/${ordre.length}, logique ${logique.libelle}, ${motif.code}) : ${motif.detail}. ${resume}.`,
+    }, etiquette);
+  });
+
+  const lignesExclues: LigneScenario[] = [...exclus]
+    .sort((a, b) => {
+      const ia = ORDRE_EXCLUSION.indexOf((a.exclusion as { code: CodeExclusion }).code), ib = ORDRE_EXCLUSION.indexOf((b.exclusion as { code: CodeExclusion }).code);
+      if (ia !== ib) return ia - ib;
+      return comparerTexte(a.c.code, b.c.code) || comparerTexte(a.c.id, b.c.id);
+    })
+    .map((ev) => ligneDe(ev, {
+      decision: "ECARTEE", motifExclusion: ev.exclusion,
+      simulation: { ordreArbitrage: null, examen: null, phase: null, prioriteTechnique: prioriteTechnique(ev.c.id), obligatoire: obligatoires.has(ev.c.id), groupe: groupeDe(ev.c.id), coutSource: null, coutFiable: false },
+      justification: `Écartée avant classement (${(ev.exclusion as { code: string }).code}) : ${(ev.exclusion as { detail: string }).detail}.`,
+    }, etiquette));
+
+  const lignes = [...lignesClassees, ...lignesExclues];
+  const retenues = lignes.filter((l) => l.decision === "RETENUE");
+
+  const motifsProvisoire = motifsProvisoireDe(p, retenues);
+  if (logique.provisoire) motifsProvisoire.push(`logique d'arbitrage « ${logique.libelle} » : définition provisoire, non validée par le métier`);
+
+  const ecartesParMotif: Record<string, number> = {};
+  for (const l of lignes) if (l.motifExclusion) ecartesParMotif[l.motifExclusion.code] = (ecartesParMotif[l.motifExclusion.code] ?? 0) + 1;
+  const engageParRegionGnf: Record<string, string> = {};
+  for (const [k, v] of sel.engageParRegion) engageParRegionGnf[k === "" ? "(sans region)" : k] = v.toString();
+
+  // Bilan : le besoin ne compte que des couts FIABLES ; les autres sont nommes, jamais valorises.
+  const nonFiables = exclus.filter((ev) => CODES_COUT_NON_FIABLE.includes((ev.exclusion as { code: CodeExclusion }).code));
+  const bilan = bilanBudgetaire({
+    enveloppeGnf: entrees.budgetGnf, consommeGnf: sel.engageGnf, coutsFiablesGnf: ordre.map((x) => x.coutGnf),
+    nbCoutsNonFiables: nonFiables.length, coutsObligatoiresGnf: ordre.filter((x) => obligatoires.has(x.id)).map((x) => x.coutGnf),
+  });
+  const coutsNonFiables = CODES_COUT_NON_FIABLE
+    .map((code) => {
+      const l = nonFiables.filter((ev) => (ev.exclusion as { code: string }).code === code);
+      return { code, nb: l.length, troncons: l.map((ev) => ev.c.code).sort(comparerTexte).slice(0, 50) };
+    })
+    .filter((x) => x.nb > 0);
+
+  // Kilometres : longueur METIER (colonne longueurKm) seule ; la geometrique est rendue a part, jamais ajoutee.
+  let metierM = 0, nbAvec = 0, geoM = 0, nbSans = 0, nbGeo = 0;
+  for (const l of retenues) {
+    const m = l.troncon.longueurM;
+    if (l.troncon.longueurOrigine === "LONGUEUR_KM" && m !== null) { metierM += m; nbAvec += 1; continue; }
+    nbSans += 1;
+    if (l.troncon.longueurOrigine === "GEOMETRIE" && m !== null) { geoM += m; nbGeo += 1; }
+  }
+  const kilometres: ResultatSimulation["kilometres"] = {
+    metierM: nbAvec > 0 ? metierM : null, metierKm: nbAvec > 0 ? kmDe(metierM) : null,
+    lignesAvecLongueurMetier: nbAvec, lignesSansLongueurMetier: nbSans,
+    geometriqueM: nbGeo > 0 ? geoM : null, geometriqueKm: nbGeo > 0 ? kmDe(geoM) : null,
+    note: nbSans > 0
+      ? `Longueur métier absente pour ${nbSans} intervention(s) retenue(s) : leurs kilomètres ne sont pas comptés dans le total métier${nbGeo > 0 ? " ; la longueur géométrique de certaines est donnée à part et n'est pas ajoutée" : ""}.`
+      : "Longueur métier (colonne longueurKm) renseignée pour toutes les interventions retenues.",
+  };
+
+  const calculables = evalues.filter((ev) => ev.risqueCalc.ok);
+  const sommeMicro = (l: readonly Evalue[]): bigint => l.reduce((s, ev) => s + BigInt(micro(ev)), 0n);
+  const retenuMicro = sommeMicro(retenues.map((l) => parId.get(l.troncon.id) as Evalue));
+  const totalCalculable = sommeMicro(calculables);
+  const totalChiffrable = sommeMicro(eligibles);
+  const risqueCouvert: ResultatSimulation["risqueCouvert"] = {
+    retenuMicro: Number(retenuMicro), totalChiffrableMicro: Number(totalChiffrable), totalCalculableMicro: Number(totalCalculable),
+    partChiffrablePct: pourcentage(retenuMicro, totalChiffrable), partCalculablePct: pourcentage(retenuMicro, totalCalculable),
+    nbSansRisqueCalculable: evalues.length - calculables.length,
+  };
+
+  const regions = new Map<number | null, { nbRetenues: number; engage: bigint; nbEcartees: number; besoin: bigint }>();
+  for (const ev of evalues) {
+    const k = ev.c.regionId;
+    const r = regions.get(k) ?? { nbRetenues: 0, engage: 0n, nbEcartees: 0, besoin: 0n };
+    const d = sel.decisions.get(ev.c.id);
+    if (d?.retenue) { r.nbRetenues += 1; r.engage += ev.coutMontant as bigint; } else r.nbEcartees += 1;
+    if (ev.exclusion === null) r.besoin += ev.coutMontant as bigint;
+    regions.set(k, r);
+  }
+  const distributionRegionale = [...regions.entries()]
+    .sort(([a], [b]) => (a === null ? 1 : b === null ? -1 : a - b))
+    .map(([regionId, r]) => ({ regionId, nbRetenues: r.nbRetenues, engageGnf: r.engage.toString(), nbEcartees: r.nbEcartees, besoinGnf: r.besoin.toString() }));
+
+  const nbApprouvees = o.baremes.liste.filter((b) => b.approuveLe !== null).length;
+  const avertissements: AvertissementSimulation[] = [];
+  const motifNb = (code: CodeExclusion) => exclus.filter((ev) => (ev.exclusion as { code: string }).code === code).length;
+  const coutPerime = motifNb("COUT_PERIME");
+  if (coutPerime > 0) avertissements.push({ code: "COUT_PERIME", niveau: "ALERTE", nb: coutPerime, message: `${coutPerime} intervention(s) écartée(s) : la fenêtre de validité du barème ne couvre pas la période ${o.periode.debut} à ${o.periode.fin}. Elles ne sont pas simulées comme si leur coût était fiable.` });
+  const coutManquant = motifNb("COUT_NON_ESTIMABLE");
+  if (coutManquant > 0) avertissements.push({ code: "COUT_NON_ESTIMABLE", niveau: "ALERTE", nb: coutManquant, message: `${coutManquant} intervention(s) écartée(s) faute de coût estimable (barème absent ou refus du moteur de coût). Aucun coût n'est inventé.` });
+  const sansTraitement = motifNb("AUCUN_TRAITEMENT");
+  if (sansTraitement > 0) avertissements.push({ code: "AUCUN_TRAITEMENT", niveau: "ALERTE", nb: sansTraitement, message: `${sansTraitement} intervention(s) écartée(s) faute de traitement applicable : leur besoin n'est pas chiffré.` });
+  const sansRisque = motifNb("RISQUE_NON_CALCULABLE");
+  if (sansRisque > 0) avertissements.push({ code: "DONNEES_PARTIELLES", niveau: "ALERTE", nb: sansRisque, message: `${sansRisque} tronçon(s) sans risque calculable (facteurs manquants) : ils ne sont ni classés ni chiffrés, et ne sont pas assimilés à un risque faible.` });
+  if (bilan.deficitGnf !== "0") avertissements.push({ code: "DEFICIT", niveau: "ALERTE", nb: null, message: `Déficit de ${formaterMontant(BigInt(bilan.deficitGnf), "GNF")} : l'enveloppe de ${formaterMontant(entrees.budgetGnf, "GNF")} ne couvre pas le besoin chiffré de ${formaterMontant(BigInt(bilan.besoinTotalGnf), "GNF")}.` });
+  if (bilan.deficitMinorant) avertissements.push({ code: "DEFICIT_MINORANT", niveau: "ALERTE", nb: bilan.nbCoutsNonFiables, message: `${bilan.nbCoutsNonFiables} candidat(s) sans coût fiable ne sont pas comptés dans le besoin : le besoin réel et le déficit sont au moins ceux affichés.` });
+  if (sel.insatisfaisables.length > 0) avertissements.push({ code: "CONTRAINTES_INSATISFAISABLES", niveau: "ALERTE", nb: sel.insatisfaisables.length, message: `${sel.insatisfaisables.length} contrainte(s) ne peuvent pas être satisfaites : elles ne sont pas comblées en silence, voir le détail.` });
+  const coutsProvisoires = retenues.filter((l) => l.cout && l.cout.ok && l.cout.provisoire).length;
+  if (coutsProvisoires > 0) avertissements.push({ code: "COUTS_PROVISOIRES", niveau: "ALERTE", nb: coutsProvisoires, message: `${coutsProvisoires} intervention(s) retenue(s) chiffrée(s) sur un barème provisoire (non approuvé, sans millésime ou sans largeur de chaussée) : estimation réseau, non officielle.` });
+  if (nbSans > 0) avertissements.push({ code: "LONGUEUR_METIER_ABSENTE", niveau: "INFO", nb: nbSans, message: kilometres.note });
+  if (logique.provisoire) avertissements.push({ code: "LOGIQUE_PROVISOIRE", niveau: "INFO", nb: null, message: `La logique « ${logique.libelle} » repose sur une convention provisoire : ${logique.regle}` });
+  if (sontProvisoires(p)) avertissements.push({ code: "PARAMETRES_PROVISOIRES", niveau: "INFO", nb: null, message: `Paramètres ${p.version} non approuvés : poids du risque et seuils sans source officielle.` });
+  if (entrees.budgetGnf === 0n) avertissements.push({ code: "ENVELOPPE_NULLE", niveau: "INFO", nb: null, message: "Enveloppe nulle : aucune intervention ne peut être retenue." });
+
+  const provisoire = motifsProvisoire.length > 0;
+  const simulation: ResultatSimulation = {
+    version: 1, mention: MENTION_SIMULATION, periode: { ...o.periode }, devise: o.devise,
+    logique: { code: logique.code, libelle: logique.libelle, explication: logique.explication, regle: logique.regle, provisoire: logique.provisoire, ordrePersonnalise: [...o.ordrePersonnalise], equilibre: o.equilibre === null ? null : { ...o.equilibre } },
+    bilan, coutsNonFiables,
+    contraintes: {
+      obligatoires: sel.obligatoires, groupesNonDivisibles: sel.groupes,
+      plafondsRegionauxGnf: Object.fromEntries(Object.entries(entrees.plafondsRegionauxGnf).map(([k, v]) => [k, v.toString()])),
+      equilibre: sel.equilibre, insatisfaisables: sel.insatisfaisables,
+    },
+    kilometres, risqueCouvert, distributionRegionale,
+    baremes: { empreinte: o.baremes.empreinte, nbLignes: o.baremes.liste.length, nbApprouvees, nbProvisoires: o.baremes.liste.length - nbApprouvees, liste: o.baremes.liste },
+    parametresVersion: p.version, rangsTechniquesSource: sourceRang, avertissements,
+  };
+  return {
+    methode: { ...METHODE_PROGRAMMATION },
+    annee: entrees.annee,
+    budgetGnf: entrees.budgetGnf.toString(),
+    parametres: { version: p.version, source: p.source, approuveeLe: p.approuveeLe, etiquette },
+    provisoire,
+    etiquette: provisoire ? "PROVISOIRE, non approuvé" : "paramètres et barèmes approuvés",
+    motifsProvisoire,
+    limites: [...LIMITES, ...LIMITES_SIMULATION],
+    avertissement: AVERTISSEMENT_SANS_ENGAGEMENT,
+    totaux: {
+      candidats: entrees.candidats.length, eligibles: eligibles.length, retenues: retenues.length, ecartees: lignes.length - retenues.length,
+      engageGnf: sel.engageGnf.toString(), resteGnf: sel.resteGnf.toString(), ecartesParMotif, engageParRegionGnf,
+    },
+    lignes,
+    simulation,
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
 // Serialisation des entrees (pour stocker un scenario et le rejouer)
 // ---------------------------------------------------------------------------------------------
 
@@ -463,7 +818,7 @@ function cmp<T>(...cles: ((x: T) => string | number)[]): (a: T, b: T) => number 
  * jeux identiques a l'ordre pres donnent le meme texte, donc la meme empreinte).
  */
 export function entreesVersJson(e: EntreesScenario): Json {
-  return {
+  const base: { [k: string]: Json } = {
     annee: e.annee,
     budgetGnf: e.budgetGnf.toString(),
     plafondsRegionauxGnf: Object.fromEntries(Object.entries(e.plafondsRegionauxGnf).map(([k, v]) => [k, v.toString()])),
@@ -495,6 +850,9 @@ export function entreesVersJson(e: EntreesScenario): Json {
       pMauvaisVersCritique: m.pMauvaisVersCritique, version: m.version ?? null, approuveLe: dateIso(m.approuveLe), actif: m.actif !== false,
     })),
   };
+  // Champ OPTIONNEL : absent d'un scenario herite, dont le texte canonique reste donc identique octet pour octet.
+  if (e.simulation !== undefined) base.simulation = optionsVersJson(e.simulation);
+  return base;
 }
 
 type Obj = Record<string, unknown>;
@@ -550,6 +908,10 @@ export function entreesDepuisJson(j: unknown): { ok: true; entrees: EntreesScena
       approuveLe: chaineOuNul(m.approuveLe), actif: m.actif !== false,
     })),
   };
+  if (o.simulation !== undefined && o.simulation !== null) {
+    const sim = optionsDepuisJson(o.simulation);
+    if (sim.ok) entrees.simulation = sim.options; else erreurs.push(...sim.erreurs);
+  }
   if (erreurs.length > 0) return { ok: false, erreurs };
   const invalides = validerEntrees(entrees);
   if (invalides.length > 0) return { ok: false, erreurs: invalides };

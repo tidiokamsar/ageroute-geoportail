@@ -14,7 +14,11 @@ import request from "supertest";
  * simules (ils ont leurs propres tests), la base aussi.
  */
 
-const h = vi.hoisted(() => ({ findMany: vi.fn(async () => [] as unknown[]) }));
+const h = vi.hoisted(() => ({
+  findMany: vi.fn(async (_args?: { where?: Record<string, unknown> }) => [] as unknown[]),
+  /** Regions que le compte voit (`null` = compte national). */
+  regions: null as number[] | null,
+}));
 
 vi.mock("../../middleware/auth.middleware", () => ({
   requireAuth: (req: express.Request, _res: express.Response, next: express.NextFunction) => {
@@ -26,6 +30,8 @@ vi.mock("../../middleware/module-access.middleware", () => ({
   requireModuleAccess: () => (_req: express.Request, _res: express.Response, next: express.NextFunction) => next(),
 }));
 vi.mock("../../lib/prisma", () => ({ prisma: { troncon: { findMany: h.findMany } } }));
+// Le perimetre du compte est relu en base par `regionsVisibles` (teste ailleurs) : ici il est fixe par le test.
+vi.mock("../../territoire/territoire.lecture", () => ({ regionsVisibles: async () => h.regions }));
 vi.mock("../../jobs/alertes-contractuelles", () => ({ sendAlertesEmail: vi.fn() }));
 vi.mock("./alertes.service", () => ({ computeAlertesContractuelles: vi.fn() }));
 // Les gestionnaires CRUD ne sont pas le sujet ; chaque export importe par le routeur est
@@ -53,6 +59,7 @@ const poster = (corps: unknown) => request(app()).post("/api/simulateur/budget")
 beforeEach(() => {
   h.findMany.mockClear();
   h.findMany.mockResolvedValue([]);
+  h.regions = null;
 });
 
 describe("POST /simulateur/budget : corps valide", () => {
@@ -86,5 +93,40 @@ describe("POST /simulateur/budget : corps refuse avant tout calcul", () => {
     expect(r.status).toBe(400);
     expect(r.body.message).toBe("Requête invalide");
     expect(h.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /simulateur/budget : perimetre territorial du COMPTE (revue : la route heritee n'avait pas la restriction de /priorisation/scores)", () => {
+  const whereDeLaRequete = () => (h.findMany.mock.calls[0]?.[0] as { where: Record<string, unknown> }).where;
+
+  it("un compte REGIONAL ne simule que sur les troncons de ses regions (jusqu'a 500 troncons nationaux avant le correctif)", async () => {
+    h.regions = [3, 7];
+    expect((await poster({})).status).toBe(200);
+    expect(whereDeLaRequete()["regionId"]).toEqual({ in: [3, 7] });
+  });
+
+  it("le filtre de region du corps ne fait que RESTREINDRE : il ne remplace jamais le perimetre du compte", async () => {
+    h.regions = [3];
+    await poster({ filtres: { region: "Kankan" } });
+    expect(whereDeLaRequete()["regionId"]).toEqual({ in: [3] });
+    expect(whereDeLaRequete()["region"]).toEqual({ nom: "Kankan" });
+  });
+
+  it("un compte regional sans aucune region exploitable ne voit aucun troncon (liste vide, pas le national)", async () => {
+    h.regions = [];
+    await poster({});
+    expect(whereDeLaRequete()["regionId"]).toEqual({ in: [] });
+  });
+
+  it("un compte NATIONAL garde le comportement d'avant : aucune clause de region", async () => {
+    h.regions = null;
+    await poster({});
+    expect(Object.keys(whereDeLaRequete())).not.toContain("regionId");
+  });
+
+  it("la route jumelle /priorisation/scores applique la meme restriction (une seule regle)", async () => {
+    h.regions = [3];
+    await request(app()).get("/api/priorisation/scores");
+    expect(whereDeLaRequete()["regionId"]).toEqual({ in: [3] });
   });
 });

@@ -20,7 +20,9 @@ import { canonique, sha256Hex } from "./canonique";
 import { contenuFiche, figer, verifierFiche, type VerdictFiche } from "./fiche.noyau";
 import { validerParametres, validerValeurs, versionValide, type ParametresProgrammation } from "./parametres.noyau";
 import { MAX_CANDIDATS, construireScenario, entreesDepuisJson, entreesVersJson, type EntreesScenario, type Scenario } from "./scenario.noyau";
-import { transiter } from "./cycle-vie.noyau";
+import { blocEffectif } from "./priorite.noyau";
+import { STATUTS_INTERVENTION, transiter } from "./cycle-vie.noyau";
+import { approbationPermise, type Intervenant } from "../governance/separation-taches";
 import * as depot from "./moteur.depot";
 
 export type Client = Pick<PrismaClient, "$transaction" | "$queryRaw" | "$executeRaw">;
@@ -29,7 +31,15 @@ export class RefusMoteur extends Error {
   constructor(public readonly code: string, message: string, public readonly http: 400 | 403 | 404 | 409 | 422 = 409) { super(message); }
 }
 
-export interface Contexte { userId: string; email?: string | null; ipAddress?: string }
+export interface Contexte {
+  userId: string; email?: string | null; ipAddress?: string;
+  /**
+   * Role du compte, pour la separation des taches. ABSENT, il vaut le role que la route a deja exige : les routes gardent le
+   * role (ADMIN pour approuver des parametres, ADMIN ou GESTIONNAIRE pour faire avancer une fiche). Ce champ ne sert donc qu'a
+   * ne pas reposer sur cette hypothese quand le routeur le renseigne.
+   */
+  role?: string;
+}
 
 /** Violation d'unicite (23505) ou d'integrite (23000) remontee par le pilote, quelle que soit l'enveloppe. */
 function codeSql(e: unknown): string | null {
@@ -68,7 +78,9 @@ export async function creerParametres(client: Client, d: { version: string; vale
       const ligne = await depot.insererParametres(tx, { id: randomUUID(), version: d.version, valeursJson: canonique(v.valeurs), motif: d.motif ?? null, creeParId: ctx.userId });
       await logAuditTransactionnelle(tx, {
         userId: ctx.userId, action: "CREATE", entityType: "ParametresProgrammation", entityId: ligne.id,
-        after: { version: ligne.version, source: ligne.source, provisoire: true, motif: ligne.motif }, ipAddress: ctx.ipAddress,
+        // Les VALEURS (poids, seuils) sont dans l'audit : sans elles, l'historique dit qu'une version existe mais pas ce
+        // qu'elle contient, et un poids modifie ne se reconstitue pas.
+        after: { version: ligne.version, source: ligne.source, provisoire: true, motif: ligne.motif, valeurs: ligne.valeurs }, ipAddress: ctx.ipAddress,
       });
       return parametresApi(ligne);
     });
@@ -79,18 +91,30 @@ export async function creerParametres(client: Client, d: { version: string; vale
   }
 }
 
+/**
+ * SEPARATION DES TACHES (AD-07). Le role est deja garde par la route (ADMIN) ; le compte qui a CREE la version ne l'approuve
+ * pas, meme ADMIN. Une version amorcee par migration (creeParId nul) n'a pas d'auteur : tout ADMIN peut l'approuver.
+ */
 export async function approuverParametres(client: Client, id: string, ctx: Contexte) {
   return client.$transaction(async (tx) => {
     const avant = await depot.lireParametresParId(tx, id);
     if (!avant) throw new RefusMoteur("INTROUVABLE", "version de paramètres introuvable", 404);
     if (avant.approuveeLe) throw new RefusMoteur("DEJA_APPROUVEE", "cette version est déjà approuvée", 409);
+    const verdict = approbationPermise({
+      entityType: "ParametresProgrammation", approbateurId: ctx.userId, approbateurRole: ctx.role ?? "ADMIN",
+      intervenants: [{ id: avant.creeParId, etape: "a créé cette version de paramètres" }],
+    });
+    if (!verdict.permis) throw new RefusMoteur(verdict.motif, verdict.explication, 403);
     const p = validerParametres({ ...depot.parametresDeLigne(avant), approuveeLe: null, approuveeParId: null });
     if (!p.ok) throw new RefusMoteur("PARAMETRES_INVALIDES", `approuver des paramètres invalides est refusé : ${p.erreurs.join(" ; ")}`, 422);
     const apres = await depot.poserApprobation(tx, id, ctx.userId);
     if (!apres) throw new RefusMoteur("INTROUVABLE", "version de paramètres introuvable", 404);
     await logAuditTransactionnelle(tx, {
       userId: ctx.userId, action: "VALIDATE", entityType: "ParametresProgrammation", entityId: id,
-      before: { version: avant.version, approuveeLe: null }, after: { version: apres.version, approuveeLe: apres.approuveeLe, approuvePar: ctx.email ?? ctx.userId }, ipAddress: ctx.ipAddress,
+      // Valeurs avant et apres : ce que l'approbateur a reellement valide (les versions sont immuables, les deux sont egales,
+      // et c'est ce que l'audit doit pouvoir montrer).
+      before: { version: avant.version, approuveeLe: null, creeParId: avant.creeParId, valeurs: avant.valeurs },
+      after: { version: apres.version, approuveeLe: apres.approuveeLe, approuvePar: ctx.email ?? ctx.userId, valeurs: apres.valeurs }, ipAddress: ctx.ipAddress,
     });
     return parametresApi(apres);
   });
@@ -138,7 +162,11 @@ export function resumeScenarioApi(s: depot.ResumeScenarioDb) {
 
 /** Lit tout ce que le calcul consomme, dans la transaction appelante (un seul instantane de la base). */
 export async function chargerEntrees(db: depot.Db, d: DemandeSimulation, parametres: ParametresProgrammation): Promise<EntreesScenario> {
-  const candidats = await depot.chargerCandidats(db, { regionId: d.regionId ?? null, classe: d.classe ?? null, limite: MAX_CANDIDATS + 1 });
+  const candidats = await depot.chargerCandidats(db, {
+    regionId: d.regionId ?? null, classe: d.classe ?? null, limite: MAX_CANDIDATS + 1,
+    // Le minimum de la VERSION de parametres, comme la liste priorisee : un « zero point noir » n'est une donnee que si le registre de la region est exploite.
+    registrePointsNoirsMinimum: blocEffectif(parametres).bloc.registrePointsNoirsMinimum,
+  });
   if (candidats.length > MAX_CANDIDATS) {
     throw new RefusMoteur("PERIMETRE_TROP_LARGE", `plus de ${MAX_CANDIDATS} tronçons candidats : restreignez le périmètre (région ou classe de route)`, 422);
   }
@@ -365,6 +393,24 @@ export async function verifierFicheStockee(client: Client, id: string): Promise<
   return { id, reference: f.reference, empreinteStockee: f.empreinteSha256, verdict: verifierFiche(f.contenuCanonique, f.empreinteSha256) };
 }
 
+/**
+ * Tous ceux qui ont PRODUIT la fiche avant son approbation : l'auteur du scenario, celui qui a fige la fiche, et l'auteur de
+ * chaque etape qui la fait avancer (proposition, arbitrage). Un recul (retour en arriere motive) n'est pas une production :
+ * il ne ferme pas l'approbation a celui qui renvoie une fiche pour correction.
+ */
+async function intervenantsDeLaFiche(tx: depot.Db, f: depot.LigneFicheCourante): Promise<Intervenant[]> {
+  const scenario = await depot.lireScenario(tx, f.scenarioId);
+  const intervenants: Intervenant[] = [
+    { id: scenario?.creeParId, etape: "a créé le scénario de cette fiche" },
+    { id: f.figeParId, etape: "a figé cette fiche" },
+  ];
+  for (const h of await depot.historiqueStatuts(tx, f.id)) {
+    const avance = h.de === null || STATUTS_INTERVENTION.indexOf(h.vers as never) > STATUTS_INTERVENTION.indexOf(h.de as never);
+    if (avance && h.vers !== "APPROUVE") intervenants.push({ id: h.auteurId, etape: `a fait passer cette fiche à ${h.vers}` });
+  }
+  return intervenants;
+}
+
 const HTTP_TRANSITION: Record<string, 400 | 403 | 409 | 422> = {
   STATUT_INCONNU: 400, TRANSITION_INEXISTANTE: 409, ORIGINE_INTERDITE: 403,
   MESSAGE_DIGITALROAD_REQUIS: 422, INSPECTION_REQUISE: 422, VERSION_FIGEE_REQUISE: 422, RETOUR_NON_MOTIVE: 400,
@@ -382,6 +428,15 @@ export async function changerStatutFiche(client: Client, ficheId: string, vers: 
       if (!courante) throw new RefusMoteur("INTROUVABLE", "fiche introuvable", 404);
       const v = transiter(courante.statut, vers, { origine: "GEOPORTAIL", motif });
       if (!v.ok) throw new RefusMoteur(v.code, v.motif, HTTP_TRANSITION[v.code] ?? 409);
+      // SEPARATION DES TACHES (AD-07) : APPROUVE est le seul statut qui engage la suite (transmission a DigitalRoad). Il est
+      // juge APRES la transition (le motif rendu designe la vraie cause) et dans la transaction (le meme instantane).
+      if (vers === "APPROUVE") {
+        const verdict = approbationPermise({
+          entityType: "FicheIntervention", approbateurId: ctx.userId, approbateurRole: ctx.role ?? "GESTIONNAIRE",
+          intervenants: await intervenantsDeLaFiche(tx, courante),
+        });
+        if (!verdict.permis) throw new RefusMoteur(verdict.motif, verdict.explication, 403);
+      }
       await depot.insererStatut(tx, { id: randomUUID(), ficheId, rang: courante.rangStatut + 1, de: courante.statut, vers, origine: "GEOPORTAIL", motif, auteurId: ctx.userId });
       await logAuditTransactionnelle(tx, {
         userId: ctx.userId, action: "UPDATE", entityType: "FicheIntervention", entityId: ficheId,

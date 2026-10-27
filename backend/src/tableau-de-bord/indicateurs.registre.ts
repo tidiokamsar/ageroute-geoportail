@@ -165,11 +165,11 @@ const reseau: Definition[] = [
     code: "longueur_metier_km", libelle: "Longueur saisie du réseau classé (hors valeurs dérivées)", groupe: "reseau", unite: "km", regionalisable: true,
     perimetre: PERIMETRES.RESEAU_CLASSE_SAISI, source: SOURCES.troncons,
     calcul: async (d, p) => arrondi(nombre((await rangee<{ v: number | null }>(d, Prisma.sql`
-      SELECT COALESCE(SUM(t."longueurKm") FILTER (WHERE NOT EXISTS (
+      SELECT COALESCE(SUM(t."longueurKm") FILTER (WHERE t."longueurKm" <> 'NaN'::float8 AND NOT EXISTS (
                SELECT 1 FROM valeurs_qualite q WHERE q."entityType" = 'Troncon' AND q."entityId" = t.id
                   AND q.champ = 'longueurKm' AND q.statut = 'DERIVED')), 0) AS v
         FROM troncons t WHERE t."deletedAt" IS NULL ${classeCalcul()} AND ${dans('t."regionId"', p)}`))?.v)),
-    controle: async (d, p) => arrondi((await lignesTroncons(d, p)).filter((l) => !l.derivee).reduce((s, l) => s + (l.km ?? 0), 0)),
+    controle: async (d, p) => arrondi((await lignesTroncons(d, p)).filter((l) => !l.derivee).reduce((s, l) => s + (Number.isFinite(l.km) ? (l.km as number) : 0), 0)),
   },
   {
     code: "troncons_mauvais_critique", libelle: "Tronçons classés en état mauvais ou critique", groupe: "reseau", unite: "nombre", regionalisable: true,

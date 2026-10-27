@@ -19,6 +19,7 @@ import { canonique, sha256Hex } from "./canonique";
 import * as depot from "./moteur.depot";
 import { RefusMoteur, choisirParametres, type Client, type Contexte } from "./moteur.service";
 import { validerParametres } from "./parametres.noyau";
+import { blocEffectif } from "./priorite.noyau";
 import {
   MAX_CANDIDATS_PPE, construirePlan, entreesPpeDepuisJson, entreesPpeVersJson,
   type EntreesPpe, type PlanPluriannuel,
@@ -50,7 +51,10 @@ export function resumePlanApi(p: ppe.ResumePlanDb) {
 
 /** Lit tout ce que le calcul consomme, dans la transaction appelante (un seul instantane de la base). */
 export async function chargerEntreesPpe(db: depot.Db, d: DemandePpe, parametres: EntreesPpe["parametres"]): Promise<EntreesPpe> {
-  const candidats = await depot.chargerCandidats(db, { regionId: d.regionId ?? null, classe: d.classe ?? null, limite: MAX_CANDIDATS_PPE + 1 });
+  const candidats = await depot.chargerCandidats(db, {
+    regionId: d.regionId ?? null, classe: d.classe ?? null, limite: MAX_CANDIDATS_PPE + 1,
+    registrePointsNoirsMinimum: blocEffectif(parametres).bloc.registrePointsNoirsMinimum,
+  });
   if (candidats.length > MAX_CANDIDATS_PPE) {
     throw new RefusMoteur("PERIMETRE_TROP_LARGE", `plus de ${MAX_CANDIDATS_PPE} tronçons candidats pour un plan pluriannuel : restreignez le périmètre (région ou classe de route)`, 422);
   }
