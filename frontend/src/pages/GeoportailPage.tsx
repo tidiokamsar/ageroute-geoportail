@@ -438,7 +438,12 @@ export function GeoportailPage() {
     if (!selectKind || !selectId) return;
     if (selectKind === "troncon") {
       const t = troncons?.find((x) => x.id === selectId);
-      if (!t) return;
+      if (!t) {
+        // La couche est chargee et le troncon n'y est pas : sans trace, ou hors du reseau affiche. Le dire, au lieu
+        // de laisser une carte muette (BDRI, lot B).
+        if (troncons) toast.error("Ce tronçon n'est pas sur la carte : il n'a pas de tracé, ou n'appartient pas au réseau affiché.");
+        return;
+      }
       const pts = geoJsonToLatLngs(t.geometry);
       if (pts.length) setFlyTarget(pts[Math.floor(pts.length / 2)]);
       setSelectedFeature({ kind: "troncon", data: t });

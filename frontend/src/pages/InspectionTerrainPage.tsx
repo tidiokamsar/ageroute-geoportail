@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { CONSTATS, METHODES, manquesFiche, nombreOuRien } from "../lib/inspectionTerrain";
 import { useNavigate } from "react-router-dom";
 import { MapPin, Camera, X, CloudOff, CheckCircle2, ClipboardList } from "lucide-react";
 import { api } from "../lib/api";
@@ -21,18 +22,46 @@ const CACHE_KEY = "terrain.referentiels";
 interface Referentiels {
   troncons: { id: string; code: string; nom: string }[];
   ouvrages: { id: string; nom: string; type: string }[];
+  /** Missions de l'agent, encore ouvertes (lot F). Absent d'un ancien cache : liste vide. */
+  missions?: { id: string; code: string; intitule: string }[];
   cachedAt: string;
 }
 
-async function loadReferentiels(): Promise<Referentiels> {
+/**
+ * TOUT le reseau classe, page par page (BDRI, lot F). Le cache ne prenait que les 200 premiers troncons par code :
+ * au-dela, un agent ne pouvait pas inspecter le troncon sur lequel il se trouvait. Plafond de 30 pages (6 000) : le
+ * reseau classe en compte 1 691 ; au-dela, ce serait la voirie, que la liste n'expose pas par defaut.
+ */
+async function tousLesTroncons(): Promise<Referentiels["troncons"]> {
+  const out: Referentiels["troncons"] = [];
+  for (let page = 1; page <= 30; page++) {
+    const r = await api.get("/troncons", { params: { page, pageSize: 200, sortBy: "code", sortDir: "asc" } });
+    out.push(...(r.data.data ?? []).map((t: { id: string; code: string; nom: string }) => ({ id: t.id, code: t.code, nom: t.nom })));
+    if (page >= (r.data.totalPages ?? 1)) break;
+  }
+  return out;
+}
+
+async function mesMissions(userId: string | undefined): Promise<Referentiels["missions"]> {
+  try {
+    const { data } = await api.get<{ id: string; code: string; intitule: string; statut: string; assigneId: string | null; createurId: string }[]>("/v2/missions", { params: { limite: 200 } });
+    return data.filter((m) => !["TERMINEE", "ANNULEE"].includes(m.statut) && (m.assigneId === userId || m.createurId === userId)).map((m) => ({ id: m.id, code: m.code, intitule: m.intitule }));
+  } catch {
+    return [];
+  }
+}
+
+async function loadReferentiels(userId?: string): Promise<Referentiels> {
   if (navigator.onLine) {
     try {
-      const [tRes, oRes] = await Promise.all([
-        api.get("/troncons", { params: { pageSize: 200, sortBy: "code", sortDir: "asc" } }),
+      const [troncons, oRes, missions] = await Promise.all([
+        tousLesTroncons(),
         api.get("/ouvrages", { params: { pageSize: 200, sortBy: "nom", sortDir: "asc" } }),
+        mesMissions(userId),
       ]);
       const data: Referentiels = {
-        troncons: (tRes.data.data ?? []).map((t: { id: string; code: string; nom: string }) => ({ id: t.id, code: t.code, nom: t.nom })),
+        troncons,
+        missions,
         ouvrages: (oRes.data.data ?? []).map((o: { id: string; nom: string; type: string }) => ({ id: o.id, nom: o.nom, type: o.type })),
         cachedAt: new Date().toISOString(),
       };
@@ -73,6 +102,15 @@ export function InspectionTerrainPage() {
   const [geolocError, setGeolocError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [recentSubmissions, setRecentSubmissions] = useState<PendingInspection[]>([]);
+  const [recherche, setRecherche] = useState("");
+  const [constatDefauts, setConstatDefauts] = useState("");
+  const [methodeObservation, setMethode] = useState("VISUELLE_A_PIED");
+  const [conditionsObservation, setConditions] = useState("");
+  const [missionId, setMissionId] = useState("");
+  const [debutM, setDebutM] = useState("");
+  const [finM, setFinM] = useState("");
+  const manques = manquesFiche({ constatDefauts, defautsConstates, etatObserve, debutM, finM });
+
   // Ecriture refusee par le stockage local (plein, verrouille, trop de photos...) : la saisie n'est PAS enregistree.
   const [erreurEnregistrement, setErreurEnregistrement] = useState<string | null>(null);
   // Lecture des dernieres saisies impossible (coffre verrouille, aucun compte...) : dite, sans faire planter l'ecran.
@@ -92,10 +130,10 @@ export function InspectionTerrainPage() {
 
   useEffect(() => {
     let vivant = true;
-    loadReferentiels().then((r) => { if (vivant) setReferentiels(r); }).catch(() => undefined);
+    loadReferentiels(user?.id).then((r) => { if (vivant) setReferentiels(r); }).catch(() => undefined);
     void relireSaisiesRecentes();
     return () => { vivant = false; };
-  }, [relireSaisiesRecentes]);
+  }, [relireSaisiesRecentes, user?.id]);
 
   function captureGeoloc() {
     if (!navigator.geolocation) { setGeolocError("Géolocalisation non disponible sur cet appareil."); return; }
@@ -136,6 +174,7 @@ export function InspectionTerrainPage() {
     photos.forEach((p) => { if (p.previewUrl) revoquerUrlApercu(p.previewUrl); });
     setTronconId(""); setOuvrageId(""); setDefautsConstates(""); setRecommandations("");
     setPhotos([]); setGeoloc(null); setEtatObserve("BON");
+    setConstatDefauts(""); setConditions(""); setMissionId(""); setDebutM(""); setFinM("");
     setDateInspection(new Date().toISOString().slice(0, 10));
   }
 
@@ -143,6 +182,7 @@ export function InspectionTerrainPage() {
 
   async function handleSubmit() {
     if (!objetValid) { toast.error("Sélectionnez un tronçon ou un ouvrage."); return; }
+    if (manques.length) { toast.error(manques[0]); return; }
     setSubmitting(true);
     setErreurEnregistrement(null);
     try {
@@ -159,6 +199,12 @@ export function InspectionTerrainPage() {
           lat: geoloc?.lat,
           lon: geoloc?.lon,
           precisionM: geoloc?.precisionM,
+          constatDefauts: constatDefauts || undefined,
+          methodeObservation: methodeObservation || undefined,
+          conditionsObservation: conditionsObservation.trim() || undefined,
+          missionId: missionId || undefined,
+          debutM: objetType === "troncon" ? nombreOuRien(debutM) : undefined,
+          finM: objetType === "troncon" ? nombreOuRien(finM) : undefined,
         },
         photos: photos.map((p) => ({ name: p.name, blob: p.blob })),
         createdAt: new Date().toISOString(),
@@ -185,10 +231,14 @@ export function InspectionTerrainPage() {
     }
   }
 
-  const objetOptions = useMemo(
-    () => objetType === "troncon" ? referentiels.troncons : referentiels.ouvrages,
-    [objetType, referentiels]
-  );
+  const objetOptions = useMemo(() => {
+    const q = recherche.trim().toLowerCase();
+    const liste = objetType === "troncon" ? referentiels.troncons : referentiels.ouvrages;
+    // Recherche LOCALE dans le cache : elle marche hors ligne. Le choix courant reste toujours dans la liste.
+    if (!q) return liste;
+    const courant = objetType === "troncon" ? tronconId : ouvrageId;
+    return (liste as { id: string; nom: string; code?: string }[]).filter((x) => x.id === courant || x.nom.toLowerCase().includes(q) || (x.code ?? "").toLowerCase().includes(q));
+  }, [objetType, referentiels, recherche, tronconId, ouvrageId]);
 
   return (
     <div className="space-y-4 pb-8">
@@ -237,6 +287,13 @@ export function InspectionTerrainPage() {
         <label htmlFor="inspection-terrain-objet" className="block text-sm font-medium text-gray-700 mb-1.5">
           {objetType === "troncon" ? "Tronçon inspecté" : "Ouvrage inspecté"}
         </label>
+        <input
+          aria-label="Rechercher dans le référentiel local"
+          value={recherche}
+          onChange={(e) => setRecherche(e.target.value)}
+          placeholder="Code ou nom (recherche hors ligne)"
+          className="mb-2 w-full rounded-lg border border-gray-300 px-3 py-2 text-base focus:outline-none focus:ring-2 focus:ring-navy/30"
+        />
         <select
           id="inspection-terrain-objet"
           value={objetType === "troncon" ? tronconId : ouvrageId}
@@ -271,7 +328,7 @@ export function InspectionTerrainPage() {
           />
         </div>
         <div>
-          <label htmlFor="inspection-terrain-page-champ-2" className="block text-sm font-medium text-gray-700 mb-1.5">État observé</label>
+          <label htmlFor="inspection-terrain-page-champ-2" className="block text-sm font-medium text-gray-700 mb-1.5">État observé (appréciation visuelle)</label>
           <select id="inspection-terrain-page-champ-2"
             value={etatObserve}
             onChange={(e) => setEtatObserve(e.target.value)}
@@ -284,6 +341,54 @@ export function InspectionTerrainPage() {
             <option value="NON_EVALUE">Non évalué</option>
           </select>
         </div>
+      </div>
+
+      {/* Constat, méthode, section, mission (lot F) */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div>
+          <label htmlFor="inspection-terrain-constat" className="block text-sm font-medium text-gray-700 mb-1.5">Constat des défauts</label>
+          <select id="inspection-terrain-constat" value={constatDefauts} onChange={(e) => setConstatDefauts(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-navy/30">
+            <option value="">Non précisé</option>
+            {CONSTATS.map((c) => <option key={c.code} value={c.code}>{c.libelle}</option>)}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="inspection-terrain-methode" className="block text-sm font-medium text-gray-700 mb-1.5">Méthode d'observation</label>
+          <select id="inspection-terrain-methode" value={methodeObservation} onChange={(e) => setMethode(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-navy/30">
+            {METHODES.map((m) => <option key={m.code} value={m.code}>{m.libelle}</option>)}
+          </select>
+        </div>
+        <div className="sm:col-span-2">
+          <label htmlFor="inspection-terrain-conditions" className="block text-sm font-medium text-gray-700 mb-1.5">Conditions d'observation</label>
+          <input id="inspection-terrain-conditions" value={conditionsObservation} maxLength={500} onChange={(e) => setConditions(e.target.value)} placeholder="Météo, visibilité, trafic…"
+            className="w-full rounded-lg border border-gray-300 px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-navy/30" />
+        </div>
+        {objetType === "troncon" && (
+          <>
+            <div>
+              <label htmlFor="inspection-terrain-debut" className="block text-sm font-medium text-gray-700 mb-1.5">Section observée : début (m)</label>
+              <input id="inspection-terrain-debut" inputMode="decimal" value={debutM} onChange={(e) => setDebutM(e.target.value)} placeholder="vide : tronçon entier"
+                className="w-full rounded-lg border border-gray-300 px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-navy/30" />
+            </div>
+            <div>
+              <label htmlFor="inspection-terrain-fin" className="block text-sm font-medium text-gray-700 mb-1.5">Section observée : fin (m)</label>
+              <input id="inspection-terrain-fin" inputMode="decimal" value={finM} onChange={(e) => setFinM(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-navy/30" />
+            </div>
+          </>
+        )}
+        <div className="sm:col-span-2">
+          <label htmlFor="inspection-terrain-mission" className="block text-sm font-medium text-gray-700 mb-1.5">Mission</label>
+          <select id="inspection-terrain-mission" value={missionId} onChange={(e) => setMissionId(e.target.value)}
+            className="w-full rounded-lg border border-gray-300 px-3 py-3 text-base focus:outline-none focus:ring-2 focus:ring-navy/30">
+            <option value="">Sans mission</option>
+            {(referentiels.missions ?? []).map((m) => <option key={m.id} value={m.id}>{m.code} · {m.intitule}</option>)}
+          </select>
+        </div>
+        <p className="sm:col-span-2 text-xs text-gray-600">L'état est une appréciation visuelle : aucun IRI ni portance ne s'en déduit. Une section en mètres se compte le long du tracé depuis son origine.</p>
+        {manques.length > 0 && <ul role="alert" className="sm:col-span-2 text-sm text-red-700">{manques.map((m) => <li key={m}>{m}</li>)}</ul>}
       </div>
 
       {/* Défauts / recommandations */}

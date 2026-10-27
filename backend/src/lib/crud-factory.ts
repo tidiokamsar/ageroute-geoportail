@@ -7,6 +7,13 @@ import { construireSaisies } from "./provenance";
 import { ApiError } from "../middleware/error.middleware";
 import { exigerTerritoire } from "../territoire/territoire.service";
 
+/**
+ * Ecriture complementaire executee DANS la transaction d'un create ou d'un update (apres l'audit de l'entite) :
+ * ce qui ne passe pas par Prisma, comme la geometrie des troncons, rejoint ainsi la meme transaction. Un echec
+ * annule tout, l'entite comprise.
+ */
+export type EcritureComplementaire = (tx: unknown, enregistrement: Record<string, unknown>) => Promise<void>;
+
 export interface ListParams {
   page?: number;
   pageSize?: number;
@@ -134,7 +141,7 @@ export function createCrudService(
     return item;
   }
 
-  async function create(data: Record<string, unknown>, userId: string) {
+  async function create(data: Record<string, unknown>, userId: string, apres?: EcritureComplementaire) {
     /**
      * La creation trace sa provenance, comme la mise a jour.
      *
@@ -170,11 +177,12 @@ export function createCrudService(
       await logAuditTransactionnelle(tx, {
         userId, action: "CREATE", entityType: entityName, entityId: cree.id, after: cree,
       });
+      if (apres) await apres(tx, cree);
       return cree;
     });
   }
 
-  async function update(id: string, data: Record<string, unknown>, userId: string) {
+  async function update(id: string, data: Record<string, unknown>, userId: string, apres?: EcritureComplementaire) {
     // P2-01 : une entite archivee n'est plus modifiable — cohérent avec getById.
     // Avant, findUnique trouvait l'entité archivée et l'update passait : une donnée
     // retirée des listes opérationnelles restait modifiable par identifiant.
@@ -203,6 +211,7 @@ export function createCrudService(
       await logAuditTransactionnelle(tx, {
         userId, action: "UPDATE", entityType: entityName, entityId: id, before, after: maj,
       });
+      if (apres) await apres(tx, maj);
       return maj;
     });
   }

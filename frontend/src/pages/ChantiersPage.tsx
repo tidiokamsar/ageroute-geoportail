@@ -7,6 +7,7 @@ import { EntityListPage, FilterSelect } from "./EntityListPage";
 import { Card, KpiCard } from "../components/ui/Card";
 import { api } from "../lib/api";
 import { chantierFields } from "../lib/fieldConfigs";
+import { ChantierSectionsModal } from "../components/ChantierSectionsModal";
 import type { Chantier, Region } from "../types";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -92,6 +93,7 @@ export function ChantiersPage() {
   const navigate = useNavigate();
   const [regionFilter, setRegionFilter] = useState("");
   const [statutFilter, setStatutFilter] = useState("");
+  const [sections, setSections] = useState<Chantier | null>(null);
 
   const { data: stats } = useChantierStats();
   const enRetardCount = stats?.enRetard ?? 0;
@@ -178,6 +180,7 @@ export function ChantiersPage() {
       }
       rowExtraActions={[
         { label: "Carte", onClick: (c) => navigate(`/geoportail?select=chantier&id=${c.id}`) },
+        { label: "Tronçons", onClick: (c) => setSections(c) },
       ]}
       aboveList={
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -198,6 +201,8 @@ export function ChantiersPage() {
           <KpiCard label="Sans dates renseignées" value={stats?.sansDates ?? "—"} icon={<CalendarX className="h-5 w-5" />} accent="#9ca3af" sub={stats?.sansDates ? "calcul retard impossible" : undefined} />
         </div>
       }
-    />
+    >
+      {sections && <ChantierSectionsModal chantier={sections} onClose={() => setSections(null)} />}
+    </EntityListPage>
   );
 }

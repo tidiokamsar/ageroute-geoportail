@@ -46,6 +46,9 @@ lancer "correspondances.integration.mts"
 lancer "eo-workflow.integration.ts"
 # Crée et détruit son propre clone `essai_eo_api` (DATABASE_URL pointe sur replay) ; applique lui-même les migrations 20261028*.
 lancer "eo-api.integration.mts"
+lancer "registre.integration.mts"
+lancer "sections.integration.mts"
+lancer "inspection-terrain.integration.mts"
 
 printf '\n%s\n' "Resultat des bancs d'integration"
 printf '%s\n' "${lignes[@]}"

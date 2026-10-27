@@ -372,6 +372,9 @@ model User {
   propositionsTeledetectionTransitions PropositionTeledetectionTransition[] @relation("PtTransitionAuteur")
   propositionsTeledetectionPreuves PropositionTeledetectionPreuve[] @relation("PtPreuveAjoutee")
   programmesBudgetairesCrees      ProgrammeBudgetaire[]      @relation("ProgrammationAuteur")
+  decisionsAnomalie               DecisionAnomalie[]
+  chantierSectionsCrees           ChantierSection[]          @relation("ChantierSectionCreateur")
+  chantierSectionsRetirees        ChantierSection[]          @relation("ChantierSectionRetrait")
 
   @@map("users")
 }
@@ -437,6 +440,8 @@ model Region {
   programmesPatrouille  ProgrammePatrouille[]
 
   astreintes Astreinte[]
+
+  anomaliesReferentiel AnomalieReferentiel[]
 
   @@map("regions")
 }
@@ -517,6 +522,8 @@ model Troncon {
   programmesPatrouille      ProgrammeTroncon[]
   propositionsTeledetection PropositionTeledetection[]
   programmesBudgetaires     ProgrammeBudgetaire[]
+  anomaliesReferentiel      AnomalieReferentiel[]
+  chantierSections          ChantierSection[]
 
   @@index([regionId])
   @@index([etat])
@@ -704,6 +711,8 @@ model Chantier {
 
   @@index([regionId])
   @@index([deletedAt])
+  sections ChantierSection[]
+
   @@index([statutValidation])
   @@map("chantiers")
 }
@@ -750,6 +759,20 @@ model Inspection {
   /// exige la methode a cote.
   iriEstime       Decimal? @db.Decimal(6, 2)
   iriMethode      String?
+
+  /// Lot F (migration 20261027120000) : constat des defauts DEFAUTS_RELEVES / AUCUN_DEFAUT_OBSERVE / NON_INSPECTE /
+  /// INCONNU / NON_APPLICABLE ; methode VISUELLE_A_PIED / VISUELLE_EN_VEHICULE / AUTRE (une appreciation visuelle,
+  /// jamais une mesure) ; section observee (portion OU intervalle en metres) ; mission ; avis de validation.
+  constatDefauts        String?
+  methodeObservation    String?
+  conditionsObservation String?
+  missionId             String?
+  mission               Mission?          @relation(fields: [missionId], references: [id], onDelete: Restrict)
+  portionId             String?
+  portion               Portion?          @relation(fields: [portionId], references: [id], onDelete: Restrict)
+  debutM                Float?
+  finM                  Float?
+  statutValidation      StatutValidation?
 
   @@index([tronconId])
   @@index([ouvrageId])
@@ -1548,6 +1571,8 @@ model Mission {
   signalementId             String?
   signalement               SignalementCitoyen?        @relation(fields: [signalementId], references: [id])
   propositionsTeledetection PropositionTeledetection[]
+
+  inspections Inspection[]
 
   @@index([statut])
   @@index([assigneId])
@@ -2686,6 +2711,9 @@ model Portion {
   @@index([tronconId, valideDu], map: "portions_tronconId_valideDu_idx")
   @@index([statutValidation])
   @@index([deletedAt])
+  chantierSections ChantierSection[]
+  inspections      Inspection[]
+
   @@index([observationId])
   @@map("portions")
 }
@@ -4039,4 +4067,81 @@ model PlanPluriannuel {
 
   @@index([anneeDebut, creeLe(sort: Desc)], map: "plans_pluriannuels_debut_idx")
   @@map("plans_pluriannuels")
+}
+
+/// Registre des anomalies du referentiel des troncons (BDRI, lot C). Migration 20261027100000.
+/// Une anomalie est identifiee par (tronconId, regle, empreinte des valeurs observees) : relancer l'analyse
+/// sur des donnees inchangees ne cree rien. Rien n'est supprime : une anomalie qui ne se constate plus recoit
+/// `disparueLe`. Statuts : A_EXAMINER, CORRECTION_PROPOSEE, VALIDEE, REJETEE, CORRIGEE (contrainte en base).
+model AnomalieReferentiel {
+  id                  String    @id @default(uuid())
+  tronconId           String
+  troncon             Troncon   @relation(fields: [tronconId], references: [id], onDelete: Restrict)
+  regle               String
+  empreinte           String
+  gravite             String
+  valeurs             Json
+  source              String
+  statut              String    @default("A_EXAMINER")
+  /// Correction proposee : { champ, ancienne, nouvelle, justification, source }.
+  correction          Json?
+  regionId            Int?
+  region              Region?   @relation(fields: [regionId], references: [id], onDelete: SetNull)
+  detecteeLe          DateTime  @default(now())
+  derniereDetectionLe DateTime  @default(now())
+  disparueLe          DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @default(now()) @updatedAt
+
+  decisions DecisionAnomalie[]
+
+  @@unique([tronconId, regle, empreinte], map: "anomalies_referentiel_troncon_regle_empreinte_key")
+  @@index([statut], map: "anomalies_referentiel_statut_idx")
+  @@index([regle], map: "anomalies_referentiel_regle_idx")
+  @@index([regionId], map: "anomalies_referentiel_region_idx")
+  @@map("anomalies_referentiel")
+}
+
+/// Journal des decisions sur une anomalie, en AJOUT SEUL (declencheur : ni UPDATE ni DELETE).
+model DecisionAnomalie {
+  id          String              @id @default(uuid())
+  anomalieId  String
+  anomalie    AnomalieReferentiel @relation(fields: [anomalieId], references: [id], onDelete: Restrict)
+  statutAvant String?
+  statutApres String
+  commentaire String?
+  correction  Json?
+  auteurId    String
+  auteur      User                @relation(fields: [auteurId], references: [id], onDelete: Restrict)
+  decideLe    DateTime            @default(now())
+
+  @@index([anomalieId, decideLe], map: "decisions_anomalie_anomalie_idx")
+  @@map("decisions_anomalie")
+}
+
+/// Un chantier sur plusieurs troncons ou sections (BDRI, lot G). Migration 20261027110000.
+/// Section = une portion existante OU un intervalle d'abscisses (metres le long du trace), ou le troncon entier.
+/// Aucun montant ni statut contractuel : ils restent au chantier. Un lien se RETIRE (retireLe), il ne s'efface pas.
+model ChantierSection {
+  id           String    @id @default(uuid())
+  chantierId   String
+  chantier     Chantier  @relation(fields: [chantierId], references: [id], onDelete: Restrict)
+  tronconId    String
+  troncon      Troncon   @relation(fields: [tronconId], references: [id], onDelete: Restrict)
+  portionId    String?
+  portion      Portion?  @relation(fields: [portionId], references: [id], onDelete: Restrict)
+  debutM       Float?
+  finM         Float?
+  commentaire  String?
+  creeParId    String
+  creePar      User      @relation("ChantierSectionCreateur", fields: [creeParId], references: [id], onDelete: Restrict)
+  creeLe       DateTime  @default(now())
+  retireLe     DateTime?
+  retireParId  String?
+  retirePar    User?     @relation("ChantierSectionRetrait", fields: [retireParId], references: [id], onDelete: Restrict)
+  motifRetrait String?
+
+  @@index([chantierId], map: "chantier_sections_chantier_idx")
+  @@index([tronconId], map: "chantier_sections_troncon_idx")
+  @@map("chantier_sections")
 }

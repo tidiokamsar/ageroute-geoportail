@@ -5,6 +5,9 @@ import { devicesV2Router } from "./devices.routes";
 import { missionsV2Router } from "./missions.routes";
 import { roulageV2Router } from "./roulage.routes";
 import { mesSessionsRoulageV2Router } from "./mes-sessions-roulage.routes";
+import { referentielV2Router } from "./referentiel.routes";
+import { chantierSectionsV2Router } from "./chantier-sections.routes";
+import { inspectionsValidationV2Router } from "./inspections-validation.routes";
 import { observationsV2Router } from "./observations.routes";
 import { defautsV2Router } from "./defauts.routes";
 import { fieldV2Router } from "./field.routes";
@@ -92,6 +95,9 @@ apiV2Router.use("/missions", missionsV2Router);
 // Le chemin specifique d'abord : `/roulage/mes-sessions` (relecture de l'agent, DT-9) cohabite avec la consultation `/roulage/sessions`.
 apiV2Router.use("/roulage/mes-sessions", mesSessionsRoulageV2Router);
 apiV2Router.use("/roulage", roulageV2Router);
+apiV2Router.use("/referentiel/troncons", referentielV2Router);
+apiV2Router.use("/chantiers", chantierSectionsV2Router);
+apiV2Router.use("/inspections", inspectionsValidationV2Router);
 apiV2Router.use("/observations", observationsV2Router);
 apiV2Router.use("/defauts", defautsV2Router);
 apiV2Router.use("/field", fieldV2Router);
@@ -138,7 +144,7 @@ apiV2Router.use("/mobile", mobileV2Router);
 apiV2Router.get("/", requireAuth, (_req, res) => {
   res.json({
     version: "v2",
-    domaines: ["geo", "sync", "devices", "missions", "observations", "defauts", "field", "portions", "referentiels", "qualite", "reseau", "imports", "exploitation", "teledetection", "programmation", "baremes", "perimetres", "integrations", "tableau-de-bord", "fiche-360", "taches-internes", "correspondances", "roulage"],
+    domaines: ["geo", "sync", "devices", "missions", "observations", "defauts", "field", "portions", "referentiels", "qualite", "reseau", "imports", "exploitation", "teledetection", "programmation", "baremes", "perimetres", "integrations", "tableau-de-bord", "fiche-360", "taches-internes", "correspondances", "roulage", "referentiel", "chantiers", "inspections"],
     aVenir: [
       "auth", "tracks",
       "assets", "offline", "intelligence", "ai",

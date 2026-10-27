@@ -32,7 +32,9 @@ const h = vi.hoisted(() => ({
 
 vi.mock("../../lib/prisma", () => {
   const client = {
-    $queryRaw: vi.fn(async () => {
+    $queryRaw: vi.fn(async (strings: TemplateStringsArray) => {
+      // Controle du trace AVANT toute ecriture (lot I) : hors transaction, hors du journal verifie ici.
+      if (strings.join("?").includes("ST_IsValidReason")) return [{ valide: true, raison: "Valid Geometry", xmin: -13.7, ymin: 9.5, xmax: -13.6, ymax: 9.6 }];
       h.journal.push("lecture-resume");
       return h.resumeExistant;
     }),

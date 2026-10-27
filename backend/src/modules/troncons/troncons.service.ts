@@ -8,6 +8,7 @@ import { buildExportBuffer, parseImportBuffer, formatImportError, type ImportRep
 import { resolveRegionId } from "../../lib/regions";
 import { ApiError } from "../../middleware/error.middleware";
 import { tronconCreateSchema, type TronconCreateInput } from "./troncons.schema";
+import { EMPRISE_NATIONALE } from "../../referentiel/registre.noyau";
 
 /**
  * Troncon est migre a l'audit transactionnel (ADR 11).
@@ -66,6 +67,10 @@ export interface TronconListParams extends ListParams {
   region?: string;
   etat?: string;
   classe?: string;
+  revetement?: string;
+  /** « non_renseigne » : PK 0 -> 0, la facon dont l'absence a ete saisie (les colonnes sont obligatoires). */
+  pk?: "non_renseigne" | "renseigne";
+  geometrie?: "absente" | "presente";
   /** Reseau classe par defaut ; "tout" inclut la voirie promue. */
   perimetre?: PerimetreTroncons;
 }
@@ -87,23 +92,71 @@ export type PerimetreTroncons = "reference" | "tout";
  */
 const RESEAU_CLASSE: Prisma.TronconWhereInput = WHERE_RESEAU_CLASSE;
 
-async function list(params: TronconListParams) {
+/**
+ * Identifiants des troncons SANS trace. La geometrie est une colonne `Unsupported` : Prisma ne sait pas la
+ * filtrer, d'ou cette lecture SQL, plafonnee (au-dela, le filtre le dit au lieu de rendre une liste fausse).
+ */
+const PLAFOND_SANS_GEOMETRIE = 50_000;
+async function idsSansGeometrie(): Promise<string[]> {
+  const lignes = await prisma.$queryRaw<{ id: string }[]>`SELECT id FROM troncons WHERE geom IS NULL LIMIT ${PLAFOND_SANS_GEOMETRIE + 1}`;
+  if (lignes.length > PLAFOND_SANS_GEOMETRIE) throw new ApiError(422, "Trop de tronçons sans tracé pour ce filtre : restreignez d'abord par région.");
+  return lignes.map((l) => l.id);
+}
+
+/** Un PK cherche : « 12,5 » ou « 12.5 ». Le texte reste cherche dans le code et le nom. */
+export function pkCherche(search: string): number | null {
+  const t = search.trim();
+  return /^\d{1,4}([.,]\d{1,3})?$/.test(t) ? Number(t.replace(",", ".")) : null;
+}
+
+/** Le filtre de la liste, partage avec l'export : ce qu'on exporte est ce qu'on voit. */
+async function whereListe(params: TronconListParams): Promise<Record<string, unknown>> {
   const where: Record<string, unknown> = { ...params.where };
+  const et: unknown[] = [];
   if (params.region) where.region = { nom: params.region };
   if (params.etat) where.etat = params.etat;
   if (params.classe) where.classe = params.classe;
+  if (params.revetement) where.revetement = params.revetement;
   if (params.search) {
+    const pk = pkCherche(params.search);
     where.OR = [
       { code: { contains: params.search, mode: "insensitive" } },
       { nom: { contains: params.search, mode: "insensitive" } },
+      ...(pk === null ? [] : [{ AND: [{ pkDebut: { lte: pk } }, { pkFin: { gte: pk } }] }]),
     ];
+  }
+  if (params.pk === "non_renseigne") et.push({ pkDebut: 0, pkFin: 0 });
+  if (params.pk === "renseigne") et.push({ NOT: { pkDebut: 0, pkFin: 0 } });
+  if (params.geometrie) {
+    const ids = await idsSansGeometrie();
+    et.push(params.geometrie === "absente" ? { id: { in: ids } } : { id: { notIn: ids } });
   }
   // Par AND et non par OR : `where.OR` porte deja la recherche texte, et fusionner
   // les deux listes rendrait toute la voirie des qu'un utilisateur tape un caractere.
-  if ((params.perimetre ?? "reference") !== "tout") {
-    where.AND = [...((where.AND as unknown[]) ?? []), RESEAU_CLASSE];
-  }
-  return base.list({ ...params, where });
+  if ((params.perimetre ?? "reference") !== "tout") et.push(RESEAU_CLASSE);
+  if (et.length) where.AND = [...((where.AND as unknown[]) ?? []), ...et];
+  return where;
+}
+
+async function list(params: TronconListParams) {
+  const resultat = await base.list({ ...params, where: await whereListe(params) });
+  // Chaque ligne dit si elle a un trace et sa longueur geometrique : la liste ne propose pas « Carte » pour un
+  // troncon que la carte ne peut pas montrer, et ne confond pas longueur declaree et longueur du trace.
+  const lignes = resultat.data as { id: string }[];
+  const ids = lignes.map((t) => t.id);
+  const geo = ids.length === 0 ? [] : await prisma.$queryRaw<{ id: string; a: boolean; km: number | null }[]>`
+    SELECT id, (geom IS NOT NULL) AS a,
+           CASE WHEN geom IS NOT NULL AND ST_IsValid(geom) THEN ST_Length(geom::geography) / 1000.0 END AS km
+      FROM troncons WHERE id = ANY(${ids}::text[])
+  `;
+  const parId = new Map(geo.map((g) => [g.id, g]));
+  return {
+    ...resultat,
+    data: lignes.map((t) => {
+      const g = parId.get(t.id);
+      return { ...t, aGeometrie: g?.a ?? false, longueurGeometriqueKm: g?.km == null ? null : Math.round(Number(g.km) * 1000) / 1000 };
+    }),
+  };
 }
 
 // Estimation "a vol d'oiseau" entre deux troncons (centroides de leurs traces), PAS un
@@ -250,10 +303,8 @@ const PLAFOND_EXPORT = 20_000;
  * `perimetre: "tout"` reste possible pour un appelant qui sait ce qu'il demande, et
  * se heurte alors au plafond plutot qu'a une panne.
  */
-async function exportXlsx({ perimetre = "reference" }: { perimetre?: PerimetreTroncons } = {}): Promise<Buffer> {
-  const where: Prisma.TronconWhereInput = perimetre === "tout"
-    ? { deletedAt: null }
-    : { deletedAt: null, ...RESEAU_CLASSE };
+async function exportXlsx(params: TronconListParams = {}): Promise<Buffer> {
+  const where = { ...(await whereListe(params)), deletedAt: params.archived ? { not: null } : null } as Prisma.TronconWhereInput;
 
   const total = await prisma.troncon.count({ where });
   if (total > PLAFOND_EXPORT) {
@@ -283,14 +334,53 @@ function toNumber(v: unknown): number | undefined {
   return isNaN(n) ? undefined : n;
 }
 
-async function importXlsx(buffer: Buffer, userId: string): Promise<ImportReport> {
+/** Champs comparés pour dire si une ligne d'import CHANGE un tronçon existant, et quoi. */
+const CHAMPS_IMPORT = ["nom", "classe", "regionId", "longueurKm", "revetement", "etat", "pkDebut", "pkFin", "traficMoyenJma"] as const;
+
+export interface LigneImport {
+  row: number;
+  code: string;
+  action: "CREER" | "METTRE_A_JOUR" | "INCHANGE" | "ERREUR";
+  /** Pour une mise a jour : chaque champ qui change, avec sa valeur actuelle et la nouvelle. */
+  changements?: { champ: string; actuelle: unknown; nouvelle: unknown }[];
+  message?: string;
+}
+
+export interface RapportImportTroncons extends ImportReport {
+  simulation: boolean;
+  /** Creations seulement (avant ce lot, les mises a jour etaient comptees ici). */
+  created: number;
+  updated: number;
+  unchanged: number;
+  /** Signalements qui n'empechent pas l'import : doublon potentiel par nom et region. */
+  avertissements: { row: number; message: string }[];
+  lignes: LigneImport[];
+}
+
+/**
+ * IMPORT XLSX DES TRONÇONS, SIMULABLE ET REJOUABLE (BDRI, lot H).
+ *
+ * `simulation` : chaque ligne est verifiee et classee (creer, mettre a jour avec la liste des champs qui changent,
+ * inchangee, erreur) SANS RIEN ECRIRE. L'import reel fait le meme examen et :
+ *   - n'ecrit pas une ligne inchangee : rejouer le meme fichier ne cree ni ne modifie rien ;
+ *   - refuse les MISES A JOUR de troncons existants sans `confirmer` (la simulation les a montrees) ;
+ *   - refuse un code present deux fois dans le fichier (laquelle des deux lignes croire ?) ;
+ *   - signale, sans bloquer, un nom deja porte dans la meme region par un autre code (doublon potentiel).
+ * Les identifiants existants sont conserves : la cle d'import est le `code`, l'`id` ne change jamais.
+ */
+async function importXlsx(buffer: Buffer, userId: string, options: { simulation?: boolean; confirmer?: boolean } = {}): Promise<RapportImportTroncons> {
   const rows = await parseImportBuffer(buffer);
-  const report: ImportReport = { created: 0, errors: [] };
+  const report: RapportImportTroncons = { simulation: options.simulation === true, created: 0, updated: 0, unchanged: 0, errors: [], avertissements: [], lignes: [] };
+  const codes = new Map<string, number>();
+  const prets: { rowNum: number; payload: TronconCreateInput; existantId: string | null }[] = [];
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i] as Record<string, unknown>;
     const rowNum = i + 2; // ligne Excel reelle (entete = ligne 1)
+    const codeBrut = String(row["Code"] ?? "").trim();
     try {
+      if (codeBrut && codes.has(codeBrut)) throw new Error(`Code ${codeBrut} déjà présent ligne ${codes.get(codeBrut)} du fichier : laquelle croire ? Corriger le fichier.`);
+      if (codeBrut) codes.set(codeBrut, rowNum);
       const regionId = await resolveRegionId(String(row["Région"] ?? ""));
       if (!regionId) throw new Error(`Région "${row["Région"]}" introuvable`);
 
@@ -308,11 +398,51 @@ async function importXlsx(buffer: Buffer, userId: string): Promise<ImportReport>
       });
 
       const existing = await prisma.troncon.findUnique({ where: { code: payload.code } });
-      if (existing) await base.update(existing.id, payload, userId);
-      else await base.create(payload, userId);
-      report.created++;
+      if (existing?.deletedAt) throw new Error(`Le tronçon ${payload.code} est archivé : le restaurer avant de l'importer (l'import ne fait renaître aucune donnée archivée).`);
+      if (existing) {
+        const changements = CHAMPS_IMPORT
+          .filter((c) => payload[c] !== undefined && payload[c] !== (existing as Record<string, unknown>)[c])
+          .map((c) => ({ champ: c, actuelle: (existing as Record<string, unknown>)[c], nouvelle: payload[c] }));
+        if (changements.length === 0) {
+          report.unchanged++;
+          report.lignes.push({ row: rowNum, code: payload.code, action: "INCHANGE" });
+          continue;
+        }
+        report.lignes.push({ row: rowNum, code: payload.code, action: "METTRE_A_JOUR", changements });
+      } else {
+        const homonyme = await prisma.troncon.findFirst({
+          where: { deletedAt: null, regionId: payload.regionId, nom: { equals: payload.nom, mode: "insensitive" } },
+          select: { code: true },
+        });
+        if (homonyme) report.avertissements.push({ row: rowNum, message: `Doublon potentiel : le nom « ${payload.nom} » est déjà porté dans cette région par ${homonyme.code}. Un nom identique n'est pas une preuve ; vérifier avant d'importer.` });
+        report.lignes.push({ row: rowNum, code: payload.code, action: "CREER" });
+      }
+      prets.push({ rowNum, payload, existantId: existing?.id ?? null });
     } catch (err) {
-      report.errors.push({ row: rowNum, message: formatImportError(err) });
+      const message = formatImportError(err);
+      report.errors.push({ row: rowNum, message });
+      report.lignes.push({ row: rowNum, code: codeBrut, action: "ERREUR", message });
+    }
+  }
+
+  const misesAJour = prets.filter((p) => p.existantId).length;
+  if (report.simulation) {
+    report.created = prets.length - misesAJour;
+    report.updated = misesAJour;
+    return report;
+  }
+  if (misesAJour > 0 && options.confirmer !== true) {
+    throw new ApiError(409, `${misesAJour} tronçon(s) existant(s) seraient modifiés : simuler l'import, vérifier les changements, puis confirmer. Rien n'a été écrit.`);
+  }
+  for (const p of prets) {
+    try {
+      if (p.existantId) { await base.update(p.existantId, p.payload, userId); report.updated++; }
+      else { await base.create(p.payload, userId); report.created++; }
+    } catch (err) {
+      const message = formatImportError(err);
+      report.errors.push({ row: p.rowNum, message });
+      const ligne = report.lignes.find((l) => l.row === p.rowNum);
+      if (ligne) { ligne.action = "ERREUR"; ligne.message = message; }
     }
   }
   return report;
@@ -437,18 +567,56 @@ async function longueurGeometriqueM(id: string): Promise<number | null> {
   return v !== null && Number.isFinite(v) && v > 0 ? Math.round(v * 100) / 100 : null;
 }
 
-async function createWithGeom(data: TronconCreateInput & { geom?: { type: string; coordinates: number[][] } }, userId: string) {
-  const { geom, ...rest } = data;
-  const record = await base.create(rest, userId);
-  if (geom) await setLineGeom(record.id as string, geom);
-  return record;
+type Trace = { type: string; coordinates: number[][] };
+
+/**
+ * UN TRACE EST CONTROLE AVANT D'ETRE ECRIT (BDRI, lot I).
+ *
+ * Aucun chemin d'ecriture ne verifiait le trace : une ligne invalide pour PostGIS, ou des coordonnees inversees
+ * (latitude a la place de la longitude, qui posent la route au large de l'Afrique australe), entraient en base
+ * et ne se decouvraient qu'a la carte ou au metre. Le controle lit le trace TEL QU'IL SERAIT ECRIT et refuse
+ * avec la raison donnee par PostGIS ; il ne repare rien.
+ */
+async function verifierTrace(geom: Trace, client: Pick<typeof prisma, "$queryRaw"> = prisma): Promise<void> {
+  const [v] = await client.$queryRaw<{ valide: boolean; raison: string; xmin: number; ymin: number; xmax: number; ymax: number }[]>`
+    WITH g AS (SELECT ST_SetSRID(ST_GeomFromGeoJSON(${JSON.stringify(geom)}), 4326) AS g)
+    SELECT ST_IsValid(g) AS valide, ST_IsValidReason(g) AS raison, ST_XMin(g) AS xmin, ST_YMin(g) AS ymin, ST_XMax(g) AS xmax, ST_YMax(g) AS ymax FROM g
+  `;
+  if (!v.valide) throw new ApiError(422, `Tracé refusé : géométrie invalide (${v.raison}). Rien n'a été écrit.`);
+  const e = EMPRISE_NATIONALE;
+  if (v.xmin < e.xmin || v.xmax > e.xmax || v.ymin < e.ymin || v.ymax > e.ymax) {
+    throw new ApiError(422, "Tracé refusé : coordonnées hors de l'emprise de la Guinée (longitude et latitude inversées, ou autre système de coordonnées ?). Rien n'a été écrit.");
+  }
 }
 
-async function updateWithGeom(id: string, data: Partial<TronconCreateInput & { geom?: { type: string; coordinates: number[][] } }>, userId: string) {
+/**
+ * La creation ou la modification d'un troncon AVEC trace est UNE transaction : l'entite, sa provenance, son audit
+ * ET le trace avec son propre audit. Avant, le trace s'ecrivait apres coup, hors transaction et sans trace d'audit :
+ * seul `PATCH /:id/geom` etait audite.
+ */
+function ecrireTrace(geom: Trace, userId: string) {
+  return async (tx: unknown, enregistrement: Record<string, unknown>) => {
+    const client = tx as Pick<typeof prisma, "$executeRaw" | "$queryRaw">;
+    const id = enregistrement.id as string;
+    const avant = await resumeGeom(id, client);
+    await setLineGeom(id, geom, client);
+    await logAuditTransactionnelle(tx as never, {
+      userId, action: "UPDATE", entityType: "Troncon", entityId: id,
+      before: { geom: avant }, after: { geom: { points: geom.coordinates.length } },
+    });
+  };
+}
+
+async function createWithGeom(data: TronconCreateInput & { geom?: Trace }, userId: string) {
   const { geom, ...rest } = data;
-  const record = await base.update(id, rest, userId);
-  if (geom) await setLineGeom(id, geom);
-  return record;
+  if (geom) await verifierTrace(geom);
+  return base.create(rest, userId, geom ? ecrireTrace(geom, userId) : undefined);
+}
+
+async function updateWithGeom(id: string, data: Partial<TronconCreateInput & { geom?: Trace }>, userId: string) {
+  const { geom, ...rest } = data;
+  if (geom) await verifierTrace(geom);
+  return base.update(id, rest, userId, geom ? ecrireTrace(geom, userId) : undefined);
 }
 
 /**
@@ -472,6 +640,7 @@ async function updateGeomOnly(
   geom: { type: string; coordinates: number[][] },
   userId: string,
 ): Promise<void> {
+  await verifierTrace(geom);
   await prisma.$transaction(async (tx) => {
     const avant = await resumeGeom(id, tx);
     await setLineGeom(id, geom, tx);

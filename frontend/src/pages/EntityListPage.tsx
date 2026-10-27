@@ -18,12 +18,15 @@ import { parseApiError } from "../lib/errors";
 import { useConfirm } from "../hooks/useConfirm";
 
 // Composant dropdown filtre réutilisable (pattern TronconsPage)
-export function FilterSelect({ value, onChange, children }: {
+export function FilterSelect({ value, onChange, children, label }: {
   value: string; onChange: (v: string) => void; children: React.ReactNode;
+  /** Nom accessible du filtre (lecteur d'écran) : la première option ne suffit pas à le nommer. */
+  label?: string;
 }) {
   return (
     <div className="relative">
       <select
+        aria-label={label}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="appearance-none rounded-lg border border-gray-200 bg-white px-3 py-1.5 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-navy/20"
@@ -42,12 +45,14 @@ interface Props<T extends { id: string }> {
   fields: FieldConfig[];
   searchPlaceholder?: string;
   importExport?: boolean;
+  /** Import SIMULÉ avant écriture (le serveur doit accepter `?simulation=true`, comme les tronçons). */
+  importSimulation?: boolean;
   /** Nom de l'entite cote audit_logs (ex "Troncon") pour afficher l'historique. */
   auditEntityType?: string;
   /** Table (liste blanche serveur) pour exporter LA SÉLECTION en CSV / GeoJSON. */
   exportTable?: string;
   /** Boutons d'action supplementaires par ligne (ex "Fiche" pour les troncons, "Photos" pour les ouvrages). */
-  rowExtraActions?: { label: string; onClick: (row: T) => void }[];
+  rowExtraActions?: { label: string; onClick: (row: T) => void; /** Masque l'action pour une ligne (ex. « Carte » sans tracé). */ visible?: (row: T) => boolean }[];
   /** JSX de filtres horizontaux à afficher en ligne 2 sous la barre de recherche.
    *  L'état des filtres appartient à la page appelante ; voir extraParams. */
   filters?: React.ReactNode;
@@ -113,7 +118,7 @@ function ExportSelection({ table, ids, onDone }: { table: string; ids: string[];
   );
 }
 
-export function EntityListPage<T extends { id: string }>({ endpoint, title, columns, fields, searchPlaceholder, importExport, auditEntityType, exportTable, rowExtraActions, filters, extraParams, rowFilter, pageIcon, subtitle, defaultSortBy, headerExtra, children, aboveList, onRowsLoaded }: Props<T>) {
+export function EntityListPage<T extends { id: string }>({ endpoint, title, columns, fields, searchPlaceholder, importExport, importSimulation, auditEntityType, exportTable, rowExtraActions, filters, extraParams, rowFilter, pageIcon, subtitle, defaultSortBy, headerExtra, children, aboveList, onRowsLoaded }: Props<T>) {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [page, setPage] = useState(1);
@@ -198,7 +203,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
     cell: ({ row }) =>
       archived ? (
         <div className="flex items-center gap-1 justify-end">
-          {rowExtraActions?.map((action) => (
+          {rowExtraActions?.filter((action) => !action.visible || action.visible(row.original)).map((action) => (
             <button
               key={action.label}
               className="px-2 py-1 rounded text-xs text-gray-500 hover:text-navy hover:bg-gray-100"
@@ -244,7 +249,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
               <Archive className="h-3.5 w-3.5" />
             </button>
           )}
-          {rowExtraActions?.map((action) => (
+          {rowExtraActions?.filter((action) => !action.visible || action.visible(row.original)).map((action) => (
             <button
               key={action.label}
               className="px-2 py-1 rounded text-xs text-gray-500 hover:text-navy hover:bg-gray-100"
@@ -318,7 +323,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
             {archived ? "← Actifs" : "Voir les archivés"}
           </Button>
           {!archived && headerExtra}
-          {importExport && !archived && <ImportExportBar endpoint={endpoint} filenamePrefix={endpoint} />}
+          {importExport && !archived && <ImportExportBar endpoint={endpoint} filenamePrefix={endpoint} exportParams={{ search: search || undefined, ...extraParams }} simulation={importSimulation} />}
           {!archived && canWrite(user?.role) && (
             <Button
               onClick={() => {
@@ -457,7 +462,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
                   },
                 ]
               : []),
-            ...(rowExtraActions ?? []).map((action) => ({
+            ...(rowExtraActions ?? []).filter((action) => !action.visible || action.visible(viewingRow)).map((action) => ({
               label: action.label,
               onClick: () => { action.onClick(viewingRow); setViewingRow(null); },
             })),

@@ -33,6 +33,7 @@ const ReleveEnvoyeDetailPage = lazy(() => import("./components/roulage/ReleveEnv
 const ReleveVehiculePage = lazy(() => import("./pages/ReleveVehiculePage").then((m) => ({ default: m.ReleveVehiculePage })));
 const TerrainPortionsPage = lazy(() => import("./pages/TerrainPortionsPage").then((m) => ({ default: m.TerrainPortionsPage })));
 const MissionsPage = lazy(() => import("./pages/MissionsPage").then((m) => ({ default: m.MissionsPage })));
+const AuditReferentielPage = lazy(() => import("./pages/AuditReferentielPage").then((m) => ({ default: m.AuditReferentielPage })));
 const PortionsGestionPage = lazy(() => import("./pages/PortionsGestionPage").then((m) => ({ default: m.PortionsGestionPage })));
 const ObservationsTerrainPage = lazy(() => import("./pages/ObservationsTerrainPage").then((m) => ({ default: m.ObservationsTerrainPage })));
 const ConflitsSyncPage = lazy(() => import("./pages/ConflitsSyncPage").then((m) => ({ default: m.ConflitsSyncPage })));
@@ -89,6 +90,7 @@ const router = createBrowserRouter(
           <Route path="rapports" element={<LazyPage><RapportsPage /></LazyPage>} handle={{ title: "Rapports" }} />
           <Route path="rapports/bailleur" element={<LazyPage><RapportBailleurPage /></LazyPage>} handle={{ title: "Rapport bailleur" }} />
           <Route path="troncons" element={<LazyPage><TronconsPage /></LazyPage>} handle={{ title: "Tronçons routiers" }} />
+          <Route path="troncons/audit" element={<LazyPage><AuditReferentielPage /></LazyPage>} handle={{ title: "Audit du référentiel des tronçons" }} />
           <Route path="ouvrages" element={<LazyPage><OuvragesPage /></LazyPage>} handle={{ title: "Ouvrages d'art" }} />
           <Route path="points-noirs" element={<LazyPage><PointsNoirsPage /></LazyPage>} handle={{ title: "Points noirs" }} />
           <Route path="postes" element={<LazyPage><PostesPage /></LazyPage>} handle={{ title: "Péages / Pesages" }} />

@@ -1,4 +1,5 @@
 import { prisma } from "../../lib/prisma";
+import { ApiError } from "../../middleware/error.middleware";
 import { createCrudService, type ListParams } from "../../lib/crud-factory";
 import { createPhotoService } from "../../lib/photos";
 import { construireAudit } from "../../utils/audit";
@@ -124,13 +125,39 @@ async function propagateEtat(
   ]);
 }
 
+/**
+ * Ce que le schema ne peut pas juger seul (lot F) : la portion appartient au troncon inspecte et est courante ;
+ * la mission existe et le compte y a part (assigne ou createur), sauf ADMIN/GESTIONNAIRE.
+ */
+async function verifierRattachements(data: Record<string, unknown>, userId: string) {
+  if (typeof data.portionId === "string") {
+    const p = await prisma.portion.findFirst({ where: { id: data.portionId, deletedAt: null }, select: { tronconId: true, remplaceeLe: true } });
+    if (!p || p.tronconId !== data.tronconId) throw new ApiError(422, "Cette portion n'appartient pas au tronçon inspecté.");
+    if (p.remplaceeLe) throw new ApiError(409, "Cette portion est de l'historique : choisir la version courante.");
+  }
+  if (typeof data.missionId === "string") {
+    const [m, u] = await Promise.all([
+      prisma.mission.findFirst({ where: { id: data.missionId, deletedAt: null }, select: { assigneId: true, createurId: true } }),
+      prisma.user.findUnique({ where: { id: userId }, select: { role: true } }),
+    ]);
+    if (!m) throw new ApiError(422, "Mission introuvable.");
+    const gestion = u?.role === "ADMIN" || u?.role === "GESTIONNAIRE";
+    if (!gestion && m.assigneId !== userId && m.createurId !== userId) throw new ApiError(403, "Cette mission n'est ni la vôtre ni de votre création.");
+  }
+}
+
 async function create(data: Record<string, unknown>, userId: string) {
+  await verifierRattachements(data, userId);
   const created = await base.create(data, userId);
   await propagateEtat(data as Parameters<typeof propagateEtat>[0], userId);
   return created;
 }
 
 async function update(id: string, data: Record<string, unknown>, userId: string) {
+  if (data.portionId !== undefined || data.missionId !== undefined) {
+    const actuel = await prisma.inspection.findUnique({ where: { id }, select: { tronconId: true } });
+    await verifierRattachements({ ...data, tronconId: data.tronconId ?? actuel?.tronconId }, userId);
+  }
   const updated = await base.update(id, data, userId);
   // En edition partielle, l'etat observe (et la cible) peuvent ne pas etre dans le payload :
   // on retombe sur les valeurs persistees pour ne pas rater la propagation.
