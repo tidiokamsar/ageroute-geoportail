@@ -18,11 +18,11 @@ vi.hoisted(() => {
   process.env.JWT_REFRESH_SECRET = "essai-refresh-secret-essai-refresh-secret-000";
 });
 
-const h = vi.hoisted(() => ({ modules: ["troncons"] as string[] }));
+const h = vi.hoisted(() => ({ modules: ["troncons"] as string[], role: "GESTIONNAIRE" as string }));
 
 vi.mock("../lib/prisma", () => {
   const fantome = (): unknown => new Proxy(function () {}, { get: (_c, p) => (p === "then" || typeof p === "symbol" ? undefined : fantome()), apply: () => Promise.resolve([]) });
-  return { prisma: new Proxy({}, { get: (_c, p) => (p === "user" ? { findUnique: async () => ({ modulesAutorises: h.modules, actif: true, lockedUntil: null, role: "GESTIONNAIRE", email: "x@y.z" }) } : fantome()) }) };
+  return { prisma: new Proxy({}, { get: (_c, p) => (p === "user" ? { findUnique: async () => ({ modulesAutorises: h.modules, actif: true, lockedUntil: null, role: h.role, email: "x@y.z" }) } : fantome()) }) };
 });
 
 import { teledetectionV2Router } from "../api-v2/teledetection.routes";
@@ -45,7 +45,8 @@ function routesDuRouteur(): Route[] {
 const app = express();
 app.use(express.json());
 app.use("/api/v2/teledetection", teledetectionV2Router);
-const jeton = (role: "GESTIONNAIRE" | "ADMIN") => signAccessToken({ sub: "u-1", role, email: "x@y.z" });
+// Le serveur relit le compte (et son role) en base a chaque appel : la base simulee rend le role du jeton emis.
+const jeton = (role: "GESTIONNAIRE" | "ADMIN") => { h.role = role; return signAccessToken({ sub: "u-1", role, email: "x@y.z" }); };
 const envoyer = (r: Route, t?: string) => {
   let q = (request(app) as unknown as Record<string, (u: string) => request.Test>)[r.methode](`/api/v2/teledetection${r.chemin}`);
   if (t) q = q.set("Authorization", `Bearer ${t}`);

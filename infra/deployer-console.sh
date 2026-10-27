@@ -37,7 +37,7 @@ set -euo pipefail
 COMMIT="${1:-}"
 SHA_ATTENDU="${2:-}"
 ARCHIVE_LOCALE="${3:-}"
-ATTENDUES_EN_ATTENTE=2
+ATTENDUES_EN_ATTENTE=7
 # Seuil de disque libre en %. Defaut 15. L'operateur peut le passer consciemment
 # (ex. SEUIL_DISQUE=13) quand il a verifie le besoin transient du build (~1,6 Go :
 # dump, code-avant, couches d'image) et que l'arrondi de df arrete a tort.

@@ -221,7 +221,6 @@ const SANS_MODULE: Exception[] = [
   { motif: /^GET \/api\/photos\/:filename$/, raison: "module du proprietaire du fichier, controle dans le handler, 404 uniforme" },
   { motif: /^\w+ \/api\/v2\/imports(\/|$)/, raison: "reserve ADMIN et GESTIONNAIRE (role) ; pas de module d'import dans lib/modules.ts" },
   { motif: /^\w+ \/api\/v2\/exploitation\//, raison: "D-C1-4 : exploitation (main courante, patrouilles, veille, info route) sans cle de module ; ecriture ouverte a tout compte par decision documentee, lecture a tout compte connecte" },
-  { motif: /^\w+ \/api\/v2\/teledetection\//, raison: "D-C1-4 : lecture a tout compte connecte, ecriture ADMIN et GESTIONNAIRE (documente dans teledetection.routes.ts)" },
   { motif: /^POST \/api\/v2\/export\/selection$/, raison: "module de la table demandee, controle dans le handler (liste blanche des tables)" },
   { motif: /^GET \/api\/v2\/fiche-360\/troncons\/:id\/portions$/, raison: "portee territoriale (garde `requireTerritoire`) ; les portions sont un volet du referentiel de troncon" },
   { motif: /^\w+ \/api\/v2\/correspondances(\/|$)/, raison: "D-C1-4 : table de correspondance des identifiants externes ; lecture a tout compte connecte, ecriture ADMIN et GESTIONNAIRE" },

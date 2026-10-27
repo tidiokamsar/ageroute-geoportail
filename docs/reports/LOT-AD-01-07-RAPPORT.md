@@ -87,3 +87,12 @@ Toutes les valeurs ci-dessous sont **provisoires et étiquetées** dans l'interf
 ## 7. Intégration et déploiement
 
 La branche contient une migration additive (`20261029300000`, tables en ajout seul, descente testée). Avant tout déploiement : sauvegarde vérifiée, `infra/deployer-console.sh`, `descentes/verifier.sh` complet, `tests-integration/run.sh`, validation humaine explicite (DSI). **Aucun déploiement n'a eu lieu et aucun n'est autorisé à ce stade.**
+
+## 8. Branche de livraison `release/ad-eo` (27/10/2026)
+
+Fusion de `feat/aide-decision` et de `feat/observation-terre` (conflits résolus : `run.sh`, `Accessibilite.test.tsx`). Deux tests de sécurité d'Observation de la Terre écrits avant les durcissements de la ligne principale ont dû être alignés : base simulée qui rend le rôle du jeton (le serveur relit le compte en base), et gardes du routeur de télédétection rendues lisibles par l'inventaire des accès (nom et marque conservés par l'enveloppe `avecCode`), ce qui rend caduque l'exception `/api/v2/teledetection/` de l'inventaire (supprimée).
+
+Preuves rejouées sur la fusion : backend 239 fichiers, 5222 tests verts (un seul processus : le mode multi-fils plante par segfault intermittent sur ce poste) ; `tsc` backend et frontend 0 erreur ; frontend par répertoire tous verts (`components/decision` 354, `observation-terre`/`layout`/`session` 412, `pages` 842, `lib`/`styles`/`features`/`hooks`/`roulage` 1568, autres composants 793, `session` 447 avec un seul fil) ; `descentes/verifier.sh` complet : 89 migrations, 320 vérifications réussies, 0 échec, 0 migration sans descente.
+
+`infra/deployer-console.sh` : `ATTENDUES_EN_ATTENTE=7` (les deux migrations `20261027*`, quatre `20261028*` d'Observation de la Terre, une `20261029*` d'Aide à la décision) ; `PREMIERE_EN_ATTENTE` inchangée. Le script relève le nombre réel sur le serveur et s'arrête s'il diffère : si la production a déjà appliqué certaines des deux premières, il le dira.
+Aucune nouvelle variable d'environnement obligatoire. Observation de la Terre interroge le catalogue Copernicus (sortie réseau du serveur vers l'extérieur requise pour cette fonction ; la page reste utilisable sans).
