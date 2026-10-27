@@ -1,6 +1,6 @@
 import path from "node:path";
 import { defineConfig, devices } from "@playwright/test";
-import { DOSSIER_SORTIES, ORIGINE_API, ORIGINE_BUILD, ORIGINE_WEB, RACINE_DEPOT } from "./lib/env";
+import { DOSSIER_SORTIES, FACTEUR_DELAI, ORIGINE_API, ORIGINE_BUILD, ORIGINE_WEB, RACINE_DEPOT } from "./lib/env";
 
 /**
  * Tests de bout en bout dans un navigateur reel (Chromium), contre une pile locale jetable :
@@ -53,8 +53,8 @@ export default defineConfig({
   retries: 0,
   // Large a dessein : fermer puis rouvrir un profil Chromium prend de 4 a 20 s sur ce poste, davantage quand d'autres travaux le chargent,
   // et chaque deverrouillage derive la cle du code PIN (PBKDF2, 600 000 iterations).
-  timeout: 240_000,
-  expect: { timeout: 30_000 },
+  timeout: 240_000 * FACTEUR_DELAI,
+  expect: { timeout: 30_000 * FACTEUR_DELAI },
   globalSetup: path.join(__dirname, "global-setup.ts"),
   globalTeardown: path.join(__dirname, "global-teardown.ts"),
 
@@ -62,8 +62,8 @@ export default defineConfig({
     locale: "fr-FR",
     timezoneId: "Africa/Conakry",
     viewport: { width: 1280, height: 800 },
-    actionTimeout: 30_000,
-    navigationTimeout: 60_000,
+    actionTimeout: 30_000 * FACTEUR_DELAI,
+    navigationTimeout: 60_000 * FACTEUR_DELAI,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },

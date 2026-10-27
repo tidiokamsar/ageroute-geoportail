@@ -1,7 +1,49 @@
 # État global du projet AGEROUTE ROAD / Géoportail routier
 
-Mise à jour : 25/10/2026 (fin du Lot 0). Branche `lot/03-map-matching`. Commit de référence : `e99c5da` (le présent fichier est commité juste après).
+Mise à jour : 27/10/2026 (fin du Lot 1 et du lot UX Lots d'import). Branche `lot/03-map-matching`. Dernier commit de code : `4ca04f4` ; le commit des corrections finales et de ce fichier le suit. Historique des sections : 27/10 (Lot 1), 25/10 (Lot 0).
 Historique : chaque mise à jour ajoute une section datée en tête, sans effacer les précédentes. Rapports de lot : `docs/reports/LOT-XX-RAPPORT.md`.
+
+## Mise à jour du 27/10/2026 : Lot 1 (session hors ligne, accès, qualité, dérive) et lot UX « Lots d'import »
+
+Rapports : `LOT-01-RAPPORT.md`, `LOT-UX-IMPORTS-RAPPORT.md`. Commits : `65bb346`, `a98252c`, `c846fdf`, `d8f092b`, `e9fd62c`, `ada84d4`, `4ca04f4` (+ `1af3e6e`, autre session). **Rien n'est déployé.**
+
+### Progression par lot du mandat
+
+| Lot | Sujet | État | Preuve ou limite |
+|---|---|---|---|
+| 0 | Audit initial | Terminé | `LOT-00-RAPPORT.md` |
+| 1 | Session hors ligne, comptes partagés, contrôles d'accès, qualité, dérive, sauvegardes | **Terminé sur ce qui est vérifiable ici** | `LOT-01-RAPPORT.md` : backend 3 308 tests, frontend suite complète verte, 57 tests de bout en bout (deux passages consécutifs verts), bancs PostGIS ; non vérifié : WebView Android, appareil réel, production |
+| 1 bis | Module Lots d'import (UX/UI, API, durcissement) | **Livré, workflow d'approbation non implémenté** | `LOT-UX-IMPORTS-RAPPORT.md` : le workflow cible du cahier n'existe pas dans le code ; étapes 3 et 4 affichées « Non disponible » ; décision DSI requise |
+| 2 | Carte et géoportail | Partiel | feuille Leaflet locale (précachée), marqueur corrigé ; filtres axe, préfecture, projet toujours absents ; performances non mesurées |
+| 3 | Terrain, GPS, hors ligne | **Avancé, non éprouvé sur appareil** | session chiffrée, files par compte, service worker, tests en navigateur réel ; E2E-4 ouvert |
+| 4 | Qualité du réseau | Partiel | 26 détecteurs en lecture seule livrés (banc 98/98), jamais lancés sur la production ; 29 scripts d'écriture sans audit (diffs proposés, non appliqués) |
+| 5 | Workflows, rapports | Partiel | inchangé depuis le 25/10 hors relevés envoyés (autre session) |
+| 6 | Sécurité, sauvegardes, production | Partiel | compte relu en base, course de révocation fermée, restauration prouvée en local ; clé de sauvegarde en un exemplaire ; 20 + 22 vulnérabilités de dépendances non traitées |
+| 7 | Innovations et intégrations | Bloqué en partie | inchangé |
+
+### Risques ouverts (par gravité)
+
+1. Aucun essai sur appareil réel ni dans la WebView de l'APK (service worker à froid, `CryptoKey` après arrêt du processus, quota, performance de dérivation).
+2. **E2E-4** : réponse perdue d'un rafraîchissement rotatif : déconnexion de l'agent (décision de sécurité en attente : fenêtre de grâce courte ou déconnexion assumée).
+3. Fenêtre résiduelle de 15 minutes après la révocation d'un appareil (jeton d'accès) ; lien appareil-session non fait.
+4. Un PIN oublié fait perdre les saisies non synchronisées ; un PIN à 6 chiffres est faible face à une copie de la base (ordre de grandeur donné, non représentatif d'un GPU).
+5. Sauvegardes : clé en un seul exemplaire, alertes sans destinataire, RPO et RTO non décidés ; production non vérifiée.
+6. Dérive schéma ↔ migrations : 87 écarts connus, CI jamais exécutée.
+7. Pas de contrôle de région ni de module sur les routes d'import (décision DSI) ; autorisation écrite non rapprochée d'un registre.
+8. Deux bancs PostGIS (`teledetection`, `tableau-de-bord`) rouges tant que le client Prisma partagé est régénéré par la session Observation de la Terre avec un schéma plus large (cause externe, pas une régression).
+
+### Décisions prises (conduite de l'orchestrateur, réversibles) et décisions en attente
+
+Prises : session locale sans destruction automatique ; réinitialisation du PIN distincte de la déconnexion ; compte relu en base sans cache ; refus d'un appareil neuf pendant la durée du jeton d'accès après une révocation ; taille maximale d'import ramenée à 25 Mo (alignée sur nginx) ; plafond de 20 000 lignes ; formats `csv` et `geojson` seulement ; étapes 3 et 4 « Non disponible ». En attente (DSI) : liste complète en section G de `LOT-01-RAPPORT.md` et de `LOT-UX-IMPORTS-RAPPORT.md`.
+
+### Prochaines étapes
+
+1. Déploiement par la console du serveur (`infra/deployer-console.sh`, validation humaine à l'étape 9) : commit et empreinte d'archive donnés au DSI ; aucune connexion à la production depuis ce dépôt.
+2. Essai sur appareil réel et dans la WebView Android (ou embarquement de l'application).
+3. Décisions DSI sur le workflow d'approbation des lots, puis conception implémentée (journal de décisions append-only, migration additive).
+4. Contrôle de dérive en CI et exercice de restauration périodique.
+
+---
 
 ## Mise à jour du 25/10/2026 : fin du Lot 0 (audit et première stabilisation)
 

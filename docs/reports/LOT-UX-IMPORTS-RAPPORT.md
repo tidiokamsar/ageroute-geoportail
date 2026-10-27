@@ -1,6 +1,6 @@
 # LOT UX/UI : reconception du module « Lots d'import » (page /imports)
 
-Date : 26/10/2026. Branche : `lot/03-map-matching`. Commit de départ : `dad9695` (aucun commit à la date de ce rapport). Rapport destiné à la revue de l'architecte de supervision.
+Date : 27/10/2026. Branche : `lot/03-map-matching`. Commit de départ : `dad9695`. Commit du lot : `d8f092b` (interface, API, durcissement, documentation), parcours de bout en bout dans `ada84d4`. Rapport destiné à la revue de l'architecte de supervision.
 Source : cahier `Cahier_Lots_Import_AGEROUTE` (version 1.0, projet de spécification) et prompt de mission. Le cahier dit lui-même que ses capacités sont « à confronter au code existant » : c'est ce qui a été fait. **Rien n'est déployé.**
 
 ## A. Résumé exécutif
@@ -13,7 +13,7 @@ Source : cahier `Cahier_Lots_Import_AGEROUTE` (version 1.0, projet de spécifica
 - **Durcissement de la réception** issu de deux audits indépendants (sécurité, qualité des données) : plafond de lignes, contrôle du format par le contenu, UTF-8 strict, NUL et dates hors plage rejetés au lieu d'un 500, formules neutralisées dans l'export d'erreurs, autorisation écrite de 5 caractères imprimables au moins, file d'attente de réceptions.
 - **Le workflow d'approbation n'est pas implémenté** : il suppose des règles métier (séparation des tâches, rôles, seuil d'erreurs bloquantes, échantillon, preuve de l'autorisation écrite) que le cahier laisse à la DSI. Une conception sans implémentation figure dans `docs/imports/RECEPTION-LOTS-IMPORT.md` et en section G.
 
-**État : partiel.** Interface et API livrées et testées (jsdom, navigateur réel sur API simulée, bancs PostGIS) ; parcours de bout en bout contre le vrai serveur en attente de l'agent de recette (section D.4).
+**État : livré et testé de bout en bout ; le workflow d'approbation n'existe pas (décision DSI).** Interface et API livrées et testées (jsdom, navigateur réel contre le vrai serveur, bancs PostGIS).
 
 ## B. Agents mobilisés
 
@@ -47,7 +47,7 @@ Source : cahier `Cahier_Lots_Import_AGEROUTE` (version 1.0, projet de spécifica
 **D.1** Backend `src/import`, route et inventaire des routes : 298 tests réussis ; suite backend complète : 189 fichiers, 3 187 tests réussis ; `tsc` propre.
 **D.2** Frontend : pages, hooks, composants d'imports : 15 fichiers, 710 tests réussis ; accessibilité et contraste : 43 réussis ; suite complète : 146 fichiers, 2 881 réussis ; ESLint 0 erreur ; build réussi.
 **D.3** Bancs PostGIS : `import` 39/39, `imports-api` 72/72 (dont : référentiel inchangé par toutes les routes, liste et curseur stables sous insertion concurrente, 15 refus 400 sans lot ni 500, rafale de 10 réceptions de 2 500 lignes sans 500 ni 409, un autre utilisateur lit `/meta` en 200 pendant ce temps). Dix mutations de l'API et du service rejouées : toutes tuées. Mutations de la page (couleur de réussite pour un lot non appliqué, branche « colonnes non calculables », garde du clic) : 8 tests échouent comme attendu.
-**D.4** Navigateur réel (Chromium, API simulée par interception) : aucun débordement horizontal de la page à 375, 768, 1024, 1280 et 1600 px, dans cinq états ; focus et défilement du détail vérifiés ; une réception = un seul POST ; frappe de recherche = une seule requête. Captures lues par l'orchestrateur : lisibles à 375 et 1280 px. Parcours de bout en bout contre le vrai serveur : **en attente** (`e2e/specs/08-imports.spec.ts`).
+**D.4** Navigateur réel : (1) Chromium sur API simulée par interception : aucun débordement horizontal de la page à 375, 768, 1024, 1280 et 1600 px, dans cinq états ; focus et défilement du détail vérifiés ; une réception = un seul POST ; frappe de recherche = une seule requête. (2) **Contre le vrai serveur** (`e2e/specs/08-imports.spec.ts`, deux passages complets consécutifs verts, 57 tests au total sur le harnais) : lot valide (ligne `lots_import` et audit en base, détail avec empreinte, étapes 3 et 4 « Non disponible », `lignesImportees` à 0, comptes du référentiel inchangés), GeoJSON valide, lot rejeté avec motif, lot vide, même fichier deux fois (une seule ligne, un seul audit), même nom et contenu différent (deux lots), BOM et CRLF, format incohérent (400, aucun lot), fichier non UTF-8 (400, aucun lot), fichier trop gros, coupure réseau pendant l'envoi puis nouvel essai et réponse perdue (une seule ligne), filtres dans l'URL après sélection et rechargement, neutralisation des formules dans le CSV d'erreurs téléchargé, contenu hostile rendu comme texte, 375 et 768 px sans débordement, INSPECTEUR refusé (lien absent, URL directe refusée, POST 403), ADMIN et GESTIONNAIRE autorisés. Captures lues par l'orchestrateur : lisibles à 375 et 1280 px.
 
 ## E. Défauts restant à corriger
 
@@ -77,4 +77,4 @@ Workflow d'approbation, autorisation et import final (n'existent pas) ; lecteur 
 
 ## H. Commits
 
-Aucun à ce jour ; commits à reporter ici après intégration.
+`d8f092b` feat(imports) : reconception du module Lots d'import (56 fichiers). `ada84d4` : parcours de bout en bout (`e2e/specs/08-imports.spec.ts` et fixtures) et rapports. Le commit `4ca04f4` et le suivant corrigent des défauts de session, sans lien avec les imports.

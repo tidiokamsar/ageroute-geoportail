@@ -76,28 +76,25 @@ test.describe("(a) ouverture hors ligne autorisee", () => {
     // Mauvais code : message, rien ne se perd ; bon code : la saisie est lisible.
     await essayerPin(profil.page, "pas-le-bon-code");
     await expect(verrouRouvert.getByRole("alert")).toContainText("Code incorrect");
-    // Rien n'est parti : le serveur n'a vu aucune des deux sessions hors ligne.
+    // Rien n'est parti : le serveur n'a rien vu, et le stockage brut ne contient pas la saisie en clair.
     expect(await observationsAvecMarqueur(marqueur)).toHaveLength(0);
-    const brutAvant = await lireStockageBrut(profil.page);
-    expect(contientEnClair(brutAvant, m1), "contenu de la saisie en clair dans le stockage").toBe(false);
+    expect(contientEnClair(await lireStockageBrut(profil.page), m1), "contenu de la saisie en clair dans le stockage").toBe(false);
 
-    // Le deverrouillage HORS LIGNE lui-meme est prouve par le test E2E-5 plus bas. Ici, le reseau revient AVANT le bon code, pour
-    // suivre le parcours « le reseau revient, la saisie part » : la reouverture a froid a bien affiche l'ecran du PIN hors ligne.
-    await modeAvion(profil.context, profil.page, false);
-    // Le retour du reseau declenche un rafraichissement de session : le laisser finir avant de recharger (sinon sa reponse est perdue, E2E-4).
-    await profil.attendreCalme();
-    await profil.page.reload();
+    // Bon code, TOUJOURS HORS LIGNE : la file se rouvre (defaut E2E-5 corrige), l'ecran dit que les droits seront reverifies.
     await deverrouiller(profil.page, A);
-    // La saisie en file part des le deverrouillage, une seule fois.
-    await expect.poll(async () => (await observationsAvecMarqueur(marqueur)).length, { timeout: DELAI_SYNC_MS }).toBe(1);
-
-    // Nouvelle saisie hors ligne, page deverrouillee, puis retour du reseau : une seule ligne de plus, jamais de doublon.
-    await modeAvion(profil.context, profil.page, true);
-    await saisirObservation(profil.page, { type: "CHAUSSEE", description: `${m2} affaissement` });
+    await expect(profil.page).not.toHaveURL(/\/login/);
     await expect(profil.page.getByRole("heading", { name: /Saisies sur ce téléphone \(1\)/ })).toBeVisible();
-    expect(await observationsAvecMarqueur(marqueur)).toHaveLength(1);
+    await expect(profil.page.getByText(`${m1} nid de poule`)).toBeVisible();
+    await expect(profil.page.getByText("Mode hors ligne : vos droits seront revérifiés à la reconnexion.")).toBeVisible();
+
+    // Nouvelle saisie hors ligne : deux saisies en file, toujours rien chez le serveur, toujours rien en clair.
+    await saisirObservation(profil.page, { type: "CHAUSSEE", description: `${m2} affaissement` });
+    await expect(profil.page.getByRole("heading", { name: /Saisies sur ce téléphone \(2\)/ })).toBeVisible();
+    expect(await observationsAvecMarqueur(marqueur)).toHaveLength(0);
     const brut = await lireStockageBrut(profil.page);
     expect(contientEnClair(brut, m1) || contientEnClair(brut, m2), "contenu des saisies en clair dans le stockage").toBe(false);
+
+    // Retour du reseau (sans recharger : la reponse d'un rafraichissement en vol serait perdue, voir E2E-4) : tout part, une seule fois chacune.
     await modeAvion(profil.context, profil.page, false);
     await expect.poll(async () => (await observationsAvecMarqueur(marqueur)).length, { timeout: DELAI_SYNC_MS }).toBe(2);
     const lignes = await observationsAvecMarqueur(marqueur);
@@ -235,7 +232,7 @@ test.describe("(c) expiration et horloge reculee", () => {
 async function refuseParExpiration(page: import("@playwright/test").Page, compte: import("./lib/donnees").CompteRun) {
   const verrou = page.getByRole("dialog", { name: "Session verrouillée" });
   const expiree = page.getByRole("dialog", { name: "Session locale expirée" });
-  await expect.poll(async () => ((await verrou.isVisible()) ? "verrou" : (await expiree.isVisible()) ? "expiree" : "rien"), { timeout: 60_000 }).not.toBe("rien");
+  await expect.poll(async () => ((await verrou.isVisible()) ? "verrou" : (await expiree.isVisible()) ? "expiree" : "rien"), { timeout: DELAI_SYNC_MS }).not.toBe("rien");
   if (await verrou.isVisible()) await essayerPin(page, compte.pin);
   await expect(expiree).toBeVisible();
   return expiree;
@@ -246,7 +243,7 @@ async function passerParLaConnexionSiDemande(page: import("@playwright/test").Pa
   const verrou = page.getByRole("dialog", { name: "Session verrouillée" });
   const expiree = page.getByRole("dialog", { name: "Session locale expirée" });
   await expect.poll(async () => ((await verrou.isVisible()) ? "verrou" : (await expiree.isVisible()) || /\/login/.test(page.url()) ? "connexion" : "rien"),
-    { timeout: 60_000 }).not.toBe("rien");
+    { timeout: DELAI_SYNC_MS }).not.toBe("rien");
   if (!(await verrou.isVisible())) {
     await seConnecter(page, compte);
     await page.goto(ECRAN_OBSERVATIONS);

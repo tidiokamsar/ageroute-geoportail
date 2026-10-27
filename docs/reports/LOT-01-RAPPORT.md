@@ -1,7 +1,7 @@
 # LOT 1 : session hors ligne, qualité des données, contrôles d'accès, sauvegardes et dérive
 
-Date : 26/10/2026. Branche : `lot/03-map-matching`. Commit de départ : `dad9695`. Rapport destiné à la revue de l'architecte de supervision (ChatGPT).
-Les chiffres viennent de commandes exécutées les 25 et 26/10/2026 ; ce qui n'a pas été exécuté est dit « non vérifié ». **Rien n'est déployé.** Les résultats du parcours de bout en bout (Playwright) figurent en section D.5 et sont complétés dès que l'agent de recette a terminé ; tant que cette section dit « en attente », le lot n'est pas clos.
+Date : 27/10/2026. Branche : `lot/03-map-matching`. Commit de départ : `dad9695`. Commits du lot : `65bb346` (session hors ligne côté client), `a98252c` (serveur : accès, appareils, droits), `c846fdf` (qualité, dérive, restauration, migration), `d8f092b` (lots d'import, voir `LOT-UX-IMPORTS-RAPPORT.md`), `e9fd62c` (jeton de test), `1af3e6e` (relevés envoyés, autre session, hors de ce lot), `ada84d4` (tests de bout en bout et rapports), `4ca04f4` (correctifs E2E-5 et effacement local), puis le commit des corrections finales (E2E-3, README e2e, rapports). Rapport destiné à la revue de l'architecte de supervision (ChatGPT).
+Les chiffres viennent de commandes exécutées les 25 et 26/10/2026 ; ce qui n'a pas été exécuté est dit « non vérifié ». **Rien n'est déployé.** Le parcours de bout en bout (Playwright, navigateur réel) est en section D.5.
 
 ## A. Résumé exécutif
 
@@ -14,7 +14,7 @@ Les chiffres viennent de commandes exécutées les 25 et 26/10/2026 ; ce qui n'a
 - La **qualité des données** : 26 détecteurs en lecture seule avec banc PostGIS (98/98) et audit de 29 scripts d'écriture sans journal (le Lot 0 en annonçait 11).
 - **Dérive du schéma et sauvegardes** : un outil de dérive, une preuve de restauration reproductible (83 tables identiques, 24 colonnes géométriques identiques), un plan de montée des dépendances.
 
-**État global : partiel, honnête.** Le lot ne peut pas être déclaré terminé tant que les critères de sortie de la section D.5 (parcours de bout en bout reproductibles) ne sont pas vérifiés. Les limites non vérifiables dans cet environnement (WebView Android, appareil réel, Safari, production, vrai nginx) sont listées en section E.
+**État global : terminé sur ce qui est vérifiable ici, ouvert sur le reste.** Les critères de sortie de l'architecte sont tenus dans l'environnement de développement : parcours terrain reproductibles (deux passages complets consécutifs verts), coupures réseau et synchronisations répétées, comptes partagés, expiration et horloge, compte désactivé et appareil révoqué, conservation des données au verrou et à la déconnexion, détecteurs en lecture seule, scripts audités, contrôles d'accès documentés. **Non vérifié et non vérifiable ici** : WebView Android de l'APK, appareil réel, Safari, Firefox, vrai nginx, production (section E). Défaut produit ouvert : E2E-4 (réponse perdue d'un rafraîchissement rotatif).
 
 ## B. Travail des agents
 
@@ -57,16 +57,16 @@ Un agent d'une autre session a modifié en parallèle des pages que traitait D8 
 
 | Contrôle | Résultat |
 |---|---|
-| Backend, suite complète | 189 fichiers, **3 187 tests réussis** |
-| Frontend, suite complète | 146 fichiers, **2 881 tests réussis**, 1 sauté |
+| Backend, suite complète (état commité `ada84d4`, y compris le balayage de secrets qui ne lit que les fichiers suivis) | 191 fichiers, **3 308 tests réussis** |
+| Frontend, suite complète (27/10, après les derniers correctifs) | 153 fichiers, **3 067 tests réussis**, 1 sauté (mesure de débit, optionnelle) |
 | `tsc --noEmit` backend et frontend | aucune erreur |
 | ESLint frontend | 0 erreur, 5 avertissements d'hooks React préexistants |
 | Build de production frontend | réussi (précache 133 fichiers) |
-| Bancs PostGIS | 33 sur 36 verts ; voir D.4 |
+| Bancs PostGIS | 34 sur 36 verts ; voir D.4 |
 
 **D.4 Bancs.** Tous verts : trace, métadonnées, géométries invalides, contour, déviation, graphe, info-route, patrouilles, veille, chemin, historique, photos-observation, qualité-détecteurs (98/98), curseur, programmation (106), ppe (80), outbox (90), roulage (50), sync (67), conflits-sync (43), import (39), imports-api (72), métré-défaut (73), contour-terrain, tâches internes, unaccent, qualité-géométries, territoire (97), controle-acces (81), session-appareil (75), info-route-délai, incident-hors-ligne, correspondances. **Deux bancs échouent pour une cause externe identifiée, non pour une régression** : `teledetection` et `tableau-de-bord` lèvent `column earth_observation_products.sourceCode does not exist`. Le client Prisma partagé (`node_modules/.prisma/client`) a été régénéré par l'autre session (chantier Observation de la Terre) à partir d'un schéma sur-ensemble ; la base `replay` ne porte pas cette colonne. Ces deux bancs passaient lors du Lot 0 ; ils seront rejoués après régénération du client depuis le schéma de ce dépôt (concertation avec l'autre session requise, je n'ai pas régénéré).
 
-**D.5 Parcours de bout en bout (Playwright).** En attente de l'agent de recette. Critères : parcours terrain reproductibles, coupures réseau et synchronisations répétées, deux comptes sur un même appareil, expiration et horloge modifiée, compte désactivé et appareil révoqué, conservation des données au verrou et à la déconnexion. Une première série (18 tests, deux exécutions consécutives sur l'ancien comportement) a servi à révéler trois défauts réels, tous corrigés ensuite (E-1 message de connexion, E-2 rôle INSPECTEUR, E-3 en partie).
+**D.5 Parcours de bout en bout (Playwright, Chromium 1243, un worker, pile et base neuves à chaque passage).** Deux passages complets consécutifs de `npm run test:e2e`, sans mode réutilisation : passage 1 : **57 passés, 0 échec, 0 instable** (21,0 min murales : projet dev 54 tests en 16,9 min, projet build avec service worker 3 tests en 54 s) ; passage 2 : **57 passés, 0 échec, 0 instable** (21,3 min). Un seul test en échec attendu dans ces passages (E2E-3), corrigé depuis et vérifié seul (1 passé). Couverture : connexion et cookie de session, saisie en ligne, observation et inspection hors ligne puis synchronisation sans doublon, idempotence (réponse perdue, rejeu), coupure en plein envoi, photo (empreinte vérifiée en base), file qui survit au rechargement et au redémarrage, deux comptes sur un appareil, fichiers chiffrés (rien de lisible en clair dans IndexedDB), ouverture hors ligne à froid avec service worker (rechargement, redémarrage du navigateur, mauvais PIN, bon PIN hors ligne, retour du réseau, une seule ligne en base), PIN faux et délais, expiration à 7 jours et horloge reculée, verrou d'inactivité et d'arrière-plan, déconnexion qui n'efface rien, réinitialisation du PIN, effacement local refusé tant que la file n'est pas vide, compte désactivé pendant que l'agent est hors ligne, appareil révoqué (aucun ré-enregistrement), droits retirés (quarantaine), parcours Lots d'import (voir l'autre rapport). **Défauts révélés par ces tests** : E2E-1 (mauvais mot de passe sans message), E2E-2 (INSPECTEUR refusé sur sa propre inspection), E2E-3 (champs de connexion sans étiquette), E2E-5 (bon PIN hors ligne renvoyé vers `/login`) : **tous corrigés** ; E2E-4 (réponse perdue d'un rafraîchissement rotatif ferme la famille de jetons) : **ouvert**. L'agent de recette a aussi trouvé que le test de réinitialisation du PIN échouait par un état partagé (plafond de 5 lots par 15 minutes et par compte atteint au milieu de la batterie), pas par un défaut du produit : réglé par une remise à zéro du compteur sur un port de contrôle réservé au processus de test. **Non testé** : WebView Android, Safari et WebKit, Firefox, nginx réel (un serveur statique en reproduit les règles), GPS réel, réseau lent ou portail captif, mise à jour du service worker en production, plusieurs onglets réels.
 
 ## E. Risques et limites
 
@@ -80,7 +80,10 @@ Un agent d'une autre session a modifié en parallèle des pages que traitait D8 
 8. Sauvegardes : clé de chiffrement en un seul exemplaire ; alertes sans destinataire ; RPO, RTO, rétention « à décider » ; production non vérifiée.
 9. Dépendances : 20 vulnérabilités backend, 22 frontend (aucune montée exécutée).
 10. Deux bancs rouges pour cause d'environnement (D.4).
-11. Une session parallèle ajoute en ce moment une consultation « Relevés envoyés » dans le même arbre : ses fichiers (`consultation.*`, `ReleveEnvoye*`, routes dans `App.tsx`) ne font pas partie de ce lot.
+11. **E2E-4 ouvert** : si la réponse d'un rafraîchissement rotatif est perdue (rechargement juste au retour du réseau), le cookie tourné est perdu, le rafraîchissement suivant est refusé et la famille de jetons est fermée : l'agent est déconnecté. Défaut produit réel, touchera surtout les utilisateurs mobiles.
+12. Le plafond du journal d'événements locaux (5 lots par 15 minutes) laisse un événement en attente jusqu'au prochain déclencheur (connexion, rafraîchissement en ligne, retour du réseau) quand le serveur répond 429 ; il n'y a pas de reprise temporisée.
+13. Le disque externe F: du poste de développement s'est démonté trois fois (14/10, 15/10, 26/10) pendant des exécutions longues ; aucun fichier commité n'a été perdu, mais les exécutions de bout en bout complètes ne sont fiables que sur secteur, veille interdite.
+14. Une autre session a livré en parallèle la consultation « Relevés envoyés » (commit `1af3e6e`) ; elle ne fait pas partie de ce lot.
 
 ## F. Mesures
 
@@ -96,7 +99,8 @@ PBKDF2 600 000 itérations : médiane 1 199 ms sur Core i7-8650U (28 mesures de 
 6. Dérive : trancher `programmes_budgetaires`, `onDelete` des 8 clés, adoption de `LimiteAdmin`, référence d'écarts connus pour la CI.
 7. Sauvegardes : clé, détenteurs, RPO, RTO, rétention, destinataire des alertes, exercice de restauration.
 8. Séquencement des montées majeures de dépendances (jspdf, nodemailer, zod, react-router, tailwind).
-9. **Prochain lot recommandé** : essai sur appareil réel et WebView Android de l'APK (ou embarquement de l'application), puis lot qualité des données v2 (appliquer les détecteurs sur une copie de production par la DSI), puis contrôle de dérive en CI.
+9. **E2E-4** : fenêtre de grâce courte sur l'ancien jeton de rafraîchissement (compromis de sécurité à décider) ou déconnexion assumée ; **horloge avancée puis corrigée** : l'écran « Session locale expirée » apparaît puis la connexion en ligne renouvelle (le bon PIN seul ne suffit pas selon le test de bout en bout) ; reprise temporisée du journal après un 429.
+10. **Prochain lot recommandé** : essai sur appareil réel et WebView Android de l'APK (ou embarquement de l'application), puis lot qualité des données v2 (appliquer les détecteurs sur une copie de production par la DSI), puis contrôle de dérive en CI.
 
 ## H. Demande de revue ChatGPT
 

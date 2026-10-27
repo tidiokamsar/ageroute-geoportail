@@ -3,7 +3,7 @@ import path from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { chromium, expect, test as base, type BrowserContext, type Page } from "@playwright/test";
 import { lireRun, type CompteRun, type DonneesRun } from "./donnees";
-import { DOSSIER_SORTIES, FICHIER_SERVEUR_COUPE, ORIGINE_WEB } from "./env";
+import { DOSSIER_SORTIES, FICHIER_SERVEUR_COUPE, ORIGINE_WEB, PORT_CONTROLE } from "./env";
 import { fermerBase, revoquerAppareilsDeTest } from "./base";
 
 /**
@@ -56,6 +56,16 @@ function adresseAleatoire(): string {
   return `10.${(o[0] % 250) + 1}.${(o[1] % 250) + 1}.${(o[2] % 250) + 1}`;
 }
 
+/**
+ * Remet a zero le plafond serveur des evenements de session locale (5 lots par 15 min et par compte) par le port de controle de l'API
+ * de test (scripts/lancer-api.ts). Sans cela, les comptes partages par toute la batterie atteignent le plafond (429) et un evenement
+ * attendu n'est pas depose avant 15 min : un test dependrait de ceux qui le precedent.
+ */
+async function reinitialiserLimitesEvenements(): Promise<void> {
+  const r = await fetch(`http://127.0.0.1:${PORT_CONTROLE}/reinitialiser-limites`, { method: "POST" });
+  if (r.status !== 204) throw new Error(`port de controle de l'API de test : reponse ${r.status}`);
+}
+
 export const test = base.extend<Fixtures>({
   run: async ({}, use) => { await use(lireRun()); },
 
@@ -63,6 +73,7 @@ export const test = base.extend<Fixtures>({
 
   ouvrirProfil: async ({}, use, testInfo) => {
     const ouverts: Profil[] = [];
+    await reinitialiserLimitesEvenements();
     const racine = path.join(DOSSIER_SORTIES, "profils");
     const baseURL = (testInfo.project.use.baseURL as string | undefined) ?? ORIGINE_WEB;
     const serviceWorkers = (testInfo.project.use.serviceWorkers as "allow" | "block" | undefined) ?? "block";
