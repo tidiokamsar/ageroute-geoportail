@@ -1,0 +1,7 @@
+# Sorties de Playwright : rapports, traces, captures. Rien de cela ne va dans le depot.
+# (la configuration les ecrit deja hors du depot, dans le dossier temporaire du poste ;
+# ces lignes couvrent un lancement avec d'autres options)
+test-results/
+playwright-report/
+blob-report/
+.run/

@@ -153,7 +153,9 @@ describe("le depot suivi par git ne contient aucun secret", () => {
   it("a lu l'essentiel du depot : plus de 800 fichiers, et la liste de ce qui n'a pas ete lu est connue", () => {
     expect(resultat.fichiersLus).toBeGreaterThan(800);
     // Les seuls fichiers qu'on ne lit pas sont des binaires ou des donnees volumineuses. Un nouveau venu doit etre examine.
-    const attendus = new Set(["frontend/public/favicon.ico"]);
+    // `binaire.csv` : fixture VOLONTAIREMENT binaire (octets nuls) du parcours de bout en bout des imports, pour verifier que le module
+// refuse un fichier qui n'est pas du texte. Il ne contient aucun secret : c'est un cas de test hostile, pas une donnee.
+    const attendus = new Set(["frontend/public/favicon.ico", "e2e/fixtures/imports/binaire.csv"]);
     // Images de l'application mobile (icones, ecrans de demarrage) : ce doivent etre de VRAIES images PNG (signature lue).
     // Un fichier qui porterait ce nom sans en etre une reste un inattendu, donc signale.
     const dossiersImages = [/^frontend\/android\/app\/src\/main\/res\/.+\.png$/, /^frontend\/public\/icons\/.+\.png$/];
