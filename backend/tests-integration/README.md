@@ -46,6 +46,15 @@ Le banc `eo-api` (`eo-api.integration.mts`) crée lui-même son clone `essai_eo_
 DATABASE_URL="postgresql://utilisateur:motdepasse@127.0.0.1:5434/replay" npx tsx tests-integration/eo-api.integration.mts
 ```
 
+## Bancs qui exigent un `replay` SANS leur migration
+
+Deux bancs appliquent eux-memes leur migration a un clone de `replay`, puis eprouvent aussi sa descente ou l'etat « avant » :
+`coherence` (migration `20261025120000`, vue d'origine comparee apres la descente) et `inspection-terrain` (migration
+`20261027120000`, ajout de contraintes non rejoue deux fois). Sur un `replay` qui les porte deja, ils echouent (vue differente,
+contrainte deja presente) sans que le code soit en cause. Sur la branche `integration/depuis-vendredi` (27/10/2026), `replay` a ete
+reconstruite avec les 93 migrations, puis ramenee en arriere par les descentes de ces deux migrations avant de lancer ces deux bancs :
+12/12 et 9/9. Le banc `territoire` suit, depuis la meme date, le masquage 404 de la fiche 360 hors perimetre (Aide a la decision, A10).
+
 ## La garde
 
 `lib/garde.ts` est importé par chaque banc et **termine le processus (code 3)** si la cible n'est pas
