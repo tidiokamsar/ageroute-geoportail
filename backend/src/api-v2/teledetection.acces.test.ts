@@ -130,8 +130,7 @@ describe("sans compte valide", () => {
     const forge = jwt.sign({ sub: "u-admin", role: "ADMIN", email: "x@y.z" }, "un-autre-secret-un-autre-secret-123456");
     const rep = await request(app)[r.methode](`${BASE}${r.chemin}`).set("Authorization", `Bearer ${forge}`).send((r.corps ?? {}) as object);
     expect(rep.status).toBe(401);
-    // l'arbre principal (resolveur de compte) rend JETON_INVALIDE pour un jeton illisible ; le worktree complete avec NON_AUTHENTIFIE
-    expect(["NON_AUTHENTIFIE", "JETON_INVALIDE"]).toContain(rep.body.code);
+    expect(rep.body).toEqual({ error: expect.any(String), code: "JETON_INVALIDE" });
     expect(etat.audits).toHaveLength(0);
   });
 
@@ -142,13 +141,44 @@ describe("sans compte valide", () => {
     }
   });
 
-  it("un jeton valide d'un compte qui n'existe plus n'obtient rien : 403 sans module (garde de module) ou 401 COMPTE_INACTIF (resolveur de compte)", async () => {
-    ajouterCompte({ id: "u-fantome", role: "GESTIONNAIRE" });
+  // `requireAuth` relit le compte a chaque requete : un jeton encore valide ne sauve ni un compte supprime, ni desactive, ni verrouille.
+  // Reponse stricte (401 COMPTE_INACTIF, jamais 403 de module) et AUCUNE trace d'ecriture, sur chaque route (lectures et ecritures).
+  it.each(ROUTES)("$nom : jeton valide d'un compte SUPPRIME -> 401 COMPTE_INACTIF, aucune ecriture", async (r) => {
+    ajouterCompte({ id: "u-fantome", role: "ADMIN" });
     const t = jeton("u-fantome");
     etat.comptes.delete("u-fantome");
-    const rep = await request(app).get(`${BASE}/sources`).set("Authorization", `Bearer ${t}`);
-    expect([401, 403]).toContain(rep.status);
-    expect(["MODULE_NON_AUTORISE", "COMPTE_INACTIF"]).toContain(rep.body.code);
+    const rep = await request(app)[r.methode](`${BASE}${r.chemin}`).set("Authorization", `Bearer ${t}`).send((r.corps ?? {}) as object);
+    expect(rep.status).toBe(401);
+    expect(rep.body).toEqual({ error: expect.any(String), code: "COMPTE_INACTIF" });
+    expect(etat.audits).toHaveLength(0);
+    expect(etat.executions).toHaveLength(0);
+  });
+
+  it.each(ROUTES)("$nom : compte DESACTIVE (jeton encore valide) -> 401 COMPTE_INACTIF, aucune ecriture", async (r) => {
+    ajouterCompte({ id: "u-desactive", role: "ADMIN", actif: false });
+    const rep = await appeler(r.methode, r.chemin, "u-desactive", r.corps);
+    expect(rep.status).toBe(401);
+    expect(rep.body).toEqual({ error: expect.any(String), code: "COMPTE_INACTIF" });
+    expect(etat.audits).toHaveLength(0);
+    expect(etat.executions).toHaveLength(0);
+  });
+
+  it("compte VERROUILLE (lockedUntil dans le futur) -> 401 COMPTE_INACTIF ; verrou echu -> admis", async () => {
+    ajouterCompte({ id: "u-verrou", role: "GESTIONNAIRE", lockedUntil: new Date(Date.now() + 3_600_000) });
+    ajouterCompte({ id: "u-echu", role: "GESTIONNAIRE", lockedUntil: new Date(Date.now() - 3_600_000) });
+    const verrouille = await appeler("get", "/sources", "u-verrou");
+    expect(verrouille.status).toBe(401);
+    expect(verrouille.body).toEqual({ error: expect.any(String), code: "COMPTE_INACTIF" });
+    expect((await appeler("get", "/sources", "u-echu")).status).toBe(200);
+  });
+
+  it("le ROLE vient de la base, pas du jeton : jeton ADMIN d'un compte retrograde LECTEUR -> 403 ROLE_INSUFFISANT en ecriture", async () => {
+    ajouterCompte({ id: "u-retrograde", role: "LECTEUR" });
+    const t = signAccessToken({ sub: "u-retrograde", role: "ADMIN", email: "x@y.z" });
+    const rep = await request(app).post(`${BASE}/sources/SENTINEL2/verifier`).set("Authorization", `Bearer ${t}`).send({});
+    expect(rep.status).toBe(403);
+    expect(rep.body.code).toBe("ROLE_INSUFFISANT");
+    expect(etat.audits).toHaveLength(0);
   });
 
   it.each(ROUTES)("$nom : compte sans la cle `teledetection` -> 403 MODULE_NON_AUTORISE, aucune ecriture", async (r) => {

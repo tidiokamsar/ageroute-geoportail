@@ -9,6 +9,7 @@ import { pathToFileURL } from "node:url";
 import { evaluerCible } from "./lib/garde.ts";
 import { creerClone, supprimerClone, urlClone } from "./lib/clone.ts";
 import { verifier, conclure } from "./lib/verdict.ts";
+import { appliquerMigrations } from "./lib/banc-clone.mts";
 
 const ORIGINE = process.env.DATABASE_URL;
 const cible = evaluerCible(ORIGINE);
@@ -18,6 +19,9 @@ if (!cible.ok || cible.base !== "replay") {
 }
 const NOM_CLONE = "essai_tableau_de_bord";
 await creerClone(ORIGINE!, NOM_CLONE);
+// La teledetection du service exige les migrations de l'Observation de la Terre (colonnes `sourceCode`, `synthetique`, `limites`...) : `replay` peut ne pas les porter.
+// Elles sont appliquees AU CLONE seulement ; une migration deja presente est ignoree (le banc reste rejouable quand `replay` sera a jour).
+await appliquerMigrations(urlClone(ORIGINE!, NOM_CLONE), ["20261028100000_eo_produits_sources", "20261028110000_eo_propositions_workflow", "20261028120000_eo_qualite_methodes", "20261028130000_eo_gardes_journal"]);
 process.env.DATABASE_URL = urlClone(ORIGINE!, NOM_CLONE);
 console.log("Cible du banc : clone jetable " + NOM_CLONE);
 
@@ -177,13 +181,15 @@ try {
     incertitude: "chatoiement", provenance: "scene-banc", licence: "relevee a la source", versionTraitement: "v0",
     emprise: { type: "Polygon", coordinates: [[[-14, 8], [-11, 8], [-11, 11], [-14, 11], [-14, 8]]] },
   }, ctx);
+  // Depuis le contrat de l'Observation de la Terre, une proposition porte au moins une limite (LIMITES_REQUISES) : jamais blanche.
+  const LIMITES = ["Resolution native 10 m"];
   const dep = await deposerPropositions(prisma, {
     produitId: produit.id, methode: "banc v0", toleranceRattachementM: 50,
     propositions: [
-      { type: "INONDATION", geometrie: { type: "Point", coordinates: [-13.0, 9.005] } },     // sur tb-1
-      { type: "INONDATION", geometrie: { type: "Point", coordinates: [-13.0, 9.0051] } },    // sur tb-1
-      { type: "INONDATION", geometrie: { type: "Point", coordinates: [-12.0, 10.01] } },     // sur tb-6
-      { type: "INONDATION", geometrie: { type: "Point", coordinates: [-12.5, 9.5] } },       // non rattachee
+      { type: "INONDATION", geometrie: { type: "Point", coordinates: [-13.0, 9.005] }, limites: LIMITES },     // sur tb-1
+      { type: "INONDATION", geometrie: { type: "Point", coordinates: [-13.0, 9.0051] }, limites: LIMITES },    // sur tb-1
+      { type: "INONDATION", geometrie: { type: "Point", coordinates: [-12.0, 10.01] }, limites: LIMITES },     // sur tb-6
+      { type: "INONDATION", geometrie: { type: "Point", coordinates: [-12.5, 9.5] }, limites: LIMITES },       // non rattachee
     ],
   }, ctx);
   verifier("fixtures : 3 propositions rattachees, 1 non rattachee", dep.rattachees === 3 && dep.nonRattachees === 1, dep);

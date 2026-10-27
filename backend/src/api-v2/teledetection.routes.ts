@@ -55,7 +55,7 @@ type Garde = (req: Request, res: Response, next: NextFunction) => unknown;
  * La garde reste la VRAIE garde ; seul le corps du refus est complete, puis la reponse est rendue a l'etat normal.
  */
 function avecCode(garde: Garde, code: string): RequestHandler {
-  return (req, res, next) => {
+  const enveloppe: RequestHandler = (req, res, next) => {
     const json = res.json.bind(res);
     res.json = (corps?: unknown) => {
       if (res.statusCode >= 400 && corps && typeof corps === "object" && !("code" in corps)) return json({ ...corps, code });
@@ -63,6 +63,11 @@ function avecCode(garde: Garde, code: string): RequestHandler {
     };
     return garde(req, res, (e?: unknown) => { res.json = json; next(e); }) as void;
   };
+  // L'enveloppe doit rester LISIBLE de l'inventaire des gardes (`securite/inventaire-acces.test.ts`), qui reconnait une garde a son
+  // nom (`requireAuth`) ou a la marque posee sur la fonction que rend `requireRole` / `requireModuleAccess`. Sans cela, une route
+  // gardee par un role passerait pour une ecriture ouverte. En production la garde n'a aucune propriete propre : ceci ne change rien.
+  Object.defineProperty(enveloppe, "name", { value: garde.name });
+  return Object.assign(enveloppe, garde);
 }
 
 const roleAvecCode = (...roles: Role[]) => avecCode(requireRole(...roles), "ROLE_INSUFFISANT");

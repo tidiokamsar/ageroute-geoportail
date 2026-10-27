@@ -9,7 +9,11 @@
 
 export type Ligne = Record<string, unknown>;
 
-export interface CompteSimule { id: string; role: string; email: string; actif: boolean; modulesAutorises: string[]; regions: number[] }
+/**
+ * Le compte simule est ce que `requireAuth` RELIT en base a chaque requete : role, `actif`, `lockedUntil`, courriel (le role du jeton
+ * n'est pas lu). Un compte absent de `etat.comptes` est un compte supprime : 401 COMPTE_INACTIF.
+ */
+export interface CompteSimule { id: string; role: string; email: string; actif: boolean; lockedUntil: Date | null; modulesAutorises: string[]; regions: number[] }
 
 export const etat = {
   comptes: new Map<string, CompteSimule>(),
@@ -43,7 +47,7 @@ export function reinitialiser(): void {
 }
 
 export function ajouterCompte(c: Partial<CompteSimule> & { id: string; role: string }): CompteSimule {
-  const compte: CompteSimule = { email: `${c.id}@essai.invalid`, actif: true, modulesAutorises: ["teledetection"], regions: [], ...c };
+  const compte: CompteSimule = { email: `${c.id}@essai.invalid`, actif: true, lockedUntil: null, modulesAutorises: ["teledetection"], regions: [], ...c };
   etat.comptes.set(compte.id, compte);
   return compte;
 }
@@ -67,7 +71,7 @@ export function creerPrisma() {
     user: {
       findUnique: async ({ where }: { where: { id: string } }) => {
         const c = etat.comptes.get(where.id);
-        return c ? { modulesAutorises: c.modulesAutorises, actif: c.actif, lockedUntil: null, role: c.role, email: c.email } : null;
+        return c ? { modulesAutorises: c.modulesAutorises, actif: c.actif, lockedUntil: c.lockedUntil, role: c.role, email: c.email } : null;
       },
     },
     earthObservationProduct: {

@@ -221,7 +221,6 @@ const SANS_MODULE: Exception[] = [
   { motif: /^GET \/api\/photos\/:filename$/, raison: "module du proprietaire du fichier, controle dans le handler, 404 uniforme" },
   { motif: /^\w+ \/api\/v2\/imports(\/|$)/, raison: "reserve ADMIN et GESTIONNAIRE (role) ; pas de module d'import dans lib/modules.ts" },
   { motif: /^\w+ \/api\/v2\/exploitation\//, raison: "D-C1-4 : exploitation (main courante, patrouilles, veille, info route) sans cle de module ; ecriture ouverte a tout compte par decision documentee, lecture a tout compte connecte" },
-  { motif: /^\w+ \/api\/v2\/teledetection\//, raison: "D-C1-4 : lecture a tout compte connecte, ecriture ADMIN et GESTIONNAIRE (documente dans teledetection.routes.ts)" },
   { motif: /^POST \/api\/v2\/export\/selection$/, raison: "module de la table demandee, controle dans le handler (liste blanche des tables)" },
   { motif: /^GET \/api\/v2\/fiche-360\/troncons\/:id\/portions$/, raison: "portee territoriale (garde `requireTerritoire`) ; les portions sont un volet du referentiel de troncon" },
   { motif: /^\w+ \/api\/v2\/correspondances(\/|$)/, raison: "D-C1-4 : table de correspondance des identifiants externes ; lecture a tout compte connecte, ecriture ADMIN et GESTIONNAIRE" },
@@ -264,6 +263,36 @@ describe("Consultation des releves en roulage (/api/v2/roulage)", () => {
       // La visibilite par compte (siens / regions / tous) est dans la clause SQL, prouvee par roulage.routes.test.ts et le banc.
       expect(l.roles, cle(l)).toEqual([]);
     }
+  });
+});
+
+describe("Observation de la Terre (/api/v2/teledetection)", () => {
+  const eo = lignes.filter((l) => l.chemin.startsWith("/api/v2/teledetection"));
+  // Roles du contrat (docs/observation-terre/CONTRAT-API-UI.md §2) : transitions, depot de lot et synchronisation du catalogue
+  // ADMIN/GESTIONNAIRE ; preuves de terrain ouvertes en plus a INSPECTEUR ; test d'une source ADMIN seul.
+  const ROLES_ECRITURE: Record<string, string[]> = {
+    "POST /api/v2/teledetection/propositions/:id/transition": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/teledetection/propositions/:id/verification": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/teledetection/propositions/:id/preuves": ["ADMIN", "GESTIONNAIRE", "INSPECTEUR"],
+    "POST /api/v2/teledetection/sources/:code/verifier": ["ADMIN"],
+    "POST /api/v2/teledetection/sources/:code/synchroniser-catalogue": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/teledetection/produits": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/teledetection/propositions": ["ADMIN", "GESTIONNAIRE"],
+  };
+
+  it("toute route exige un compte connecte ET le module `teledetection` (gardes lisibles malgre l'enveloppe qui pose le `code`)", () => {
+    expect(eo.length).toBeGreaterThanOrEqual(16);
+    for (const l of eo) {
+      expect(l.auth, cle(l)).toBe(true);
+      expect(l.modules, cle(l)).toEqual(["teledetection"]);
+    }
+  });
+
+  it("chaque ecriture porte exactement la garde de role du contrat, et aucune lecture n'en porte", () => {
+    const ecritures = eo.filter((l) => l.methode !== "GET");
+    expect(ecritures.map(cle).sort()).toEqual(Object.keys(ROLES_ECRITURE).sort());
+    for (const l of ecritures) expect(l.roles.map((r) => [...r].sort()), cle(l)).toEqual([[...ROLES_ECRITURE[cle(l)]].sort()]);
+    for (const l of eo.filter((x) => x.methode === "GET")) expect(l.roles, cle(l)).toEqual([]);
   });
 });
 

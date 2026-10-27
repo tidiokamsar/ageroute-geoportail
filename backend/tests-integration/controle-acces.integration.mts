@@ -470,8 +470,12 @@ async function main() {
   const docL = await appeler("get", "/api/documents?pageSize=5", T.sans);
   const mcL = await appeler("get", "/api/v2/exploitation/main-courante/evenements", T.sans);
   const tdL = await appeler("get", "/api/v2/teledetection/produits", T.sans);
-  verifier("CONSTAT (decisions D-C1-3 et D-C1-4 en attente) : un compte SANS AUCUN module et a role LECTEUR lit la liste des documents, la main courante et les produits de teledetection (200)",
-    docL.status === 200 && mcL.status === 200 && tdL.status === 200, [docL.status, mcL.status, tdL.status]);
+  verifier("CONSTAT (decisions D-C1-3 et D-C1-4 en attente) : un compte SANS AUCUN module et a role LECTEUR lit la liste des documents et la main courante (200)",
+    docL.status === 200 && mcL.status === 200, [docL.status, mcL.status]);
+  // Fusion avec l'Observation de la Terre : la teledetection a maintenant sa cle de module (CONTRAT-API-UI.md §2, option B de D-C1-4).
+  // Ce qui etait un constat « ouvert » est devenu une garde : le meme compte est refuse, avec le code du contrat.
+  verifier("FUSION EO : la teledetection n'est plus ouverte a un compte sans le module `teledetection` : 403 MODULE_NON_AUTORISE (etait 200 avant la cle de module)",
+    tdL.status === 403 && tdL.body?.code === "MODULE_NON_AUTORISE", [tdL.status, tdL.body]);
   const lectInsp = await mkUser("lectinsp@acces.invalid", "LECTEUR", ["inspections"]);
   const dev = await appeler("post", "/api/v2/devices", jeton(lectInsp), { plateforme: "android", nom: "Telephone d'un LECTEUR" });
   verifier("CONSTAT (decision D-C1-6 en attente) : un compte de role LECTEUR qui a le module `inspections` enregistre un appareil de collecte (201) : aucune route de collecte v2 ne controle le role, seulement le module et la portee par agent",

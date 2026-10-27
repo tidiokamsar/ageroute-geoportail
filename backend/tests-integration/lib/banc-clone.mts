@@ -31,7 +31,7 @@ export interface BancClone {
 /** Codes PostgreSQL « l'objet existe deja » : duplicate_object, duplicate_table, duplicate_column. */
 const DEJA_PRESENT = new Set(["42710", "42P07", "42701"]);
 
-async function appliquerMigrations(url: string, dossiers: string[]): Promise<void> {
+export async function appliquerMigrations(url: string, dossiers: string[]): Promise<void> {
   const { Client } = (await import("pg")).default;
   const client = new Client({ connectionString: url });
   await client.connect();

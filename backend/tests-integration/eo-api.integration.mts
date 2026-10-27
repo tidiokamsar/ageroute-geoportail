@@ -88,12 +88,10 @@ async function main() {
   verifier("jeton forge (autre secret, role ADMIN) : 401", (await get("/sources", forge)).status === 401 && (await post("/propositions", {}, forge)).status === 401);
   const sm = await get("/sources", T.sansModule);
   verifier("compte sans la cle `teledetection` : 403 MODULE_NON_AUTORISE (lecture et ecriture)", sm.status === 403 && sm.body.code === "MODULE_NON_AUTORISE" && (await post("/produits", {}, T.sansModule)).body.code === "MODULE_NON_AUTORISE", sm.body);
-  if (typeof auth._installerResolveurCompte === "function") {
-    const off = await get("/sources", T.desactive);
-    verifier("compte desactive : 401 COMPTE_INACTIF", off.status === 401 && off.body.code === "COMPTE_INACTIF", off.body);
-  } else {
-    console.log("NON APPLICABLE dans cette base : requireAuth ne relit pas le compte (garde COMPTE_INACTIF absente du worktree, presente dans l'arbre principal non commite).");
-  }
+  // `requireAuth` relit le compte a chaque requete (Lot 1) : l'absence du resolveur ne doit plus faire sauter ce controle en silence.
+  verifier("requireAuth relit le compte (resolveur de compte present)", typeof auth._installerResolveurCompte === "function");
+  const off = await get("/sources", T.desactive);
+  verifier("compte desactive : 401 COMPTE_INACTIF", off.status === 401 && off.body.code === "COMPTE_INACTIF", off.body);
   verifier("lecteur : lit (200) mais ne decide pas (403 ROLE_INSUFFISANT)",
     (await get("/propositions", T.lecteur)).status === 200 && (await post(`/propositions/${"0".repeat(8)}-0000-4000-8000-000000000000/transition`, {}, T.lecteur)).body.code === "ROLE_INSUFFISANT");
 
