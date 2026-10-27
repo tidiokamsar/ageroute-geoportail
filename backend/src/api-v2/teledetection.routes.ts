@@ -1,99 +1,307 @@
-import { Router, type Request, type Response, type NextFunction } from "express";
-import { z } from "zod";
+import { Router, type NextFunction, type Request, type RequestHandler, type Response } from "express";
+import type { Role } from "@prisma/client";
 import { requireAuth } from "../middleware/auth.middleware";
 import { requireRole } from "../middleware/rbac.middleware";
+import { requireModuleAccess } from "../middleware/module-access.middleware";
 import { prisma } from "../lib/prisma";
+import { perimetreDe } from "../territoire/territoire.service";
+import type { Perimetre } from "../territoire/territoire.noyau";
 import {
-  RefusTeledetection, deposerPropositions, depecherVerificationTeledetection, enregistrerProduit, poserVerdict, precision,
+  calculerSynthese, changerStatut, enregistrerProduit, precision, qualiteMethodes,
 } from "../teledetection/teledetection.service";
-import { NATURES_PRODUIT, TYPES_PROPOSITION } from "../teledetection/teledetection.noyau";
+import {
+  DEFINITION_TAUX_CONFIRMATION, SEUIL_ECHANTILLON_TAUX, verifierPerimetreProposition, type PerimetreEo,
+} from "../teledetection/teledetection.noyau";
+import {
+  REGEX_CODE_SOURCE, estUuid, lireFiltresGeo, lireFiltresProduits, lireFiltresPropositions, lireFiltresSynthese, verifierDemandeSynchro,
+} from "../teledetection/api.noyau";
+import {
+  chargerVisible, detailProposition, geoPropositions, listerProduits, listerPropositions, listerSources, type Portee, type PropositionVisible,
+} from "../teledetection/api.lecture";
+import { INTROUVABLE, reponseErreur } from "../teledetection/api.erreurs";
+import { ajouterPreuvesApi, demanderVerification, deposerLot } from "../teledetection/api.service";
+import { adaptateurDeCodeBase, apercuProduit, synchroniserCatalogue, verifierSource } from "../teledetection/sources.service";
+import {
+  corpsDepotProduit, corpsDepotPropositions, corpsPreuves, corpsSynchro, corpsTransition, corpsVerification, corpsVide, messageZod,
+} from "./teledetection.schemas";
+import type { z } from "zod";
 
 /**
- * `/api/v2/teledetection` -- l'observation de la Terre (partie E).
+ * `/api/v2/teledetection` -- l'observation de la Terre (Lot 1 EO ; contrat : docs/observation-terre/CONTRAT-API-UI.md ; reference :
+ * docs/observation-terre/API.md).
  *
- *   GET  /produits                          le registre (sans les emprises)
- *   POST /produits                          enregistrer un produit (licence, provenance... obligatoires)
- *   POST /propositions                      deposer un lot de propositions d'une methode
- *   GET  /propositions?statut=A_VERIFIER    les propositions, a verifier d'abord
- *   POST /propositions/:id/verdict          le terrain confirme ou infirme, une fois
- *   POST /propositions/:id/verification     depecher une mission de verification (EX-03)
- *   GET  /precision                         ce que le terrain a dit, par type et par methode
+ * ORDRE DES GARDES (le meme partout, il ferme l'oracle d'existence) :
+ *   authentification -> module `teledetection` -> role -> RESSOURCE DESIGNEE (404 identique si inexistante ou hors perimetre) ->
+ *   validation du corps (400) -> service (409, ...).
+ * Une ressource hors perimetre et une ressource inexistante repondent la MEME chose, y compris avec un corps invalide : la validation
+ * du corps ne vient qu'apres le controle d'existence et de perimetre.
  *
- * Ecrire : ADMIN et GESTIONNAIRE. Lire : tout compte authentifie. Aucune route ne telecharge,
- * ne traite d'image, ni ne modifie le referentiel.
+ * LECTURE : tout compte authentifie avec le module. Un compte regional ne voit que les propositions de ses regions ; les propositions non
+ * rattachees ne sont visibles que d'un compte national. Les donnees synthetiques ne figurent dans aucune liste. Les agregats par methode
+ * (`/precision`, `/qualite-methodes`) sont NATIONAUX : refuses a un compte regional (le taux regional vient de `/synthese`). Les preuves de
+ * terrain (observations d'autres agents) suivent le meme perimetre, a la citation ET a la lecture du detail.
+ * ECRITURE : ADMIN et GESTIONNAIRE (decision, mission, depot, synchronisation) ; ADMIN seul pour tester une source ; INSPECTEUR :
+ * preuves de terrain sur une proposition liee a une mission qui lui est affectee. Le depot d'un lot (produits, propositions) et la
+ * synchronisation du catalogue sont des operations NATIONALES : refusees a un compte a perimetre regional.
+ * Aucune route ne telecharge de scene, ne traite d'image, ni ne modifie le referentiel (`troncons`, `portions`, `ouvrages`).
+ * Les lectures ne sont pas auditees ; toutes les ecritures le sont, dans la transaction qui les porte.
  */
 export const teledetectionV2Router = Router();
-teledetectionV2Router.use(requireAuth);
-const ecriture = requireRole("ADMIN", "GESTIONNAIRE");
 
-const geometrie = z.object({ type: z.string().min(1), coordinates: z.unknown() });
+type Garde = (req: Request, res: Response, next: NextFunction) => unknown;
 
-function refus(err: unknown, res: Response, next: NextFunction) {
-  if (err instanceof RefusTeledetection) { res.status(err.http).json({ error: err.message, code: err.code }); return; }
-  next(err);
+/**
+ * Pose le `code` du contrat sur le refus d'une garde existante (authentification, module, role), qui repond `{ error }` seul.
+ * La garde reste la VRAIE garde ; seul le corps du refus est complete, puis la reponse est rendue a l'etat normal.
+ */
+function avecCode(garde: Garde, code: string): RequestHandler {
+  return (req, res, next) => {
+    const json = res.json.bind(res);
+    res.json = (corps?: unknown) => {
+      if (res.statusCode >= 400 && corps && typeof corps === "object" && !("code" in corps)) return json({ ...corps, code });
+      return json(corps);
+    };
+    return garde(req, res, (e?: unknown) => { res.json = json; next(e); }) as void;
+  };
 }
+
+const roleAvecCode = (...roles: Role[]) => avecCode(requireRole(...roles), "ROLE_INSUFFISANT");
+const decideurs = roleAvecCode("ADMIN", "GESTIONNAIRE");
+const administrateur = roleAvecCode("ADMIN");
+const contributeurs = roleAvecCode("ADMIN", "GESTIONNAIRE", "INSPECTEUR");
+
+teledetectionV2Router.use((_req, res, next) => {
+  // Donnees privees derriere un jeton : jamais conservees par un cache partage.
+  res.setHeader("Cache-Control", "private, no-cache");
+  res.setHeader("Vary", "Authorization");
+  next();
+});
+teledetectionV2Router.use(avecCode(requireAuth, "NON_AUTHENTIFIE"));
+teledetectionV2Router.use(avecCode(requireModuleAccess("teledetection"), "MODULE_NON_AUTORISE"));
+
+// ------------------------------------------------------------ outils de route
+
+const h = (f: (req: Request, res: Response) => Promise<void>): RequestHandler => (req, res, next) => { f(req, res).catch(next); };
+
+const maintenant = (): Date => new Date();
+
+async function perimetreCompte(req: Request, res: Response): Promise<Perimetre> {
+  const memo = res.locals.perimetre as Perimetre | undefined;
+  if (memo) return memo;
+  const p = await perimetreDe(req.user!);
+  res.locals.perimetre = p;
+  return p;
+}
+
+const porteeDe = (p: Perimetre): Portee => ({ regions: p.national ? null : [...p.regions] });
+
 const ctx = (req: Request) => ({ auteurId: req.user!.id, ipAddress: req.ip });
 
-teledetectionV2Router.get("/produits", async (_req, res, next) => {
-  try {
-    res.json({
-      produits: await prisma.earthObservationProduct.findMany({
-        where: { deletedAt: null }, orderBy: { dateAcquisition: "desc" }, take: 200,
-        select: { id: true, code: true, palier: true, source: true, nature: true, dateAcquisition: true, dateFin: true, resolutionM: true,
-          couvertureNuagesPct: true, incertitude: true, provenance: true, licence: true, versionTraitement: true, autorisationDepenseRef: true },
-      }),
-    });
-  } catch (err) { next(err); }
+function refuser(res: Response, e: unknown, erreurBaseEstEntree = false): void {
+  const r = reponseErreur(e, { erreurBaseEstEntree });
+  res.status(r.http).json(r.corps);
+}
+
+function introuvable(res: Response): void { res.status(INTROUVABLE.http).json(INTROUVABLE.corps); }
+
+function entreeInvalide(res: Response, message: string, details?: unknown): void {
+  res.status(400).json({ error: message, code: "ENTREE_INVALIDE", ...(details ? { details } : {}) });
+}
+
+/** Valide un corps avec un schema strict ; rend la valeur, ou repond 400 et rend `null`. */
+function lireCorps<S extends z.ZodTypeAny>(schema: S, req: Request, res: Response): z.infer<S> | null {
+  const r = schema.safeParse(req.body ?? {});
+  if (r.success) return r.data;
+  entreeInvalide(res, messageZod(r.error), r.error.flatten().fieldErrors);
+  return null;
+}
+
+/** Operation reservee aux comptes nationaux (depot de lot, synchronisation) : 403 HORS_PERIMETRE sinon. */
+async function exigerNational(req: Request, res: Response, erreur = "Cette operation porte sur l'ensemble du territoire : elle est reservee a un compte sans perimetre regional."): Promise<boolean> {
+  const p = await perimetreCompte(req, res);
+  if (p.national) return true;
+  res.status(403).json({ error: erreur, code: "HORS_PERIMETRE" });
+  return false;
+}
+
+const AGREGAT_NATIONAL = "Cet indicateur agrege l'ensemble du territoire par methode : il est reserve a un compte sans perimetre regional. Le taux de confirmation de votre region est dans la synthese.";
+
+/**
+ * Charge la proposition designee par `:id` si le compte la voit. Inexistante, mal formee ou hors perimetre : le MEME 404 (identifiant
+ * mal forme compris), de sorte que ni le code d'etat ni le corps ne disent si elle existe. A poser APRES le controle de role, AVANT
+ * toute validation de corps.
+ */
+const proposition: RequestHandler = (req, res, next) => {
+  (async () => {
+    const id = req.params.id;
+    if (!estUuid(id)) { introuvable(res); return; }
+    const p = await chargerVisible(prisma, id, porteeDe(await perimetreCompte(req, res)));
+    if (!p) { introuvable(res); return; }
+    res.locals.proposition = p;
+    next();
+  })().catch(next);
+};
+
+// ============================================================ lecture
+
+teledetectionV2Router.get("/synthese", h(async (req, res) => {
+  const f = lireFiltresSynthese(req.query, maintenant());
+  if (!f.ok) return entreeInvalide(res, f.message);
+  const perimetre = await perimetreCompte(req, res);
+  if (f.valeur.regionId !== undefined) {
+    const v = verifierPerimetreProposition(perimetre as PerimetreEo, f.valeur.regionId);
+    if (!v.ok) { res.status(403).json({ error: "Cette region est hors de votre perimetre.", code: "HORS_PERIMETRE" }); return; }
+  }
+  res.json(await calculerSynthese(prisma, { perimetre: perimetre as PerimetreEo, regionId: f.valeur.regionId, depuis: f.valeur.depuis ?? null, jusqua: f.valeur.jusqua ?? null }));
+}));
+
+teledetectionV2Router.get("/propositions.geojson", h(async (req, res) => {
+  const f = lireFiltresGeo(req.query);
+  if (!f.ok) return entreeInvalide(res, f.message);
+  res.json(await geoPropositions(prisma, f.valeur, porteeDe(await perimetreCompte(req, res))));
+}));
+
+teledetectionV2Router.get("/propositions", h(async (req, res) => {
+  const f = lireFiltresPropositions(req.query, maintenant());
+  if (!f.ok) return entreeInvalide(res, f.message);
+  const perimetre = await perimetreCompte(req, res);
+  if (f.valeur.regionId !== undefined && !verifierPerimetreProposition(perimetre as PerimetreEo, f.valeur.regionId).ok) {
+    res.status(403).json({ error: "Cette region est hors de votre perimetre.", code: "HORS_PERIMETRE" });
+    return;
+  }
+  res.json(await listerPropositions(prisma, f.valeur, porteeDe(perimetre)));
+}));
+
+teledetectionV2Router.get("/propositions/:id", proposition, h(async (req, res) => {
+  const d = await detailProposition(prisma, (res.locals.proposition as PropositionVisible).id, porteeDe(await perimetreCompte(req, res)));
+  if (!d) { introuvable(res); return; }
+  res.json(d);
+}));
+
+teledetectionV2Router.get("/produits", h(async (req, res) => {
+  const f = lireFiltresProduits(req.query, maintenant());
+  if (!f.ok) return entreeInvalide(res, f.message);
+  res.json(await listerProduits(prisma, f.valeur));
+}));
+
+teledetectionV2Router.get("/produits/:id/apercu", h(async (req, res) => {
+  if (!estUuid(req.params.id)) { res.status(404).json({ error: "Apercu indisponible : produit inconnu", code: "APERCU_INDISPONIBLE" }); return; }
+  const image = await apercuProduit(prisma, req.params.id);
+  res.setHeader("Content-Type", image.type);
+  res.setHeader("Content-Length", String(image.octets.length));
+  // prudent : prive (derriere un jeton), brievement conserve, jamais interprete autrement que comme une image
+  res.setHeader("Cache-Control", "private, max-age=300");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Content-Disposition", "inline");
+  res.status(200).end(image.octets);
+}));
+
+teledetectionV2Router.get("/sources", h(async (_req, res) => {
+  res.json(await listerSources(prisma, adaptateurDeCodeBase));
+}));
+
+// Agregats NATIONAUX par methode (vues non regionalisables : un compte regional y voyait les comptes d'autres regions, donc leurs verdicts).
+// Choix le plus simple et le plus sur : refus d'un compte regional, AVANT toute lecture. Le taux regional vient de /synthese (filtre par region).
+teledetectionV2Router.get("/precision", h(async (req, res) => {
+  if (!(await exigerNational(req, res, AGREGAT_NATIONAL))) return;
+  res.json({ methode: "precision = confirmees / (confirmees + infirmees) ; nulle sans verdict", lignes: await precision(prisma) });
+}));
+
+teledetectionV2Router.get("/qualite-methodes", h(async (req, res) => {
+  if (!(await exigerNational(req, res, AGREGAT_NATIONAL))) return;
+  res.json({ seuilEchantillon: SEUIL_ECHANTILLON_TAUX, definition: DEFINITION_TAUX_CONFIRMATION, lignes: await qualiteMethodes(prisma) });
+}));
+
+// ============================================================ ecriture : decisions sur une proposition
+
+teledetectionV2Router.post("/propositions/:id/transition", decideurs, proposition, h(async (req, res) => {
+  const c = lireCorps(corpsTransition, req, res);
+  if (!c) return;
+  const perimetre = await perimetreCompte(req, res);
+  const r = await changerStatut(prisma, {
+    propositionId: (res.locals.proposition as PropositionVisible).id, vers: c.vers, auteur: req.user!.id, motif: c.motif,
+    commentaire: c.commentaire, motifAttente: c.motifAttente ?? null, observationIds: c.observationIds, constatRef: c.constatRef,
+    perimetre: perimetre as PerimetreEo, ipAddress: req.ip,
+  });
+  res.json({
+    id: r.proposition.id, de: r.de, vers: r.vers, statut: r.vers, motifAttente: r.proposition.motifAttente,
+    transitionId: r.transitionId, preuvesAjoutees: r.preuvesAjoutees,
+    verdict: r.vers === "CONFIRMEE" || r.vers === "INFIRMEE" ? { par: req.user!.id, le: r.proposition.verifieeLe, constatRef: r.proposition.constatRef } : null,
+  });
+}));
+
+teledetectionV2Router.post("/propositions/:id/verification", decideurs, proposition, h(async (req, res) => {
+  const c = lireCorps(corpsVerification, req, res);
+  if (!c) return;
+  const perimetre = await perimetreCompte(req, res);
+  const mission = await demanderVerification(prisma, (res.locals.proposition as PropositionVisible).id, c, { ...ctx(req), perimetre: perimetre as PerimetreEo });
+  res.status(201).json(mission);
+}));
+
+teledetectionV2Router.post("/propositions/:id/preuves", contributeurs, proposition, h(async (req, res) => {
+  const c = lireCorps(corpsPreuves, req, res);
+  if (!c) return;
+  const perimetre = await perimetreCompte(req, res);
+  const r = await ajouterPreuvesApi(prisma, res.locals.proposition as PropositionVisible, c.observationIds, req.user!, { ...ctx(req), perimetre: perimetre as PerimetreEo });
+  res.status(201).json(r);
+}));
+
+// ============================================================ ecriture : sources et catalogue
+
+function codeSource(req: Request, res: Response): string | null {
+  const code = req.params.code;
+  if (!REGEX_CODE_SOURCE.test(code)) { introuvable(res); return null; }
+  return code;
+}
+
+teledetectionV2Router.post("/sources/:code/verifier", administrateur, h(async (req, res) => {
+  const code = codeSource(req, res);
+  if (!code) return;
+  if (!lireCorps(corpsVide, req, res)) return;
+  res.json(await verifierSource(prisma, code, ctx(req)));
+}));
+
+teledetectionV2Router.post("/sources/:code/synchroniser-catalogue", decideurs, h(async (req, res) => {
+  const code = codeSource(req, res);
+  if (!code) return;
+  if (!(await exigerNational(req, res))) return;
+  const c = lireCorps(corpsSynchro, req, res);
+  if (!c) return;
+  if (c.corridorId !== undefined) return entreeInvalide(res, "corridorId n'est pas pris en charge dans cette version : fournir bbox (ouest, sud, est, nord).");
+  const d = verifierDemandeSynchro({ bbox: c.bbox, depuis: c.depuis, jusqua: c.jusqua, nuagesMax: c.nuagesMax }, maintenant());
+  if (!d.ok) return entreeInvalide(res, d.message);
+  res.json(await synchroniserCatalogue(prisma, code, d.valeur, ctx(req)));
+}));
+
+// ============================================================ ecriture : depot par un traitement
+
+teledetectionV2Router.post("/produits", decideurs, h(async (req, res) => {
+  if (!(await exigerNational(req, res))) return;
+  res.locals.erreurBaseEstEntree = true;
+  const c = lireCorps(corpsDepotProduit, req, res);
+  if (!c) return;
+  const { emprise, ...reste } = c;
+  res.status(201).json(await enregistrerProduit(prisma, { ...reste, emprise: emprise as { type: string; coordinates?: unknown } }, ctx(req)));
+}));
+
+teledetectionV2Router.post("/propositions", decideurs, h(async (req, res) => {
+  if (!(await exigerNational(req, res))) return;
+  res.locals.erreurBaseEstEntree = true;
+  const c = lireCorps(corpsDepotPropositions, req, res);
+  if (!c) return;
+  res.status(201).json(await deposerLot(prisma, c, ctx(req)));
+}));
+
+// ============================================================ fin du routeur
+
+teledetectionV2Router.use((_req, res) => {
+  res.status(404).json({ error: "Route introuvable", code: "ROUTE_INCONNUE" });
 });
 
-teledetectionV2Router.post("/produits", ecriture, async (req, res, next) => {
-  const p = z.object({
-    code: z.string().trim().min(1).max(64), palier: z.number().int(), source: z.string().max(200), nature: z.enum(NATURES_PRODUIT),
-    dateAcquisition: z.coerce.date(), dateFin: z.coerce.date().nullish(), resolutionM: z.number(),
-    couvertureNuagesPct: z.number().nullish(), incertitude: z.string().max(1000), provenance: z.string().max(1000),
-    licence: z.string().max(500), versionTraitement: z.string().max(200), autorisationDepenseRef: z.string().max(200).nullish(),
-    emprise: geometrie,
-  }).safeParse(req.body);
-  if (!p.success) { res.status(400).json({ error: "corps invalide", details: p.error.flatten().fieldErrors }); return; }
-  try { res.status(201).json(await enregistrerProduit(prisma, p.data, ctx(req))); } catch (err) { refus(err, res, next); }
+// Toute erreur du module a la forme { error, code } ; une erreur serveur n'est jamais rendue comme un resultat vide.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+teledetectionV2Router.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+  if (res.headersSent) return;
+  refuser(res, err, res.locals.erreurBaseEstEntree === true);
 });
 
-teledetectionV2Router.post("/propositions", ecriture, async (req, res, next) => {
-  const p = z.object({
-    produitId: z.string().min(1), produitReferenceId: z.string().min(1).nullish(), methode: z.string().max(200),
-    // Aucune tolerance par defaut : sans elle, aucune proposition n'est rattachee a un troncon.
-    toleranceRattachementM: z.number().nullish(),
-    propositions: z.array(z.object({ type: z.enum(TYPES_PROPOSITION), geometrie, score: z.number().min(0).max(1).nullish() })).max(5000),
-  }).safeParse(req.body);
-  if (!p.success) { res.status(400).json({ error: "corps invalide", details: p.error.flatten().fieldErrors }); return; }
-  try { res.status(201).json(await deposerPropositions(prisma, p.data, ctx(req))); } catch (err) { refus(err, res, next); }
-});
-
-teledetectionV2Router.get("/propositions", async (req, res, next) => {
-  const statut = typeof req.query.statut === "string" ? req.query.statut : undefined;
-  if (statut && !["A_VERIFIER", "CONFIRMEE", "INFIRMEE"].includes(statut)) { res.status(400).json({ error: "statut invalide" }); return; }
-  try {
-    res.json({
-      propositions: await prisma.propositionTeledetection.findMany({
-        where: statut ? { statut } : undefined, orderBy: [{ createdAt: "desc" }], take: 500,
-        include: { produit: { select: { code: true, source: true, dateAcquisition: true } }, troncon: { select: { code: true, nom: true } } },
-      }),
-    });
-  } catch (err) { next(err); }
-});
-
-teledetectionV2Router.post("/propositions/:id/verdict", ecriture, async (req, res, next) => {
-  const p = z.object({ statut: z.string(), motif: z.string().max(1000), constatRef: z.string().max(200) }).safeParse(req.body);
-  if (!p.success) { res.status(400).json({ error: "corps invalide", details: p.error.flatten().fieldErrors }); return; }
-  try { res.json(await poserVerdict(prisma, req.params.id, p.data, ctx(req))); } catch (err) { refus(err, res, next); }
-});
-
-teledetectionV2Router.post("/propositions/:id/verification", ecriture, async (req, res, next) => {
-  const p = z.object({ assigneId: z.string().min(1).nullish(), debutPrevu: z.coerce.date().nullish() }).safeParse(req.body ?? {});
-  if (!p.success) { res.status(400).json({ error: "corps invalide", details: p.error.flatten().fieldErrors }); return; }
-  try { res.status(201).json(await depecherVerificationTeledetection(prisma, req.params.id, p.data, ctx(req))); } catch (err) { refus(err, res, next); }
-});
-
-teledetectionV2Router.get("/precision", async (_req, res, next) => {
-  try { res.json({ methode: "precision = confirmees / (confirmees + infirmees) ; nulle sans verdict", lignes: await precision(prisma) }); } catch (err) { next(err); }
-});
