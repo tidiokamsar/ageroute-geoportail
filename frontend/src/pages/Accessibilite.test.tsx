@@ -17,6 +17,8 @@ vi.mock("../lib/auth", () => ({ useAuth: () => ({ user: { id: "u", role: "GESTIO
 vi.mock("../lib/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("../lib/download", () => ({ downloadViaApi: vi.fn() }));
 vi.mock("../components/CarteReleve", () => ({ CarteReleve: () => <div data-testid="carte" /> }));
+// Leaflet exige un vrai moteur de rendu : la carte de l'observation de la Terre est mesuree a part.
+vi.mock("../components/observation-terre/CarteObservationTerre", () => ({ CarteObservationTerre: () => <div role="img" aria-label="Carte (doublure de test)" /> }));
 vi.mock("../lib/api", () => ({
   api: {
     get: vi.fn(async (url: string) => ({ data: h.get[url] ?? {} })),
@@ -29,6 +31,7 @@ import { PatrouillesPage } from "./PatrouillesPage";
 import { InfoRoutePage } from "./InfoRoutePage";
 import { VeilleConfigurationPage } from "./VeilleConfigurationPage";
 import { TeledetectionPage } from "./TeledetectionPage";
+import { page, proposition, source, synthese } from "../components/observation-terre/synthetique.testutil";
 import { ControlTowerPage } from "./ControlTowerPage";
 import { IndicateursControles } from "../components/IndicateursControles";
 import { VoletPortions, VoletProgrammation } from "../components/Fiche360Volets";
@@ -170,12 +173,11 @@ beforeEach(() => {
     "/v2/exploitation/veille/astreintes": { astreintes: [] },
     "/v2/exploitation/referentiels": { types: [{ code: "COUPURE", libelle: "Coupure" }] },
     "/regions": [{ id: 1, nom: "Conakry" }],
-    "/v2/teledetection/propositions": { propositions: [{
-      id: "pr", type: "INONDATION", methode: "seuil v0", score: 0.7, statut: "A_VERIFIER", distanceTronconM: 11, missionId: null, motifVerdict: null, constatRef: null,
-      produit: { code: "S1", source: "Sentinel-1", dateAcquisition: "2026-10-02T00:00:00Z" }, troncon: { code: "GN N0001", nom: "Conakry" },
-    }] },
-    "/v2/teledetection/precision": { lignes: [{ type: "INONDATION", methode: "seuil v0", total: 1, aVerifier: 1, confirmees: 0, infirmees: 0, precision: null }] },
-    "/v2/teledetection/produits": { produits: [] },
+    // Ecran Observation de la Terre : reponses SYNTHETIQUES au format du contrat (docs/observation-terre/CONTRAT-API-UI.md).
+    "/v2/teledetection/synthese": synthese(),
+    "/v2/teledetection/propositions": page([proposition()]),
+    "/v2/teledetection/sources": [source()],
+    "/v2/teledetection/qualite-methodes": { seuilEchantillon: 30, definition: "Confirmées ÷ (confirmées + infirmées).", lignes: [] },
     // Lots d'import : liste, formats, sources, details (un lot conforme, un lot rejete) et apercus.
     "/v2/imports": { lots: [LOT_CONFORME, LOT_REJETE], suivant: null, total: 2 },
     "/v2/imports/meta": META_IMPORT,
@@ -210,7 +212,7 @@ describe("Accessibilite des ecrans (axe-core, WCAG 2.1 A et AA, contraste exclu)
     ["Patrouilles", <PatrouillesPage key="p" />, /PAT-RN1/],
     ["Info Route", <InfoRoutePage key="i" />, /BR-20261020-1/],
     ["Configuration de la veille", <VeilleConfigurationPage key="c" />, /Tous modes · niveau 1/],
-    ["Observation de la Terre", <TeledetectionPage key="t" />, /Rattachée à GN N0001/],
+    ["Observation de la Terre", <TeledetectionPage key="t" />, /Inondation/],
     ["Menu lateral", <Sidebar key="s" open />, /Cellule de veille/],
     ["Connexion", <LoginPage key="l" />, /./],
     ["Lots d'import", <ImportsPage key="im" />, /IMP-2026-0001/],

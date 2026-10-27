@@ -36,9 +36,9 @@ async function main() {
 
       // Trois points : a ~11 m au nord du troncon, a ~555 m au nord, et loin.
       const lot = [
-        { type: "INONDATION" as const, geometrie: { type: "Point", coordinates: [-13.595, 9.6401] }, score: 0.9 },
-        { type: "INONDATION" as const, geometrie: { type: "Point", coordinates: [-13.595, 9.645] }, score: 0.6 },
-        { type: "INONDATION" as const, geometrie: { type: "Point", coordinates: [-13.45, 9.75] }, score: null },
+        { type: "INONDATION" as const, geometrie: { type: "Point", coordinates: [-13.595, 9.6401] }, score: 0.9, limites: ["Resolution native 10 m"] },
+        { type: "INONDATION" as const, geometrie: { type: "Point", coordinates: [-13.595, 9.645] }, score: 0.6, limites: ["Resolution native 10 m"] },
+        { type: "INONDATION" as const, geometrie: { type: "Point", coordinates: [-13.45, 9.75] }, score: null, limites: ["Resolution native 10 m"] },
       ];
       const sans = await deposerPropositions(depot, { produitId: p.id, methode: "seuil-sar v0", propositions: lot }, ctx);
       verifier("sans tolerance fournie, 3 propositions sont deposees et AUCUNE n'est rattachee (pas de tolerance supposee)", sans.deposees === 3 && sans.rattachees === 0, { deposees: sans.deposees, rattachees: sans.rattachees });
