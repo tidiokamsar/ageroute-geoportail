@@ -14,6 +14,10 @@ const h = vi.hoisted(() => ({ user: { id: "u", role: "LECTEUR", modulesAutorises
 vi.mock("../../lib/auth", () => ({ useAuth: () => ({ user: h.user }) }));
 
 import { Sidebar } from "./Sidebar";
+import { MODULES } from "../../lib/modules";
+
+// Le serveur lit une liste vide comme « aucun module » (E2E-EO-3) : ces tests de menu donnent donc tous les modules.
+const TOUS_MODULES: string[] = MODULES.map((m) => m.key);
 
 function rendreA(chemin: string) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -23,7 +27,7 @@ const actifs = () => screen.getAllByRole("link").filter((l) => l.getAttribute("a
 
 describe("Sidebar : Relevés envoyés", () => {
   it("figure dans le groupe Relevé terrain avec son adresse, pour un lecteur", () => {
-    h.user = { id: "u", role: "LECTEUR", modulesAutorises: [] };
+    h.user = { id: "u", role: "LECTEUR", modulesAutorises: TOUS_MODULES };
     rendreA("/");
     expect(screen.getByRole("link", { name: "Relevés envoyés" })).toHaveAttribute("href", "/inspections/releve/envoyes");
     expect(screen.getAllByRole("link", { name: "Relevés envoyés" })).toHaveLength(1);

@@ -30,15 +30,14 @@ test.describe("pile et semis", () => {
 });
 
 /**
- * E2E-EO-D (HORS MODULE, pre-existant, backend/src/modules/auth/auth.service.ts l.79 `signRefreshToken`) : le jeton de rafraichissement est un
- * JWT sans identifiant (`jti`) ; deux jetons du meme compte emis dans la meme seconde sont identiques, donc de meme empreinte, et la contrainte
- * d'unicite de `refresh_tokens.tokenHash` rend 409 « Une entree avec cette valeur unique existe deja ». Consequences constatees pendant ce
- * chantier : deux connexions simultanees du meme compte (la seconde echoue), et un rechargement de page dans la seconde qui suit la connexion
- * (le rafraichissement echoue, l'utilisateur retombe sur /login). Le harnais espace ses connexions (lib/api.ts) ; ce test dit le defaut.
+ * E2E-EO-D (corrige, HORS MODULE : backend/src/utils/jwt.ts `signRefreshToken`). Le jeton de rafraichissement etait un JWT sans identifiant
+ * (`jti`) : deux jetons du meme compte emis dans la meme seconde etaient identiques, donc de meme empreinte, et la contrainte d'unicite de
+ * `refresh_tokens.tokenHash` rendait 409 « Une entree avec cette valeur unique existe deja ». Consequences constatees : deux connexions
+ * simultanees du meme compte (la seconde echouait), et un rechargement de page dans la seconde qui suit la connexion. Le jeton porte maintenant
+ * un `jwtid` aleatoire. Le harnais espace encore ses connexions (lib/api.ts) par prudence ; ce test garde la regle.
  */
-test.describe("defaut hors module : jeton de rafraichissement", () => {
+test.describe("jeton de rafraichissement", () => {
   test("deux connexions simultanees du meme compte reussissent toutes les deux (E2E-EO-D)", async ({ run }) => {
-    test.fail(true, "E2E-EO-D : 409 « entree unique existe deja » sur la seconde connexion de la meme seconde");
     const c = { email: run.comptes.lecteur.email, password: run.comptes.lecteur.motDePasse };
     const statuts: number[] = [];
     for (let essai = 0; essai < 3; essai++) {

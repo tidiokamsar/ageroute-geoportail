@@ -24,16 +24,19 @@ export const MODULES = [
 
 export type ModuleKey = (typeof MODULES)[number]["key"];
 
-// Vide = pas de restriction (accès à tout ce que le rôle autorise déjà, comportement
-// historique). ADMIN n'est jamais restreint, quel que soit le contenu du tableau.
+// Même règle que le serveur (backend/src/lib/access.ts `modulesAutorisesDe`, correction du
+// 05/09/2026) : ADMIN est le SEUL rôle exempté ; pour tous les autres, une liste VIDE ou
+// ABSENTE vaut « aucun module ». L'ancienne lecture « vide = pas de restriction » montrait
+// tous les menus à un compte dont personne n'avait encore choisi les modules, alors que
+// l'API ne lui répondait que par des refus (constat E2E-EO-3). On échoue fermé : un profil
+// sans le champ ne reçoit rien plutôt que tout.
 export function hasModuleAccess(
   modulesAutorises: string[] | undefined,
   role: string | undefined,
   moduleKey: string
 ): boolean {
   if (role === "ADMIN") return true;
-  if (!modulesAutorises || modulesAutorises.length === 0) return true;
-  return modulesAutorises.includes(moduleKey);
+  return Array.isArray(modulesAutorises) && modulesAutorises.includes(moduleKey);
 }
 
 // Résout le module correspondant à un chemin de route (le plus long préfixe qui matche),

@@ -34,9 +34,10 @@ export async function http<T = any>(methode: string, chemin: string, opts: { tok
 }
 
 /**
- * CONSTAT E2E-EO-D (hors module, pre-existant) : deux connexions du MEME compte dans la meme seconde rendent 409 « Une entree avec cette
- * valeur unique existe deja » (le jeton de rafraichissement est un JWT sans identifiant : meme seconde, meme jeton, meme empreinte,
- * contrainte d'unicite). Le harnais espace donc d'au moins 1,1 s deux connexions du meme compte ; le defaut est rapporte, pas contourne dans les assertions.
+ * E2E-EO-D (corrige : le jeton de rafraichissement porte un `jwtid`, backend/src/utils/jwt.ts). Avant la correction, deux connexions du MEME
+ * compte dans la meme seconde rendaient 409 « Une entree avec cette valeur unique existe deja » (meme seconde, meme jeton, meme empreinte,
+ * contrainte d'unicite). Le harnais espace encore d'au moins 1,1 s deux connexions du meme compte, par prudence ; le test de la pile
+ * (specs/00-pile.spec.ts) garde la regle sans cet espacement.
  */
 const derniereConnexion = new Map<string, number>();
 export async function espacerConnexion(email: string): Promise<void> {

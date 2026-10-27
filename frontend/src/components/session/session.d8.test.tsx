@@ -19,6 +19,10 @@ import { ConfigurationPin } from "./ConfigurationPin";
 import { DialogueDeconnexion, resumeFileDeconnexion } from "./DialogueDeconnexion";
 import { EcranDeverrouillage } from "./EcranDeverrouillage";
 import { masquerHorsDe } from "./masqueHorsEcran";
+import { MODULES } from "../../lib/modules";
+
+// Le serveur lit une liste vide comme « aucun module » (E2E-EO-3) : un agent de terrain de ces tests a donc tous les modules.
+const TOUS_MODULES: string[] = MODULES.map((m) => m.key);
 
 /** Chantier D8 : masquage du verrou (defaut 6), focus apres un PIN faux (9), textes (10, 13). */
 
@@ -84,7 +88,7 @@ describe("defaut 6 : un dialogue Radix ouvert au moment du verrou", () => {
   }
 
   it("au verrou : la fiche est inert, aria-hidden et invisible ; seul l'ecran de PIN est accessible, et le champ prend le focus APRES le masquage", async () => {
-    h.user = { id: "agent-A", role: "INSPECTEUR", modulesAutorises: [] };
+    h.user = { id: "agent-A", role: "INSPECTEUR", modulesAutorises: TOUS_MODULES };
     const f = faux();
     monter(f);
     const u = userEvent.setup({ delay: null });
@@ -124,7 +128,7 @@ describe("defaut 6 : un dialogue Radix ouvert au moment du verrou", () => {
   });
 
   it("au deverrouillage, tout est restitue (attributs d'avant, valeur de champ intacte)", async () => {
-    h.user = { id: "agent-A", role: "INSPECTEUR", modulesAutorises: [] };
+    h.user = { id: "agent-A", role: "INSPECTEUR", modulesAutorises: TOUS_MODULES };
     const f = faux();
     monter(f);
     const u = userEvent.setup({ delay: null });
@@ -144,7 +148,7 @@ describe("defaut 6 : un dialogue Radix ouvert au moment du verrou", () => {
 
 describe("defaut 11 : la route de file est reconnue quelle que soit la casse de l'URL", () => {
   it.each(["/inspections/terrain", "/Inspections/Terrain", "/INSPECTIONS/TERRAIN/"])("%s, en ligne, coffre verrouille : ecran de PIN", (chemin) => {
-    h.user = { id: "agent-A", role: "INSPECTEUR", modulesAutorises: [] };
+    h.user = { id: "agent-A", role: "INSPECTEUR", modulesAutorises: TOUS_MODULES };
     const f = faux({ deverrouille: false });
     render(
       <MemoryRouter initialEntries={[chemin]}>

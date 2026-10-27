@@ -112,9 +112,10 @@ export async function seConnecter(page: Page, compte: CompteRun): Promise<void> 
   await page.getByRole("textbox", { name: "E-mail" }).fill(compte.email);
   await page.getByPlaceholder("Mot de passe").fill(compte.motDePasse);
   await page.getByRole("button", { name: "Se connecter" }).click();
-  // « Déconnexion » est masque sous 640 px (le bouton y devient « Quitter ») : on attend le bandeau commun.
-  await expect(page.getByRole("button", { name: /Déconnexion|Quitter/ })).toBeVisible({ timeout: 120_000 }); // delai large : le hachage Argon2 du serveur et Vite se disputent le CPU du poste
-  // CONSTAT E2E-EO-D (voir lib/api.ts) : un rafraichissement dans la meme seconde que la connexion regenere le MEME jeton (JWT sans
+  // « Déconnexion » est masque sous 640 px (le bouton y devient « Quitter ») : on attend le bandeau commun. Un compte sans aucun module
+  // (E2E-EO-3 : liste vide = aucun module) n'atterrit que sur l'écran « Accès non autorisé », dont le bouton est « Se déconnecter ».
+  await expect(page.getByRole("button", { name: /Déconnexion|Quitter|Se déconnecter/ })).toBeVisible({ timeout: 120_000 }); // delai large : le hachage Argon2 du serveur et Vite se disputent le CPU du poste
+  // E2E-EO-D (corrige, voir lib/api.ts ; attente conservee par prudence) : un rafraichissement dans la meme seconde que la connexion regenere le MEME jeton (JWT sans
   // identifiant) et rend 409 ; la page rechargee tout de suite apres la connexion retombait sur /login. On laisse passer la seconde.
   await page.waitForTimeout(1_200);
 }

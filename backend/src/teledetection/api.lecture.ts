@@ -84,7 +84,9 @@ function conditionsPropositions(f: Omit<FiltresPropositions, "limite" | "curseur
   if (f.q) {
     const motif = `%${echapperLike(f.q)}%`;
     const debutId = `${echapperLike(f.q)}%`;
-    c.push(Prisma.sql`(t."code" ILIKE ${motif} OR t."nom" ILIKE ${motif} OR r."nom" ILIKE ${motif} OR pt."methode" ILIKE ${motif} OR pt."id" ILIKE ${debutId})`);
+    // `unaccent` des deux cotes : « Boke » trouve « Boké » et « Nzerekore » « Nzérékoré » (l'extension est creee par la migration 20261026400000).
+    // Le motif reste un parametre lie et litteral (jokers echappes) ; la longueur de `q` est bornee par la lecture des parametres (api.noyau.ts).
+    c.push(Prisma.sql`(unaccent(t."code") ILIKE unaccent(${motif}) OR unaccent(t."nom") ILIKE unaccent(${motif}) OR unaccent(r."nom") ILIKE unaccent(${motif}) OR unaccent(pt."methode") ILIKE unaccent(${motif}) OR pt."id" ILIKE ${debutId})`);
   }
   return c;
 }

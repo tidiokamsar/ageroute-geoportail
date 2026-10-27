@@ -14,8 +14,12 @@ vi.mock("../../lib/auth", () => ({ useAuth: () => ({ user: h.user }) }));
 vi.mock("../../lib/api", () => ({ api: { get: vi.fn(async () => ({ data: {} })), post: vi.fn(async () => ({ data: {} })) } }));
 
 import { Sidebar } from "./Sidebar";
+import { MODULES } from "../../lib/modules";
 
-function menu(role: string, modulesAutorises: string[] = []) {
+// Le serveur lit une liste vide comme « aucun module » (E2E-EO-3) : ces tests de menu donnent donc tous les modules.
+const TOUS_MODULES: string[] = MODULES.map((m) => m.key);
+
+function menu(role: string, modulesAutorises: string[] = TOUS_MODULES) {
   h.user = { id: "u", role, modulesAutorises };
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<QueryClientProvider client={client}><MemoryRouter><Sidebar /></MemoryRouter></QueryClientProvider>);

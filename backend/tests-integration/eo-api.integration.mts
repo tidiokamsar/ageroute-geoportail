@@ -161,6 +161,33 @@ async function main() {
     && (await get(`/propositions?tronconId=${tB.id}`, T.gest)).body.items[0]?.id === idB
     && (await get("/propositions?q=API-A", T.gest)).body.total === 1
     && (await get("/propositions?statut=CONFIRMEE", T.gest)).body.total === 0);
+  // recherche libre `q` (E2E-EO-2) : nom de la region, casse et accents indifferents, jokers litteraux, longueur bornee, aucune fuite entre regions.
+  // La region 1 recoit un accent le temps de la verification (clone jetable) ; le nom d'origine est remis ensuite.
+  await sql(`UPDATE regions SET nom = 'Région API 1' WHERE id = $1`, R1);
+  const trouves = async (q: string, t: string) => { const r = await get(`/propositions?q=${encodeURIComponent(q)}`, t); return { status: r.status, total: r.body.total as number, ids: (r.body.items ?? []).map((i: { id: string }) => i.id) as string[] }; };
+  const rNom = await trouves("région api 1", T.gest);
+  const rNomSansAccent = await trouves("REGION API 1", T.gest);
+  const rNomAutre = await trouves("region api 2", T.gest);
+  verifier("recherche q par nom de region : insensible a la casse ET aux accents (« REGION API 1 » trouve « Région API 1 »), seulement les propositions de cette region",
+    rNom.status === 200 && rNom.total === 1 && rNom.ids[0] === idA && rNomSansAccent.total === 1 && rNomSansAccent.ids[0] === idA && rNomAutre.total === 1 && rNomAutre.ids[0] === idB, { rNom, rNomSansAccent, rNomAutre });
+  const rPartiel = await trouves("gion api", T.gest);
+  verifier("recherche q : correspondance partielle sur le nom de region, et le code du troncon reste cherchable sans casse ni accent (« api-a »)",
+    rPartiel.total === 2 && (await trouves("api-a", T.gest)).total === 1 && (await trouves("TRONÇON API-A", T.gest)).total === 1, rPartiel);
+  const regionalPropre = await trouves("region api 1", T.gestR1);
+  const regionalAutre = await trouves("region api 2", T.gestR1);
+  const regionalTout = await trouves("api", T.gestR1);
+  verifier("recherche q SANS FUITE : un compte regional (R1) trouve sa region, ne trouve rien en cherchant le nom de la region 2, et « api » ne ramene que ses propositions",
+    regionalPropre.total === 1 && regionalPropre.ids[0] === idA && regionalAutre.total === 0 && regionalAutre.ids.length === 0 && regionalTout.total === 1 && regionalTout.ids[0] === idA, { regionalPropre, regionalAutre, regionalTout });
+  const jokerPourcent = await trouves("%", T.gest);
+  const jokerSouligne = await trouves("_", T.gest);
+  const jokerAntislash = await trouves("\\", T.gest);
+  verifier("recherche q : %, _ et \\ sont litteraux (aucun nom ne les contient : zero resultat, pas « tout »)", jokerPourcent.total === 0 && jokerSouligne.total === 0 && jokerAntislash.total === 0, { jokerPourcent, jokerSouligne, jokerAntislash });
+  const longue = await get(`/propositions?q=${"a".repeat(101)}`, T.gest);
+  const limiteOk = await get(`/propositions?q=${"a".repeat(100)}`, T.gest);
+  const hostileQ = await trouves("x'); DROP TABLE regions; --", T.gest);
+  verifier("recherche q : 101 caracteres -> 400 (borne), 100 -> 200 ; une injection SQL est un texte cherche (zero resultat, table intacte)",
+    longue.status === 400 && limiteOk.status === 200 && hostileQ.status === 200 && hostileQ.total === 0 && (await compter(`SELECT count(*) AS n FROM regions WHERE nom LIKE '%API%'`)) === 2, { longue: longue.status, limiteOk: limiteOk.status, hostileQ });
+  await sql(`UPDATE regions SET nom = 'Region API 1' WHERE id = $1`, R1);
   // perimetre regional
   const lr1 = await get("/propositions", T.gestR1);
   verifier("compte regional (R1) : ne voit que la proposition de sa region ; ni la region 2, ni la non rattachee ; total coherent",

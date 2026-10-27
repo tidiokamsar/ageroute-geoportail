@@ -28,7 +28,7 @@ describe("listerPropositions : recherche libre `q` (E2E-EO-2)", () => {
     await listerPropositions(depot, { ...FILTRES, q: "Kankan" }, { regions: null });
     expect(requetes).toHaveLength(2);
     for (const r of requetes) {
-      expect(r.sql).toContain(`r."nom" ILIKE`);
+      expect(r.sql).toContain(`unaccent(r."nom") ILIKE unaccent(`);
       expect(r.valeurs).toContain("%Kankan%");
     }
   });
@@ -37,9 +37,9 @@ describe("listerPropositions : recherche libre `q` (E2E-EO-2)", () => {
     const { depot, requetes } = depotEnregistreur();
     await listerPropositions(depot, { ...FILTRES, q: "N1" }, { regions: null });
     const sql = requetes[0].sql;
-    expect(sql).toContain(`t."code" ILIKE`);
-    expect(sql).toContain(`t."nom" ILIKE`);
-    expect(sql).toContain(`pt."methode" ILIKE`);
+    expect(sql).toContain(`unaccent(t."code") ILIKE unaccent(`);
+    expect(sql).toContain(`unaccent(t."nom") ILIKE unaccent(`);
+    expect(sql).toContain(`unaccent(pt."methode") ILIKE unaccent(`);
     expect(sql).toContain(`pt."id" ILIKE`);
   });
 
@@ -59,7 +59,7 @@ describe("listerPropositions : recherche libre `q` (E2E-EO-2)", () => {
       expect(r.sql).toContain(`pt."regionId" = ANY(`);
       expect(r.valeurs).toContainEqual([7]);
       // la recherche reste dans un groupe parenthese relie au perimetre par AND, jamais par OR
-      expect(r.sql).toMatch(/AND \(t\."code" ILIKE[^)]*r\."nom" ILIKE/);
+      expect(r.sql).toMatch(/AND \(unaccent\(t\."code"\) ILIKE.*unaccent\(r\."nom"\) ILIKE/);
     }
   });
 
@@ -72,7 +72,28 @@ describe("listerPropositions : recherche libre `q` (E2E-EO-2)", () => {
   it("sans `q`, la region n'est pas cherchee", async () => {
     const { depot, requetes } = depotEnregistreur();
     await listerPropositions(depot, { ...FILTRES }, { regions: null });
-    expect(requetes[0].sql).not.toContain(`r."nom" ILIKE`);
+    expect(requetes[0].sql).not.toContain(`unaccent(r."nom")`);
+  });
+
+  it("insensible aux accents : l'accent est retire des DEUX cotes de la comparaison, jamais seulement du motif (E2E-EO-2)", async () => {
+    const { depot, requetes } = depotEnregistreur();
+    await listerPropositions(depot, { ...FILTRES, q: "Boké" }, { regions: null });
+    for (const r of requetes) {
+      for (const col of ['t."code"', 't."nom"', 'r."nom"', 'pt."methode"']) expect(r.sql).toContain(`unaccent(${col}) ILIKE unaccent(`);
+      // le motif est lie en parametre (pas de texte de l'utilisateur dans le SQL), accent conserve : c'est la base qui le retire
+      expect(r.valeurs).toContain("%Boké%");
+      expect(r.sql).not.toContain("Boké");
+    }
+  });
+
+  it("la recherche est un parametre lie : un texte hostile ne passe jamais dans le SQL", async () => {
+    const { depot, requetes } = depotEnregistreur();
+    const hostile = "x'); DROP TABLE regions; --";
+    await listerPropositions(depot, { ...FILTRES, q: hostile }, { regions: null });
+    for (const r of requetes) {
+      expect(r.sql).not.toContain("DROP");
+      expect(r.valeurs).toContain(`%${hostile}%`);
+    }
   });
 });
 

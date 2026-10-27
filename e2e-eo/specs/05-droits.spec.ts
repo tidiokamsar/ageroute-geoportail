@@ -276,29 +276,28 @@ test.describe("compte SANS le module `teledetection`", () => {
     expect(sans.corps.code).toBe("NON_AUTHENTIFIE");
   });
 
-  // E2E-EO-3 : DEFAUT NON CORRIGE (hors module, pre-existant : frontend/src/lib/modules.ts `hasModuleAccess`, l.35-42). Le serveur lit une liste
-  // de modules VIDE comme « AUCUN module » (backend/src/lib/access.ts, correction du 05/09/2026) ; le frontend la lit toujours comme
-  // « aucune restriction ». Un compte dont l'administrateur n'a pas encore choisi les modules voit donc l'entree « Observation de la Terre »
-  // (et toutes les autres), l'ouvre, et ne recoit que des refus du serveur.
+  // E2E-EO-3 (corrige : frontend/src/lib/modules.ts `hasModuleAccess`). Le serveur lit une liste de modules VIDE comme « AUCUN module »
+  // (backend/src/lib/access.ts, correction du 05/09/2026) ; le frontend la lisait comme « aucune restriction » : un compte dont personne n'avait
+  // encore choisi les modules voyait l'entree « Observation de la Terre » (et toutes les autres), l'ouvrait, et ne recevait que des refus du
+  // serveur. Il lit maintenant la meme regle : seul ADMIN est exempte.
   test("liste de modules VIDE : le serveur dit « aucun module », l'entree de menu est absente aussi (E2E-EO-3)", async ({ ouvrirSession, run }) => {
-    test.fail(true, "E2E-EO-3 : frontend lib/modules.ts hasModuleAccess lit une liste vide comme « tout autorise » alors que le serveur la lit comme « aucun »");
     const c = run.comptes.modulesVides;
     const s = await ouvrirSession(c);
     expect((await brut(c, "/synthese")).status).toBe(403); // le serveur : aucun module
     await expect(s.page.getByRole("link", { name: "Observation de la Terre", exact: true })).toHaveCount(0, { timeout: 5_000 });
   });
 
-  test("liste de modules VIDE : ce que l'ecran fait de ce refus (caracterisation)", async ({ ouvrirSession, run }) => {
+  test("liste de modules VIDE : l'ecran dit « Accès non autorisé » et n'appelle pas l'API du module (E2E-EO-3)", async ({ ouvrirSession, run }) => {
     const c = run.comptes.modulesVides;
     const s = await ouvrirSession(c);
+    const appels: string[] = [];
+    s.page.on("request", (r) => { if (r.url().includes("/teledetection/")) appels.push(r.url()); });
     await s.page.goto("/teledetection");
-    await expect(s.page.getByRole("heading", { name: "Observation de la Terre", level: 1 })).toBeVisible();
-    // Les panneaux disent le refus : ni zero, ni vide.
-    await expect(s.page.getByText("Indicateurs : accès refusé.")).toBeVisible();
-    await expect(s.page.getByText("Sources : accès refusé.")).toBeVisible();
-    await expect(carte(s.page, "Propositions à vérifier").valeur).toContainText("—");
-    await expect(carte(s.page, "Sources actives").valeur).toContainText("—");
-    await expect(s.page.getByText("Aucune proposition « À vérifier »")).toHaveCount(0);
+    await expect(s.page.getByRole("heading", { name: "Accès non autorisé", level: 1 })).toBeVisible();
+    await expect(s.page.getByText("Votre compte n'a pas accès à ce module.")).toBeVisible();
+    // Ni l'ecran du module, ni ses indicateurs, ni un faux zero : le module n'est meme pas monte.
+    await expect(s.page.getByRole("heading", { name: "Observation de la Terre", level: 1 })).toHaveCount(0);
+    await expect(s.page.getByRole("region", { name: "Indicateurs de synthèse" })).toHaveCount(0);
+    expect(appels, "aucun appel a /teledetection/ depuis un ecran refuse").toEqual([]);
   });
 });
-

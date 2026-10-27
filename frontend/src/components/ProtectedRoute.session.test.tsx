@@ -10,6 +10,10 @@ const h = vi.hoisted(() => ({ user: null as Record<string, unknown> | null }));
 vi.mock("../lib/auth", () => ({ useAuth: () => ({ user: h.user, loading: false, logout: vi.fn() }) }));
 
 import { ProtectedRoute } from "./ProtectedRoute";
+import { MODULES } from "../lib/modules";
+
+// Le serveur lit une liste vide comme « aucun module » (E2E-EO-3) : un agent de terrain de ces tests a donc tous les modules.
+const TOUS_MODULES: string[] = MODULES.map((m) => m.key);
 
 /**
  * Session locale (docs/securite/SESSION-HORS-LIGNE.md) : la route ne montre jamais de contenu a une session verrouillee, sans
@@ -65,7 +69,7 @@ function monter(chemin: string, f: ReturnType<typeof faux>) {
   );
 }
 
-const agent = { id: "agent-A", role: "INSPECTEUR", modulesAutorises: [] };
+const agent = { id: "agent-A", role: "INSPECTEUR", modulesAutorises: TOUS_MODULES };
 
 describe("ProtectedRoute : session locale", () => {
   it("route de terrain, en ligne, coffre verrouille : l'ecran de PIN passe devant ; le contenu est cache (inert, aria-hidden) mais RESTE MONTE", async () => {
