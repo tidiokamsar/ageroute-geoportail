@@ -1,3 +1,7 @@
+// La feuille de style de Leaflet vient du paquet, pas d'un CDN : index.html ne la charge plus, et une carte montee sans elle est un fouillis
+// (panneaux empiles, controles hors place). Sans cet import, /teledetection ouvert directement s'affichait non mis en page tant qu'une autre
+// page de carte n'avait pas ete visitee (defaut revele par le bout en bout reel apres la fusion).
+import "leaflet/dist/leaflet.css";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { GeoJSON, MapContainer, Marker, Polygon, Polyline, ScaleControl, TileLayer, Tooltip, ZoomControl, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
