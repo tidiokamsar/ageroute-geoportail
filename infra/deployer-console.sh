@@ -4,6 +4,7 @@
 # A lancer sur le serveur, dans /opt/console-bdri, avec les droits Docker :
 #
 #   sudo bash deployer-console.sh <commit-complet> <sha256-de-l-archive>
+#   (ou, sans sudo, dans le groupe docker : RACINE_SAUVEGARDES=$HOME/bdri-deploiement bash deployer-console.sh ...)
 #
 # Il reprend, DANS L'ORDRE, les prerequis du paragraphe 4 de AUTONOMOUS_EXECUTION_TRACKER.md,
 # et S'ARRETE AU PREMIER QUI ECHOUE. Rien n'est modifie avant l'etape 9 ; tout ce qui precede
@@ -45,7 +46,12 @@ SEUIL_DISQUE="${SEUIL_DISQUE:-15}"
 PREMIERE_EN_ATTENTE="20261027100000_medias_observation_analyse"
 DEPOT="tidiokamsar/ageroute-geoportail"
 HORODATAGE="$(date +%Y%m%d-%H%M%S)"
-SAUVEGARDES="/var/backups/bdri-deploiement/${HORODATAGE}"
+# Racine des sauvegardes de deploiement. Par defaut /var/backups/bdri-deploiement (dossier de root : lancer avec sudo).
+# Un operateur DANS LE GROUPE docker mais sans mot de passe sudo peut lancer le script en utilisateur ordinaire et
+# placer les sauvegardes ailleurs, par exemple RACINE_SAUVEGARDES=$HOME/bdri-deploiement : seuls ce chemin et les droits
+# changent, aucun controle n'est affaibli (le script n'a besoin de root que pour ecrire sous /var/backups).
+RACINE_SAUVEGARDES="${RACINE_SAUVEGARDES:-/var/backups/bdri-deploiement}"
+SAUVEGARDES="${RACINE_SAUVEGARDES}/${HORODATAGE}"
 ESSAI="bdri-essai-migrations-${HORODATAGE}"
 
 rouge() { printf '\033[31m%s\033[0m\n' "$*"; }
