@@ -7,6 +7,7 @@ import { requireTerritoire, requireTerritoireMasque } from "../middleware/territ
 import { prisma } from "../lib/prisma";
 import { logAuditTransactionnelle } from "../utils/audit";
 import { filtreRegionDuTroncon, regionsCorpsPrevision, regionsPrevision } from "../territoire/territoire.lecture";
+import { approbationPermise } from "../governance/separation-taches";
 
 /**
  * `/api/v2/programmation` — la prévision budgétaire devient un objet saisissable.
@@ -196,6 +197,44 @@ programmationV2Router.post("/", requireRole("ADMIN", "GESTIONNAIRE"), creationDa
   } catch (err) { next(err); }
 });
 
+/**
+ * Champs qui font le CONTENU d'une prevision, c'est-a-dire ce sur quoi porte l'arbitrage. Le commentaire n'en fait pas partie,
+ * pas plus que le statut (qui est l'arbitrage lui-meme).
+ */
+const CHAMPS_CONTENU = ["annee", "intitule", "montantPrevuGnf", "tronconId", "bailleur", "typeIntervention", "priorite"] as const;
+
+type LigneContenu = { annee: number; intitule: string; montantPrevuGnf: bigint; tronconId: string | null; bailleur: string | null; typeIntervention: string | null; priorite: number | null };
+
+/** Vrai si la requete change REELLEMENT un champ de contenu (une valeur renvoyee a l'identique n'est pas une modification). */
+function contenuEffectivementModifie(existante: LigneContenu, corps: z.infer<typeof corpsEdition>): boolean {
+  return CHAMPS_CONTENU.some((champ) => {
+    const demande = corps[champ];
+    if (demande === undefined) return false;
+    return champ === "montantPrevuGnf" ? BigInt(demande as string) !== existante.montantPrevuGnf : demande !== existante[champ];
+  });
+}
+
+/** Une entree d'audit UPDATE a-t-elle change le contenu ? Le drapeau fait foi ; sans lui (audit ancien), annee ou montant differents. */
+function auditAChangeLeContenu(avant: unknown, apres: unknown): boolean {
+  const a = (apres ?? {}) as Record<string, unknown>;
+  if (typeof a.contenuModifie === "boolean") return a.contenuModifie;
+  const b = (avant ?? {}) as Record<string, unknown>;
+  return b.annee !== a.annee || b.montantPrevuGnf !== a.montantPrevuGnf;
+}
+
+/** Plafond de relecture du journal d'une ligne : une prevision n'est pas retouchee des centaines de fois. */
+const LIMITE_JOURNAL_LIGNE = 500;
+
+/** TOUS les comptes qui ont modifie le contenu de la ligne (relus dans l'audit, ecrit dans la meme transaction que chaque modification). */
+async function modificateursDuContenu(id: string): Promise<string[]> {
+  const journal = await prisma.auditLog.findMany({
+    where: { entityType: "ProgrammeBudgetaire", entityId: id, action: "UPDATE" },
+    orderBy: { createdAt: "desc" }, take: LIMITE_JOURNAL_LIGNE,
+    select: { userId: true, before: true, after: true },
+  });
+  return [...new Set(journal.filter((e) => e.userId && auditAChangeLeContenu(e.before, e.after)).map((e) => e.userId as string))];
+}
+
 /** Réviser une prévision : l'exercice budgétaire se corrige en cours d'année, chaque
  *  correction s'écrit. Le statut change par la même porte (arbitrage tracé). */
 programmationV2Router.patch("/:id", requireRole("ADMIN", "GESTIONNAIRE"), horsPerimetre, rattachementDansPerimetre, async (req, res, next) => {
@@ -213,6 +252,32 @@ programmationV2Router.patch("/:id", requireRole("ADMIN", "GESTIONNAIRE"), horsPe
       const troncon = await prisma.troncon.findUnique({ where: { id: p.data.tronconId }, select: { id: true } });
       if (!troncon) { res.status(400).json({ error: "tronçon inconnu", code: "TRONCON_INCONNU" }); return; }
     }
+    // SEPARATION DES TACHES (AD-07). Passer une prevision a RETENU est l'arbitrage budgetaire. Il n'est jamais le fait de
+    // celui qui l'a saisie NI de celui qui en a modifie le contenu (ADMIN compris) ; les autres statuts (report, annulation)
+    // restent a la main de l'auteur : ce ne sont pas des arbitrages. Une prevision sans auteur identifie n'a personne a opposer.
+    const contenuChange = contenuEffectivementModifie(existante, p.data);
+    if (p.data.statut === "RETENU" && contenuChange) {
+      // Modifier puis retenir d'un seul geste : le compte qui change le montant se l'approuverait lui-meme. Deux actes distincts.
+      res.status(422).json({
+        error: "Modifier le contenu d'une prévision (année, intitulé, montant, tronçon, bailleur, type d'intervention, priorité) et la retenir sont deux actes distincts : enregistrez la modification, puis faites retenir la prévision par un autre compte.",
+        code: "MODIFICATION_ET_APPROBATION",
+      }); return;
+    }
+    if (p.data.statut === "RETENU" && existante.statut !== "RETENU") {
+      const modificateurs = await modificateursDuContenu(existante.id);
+      const verdict = approbationPermise({
+        entityType: "ProgrammeBudgetaire", approbateurId: req.user!.id, approbateurRole: req.user!.role,
+        intervenants: [
+          { id: existante.createdById, etape: "a saisi cette prévision" },
+          ...modificateurs.map((id) => ({ id, etape: "a modifié le contenu de cette prévision" })),
+        ],
+      });
+      if (!verdict.permis) { res.status(403).json({ error: verdict.explication, code: verdict.motif }); return; }
+    }
+    // Une prevision RETENUE dont le contenu change n'est plus celle qui a ete retenue : elle repasse a PROPOSE (nouvelle
+    // approbation, par un autre compte). Un statut explicite dans la requete (report, annulation, realisation) est respecte.
+    const reouverte = contenuChange && existante.statut === "RETENU" && p.data.statut === undefined;
+
     const data: Record<string, unknown> = {};
     if (p.data.annee !== undefined) data["annee"] = p.data.annee;
     if (p.data.intitule !== undefined) data["intitule"] = p.data.intitule;
@@ -222,6 +287,7 @@ programmationV2Router.patch("/:id", requireRole("ADMIN", "GESTIONNAIRE"), horsPe
     if (p.data.typeIntervention !== undefined) data["typeIntervention"] = p.data.typeIntervention;
     if (p.data.priorite !== undefined) data["priorite"] = p.data.priorite;
     if (p.data.statut !== undefined) data["statut"] = p.data.statut;
+    if (reouverte) data["statut"] = "PROPOSE";
     if (p.data.commentaire !== undefined) data["commentaire"] = p.data.commentaire;
 
     const modifiee = await prisma.$transaction(async (tx) => {
@@ -232,8 +298,9 @@ programmationV2Router.patch("/:id", requireRole("ADMIN", "GESTIONNAIRE"), horsPe
       await logAuditTransactionnelle(tx, {
         userId: req.user!.id, action: "UPDATE", entityType: "ProgrammeBudgetaire",
         entityId: ligne.id,
-        before: { annee: existante.annee, statut: existante.statut, montantPrevuGnf: existante.montantPrevuGnf.toString() },
-        after: { annee: ligne.annee, statut: ligne.statut, montantPrevuGnf: ligne.montantPrevuGnf.toString() },
+        before: { annee: existante.annee, statut: existante.statut, montantPrevuGnf: existante.montantPrevuGnf.toString(), createdById: existante.createdById },
+        // `contenuModifie` : ce que `modificateursDuContenu` relit pour opposer l'approbateur a ceux qui ont change le contenu.
+        after: { annee: ligne.annee, statut: ligne.statut, montantPrevuGnf: ligne.montantPrevuGnf.toString(), contenuModifie: contenuChange, ...(reouverte ? { reouverte: true } : {}) },
         ipAddress: req.ip,
       });
       return ligne;

@@ -449,6 +449,19 @@ describe("cycle de vie : la frontiere DigitalRoad", () => {
     return [...h.fiches.keys()][0];
   }
 
+  /**
+   * Fait avancer la fiche jusqu'a APPROUVE comme le fait l'equipe depuis AD-07 : le compte qui a cree le scenario et fige la
+   * fiche (u1) la propose et l'arbitre, un AUTRE compte (u2) l'approuve. Avant ce lot, u1 faisait les trois pas seul : ce
+   * contrat de test a change legitimement (separation des taches), pas le cycle de vie. Rend le compte courant a u1.
+   */
+  async function jusquaApprouve(id: string) {
+    for (const v of ["PROPOSE", "ARBITRE"]) await request(app).post(`/fiches/${id}/statut`).send({ vers: v });
+    h.compte = { id: "u2", role: "GESTIONNAIRE", email: "g2@essai.invalid" };
+    const r = await request(app).post(`/fiches/${id}/statut`).send({ vers: "APPROUVE" });
+    expect(r.status, JSON.stringify(r.body)).toBe(201);
+    h.compte = { id: "u1", role: "GESTIONNAIRE", email: "g@essai.invalid" };
+  }
+
   it("BROUILLON vers PROPOSE : accepte, audite, rang suivant", async () => {
     const id = await uneFiche();
     const r = await request(app).post(`/fiches/${id}/statut`).send({ vers: "PROPOSE" });
@@ -476,7 +489,7 @@ describe("cycle de vie : la frontiere DigitalRoad", () => {
 
   it.each(["TRANSMIS", "EN_EXECUTION", "ACHEVE", "EVALUE"])("%s depuis le Geoportail : refuse, meme pour un ADMIN", async (vers) => {
     const id = await uneFiche();
-    for (const v of ["PROPOSE", "ARBITRE", "APPROUVE"]) await request(app).post(`/fiches/${id}/statut`).send({ vers: v });
+    await jusquaApprouve(id);
     h.compte = { id: "admin1", role: "ADMIN", email: "a@essai.invalid" };
     const r = await request(app).post(`/fiches/${id}/statut`).send({ vers, motif: "je force" });
     expect([403, 409]).toContain(r.status);
@@ -486,7 +499,7 @@ describe("cycle de vie : la frontiere DigitalRoad", () => {
 
   it("APPROUVE vers TRANSMIS : 403 ORIGINE_INTERDITE (le statut est recu de DigitalRoad, pas saisi)", async () => {
     const id = await uneFiche();
-    for (const v of ["PROPOSE", "ARBITRE", "APPROUVE"]) await request(app).post(`/fiches/${id}/statut`).send({ vers: v });
+    await jusquaApprouve(id);
     const r = await request(app).post(`/fiches/${id}/statut`).send({ vers: "TRANSMIS" });
     expect(r.status).toBe(403);
     expect(r.body.code).toBe("ORIGINE_INTERDITE");
@@ -495,7 +508,7 @@ describe("cycle de vie : la frontiere DigitalRoad", () => {
 
   it("le corps ne connait pas l'origine, le message DigitalRoad, l'inspection ni la version figee (schema strict)", async () => {
     const id = await uneFiche();
-    for (const v of ["PROPOSE", "ARBITRE", "APPROUVE"]) await request(app).post(`/fiches/${id}/statut`).send({ vers: v });
+    await jusquaApprouve(id);
     for (const extra of [{ origine: "DIGITALROAD" }, { messageDigitalRoadId: "msg-1" }, { inspectionId: "i-1" }, { versionFigee: "a".repeat(64) }]) {
       const r = await request(app).post(`/fiches/${id}/statut`).send({ vers: "TRANSMIS", ...extra });
       expect(r.status, JSON.stringify(extra)).toBe(400);
@@ -509,6 +522,122 @@ describe("cycle de vie : la frontiere DigitalRoad", () => {
     expect((await request(app).post("/fiches/inconnue/statut").send({ vers: "PROPOSE" })).status).toBe(404);
     h.compte.role = "LECTEUR";
     expect((await request(app).post(`/fiches/${id}/statut`).send({ vers: "PROPOSE" })).status).toBe(403);
+  });
+});
+
+/**
+ * SEPARATION DES TACHES (AD-07, lot AD-7). Avant ce lot : un ADMIN creait puis approuvait ses propres poids, et un seul
+ * GESTIONNAIRE figeait un scenario puis faisait avancer sa fiche jusqu'a APPROUVE. Maintenant : l'approbateur n'est jamais
+ * un intervenant precedent (code stable AUTO_VALIDATION, 403), et l'audit garde les VALEURS des poids.
+ */
+describe("separation des taches : parametres (AD-07)", () => {
+  const admin = (id: string) => { h.compte = { id, role: "ADMIN", email: `${id}@essai.invalid` }; };
+
+  it("un ADMIN ne peut pas approuver la version qu'il a creee : 403 AUTO_VALIDATION, rien n'est approuve ni audite VALIDATE", async () => {
+    admin("admin1");
+    const c = await request(app).post("/parametres").send({ version: "prog-sod-1", valeurs: VALEURS_AMORCAGE_PROVISOIRES, motif: "essai" });
+    expect(c.status).toBe(201);
+    h.audit = [];
+    const r = await request(app).post(`/parametres/${c.body.id}/approuver`);
+    expect(r.status).toBe(403);
+    expect(r.body.code).toBe("AUTO_VALIDATION");
+    expect(r.body.error).toMatch(/ne peut pas être validé par la personne qui l'a produit/);
+    expect(h.parametres.find((p) => p.id === c.body.id)!.approuveeLe).toBeNull();
+    expect(h.audit.filter((a) => a.action === "VALIDATE")).toEqual([]);
+  });
+
+  it("un AUTRE ADMIN l'approuve : 200, audite VALIDATE", async () => {
+    admin("admin1");
+    const c = await request(app).post("/parametres").send({ version: "prog-sod-2", valeurs: VALEURS_AMORCAGE_PROVISOIRES });
+    admin("admin2");
+    const r = await request(app).post(`/parametres/${c.body.id}/approuver`);
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ provisoire: false, approuveeParId: "admin2", creeParId: "admin1" });
+  });
+
+  it("une version amorcee sans auteur (creeParId nul) reste approuvable par tout ADMIN", async () => {
+    admin("admin1");
+    expect((await request(app).post("/parametres/p-seed/approuver")).status).toBe(200);
+  });
+
+  it("l'audit garde les VALEURS : CREATE apres, VALIDATE avant et apres (poids relisibles)", async () => {
+    admin("admin1");
+    const c = await request(app).post("/parametres").send({ version: "prog-sod-3", valeurs: VALEURS_AMORCAGE_PROVISOIRES });
+    const creation = h.audit.find((a) => a.action === "CREATE" && a.entityType === "ParametresProgrammation")!;
+    expect(creation.after.valeurs).toEqual(JSON.parse(JSON.stringify(VALEURS_AMORCAGE_PROVISOIRES)));
+    admin("admin2");
+    await request(app).post(`/parametres/${c.body.id}/approuver`);
+    const validation = h.audit.find((a) => a.action === "VALIDATE")!;
+    expect(validation.before.valeurs).toEqual(creation.after.valeurs);
+    expect(validation.after.valeurs).toEqual(creation.after.valeurs);
+  });
+});
+
+describe("separation des taches : fiches (AD-07)", () => {
+  const gest = (id: string) => { h.compte = { id, role: "GESTIONNAIRE", email: `${id}@essai.invalid` }; };
+  async function ficheArbitree(simulateur = "u1", figeur = "u1", arbitre = "u1") {
+    gest(simulateur);
+    const { scenario } = await simuler({ budgetGnf: "100000000000" });
+    gest(figeur);
+    await request(app).post(`/simulations/${scenario.id}/fiches`).send({});
+    const id = [...h.fiches.keys()][0];
+    gest(arbitre);
+    for (const v of ["PROPOSE", "ARBITRE"]) expect((await request(app).post(`/fiches/${id}/statut`).send({ vers: v })).status).toBe(201);
+    h.audit = [];
+    return id;
+  }
+
+  it("celui qui a fige la fiche ne peut pas l'approuver : 403 AUTO_VALIDATION, le statut reste ARBITRE", async () => {
+    const id = await ficheArbitree();
+    const r = await request(app).post(`/fiches/${id}/statut`).send({ vers: "APPROUVE" });
+    expect(r.status).toBe(403);
+    expect(r.body.code).toBe("AUTO_VALIDATION");
+    expect(r.body.error).toMatch(/a créé le scénario|a figé cette fiche/);
+    expect(h.statuts.at(-1)!.vers).toBe("ARBITRE");
+    expect(h.audit).toEqual([]);
+  });
+
+  it("l'auteur du scenario ne l'approuve pas non plus, meme s'il n'a pas fige la fiche", async () => {
+    const id = await ficheArbitree("u1", "u2", "u2");
+    gest("u1");
+    const r = await request(app).post(`/fiches/${id}/statut`).send({ vers: "APPROUVE" });
+    expect(r.status).toBe(403);
+    expect(r.body.error).toMatch(/a créé le scénario/);
+  });
+
+  it("celui qui a arbitre ne l'approuve pas : arbitrage et approbation sont deux regards", async () => {
+    const id = await ficheArbitree("u1", "u1", "u2");
+    gest("u2");
+    const r = await request(app).post(`/fiches/${id}/statut`).send({ vers: "APPROUVE" });
+    expect(r.status).toBe(403);
+    expect(r.body.error).toMatch(/a fait passer cette fiche à (PROPOSE|ARBITRE)/);
+  });
+
+  it("un compte etranger a la chaine approuve : 201, audite", async () => {
+    const id = await ficheArbitree("u1", "u1", "u2");
+    gest("u3");
+    const r = await request(app).post(`/fiches/${id}/statut`).send({ vers: "APPROUVE" });
+    expect(r.status).toBe(201);
+    expect(r.body).toMatchObject({ de: "ARBITRE", vers: "APPROUVE" });
+    expect(h.audit).toMatchObject([{ action: "UPDATE", entityType: "FicheIntervention", after: { statut: "APPROUVE" } }]);
+  });
+
+  it("un ADMIN auteur n'echappe pas a la regle", async () => {
+    h.compte = { id: "adm", role: "ADMIN", email: "adm@essai.invalid" };
+    const { scenario } = await simuler({ budgetGnf: "100000000000" });
+    await request(app).post(`/simulations/${scenario.id}/fiches`).send({});
+    const id = [...h.fiches.keys()][0];
+    for (const v of ["PROPOSE", "ARBITRE"]) await request(app).post(`/fiches/${id}/statut`).send({ vers: v });
+    expect((await request(app).post(`/fiches/${id}/statut`).send({ vers: "APPROUVE" })).status).toBe(403);
+  });
+
+  it("les autres etapes ne sont pas gelees : le figeur propose et arbitre, et un recul motive reste possible", async () => {
+    const id = await ficheArbitree("u1", "u1", "u1");
+    gest("u3");
+    await request(app).post(`/fiches/${id}/statut`).send({ vers: "APPROUVE" });
+    gest("u1");
+    const r = await request(app).post(`/fiches/${id}/statut`).send({ vers: "ARBITRE", motif: "montant a revoir" });
+    expect(r.status).toBe(201);
   });
 });
 

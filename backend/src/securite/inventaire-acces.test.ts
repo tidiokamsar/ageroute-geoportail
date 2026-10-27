@@ -212,7 +212,7 @@ const SANS_MODULE: Exception[] = [
   { motif: /^\w+ \/api\/auth\//, raison: "libre-service du compte connecte (profil, 2FA, deconnexion globale)" },
   { motif: /^GET \/api\/regions$/, raison: "referentiel administratif (liste de regions), utilise par tous les formulaires" },
   { motif: /^GET \/api\/(troncons|ouvrages|points-noirs|postes|voirie-locale)(\/|$)/, raison: "VOULU : lecture ouverte du patrimoine pour tout compte connecte (selecteurs, carte, fiche de troncon), commentaire de troncons.routes.ts" },
-  { motif: /^GET \/api\/chantiers(\/|$)/, raison: "D-C1-1 : meme ouverture que le patrimoine (carte, fiche de troncon, selecteur des marches) ; les champs financiers restent lisibles : decision en attente" },
+  { motif: /^GET \/api\/chantiers(\/|$)/, raison: "D-C1-1 : meme ouverture que le patrimoine (carte, fiche de troncon, selecteur des marches) ; depuis AD-7 les champs financiers (montant, bailleur, contrat, entreprise) sont MASQUES (null) pour un compte sans module chantiers ou marches, l'export exige le module chantiers, le perimetre regional s'applique ; decision metier en attente" },
   { motif: /^\w+ \/api\/gouvernance\//, raison: "droit porte par `users.peutDeleguerValidation`, verifie dans les gestionnaires (delegations.controller.ts)" },
   { motif: /^GET \/api\/audit$/, raison: "module de l'entite consultee, controle dans le handler (MODULE_PAR_ENTITE) ; type inconnu refuse" },
   { motif: /^GET \/api\/qualite\/:entityType\/:entityId$/, raison: "module de l'entite, controle dans le handler (MODULE_PAR_ENTITE)" },
@@ -348,6 +348,7 @@ describe("Gardes structurelles : aucune route ne passe sans qu'on ait decide de 
       /^POST \/api\/v2\/missions\/:id\/statut$/,   // portee par affectation et region dans le handler
       /^POST \/api\/v2\/exploitation\/(main-courante|veille\/escalades\/evaluer)/, // D-C1-4 : ecriture ouverte a tout compte par decision documentee (exploitation.routes.ts, veille.routes.ts)
       /^POST \/api\/v2\/programmation\/moteur\/(ppe\/)?simulations\/:id\/rejouer$/, // recalcul sans ecriture
+      /^POST \/api\/v2\/aide-decision\/scenarios\/(comparer|:id\/rejouer)$/, // AD : comparaison (lecture) et rejeu (recalcul sans ecriture), module et perimetre verifies dans le routeur
       /^POST \/api\/v2\/export\/selection$/,         // lecture (export), module controle dans le handler
       /^POST \/api\/simulateur\/budget$/,            // calcul sans ecriture, module `programmation`
       /^POST \/api\/v2\/taches-internes/,            // ROLES_ECRITURE verifie dans le handler (ADMIN, GESTIONNAIRE, INSPECTEUR)

@@ -22,6 +22,11 @@ import { patrouillesV2Router } from "./patrouilles.routes";
 import { infoRouteV2Router } from "./info-route.routes";
 import { veilleV2Router } from "./veille.routes";
 import { teledetectionV2Router } from "./teledetection.routes";
+import { aideDecisionSyntheseRouter } from "./aide-decision.synthese.routes";
+import { aideDecisionInterventionsRouter } from "./aide-decision.interventions.routes";
+import { aideDecisionContractuelRouter } from "./aide-decision.contractuel.routes";
+import { scenariosAideDecisionRouter } from "./aide-decision.scenarios.routes";
+import { aideDecisionExportsRouter } from "./aide-decision.exports.routes";
 import { programmationV2Router } from "./programmation.routes";
 import { baremesV2Router } from "./baremes.routes";
 import { exportV2Router } from "./export.routes";
@@ -113,6 +118,12 @@ apiV2Router.use("/exploitation/info-route", infoRouteV2Router);
 apiV2Router.use("/exploitation/veille", veilleV2Router);
 apiV2Router.use("/exploitation", exploitationV2Router);
 apiV2Router.use("/teledetection", teledetectionV2Router);
+// Module Aide a la decision : cinq routeurs aux chemins disjoints sous un meme prefixe.
+apiV2Router.use("/aide-decision", aideDecisionSyntheseRouter);
+apiV2Router.use("/aide-decision", aideDecisionInterventionsRouter);
+apiV2Router.use("/aide-decision", aideDecisionContractuelRouter);
+apiV2Router.use("/aide-decision", scenariosAideDecisionRouter);
+apiV2Router.use("/aide-decision", aideDecisionExportsRouter);
 // Le plus specifique d'abord : `/moteur` ne connait pas `/ppe`, `/programmation` (saisie manuelle) ne connait pas `/moteur`.
 apiV2Router.use("/programmation/moteur/ppe", ppeProgrammationV2Router);
 apiV2Router.use("/programmation/moteur", moteurProgrammationV2Router);
@@ -144,7 +155,7 @@ apiV2Router.use("/mobile", mobileV2Router);
 apiV2Router.get("/", requireAuth, (_req, res) => {
   res.json({
     version: "v2",
-    domaines: ["geo", "sync", "devices", "missions", "observations", "defauts", "field", "portions", "referentiels", "qualite", "reseau", "imports", "exploitation", "teledetection", "programmation", "baremes", "perimetres", "integrations", "tableau-de-bord", "fiche-360", "taches-internes", "correspondances", "roulage", "referentiel", "chantiers", "inspections"],
+    domaines: ["geo", "sync", "devices", "missions", "observations", "defauts", "field", "portions", "referentiels", "qualite", "reseau", "imports", "exploitation", "teledetection", "aide-decision", "programmation", "baremes", "perimetres", "integrations", "tableau-de-bord", "fiche-360", "taches-internes", "correspondances", "roulage", "referentiel", "chantiers", "inspections"],
     aVenir: [
       "auth", "tracks",
       "assets", "offline", "intelligence", "ai",

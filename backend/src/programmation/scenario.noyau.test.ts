@@ -24,6 +24,8 @@ describe("Le noyau ne depend d'aucune base", () => {
     const imports = [...src.matchAll(/^import[\s\S]*?from\s+["']([^"']+)["']/gm)].map((m) => m[1]).sort();
     expect(imports).toEqual([
       "../engines/cout.noyau", "../engines/famille-cout", "../engines/risque.noyau", "../engines/traitement.noyau", "./parametres.noyau",
+      // AD-LOT-4 : noyaux voisins du simulateur, eux aussi sans base (leurs propres imports sont verifies dans contraintes.noyau.test.ts).
+      "./comparaison.baremes.noyau", "./contraintes.noyau", "./deficit.noyau", "./logiques.noyau",
     ].sort());
     for (const i of imports) expect(i).not.toMatch(/prisma|express|zod|lib\/|utils\/|middleware/);
   });

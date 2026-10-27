@@ -76,6 +76,22 @@ async function pointNoir(tronconCode: string, n: number, supprime = false) {
   }
 }
 
+
+/**
+ * REGISTRE EXPLOITE (revue, item 5) : depuis que le simulateur applique la regle des points noirs de la liste priorisee (`resoudreSecurite`), un troncon
+ * sans point noir n'a « zero point noir » QUE si le registre de sa region compte au moins 5 points confirmes ; sinon le facteur securite est ABSENT
+ * (jamais 0). L'oracle SQL ci-dessous compte les points noirs rattaches au troncon : pour qu'un zero soit bien une donnee, chaque region du jeu recoit
+ * donc 5 points « de registre » (rattaches a la region, a aucun troncon). Le comportement des regions au registre trop petit est eprouve par le banc
+ * `aide-decision-priorites` (equivalence liste / simulateur).
+ */
+async function registreDeRegion(nomRegion: string, n: number) {
+  for (let i = 0; i < n; i++) {
+    await sql(
+      `INSERT INTO points_noirs (id, description, "regionId", "tronconId", gravite, "deletedAt", "updatedAt")
+       VALUES (gen_random_uuid()::text, 'pn essai', (SELECT id FROM regions WHERE nom = $1), NULL, 'FORTE'::"Gravite", NULL, now())`, nomRegion);
+  }
+}
+
 /** Oracle SQL : risque, risque attendu et cout, sans aucun code du moteur. Parametres lus dans la table. Horizon 1 an. */
 async function oracleSql(version: string) {
   return lire<{ code: string; risque: string; attendu: string; cout: string; len_m: string; traitement: string }>(`
@@ -182,6 +198,7 @@ async function main() {
   await troncon("PRG-X2", { etat: "MAUVAIS", jma: 2500, longueurKm: 4, lat: 9.78, src: "voirie_locale:essai" });
   await troncon("PRG-X3", { etat: "MAUVAIS", jma: 2500, longueurKm: 4, lat: 9.80, statut: "REJETE" });
   for (const [code, n] of [["PRG-A", 2], ["PRG-C", 1], ["PRG-D", 1], ["PRG-E", 1], ["PRG-H", 1]] as const) await pointNoir(code, n);
+  for (const nom of ["Region PRG1", "Region PRG2"]) await registreDeRegion(nom, 5);
   await pointNoir("PRG-B", 1, true); // supprime : ne compte pas
 
   // ---------- Parametres via le service
@@ -346,7 +363,8 @@ async function main() {
   verifier("BROUILLON vers PROPOSE : accepte, audite", (await moteur.changerStatutFiche(prisma, fid, "PROPOSE", null, ctxGest)).vers === "PROPOSE" && (await compter(`SELECT count(*)::int AS n FROM audit_logs WHERE "entityType" = 'FicheIntervention' AND action = 'UPDATE' AND "entityId" = $1`, fid)) === 1);
   verifier("PROPOSE vers APPROUVE (saut d'etape) : refuse (TRANSITION_INEXISTANTE)", codeRefus(await echec(() => moteur.changerStatutFiche(prisma, fid, "APPROUVE", null, ctxGest))) === "TRANSITION_INEXISTANTE");
   await moteur.changerStatutFiche(prisma, fid, "ARBITRE", null, ctxGest);
-  await moteur.changerStatutFiche(prisma, fid, "APPROUVE", null, ctxGest);
+  // AD-07 (separation des taches) : celui qui a cree le scenario et fige la fiche (ctxGest) ne l'approuve pas ; un autre compte (ctxAdmin) le fait.
+  await moteur.changerStatutFiche(prisma, fid, "APPROUVE", null, ctxAdmin);
   verifier("un recul avant transmission sans motif : refuse (RETOUR_NON_MOTIVE)", codeRefus(await echec(() => moteur.changerStatutFiche(prisma, fid, "ARBITRE", null, ctxGest))) === "RETOUR_NON_MOTIVE");
   for (const vers of ["TRANSMIS", "EN_EXECUTION", "ACHEVE", "EVALUE"]) {
     const m = await echec(() => moteur.changerStatutFiche(prisma, fid, vers, "tentative", ctxAdmin));

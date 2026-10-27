@@ -97,3 +97,14 @@ Non exécutés : CI GitHub, essais sur appareil, rendu navigateur, toute requêt
 3. Contrôle de dérive des migrations en CI et rejeu reproductible de `replay` (trancher D-10).
 4. Mesure puis optimisation de la carte (icônes, `/troncons/geo` simplifié selon le zoom).
 5. Déploiement : **commande humaine requise** (accès root, attestation). Contenu à déployer et procédure : voir `LOT-00-RAPPORT.md` et `infra/deployer-console.sh`.
+
+## Mise à jour du 27/10/2026 : module Aide à la décision (branche `feat/aide-decision`)
+
+Construit sur la chaîne v2 (moteur de programmation, registre d'indicateurs, détecteurs de qualité) ; les chaînes héritées ne sont pas retirées avant recette. **Non déployé, non poussé.** Détail, preuves, limites et décisions métier : `LOT-AD-00-RAPPORT.md` (audit) et `LOT-AD-01-07-RAPPORT.md` (construction et revues).
+
+- **Livré** : shell de page à six onglets, synthèse et dictionnaire des indicateurs, carte et liste de priorités explicables (« score incomplet » jamais traité comme un score), simulateur avec contraintes et déficit, suivi contractuel, barèmes avec historique, exports gouvernés journalisés, séparation des tâches, droit sur les montants unifié.
+- **Preuves rejouées** : backend 222 fichiers, 4505 tests verts, `tsc` propre ; frontend vert par répertoire, `tsc` propre ; bancs PostGIS (priorités, scénarios, programmation, PPE, sécurité, barèmes et exports, contractuel, KPI, contrôle d'accès) verts selon les agents ; migration `20261029300000` avec descente testée. Deux revues indépendantes (frontend, backend) ont trouvé des défauts critiques et élevés, tous corrigés avec tests.
+- **Non vérifié** : aucune donnée réelle, aucun volume réel, aucun backend en marche derrière le frontend, pas de PDF, classement non mis en cache.
+- **Décisions métier en attente** : listées en section 5 du rapport (définitions « dégradé » et « critique », source des longueurs, poids, barèmes, « budget engagé », droit sur les montants, rôles de validation, seuils).
+- **Observation de la Terre** (branche `feat/observation-terre`, 4 commits locaux, non poussée) : bout en bout réel 48/48 sur deux exécutions ; trois défauts de l'E2E corrigés (lignes illisibles sur la carte, délai de transaction, recherche par région) ; restent `E2E-EO-3`, `E2E-EO-D`, `E2E-EO-5` hors module.
+- **Suivis hors module** : règle de modules frontend/serveur divergente, tabulation des tracés Leaflet du Géoportail, régénération du client Prisma du dépôt principal, corps d'erreur du middleware pour JSON mal formé.

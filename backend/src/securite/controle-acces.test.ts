@@ -83,6 +83,8 @@ vi.mock("../lib/prisma", () => {
         return m && contient(where.regionId, m.regionId) ? m : null;
       },
     },
+    // Journal de la ligne (relu pour opposer l'approbateur d'une prevision a ceux qui en ont modifie le contenu) : vide ici.
+    auditLog: { findMany: async () => [] },
     observation: { findMany: async ({ where }: Ligne) => { w.wheres.pullObservation = where; return []; } },
     defaut: { findMany: async ({ where }: Ligne) => { w.wheres.pullDefaut = where; return []; } },
     programmeBudgetaire: {

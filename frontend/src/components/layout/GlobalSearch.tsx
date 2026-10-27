@@ -31,7 +31,7 @@ export function GlobalSearch() {
   });
 
   return (
-    <div className="relative w-80">
+    <div className="relative w-full max-w-[20rem]">
       <Input
         value={q}
         placeholder="Recherche globale (route, ouvrage, chantier)..."

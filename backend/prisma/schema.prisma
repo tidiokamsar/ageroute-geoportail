@@ -4145,3 +4145,57 @@ model ChantierSection {
   @@index([tronconId], map: "chantier_sections_troncon_idx")
   @@map("chantier_sections")
 }
+
+// ===================== AIDE A LA DECISION, LOT 6 : HISTORIQUE DES BAREMES ET JOURNAL DES EXPORTS =====================
+//
+// Deux tables creees par la migration 20261029300000_ad_baremes_historique, en AJOUT SEUL (declencheur). Leurs cles
+// etrangeres (baremes_intervention, users) existent EN BASE mais ne sont pas declarees en `@relation` ici : le faire
+// imposerait d'ajouter un champ inverse a `BaremeIntervention` et `User`, que d'autres chantiers modifient en parallele.
+
+/// Historique d'une ligne de bareme : une ligne par modification ou approbation, ecrite dans la meme transaction que la
+/// mutation. `modifieCalcul` : un champ qui change le calcul (prix, unite, devise, validite, millesime, largeur, source)
+/// a change ; un simple libelle ou commentaire n'invalide pas l'approbation. L'auteur d'une version est l'auteur de la
+/// derniere ligne `modifieCalcul` de cette version : l'approbateur ne peut pas etre lui.
+model BaremeHistorique {
+  id                       Int      @id @default(autoincrement())
+  baremeId                 Int
+  version                  Int
+  evenement                String
+  champsModifies           String[] @default([])
+  modifieCalcul            Boolean  @default(false)
+  approbationReinitialisee Boolean  @default(false)
+  statutApprobation        String
+  valeursAvant             Json
+  valeursApres             Json
+  auteurId                 String?
+  auteurEmail              String
+  motif                    String
+  commentaire              String?
+  creeLe                   DateTime @default(now())
+
+  @@index([baremeId, id(sort: Desc)], map: "baremes_historique_bareme_idx")
+  @@map("baremes_historique")
+}
+
+/// Journal des exports gouvernes : qui, quand, type, filtres, perimetre, nombre de lignes, empreinte SHA-256 du fichier
+/// remis. Ecrit AVANT la remise du fichier : pas de fichier sans trace.
+model ExportJournal {
+  id               String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  type             String
+  format           String
+  auteurId         String?
+  auteurEmail      String
+  auteurRole       String
+  filtres          Json     @default("{}")
+  perimetre        Json     @default("{}")
+  nbLignes         Int
+  tailleOctets     Int
+  empreinteSha256  String
+  droitFinancier   Boolean
+  colonnesRetirees Json     @default("[]")
+  creeLe           DateTime @default(now())
+
+  @@index([creeLe(sort: Desc)], map: "exports_journal_recent_idx")
+  @@index([auteurId, creeLe(sort: Desc)], map: "exports_journal_auteur_idx")
+  @@map("exports_journal")
+}
