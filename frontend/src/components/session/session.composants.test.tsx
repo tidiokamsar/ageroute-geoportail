@@ -8,7 +8,16 @@ import { SessionLocaleProvider } from "../../session/useSessionLocale";
 import type { DecisionSuppression } from "../../session/politiqueDeconnexion";
 import { decisionSuppressionLocale } from "../../session/politiqueDeconnexion";
 
-vi.mock("../../lib/offlineSync", () => ({ syncPendingOfflineData: vi.fn(async () => undefined) }));
+// Etat de synchronisation pilotable : le dialogue d'effacement le LIT en direct (useOfflineSync).
+const sync = vi.hoisted(() => ({
+  etat: { pendingCount: 0, syncing: false, conflitCount: 0, abandonCount: 0, refusDroitsCount: 0 } as Record<string, number | boolean>,
+  ecouteurs: new Set<() => void>(),
+}));
+vi.mock("../../lib/offlineSync", () => ({
+  syncPendingOfflineData: vi.fn(async () => undefined),
+  getSyncState: () => sync.etat,
+  subscribeSync: (cb: () => void) => { sync.ecouteurs.add(cb); return () => { sync.ecouteurs.delete(cb); }; },
+}));
 
 import { syncPendingOfflineData } from "../../lib/offlineSync";
 import { BandeauSession } from "./BandeauSession";
@@ -376,6 +385,28 @@ describe("DialogueEffacementLocal", () => {
     // Geste de l'agent : cycle MANUEL (il leve la suspension de l'enregistrement d'appareil).
     expect(syncPendingOfflineData).toHaveBeenLastCalledWith({ manuel: true });
     await waitFor(() => expect(screen.getByRole("button", { name: "Effacer les données" })).toBeEnabled());
+  });
+
+  it("relit la file quand la synchronisation change d'etat (une synchronisation deja en cours vide la file apres le clic)", async () => {
+    // syncPendingOfflineData rend la main tout de suite quand une synchronisation tourne deja : le dialogue ne peut pas se fier
+    // a une seule relecture juste apres le clic. Defaut (i) du test de bout en bout : « Effacer » restait inactif 60 s.
+    const refus = decisionSuppressionLocale({ ...VIDE, enAttente: 1 });
+    const apercu = vi.fn().mockResolvedValueOnce(refus).mockResolvedValue(decisionSuppressionLocale(VIDE));
+    const f = faux({}, { apercuPerte: apercu });
+    sync.etat = { pendingCount: 1, syncing: true, conflitCount: 0, abandonCount: 0, refusDroitsCount: 0 };
+    try {
+      monter(<DialogueEffacementLocal ouvert surFermer={() => undefined} />, f);
+      expect(await screen.findByRole("alert")).toHaveTextContent(refus.texte);
+      expect(screen.getByRole("button", { name: "Effacer les données" })).toBeDisabled();
+      expect(apercu).toHaveBeenCalledTimes(1);
+      // La synchronisation automatique se termine : l'etat publie change, SANS aucun clic de l'agent.
+      sync.etat = { pendingCount: 0, syncing: false, conflitCount: 0, abandonCount: 0, refusDroitsCount: 0 };
+      await act(async () => { for (const e of [...sync.ecouteurs]) e(); });
+      await waitFor(() => expect(screen.getByRole("button", { name: "Effacer les données" })).toBeEnabled());
+      expect(apercu).toHaveBeenCalledTimes(2);
+    } finally {
+      sync.etat = { pendingCount: 0, syncing: false, conflitCount: 0, abandonCount: 0, refusDroitsCount: 0 };
+    }
   });
 
   it("file vide : explique la difference avec la deconnexion, puis efface le compte courant seulement", async () => {

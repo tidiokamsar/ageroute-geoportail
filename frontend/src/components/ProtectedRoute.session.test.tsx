@@ -143,6 +143,20 @@ describe("ProtectedRoute : session locale", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("hors ligne, session OUVERTE, utilisateur absent un instant (E2E-5) : jamais de redirection vers /login", () => {
+    h.user = null;
+    monter("/inspections/terrain", faux({ etat: "HORS_LIGNE_OUVERT", horsLigne: true, deverrouille: true }));
+    expect(screen.queryByText("Page de connexion")).toBeNull();
+    expect(screen.queryByText("Carte publique")).toBeNull();
+    expect(screen.getByText("Chargement...")).toBeInTheDocument();
+  });
+
+  it("session fermee (refus du serveur, deconnexion) : la connexion, comme avant", () => {
+    h.user = null;
+    monter("/inspections/terrain", faux({ etat: "FERME", coffrePresent: true, deverrouille: false }));
+    expect(screen.getByText("Page de connexion")).toBeInTheDocument();
+  });
+
   it("session expiree : l'ecran d'expiration, sans contenu", () => {
     h.user = null;
     monter("/inspections/terrain", faux({ etat: "EXPIRE", ecran: "SESSION_EXPIREE", horsLigne: false, deverrouille: false }));

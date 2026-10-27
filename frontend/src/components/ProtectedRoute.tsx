@@ -82,6 +82,11 @@ export function ProtectedRoute({ roles, ouvertAuxDelegants = false }: { roles?: 
   // /login, ou l'utilisateur se connecte avec son compte pour acceder au reste.
   if (!user) {
     if (ecran) return ecran;
+    // Session locale OUVERTE hors ligne : une coupure n'est jamais une deconnexion. L'identite se reconstruit du profil du coffre
+    // (ControleurSession.deverrouiller) ; si un rendu la voit un instant absente (defaut E2E-5), on attend au lieu de renvoyer vers
+    // /login. Seule une session FERMEE (refus 401/403 du serveur, deconnexion) ou un depart voulu (« Aller a la connexion », etat
+    // verrouille sans ecran) mene a la connexion.
+    if (session?.etat === "HORS_LIGNE_OUVERT") return <div className="h-screen flex items-center justify-center text-gray-400">Chargement...</div>;
     return <Navigate to={location.pathname === "/" ? "/carte" : "/login"} replace />;
   }
   const delegantAutorise = ouvertAuxDelegants && user.peutDeleguerValidation === true;
