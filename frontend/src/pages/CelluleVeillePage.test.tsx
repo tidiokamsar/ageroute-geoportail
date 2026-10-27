@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import { CelluleVeillePage, duree, type Tableau } from "./CelluleVeillePage";
 
 /**
@@ -34,7 +35,7 @@ const base: Tableau = {
 
 function rendre() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={qc}><CelluleVeillePage /></QueryClientProvider>);
+  return render(<MemoryRouter><QueryClientProvider client={qc}><CelluleVeillePage /></QueryClientProvider></MemoryRouter>);
 }
 
 beforeEach(() => { h.appels.length = 0; h.tableau = base; h.evaluationEchoue = false; });

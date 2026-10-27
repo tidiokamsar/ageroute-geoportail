@@ -183,7 +183,7 @@ function PanelSection({
       >
         <span className="text-navy">{icon}</span>
         <span className="text-xs font-semibold uppercase tracking-wide text-gray-600 flex-1">{title}</span>
-        <ChevronDown aria-hidden="true" className={`h-3.5 w-3.5 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown aria-hidden="true" className={`h-3.5 w-3.5 text-gray-500 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && <div className="px-3 pb-3 space-y-1.5 text-sm">{children}</div>}
     </div>
@@ -880,7 +880,7 @@ export function GeoportailPage() {
       >
       <div className="pointer-events-auto flex w-80 min-w-[9rem] max-w-[46%] shrink flex-col items-center gap-2">
         <div className="relative w-full">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500" />
           <input
             type="search"
             aria-label="Rechercher un tronçon, un ouvrage ou un chantier"
@@ -899,7 +899,7 @@ export function GeoportailPage() {
             onClick={() => setRechercheVilleOuverte(true)}
             className="flex items-center gap-1.5 self-start rounded-full border border-gray-200 bg-white/95 px-3 py-1 text-[12px] font-medium text-navy shadow-md backdrop-blur hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
           >
-            <MapPin className="h-3.5 w-3.5 text-gray-400" />
+            <MapPin className="h-3.5 w-3.5 text-gray-500" />
             Filtrer par ville
           </button>
         ) : (
@@ -912,7 +912,7 @@ export function GeoportailPage() {
                 type="button"
                 onClick={() => setRechercheVilleOuverte(false)}
                 aria-label="Fermer le filtre par ville"
-                className="rounded p-0.5 text-gray-400 hover:text-navy focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
+                className="rounded p-0.5 text-gray-500 hover:text-navy focus:outline-none focus-visible:ring-2 focus-visible:ring-gold/50"
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -970,7 +970,7 @@ export function GeoportailPage() {
                 }}
               >
                 <span className="font-medium truncate">{hit.label}</span>
-                <span className="text-[11px] text-gray-400 shrink-0">{hit.sub}</span>
+                <span className="text-[11px] text-gray-500 shrink-0">{hit.sub}</span>
               </button>
             ))}
           </div>
@@ -1023,7 +1023,7 @@ export function GeoportailPage() {
               <p className="text-[11px] text-gray-500">
                 Cliquez pour placer des points • <strong>Double-clic</strong> pour terminer le tracé
               </p>
-              <p className="text-[11px] text-gray-400">
+              <p className="text-[11px] text-gray-500">
                 Les cercles orange indiquent un accrochage à un tronçon existant.
               </p>
             </>
@@ -1082,7 +1082,7 @@ export function GeoportailPage() {
                   Régions proches du tracé direct : {itinResult.regionsTraversees.join(", ")}
                 </p>
               )}
-              <p className="text-[11px] text-gray-400">
+              <p className="text-[11px] text-gray-500">
                 Distance en ligne droite, pas un calcul d'itinéraire routier précis.
               </p>
             </div>
@@ -1155,7 +1155,7 @@ export function GeoportailPage() {
                     <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: ETAT_COLORS[r.etat] }} />
                     <span className="flex-1 text-gray-600 truncate">{ETAT_LABELS[r.etat]}</span>
                     <span className="text-gray-500 shrink-0">{r.km.toFixed(0)} km</span>
-                    <span className="text-gray-400 shrink-0 w-7 text-right">{r.pct.toFixed(0)}%</span>
+                    <span className="text-gray-500 shrink-0 w-7 text-right">{r.pct.toFixed(0)}%</span>
                   </div>
                 ))}
                 {longueurDeclaree > 0 && (
@@ -1203,7 +1203,7 @@ export function GeoportailPage() {
                   onChange={() => setReprisSeulement((v) => !v)}
                   label={`À valider seulement (${ouvragesRepris})`}
                 />
-                <p className="text-[11px] leading-snug text-gray-400">
+                <p className="text-[11px] leading-snug text-gray-500">
                   Contour discontinu : repris d'une source externe, jamais visité.
                   {" "}{ouvragesInventories} inventorié{ouvragesInventories > 1 ? "s" : ""} par AGEROUTE.
                 </p>
@@ -1287,7 +1287,7 @@ export function GeoportailPage() {
                     </label>
                   ))}
 
-                  <p className="text-[11px] leading-snug text-gray-400">
+                  <p className="text-[11px] leading-snug text-gray-500">
                     Tracés gris, hiérarchisés par épaisseur — la couleur reste réservée
                     à l'état du réseau AGEROUTE. Donnée externe, non validée : elle
                     n'appartient pas au patrimoine tant qu'AGEROUTE ne l'a pas retenue.
@@ -1325,7 +1325,7 @@ export function GeoportailPage() {
                       <span>
                         {LIBELLE_CATEGORIE[c]}
                         {comptesFranchissements && (
-                          <span className="text-gray-400">
+                          <span className="text-gray-500">
                             {" · "}
                             {comptesFranchissements[c]}
                             {c === "CLASSE" ? " franchissements" : ""}
@@ -1356,7 +1356,7 @@ export function GeoportailPage() {
                     <p className="text-[11px] text-gray-600">⌒ pont · ≈ gué · ∩ tunnel</p>
                   </div>
 
-                  <p className="text-[11px] leading-snug text-gray-400">
+                  <p className="text-[11px] leading-snug text-gray-500">
                     Cette couche n'affiche <strong className="font-semibold">que des ouvrages
                     de franchissement</strong> — jamais le tracé des routes elles-mêmes.
                     Un franchissement sur chemin n'est pas nécessairement un ouvrage du
@@ -1392,7 +1392,7 @@ export function GeoportailPage() {
           <PanelSection icon={<ShieldAlert className="h-4 w-4" />} title="Alertes" defaultOpen={false}>
             <LayerRow checked={showAlertes} onChange={() => setShowAlertes((v) => !v)} label="Tronçons / ouvrages à risque" />
             {showAlertes && (
-              <p className="text-[11px] text-gray-400 ml-6">
+              <p className="text-[11px] text-gray-500 ml-6">
                 {alertTroncons.length} tronçon(s), {alertOuvrages.length} ouvrage(s) en état mauvais/critique
               </p>
             )}
@@ -1401,12 +1401,12 @@ export function GeoportailPage() {
           <PanelSection icon={<MapPinned className="h-4 w-4" />} title="Repères" defaultOpen={false}>
             <LayerRow checked={showContour} onChange={() => setShowContour((v) => !v)} label="Contour de la Guinée" />
             {showContour && contour && (
-              <p className="text-[11px] text-gray-400 ml-6">
+              <p className="text-[11px] text-gray-500 ml-6">
                 Repère de fond tiré des limites des 8 régions ({contour.properties.source}, valides au {contour.properties.valideLe ?? "date inconnue"}), simplifié. Ce n'est pas une frontière officielle.
               </p>
             )}
             {showContour && !contour && (
-              <p className="text-[11px] text-gray-400 ml-6">Aucune limite administrative en base : le contour ne peut pas être tracé.</p>
+              <p className="text-[11px] text-gray-500 ml-6">Aucune limite administrative en base : le contour ne peut pas être tracé.</p>
             )}
             <LayerRow checked={showToponymes} onChange={() => setShowToponymes((v) => !v)} label="Ponts, tunnels, parkings" />
           </PanelSection>
@@ -1457,7 +1457,7 @@ export function GeoportailPage() {
 
         {/* Icônes visibles quand replié */}
         {!sidebarOpen && (
-          <div className="flex flex-col items-center gap-4 pt-14 text-gray-400">
+          <div className="flex flex-col items-center gap-4 pt-14 text-gray-500">
             <Route className="h-4 w-4" />
             <Landmark className="h-4 w-4" />
             <Construction className="h-4 w-4" />
@@ -1680,7 +1680,7 @@ export function GeoportailPage() {
                       {/* Le contour discontinu se voit ; encore faut-il savoir ce
                           qu'il veut dire. Le survol l'ecrit, plutot que d'attendre
                           d'un agent qu'il devine une convention. */}
-                      <span className="text-gray-400">
+                      <span className="text-gray-500">
                         {o.repris
                           ? "repris d'une source externe — à valider sur le terrain"
                           : "position héritée, non vérifiée"}
@@ -1764,7 +1764,7 @@ function Mesure({ label, valeur, unite, accent }: {
       </p>
       <p className="text-[20px] font-bold leading-none text-navy tabular-nums">
         {valeur}
-        <span className="ml-1 text-[12px] font-semibold text-gray-400">{unite}</span>
+        <span className="ml-1 text-[12px] font-semibold text-gray-500">{unite}</span>
       </p>
     </div>
   );

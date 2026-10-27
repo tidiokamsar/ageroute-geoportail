@@ -7,6 +7,7 @@ import { prisma } from "../lib/prisma";
 import { RefusDeviationHttp, calculerDeviation } from "../geo/deviation.service";
 import { EmpriseTropLarge } from "../geo/graphe.depot";
 import { analyserTrace, lireTrace, RefusTrace } from "../geo/trace.service";
+import { mesurerGeometrie } from "../geo/metre.service";
 import { contourPays } from "../geo/contour.service";
 
 /**
@@ -163,21 +164,12 @@ const corpsMetre = z.object({
 geoV2Router.post("/metre", requireAuth, requireModuleAccess("geoportail"), async (req, res, next) => {
   const p = corpsMetre.safeParse(req.body);
   if (!p.success) return res.status(400).json({ error: "geometrie invalide : LineString, MultiLineString, Polygon ou MultiPolygon en GeoJSON", details: p.error.flatten().fieldErrors });
-  const geojson = JSON.stringify(p.data.geometrie);
-  let valide: { valide: boolean; raison: string }[];
   try {
-    valide = await prisma.$queryRaw<{ valide: boolean; raison: string }[]>`
-      SELECT ST_IsValid(g) AS "valide", ST_IsValidReason(g) AS "raison" FROM (SELECT ST_SetSRID(ST_GeomFromGeoJSON(${geojson}), 4326) AS g) s`;
-  } catch {
-    // Coordonnees que PostGIS ne sait pas lire : c'est une erreur de l'appelant, pas du serveur.
-    return res.status(400).json({ error: "geometrie illisible : coordonnees GeoJSON non conformes" });
-  }
-  try {
+    const r = await mesurerGeometrie(prisma, p.data.geometrie);
     // Une geometrie invalide est refusee avec sa raison : la reparer en silence (ST_MakeValid)
     // changerait la surface mesuree sans le dire (paragraphe 7.1).
-    if (!valide[0]?.valide) return res.status(400).json({ error: `geometrie invalide : ${valide[0]?.raison ?? "inconnue"}` });
-    const [m] = await prisma.$queryRaw<Record<string, number>[]>`SELECT * FROM metre_utm(ST_SetSRID(ST_GeomFromGeoJSON(${geojson}), 4326))`;
-    return res.json({ ...m, methode: "projection UTM du fuseau du point interieur ; controle geodesique (geography)" });
+    if (!r.ok) return res.status(400).json({ error: r.code === "GEOMETRIE_ILLISIBLE" ? `geometrie illisible : ${r.raison}` : `geometrie invalide : ${r.raison}` });
+    return res.json({ ...r.mesure, methode: "projection UTM du fuseau du point interieur ; controle geodesique (geography)" });
   } catch (err) {
     return next(err);
   }

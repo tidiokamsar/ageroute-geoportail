@@ -60,7 +60,7 @@ function SmtpTab() {
     onError: (err) => toast.error(parseApiError(err).message),
   });
 
-  if (isLoading) return <p className="text-gray-400 text-sm py-6 text-center">Chargement...</p>;
+  if (isLoading) return <p className="text-gray-500 text-sm py-6 text-center">Chargement...</p>;
 
   return (
     <div className="space-y-4">
@@ -84,7 +84,7 @@ function SmtpTab() {
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
-              Mot de passe {config?.hasPassword && <span className="text-green-600 font-normal">(déjà enregistré)</span>}
+              Mot de passe {config?.hasPassword && <span className="text-green-700 font-normal">(déjà enregistré)</span>}
             </label>
             <Input
               type="password"
@@ -119,7 +119,7 @@ function SmtpTab() {
           </Button>
         </div>
         {test.isSuccess && (
-          <p className="mt-2 text-xs text-green-600 flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> Email envoyé avec succès.</p>
+          <p className="mt-2 text-xs text-green-700 flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> Email envoyé avec succès.</p>
         )}
       </Card>
     </div>
@@ -177,22 +177,22 @@ function BailleursTab() {
         <Button onClick={openAdd}><Plus className="h-4 w-4 mr-1" /> Ajouter</Button>
       </div>
       {isLoading ? (
-        <p className="text-sm text-gray-400 py-6 text-center">Chargement...</p>
+        <p className="text-sm text-gray-500 py-6 text-center">Chargement...</p>
       ) : (
         <div className="space-y-1.5">
           {(bailleurs ?? []).map((b) => (
             <div key={b.id} className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2.5">
               <div>
                 <p className="text-sm font-medium text-navy">{b.nom}</p>
-                <p className="text-xs text-gray-400">{TYPE_LABEL[b.type] ?? b.type} · {b._count?.marches ?? 0} marché(s)</p>
+                <p className="text-xs text-gray-500">{TYPE_LABEL[b.type] ?? b.type} · {b._count?.marches ?? 0} marché(s)</p>
               </div>
               <div className="flex items-center gap-1">
-                <button onClick={() => openEdit(b)} className="h-7 w-7 flex items-center justify-center rounded-md text-gray-400 hover:text-navy hover:bg-navy/5">
+                <button onClick={() => openEdit(b)} className="h-7 w-7 flex items-center justify-center rounded-md text-gray-500 hover:text-navy hover:bg-navy/5">
                   <Pencil className="h-3.5 w-3.5" />
                 </button>
                 <button
                   onClick={async () => { if (await confirm(`Supprimer "${b.nom}" ?`, { danger: true })) remove.mutate(b.id); }}
-                  className="h-7 w-7 flex items-center justify-center rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50"
+                  className="h-7 w-7 flex items-center justify-center rounded-md text-gray-500 hover:text-red-500 hover:bg-red-50"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>

@@ -457,3 +457,25 @@ export function verifierPerimetreProposition(perimetre: PerimetreEo | undefined,
   if (!perimetre.regions.has(regionId)) return refus("HORS_PERIMETRE", "Cette proposition est hors de votre perimetre regional.");
   return { ok: true };
 }
+
+/**
+ * Gravite des regles de la vue `coherence_teledetection` (migrations `20261022020000` et
+ * `20261025120000`). BLOQUANTE : la mesure de precision est faussee (une detection qui ne pouvait
+ * pas venir de son produit, un verdict anterieur au depot). A_EXAMINER : rien n'est faux, quelque
+ * chose est en suspens et demande une personne. Une regle inconnue est BLOQUANTE : mieux vaut un
+ * faux signal qu'un silence.
+ */
+export const GRAVITE_COHERENCE: Record<string, "BLOQUANTE" | "A_EXAMINER"> = {
+  HORS_EMPRISE_PRODUIT: "BLOQUANTE",
+  HORS_EMPRISE_REFERENCE: "BLOQUANTE",
+  REFERENCE_NON_ANTERIEURE: "BLOQUANTE",
+  VERDICT_AVANT_DEPOT: "BLOQUANTE",
+  TRONCON_SUPPRIME: "A_EXAMINER",
+  PRODUIT_RETIRE_EN_ATTENTE: "A_EXAMINER",
+  MISSION_SANS_VERDICT: "A_EXAMINER",
+  VERDICT_AVANT_FIN_MISSION: "A_EXAMINER",
+};
+
+export function graviteCoherence(regle: string): "BLOQUANTE" | "A_EXAMINER" {
+  return GRAVITE_COHERENCE[regle] ?? "BLOQUANTE";
+}

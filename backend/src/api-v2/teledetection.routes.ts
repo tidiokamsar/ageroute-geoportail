@@ -7,7 +7,7 @@ import { prisma } from "../lib/prisma";
 import { perimetreDe } from "../territoire/territoire.service";
 import type { Perimetre } from "../territoire/territoire.noyau";
 import {
-  calculerSynthese, changerStatut, enregistrerProduit, precision, qualiteMethodes,
+  calculerSynthese, changerStatut, coherence, enregistrerProduit, precision, qualiteMethodes,
 } from "../teledetection/teledetection.service";
 import {
   DEFINITION_TAUX_CONFIRMATION, SEUIL_ECHANTILLON_TAUX, verifierPerimetreProposition, type PerimetreEo,
@@ -215,6 +215,14 @@ teledetectionV2Router.get("/precision", h(async (req, res) => {
 teledetectionV2Router.get("/qualite-methodes", h(async (req, res) => {
   if (!(await exigerNational(req, res, AGREGAT_NATIONAL))) return;
   res.json({ seuilEchantillon: SEUIL_ECHANTILLON_TAUX, definition: DEFINITION_TAUX_CONFIRMATION, lignes: await qualiteMethodes(prisma) });
+}));
+
+// Anomalies de coherence entre registre, propositions, missions et verdicts (vue `coherence_teledetection`, ajout du lot 17 reporte sur
+// le module EO). La vue n'est pas regionalisable (elle liste des propositions de toutes les regions) : meme regle que `/precision`, refus
+// d'un compte regional AVANT toute lecture.
+teledetectionV2Router.get("/coherence", h(async (req, res) => {
+  if (!(await exigerNational(req, res, AGREGAT_NATIONAL))) return;
+  res.json(await coherence(prisma));
 }));
 
 // ============================================================ ecriture : decisions sur une proposition

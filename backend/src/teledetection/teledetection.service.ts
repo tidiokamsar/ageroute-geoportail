@@ -24,7 +24,7 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 import { logAuditTransactionnelle } from "../utils/audit";
 import { observationDansPortee } from "./observation.perimetre";
 import {
-  CANDIDATS_CONCURRENTS_MAX, MARGE_EMPRISE_MISSION_DEG,
+  CANDIDATS_CONCURRENTS_MAX, MARGE_EMPRISE_MISSION_DEG, graviteCoherence,
   calculerTauxConfirmation, ageEnJours, codeMissionTeledetection, codeProduitCatalogue, compterSourcesParEtat, construireConstatRef,
   estDefinitif, evaluerRattachement, verifierChangementEtatSource, verifierDepecheVerification, verifierDeuxDates,
   verifierPerimetreProposition, verifierProduit, verifierProduitCatalogue, verifierPropositionDeposee, verifierTracabilite,
@@ -648,4 +648,21 @@ export interface LigneQualiteMethode {
 /** Taux de confirmation par type et methode, avec effectif et indicateur d'echantillon (vue `qualite_methodes_eo`). Non regionalise. */
 export async function qualiteMethodes(depot: Pick<DepotTeledetection, "$queryRaw">) {
   return depot.$queryRaw<LigneQualiteMethode[]>`SELECT * FROM "qualite_methodes_eo" ORDER BY "type", "methode"`;
+}
+
+export interface AnomalieCoherence { propositionId: string; regle: string; detail: string | null; gravite: "BLOQUANTE" | "A_EXAMINER" }
+
+/** Ce que la vue `coherence_teledetection` signale, bloquantes d'abord, au plus 1 000 lignes. */
+export async function coherence(depot: Pick<DepotTeledetection, "$queryRaw">) {
+  const lignes = await depot.$queryRaw<{ propositionId: string; regle: string; detail: string | null }[]>`
+    SELECT "propositionId", "regle", "detail" FROM "coherence_teledetection" ORDER BY "regle", "propositionId" LIMIT 1000`;
+  const anomalies: AnomalieCoherence[] = lignes
+    .map((l) => ({ ...l, gravite: graviteCoherence(l.regle) }))
+    .sort((a, b) => (a.gravite === b.gravite ? 0 : a.gravite === "BLOQUANTE" ? -1 : 1));
+  return {
+    bloquantes: anomalies.filter((a) => a.gravite === "BLOQUANTE").length,
+    aExaminer: anomalies.filter((a) => a.gravite === "A_EXAMINER").length,
+    tronquee: lignes.length === 1000,
+    anomalies,
+  };
 }

@@ -84,7 +84,7 @@ export function LoginPage() {
           <button
             type="button"
             onClick={() => { setChallengeToken(null); setCode(""); setError(""); }}
-            className="w-full mt-3 text-xs text-gray-400 hover:text-navy"
+            className="w-full mt-3 text-xs text-gray-500 hover:text-navy"
           >
             ← Retour
           </button>

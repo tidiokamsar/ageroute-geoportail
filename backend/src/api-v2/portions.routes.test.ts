@@ -247,6 +247,11 @@ describe("Lister les portions", () => {
     expect(h.requetes[0].where).not.toHaveProperty("remplaceeLe");
   });
 
+  it("historique=false rend les seules courantes (une chaine non vide n'est pas un vrai)", async () => {
+    await request(app()).get("/api/v2/portions?historique=false");
+    expect(h.requetes[0].where).toMatchObject({ remplaceeLe: null });
+  });
+
   it("filtre par troncon et par region", async () => {
     await request(app()).get(`/api/v2/portions?tronconId=${UUID}&regionId=7`);
     expect(h.requetes[0].where).toMatchObject({

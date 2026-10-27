@@ -309,6 +309,26 @@ describe("lecture : detail, synthese, sources, produits, qualite", () => {
     expect((await appeler("get", "/synthese", undefined, "u-regional")).status).toBe(200);
   });
 
+  it("coherence (reportee du lot 17) : anomalies de la vue avec leur gravite, bloquantes d'abord ; agregat NATIONAL refuse a un compte regional", async () => {
+    etat.lignesCoherence.push(
+      { propositionId: "pr-2", regle: "MISSION_SANS_VERDICT", detail: "VER-1 TERMINEE" },
+      { propositionId: "pr-1", regle: "HORS_EMPRISE_PRODUIT", detail: "S1" },
+      { propositionId: "pr-3", regle: "REGLE_INCONNUE", detail: null },
+    );
+    const r = await appeler("get", "/coherence", undefined, "u-gest");
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ bloquantes: 2, aExaminer: 1, tronquee: false });
+    expect(r.body.anomalies.map((a: { regle: string; gravite: string }) => `${a.regle}:${a.gravite}`)).toEqual([
+      "HORS_EMPRISE_PRODUIT:BLOQUANTE", "REGLE_INCONNUE:BLOQUANTE", "MISSION_SANS_VERDICT:A_EXAMINER",
+    ]);
+    ajouterCompte({ id: "u-regional-c", role: "GESTIONNAIRE", regions: [1] });
+    etat.requetes.length = 0;
+    const refus = await appeler("get", "/coherence", undefined, "u-regional-c");
+    expect(refus.status).toBe(403);
+    expect(refus.body.code).toBe("HORS_PERIMETRE");
+    expect(etat.requetes.some((q) => q.sql.includes("coherence_teledetection"))).toBe(false);
+  });
+
   it("produits : liste paginee, filtres valides", async () => {
     etat.lignesListe.push({ id: PRODUIT, code: "P", sourceCode: "SENTINEL2", source: "SENTINEL-2 L2A", sourceNom: "Sentinel-2", fournisseur: "CDSE", identifiantFournisseur: "X", collection: "sentinel-2-l2a", capteur: "SENTINEL-2", nature: "OPTIQUE", niveauTraitement: "L2A", scene: "s", orbite: null, dateAcquisition: new Date("2026-10-02T00:00:00Z"), dateFin: null, resolutionM: 10, resolutionNativeM: 10, couvertureNuagesPct: 12, cycleVie: "CATALOGUE", licence: "l", licenceCode: null, licenceAttribution: null, versionTraitement: "v", empreinteSha256: null });
     etat.total = 1;

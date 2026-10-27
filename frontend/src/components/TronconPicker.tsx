@@ -170,7 +170,7 @@ export function TronconPicker({
             Pres de moi
           </button>
           <div className="relative flex-1">
-            <MapPin className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+            <MapPin className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500" />
             <input
               value={saisieVille}
               onChange={(e) => { setSaisieVille(e.target.value); setVillesOuvert(true); }}
@@ -193,7 +193,7 @@ export function TronconPicker({
                       className="flex w-full items-center justify-between px-2.5 py-2 text-xs hover:bg-navy/5"
                     >
                       <span className="font-medium text-navy">{v.nom}</span>
-                      <span className="text-gray-400">{v.region}</span>
+                      <span className="text-gray-500">{v.region}</span>
                     </button>
                   </li>
                 ))}
@@ -217,7 +217,7 @@ export function TronconPicker({
         <button
           type="button"
           onClick={() => onChange(undefined)}
-          className="absolute right-2 top-2 text-xs text-gray-400 hover:text-red-600"
+          className="absolute right-2 top-2 text-xs text-gray-500 hover:text-red-600"
         >
           ✕
         </button>
@@ -227,7 +227,7 @@ export function TronconPicker({
           {gpsErreur && (
             <p role="status" className="border-b border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">{gpsErreur}</p>
           )}
-          {geo.isFetching && <p className="px-3 py-2 text-xs text-gray-400">Recherche par position…</p>}
+          {geo.isFetching && <p className="px-3 py-2 text-xs text-gray-500">Recherche par position…</p>}
           {fusionnes.map((r) => (
             <button
               key={r.id}
@@ -237,7 +237,7 @@ export function TronconPicker({
             >
               <span className="min-w-0">
                 <span className="font-medium">{r.code}</span> — {r.nom}
-                {r.region && <span className="block text-[11px] text-gray-400">{r.region}</span>}
+                {r.region && <span className="block text-[11px] text-gray-500">{r.region}</span>}
               </span>
               <span className="shrink-0 rounded-full bg-navy/5 px-2 py-0.5 text-[11px] font-semibold text-navy tabular-nums">
                 {formaterDistance(r.distanceM)}

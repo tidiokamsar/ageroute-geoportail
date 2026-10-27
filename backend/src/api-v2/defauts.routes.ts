@@ -1104,7 +1104,8 @@ defautsV2Router.post("/:id/resoumettre", requireAuth, requireModuleAccess("inspe
  *       traitement est posee par le serveur, pas declaree par l'appelant.
  *     tags: [Defauts v2]
  */
-defautsV2Router.post("/:id/etat", requireAuth, requireModuleAccess("inspections"), territoireDefaut, async (req, res, next) => {
+// Un LECTEUR consulte : changer l'etat physique d'un defaut est un geste d'exploitation.
+defautsV2Router.post("/:id/etat", requireAuth, requireRole("ADMIN", "GESTIONNAIRE", "INSPECTEUR"), requireModuleAccess("inspections"), territoireDefaut, async (req, res, next) => {
   try {
     const { etat } = z.object({
       etat: z.enum(["ACTIF", "TRAITE", "DISPARU"]),

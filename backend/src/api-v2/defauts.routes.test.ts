@@ -1027,6 +1027,15 @@ describe("POST /:id/etat — cycle de vie physique", () => {
     expect(h.defautExistant.etat).toBe("ACTIF");
   });
 
+  it("refuse le changement d'état à un LECTEUR, sans rien écrire", async () => {
+    h.compte.role = "LECTEUR";
+    h.defautExistant = defautEnBase({ etat: "ACTIF" });
+    const r = await request(app).post("/api/v2/defauts/d1/etat").send({ etat: "TRAITE" });
+    expect(r.status).toBe(403);
+    expect(h.defautExistant.etat).toBe("ACTIF");
+    expect(h.defautExistant.version).toBe(1);
+  });
+
   it("refuse une transition si la version change avant l'écriture", async () => {
     h.defautExistant = defautEnBase({ etat: "ACTIF" });
     h.updateCount = 0;

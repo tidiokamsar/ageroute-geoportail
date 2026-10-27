@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   ECHELLE_ETAT_SOURCE, ETATS_SOURCE, SEUIL_ECHANTILLON_TAUX, STATUTS_PROPOSITION, TRANSITIONS_AUTORISEES,
-  ageEnJours, calculerTauxConfirmation, codeMissionTeledetection, codeProduitCatalogue, compterSourcesParEtat, construireConstatRef,
-  estDefinitif, evaluerRattachement, verifierChangementEtatSource, verifierDepecheVerification, verifierDeuxDates, verifierPerimetreProposition,
+  GRAVITE_COHERENCE, ageEnJours, calculerTauxConfirmation, codeMissionTeledetection, codeProduitCatalogue, compterSourcesParEtat, construireConstatRef,
+  estDefinitif, evaluerRattachement, graviteCoherence, verifierChangementEtatSource, verifierDepecheVerification, verifierDeuxDates, verifierPerimetreProposition,
   verifierProduit, verifierProduitCatalogue, verifierPropositionDeposee, verifierTracabilite, verifierTransition, verifierVerdict,
   type ProduitCatalogueSaisi, type ProduitSaisi, type StatutProposition,
 } from "./teledetection.noyau";
@@ -371,5 +371,25 @@ describe("Perimetre territorial d'une proposition", () => {
     // un jeu de regions qui contiendrait NULL par erreur (Set heterogene venu de la base) n'ouvre pas les propositions non rattachees
     const sale = { national: false as const, regions: new Set([1, null as unknown as number]) as ReadonlySet<number> };
     expect(code(verifierPerimetreProposition(sale, null))).toBe("HORS_PERIMETRE");
+  });
+});
+
+describe("Gravite des regles de coherence (reportee du lot 17)", () => {
+  it("les huit regles de la vue ont une gravite ; une regle inconnue est bloquante", () => {
+    expect(Object.keys(GRAVITE_COHERENCE)).toHaveLength(8);
+    expect(graviteCoherence("HORS_EMPRISE_PRODUIT")).toBe("BLOQUANTE");
+    expect(graviteCoherence("VERDICT_AVANT_DEPOT")).toBe("BLOQUANTE");
+    expect(graviteCoherence("MISSION_SANS_VERDICT")).toBe("A_EXAMINER");
+    expect(graviteCoherence("TRONCON_SUPPRIME")).toBe("A_EXAMINER");
+    expect(graviteCoherence("JAMAIS_VUE")).toBe("BLOQUANTE");
+  });
+  it("chaque regle de la vue est connue du noyau (les deux migrations sont relues)", () => {
+    const migrations = ["20261022020000_teledetection_coherence", "20261025120000_teledetection_coherence_complements"]
+      .map((m) => readFileSync(join(__dirname, "..", "..", "prisma", "migrations", m, "migration.sql"), "utf8")).join("
+");
+    const vue = migrations.slice(migrations.lastIndexOf('CREATE OR REPLACE VIEW "coherence_teledetection"'));
+    const regles = [...vue.matchAll(/SELECT pt."id"(?: AS "propositionId")?, '([A-Z_]+)'/g)].map((m) => m[1]);
+    expect(regles.length).toBe(8);
+    for (const r of regles) expect(Object.keys(GRAVITE_COHERENCE)).toContain(r);
   });
 });

@@ -252,11 +252,14 @@ const SANS_GARDE_TERRITORIALE: Exception[] = [
 describe("Consultation des releves en roulage (/api/v2/roulage)", () => {
   const roulage = lignes.filter((l) => l.chemin.startsWith("/api/v2/roulage"));
 
-  it("expose exactement la liste et le detail, en lecture seule", () => {
-    expect(roulage.map(cle).sort()).toEqual(["GET /api/v2/roulage/sessions", "GET /api/v2/roulage/sessions/:id"]);
+  it("expose exactement la consultation (liste, detail) et la relecture de l'agent (mes-sessions), en lecture seule", () => {
+    expect(roulage.map(cle).sort()).toEqual([
+      "GET /api/v2/roulage/mes-sessions", "GET /api/v2/roulage/mes-sessions/:id",
+      "GET /api/v2/roulage/sessions", "GET /api/v2/roulage/sessions/:id",
+    ]);
   });
 
-  it("les deux routes exigent un compte connecte ET le module `inspections` (le meme que la collecte), sans reserve de role", () => {
+  it("les quatre routes exigent un compte connecte ET le module `inspections` (le meme que la collecte), sans reserve de role", () => {
     for (const l of roulage) {
       expect(l.auth, cle(l)).toBe(true);
       expect(l.modules, cle(l)).toEqual(["inspections"]);

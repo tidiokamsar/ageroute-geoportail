@@ -52,7 +52,7 @@ export function Header({ title, onMenuClick }: { title: string; onMenuClick?: ()
               <KeyRound className="h-4 w-4" />
             </button>
           )}
-          <Link to="/securite" title="Sécurité du compte" className="p-2 text-gray-400 hover:text-navy hover:bg-gray-100 rounded-md transition-colors">
+          <Link to="/securite" title="Sécurité du compte" className="p-2 text-gray-500 hover:text-navy hover:bg-gray-100 rounded-md transition-colors">
             <ShieldCheck className="h-4 w-4" />
           </Link>
           <span className="hidden sm:inline text-sm text-gray-600 truncate max-w-[140px]">{user.nomComplet}</span>

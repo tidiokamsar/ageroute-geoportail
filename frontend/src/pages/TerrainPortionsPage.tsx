@@ -304,8 +304,8 @@ export function TerrainPortionsPage() {
             <dt className="text-slate-500">Précision</dt>
             <dd className="flex items-center gap-1">
               {gps.position.precisionM} m
-              {gps.tendance === "AMELIORE" && <><TrendingDown className="h-3 w-3 text-green-600" /><span className="text-green-700">s'améliore</span></>}
-              {gps.tendance === "DEGRADE" && <><TrendingUp className="h-3 w-3 text-amber-600" /><span className="text-amber-700">se dégrade</span></>}
+              {gps.tendance === "AMELIORE" && <><TrendingDown className="h-3 w-3 text-green-700" /><span className="text-green-700">s'améliore</span></>}
+              {gps.tendance === "DEGRADE" && <><TrendingUp className="h-3 w-3 text-amber-700" /><span className="text-amber-700">se dégrade</span></>}
             </dd>
           </dl>
         )}

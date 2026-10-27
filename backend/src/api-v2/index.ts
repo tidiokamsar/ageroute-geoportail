@@ -3,6 +3,8 @@ import { geoV2Router } from "./geo.routes";
 import { syncV2Router } from "./sync.routes";
 import { devicesV2Router } from "./devices.routes";
 import { missionsV2Router } from "./missions.routes";
+import { roulageV2Router } from "./roulage.routes";
+import { mesSessionsRoulageV2Router } from "./mes-sessions-roulage.routes";
 import { observationsV2Router } from "./observations.routes";
 import { defautsV2Router } from "./defauts.routes";
 import { fieldV2Router } from "./field.routes";
@@ -30,7 +32,6 @@ import { tableauDeBordV2Router, fiche360V2Router } from "./tableau-de-bord.route
 import { tachesInternesV2Router } from "./taches-internes.routes";
 import { correspondancesV2Router } from "./correspondances.routes";
 import { mobileV2Router } from "./mobile.routes";
-import { roulageV2Router } from "./roulage.routes";
 import { requireAuth } from "../middleware/auth.middleware";
 
 /**
@@ -88,6 +89,9 @@ apiV2Router.use("/geo", geoV2Router);
 apiV2Router.use("/sync", syncV2Router);
 apiV2Router.use("/devices", devicesV2Router);
 apiV2Router.use("/missions", missionsV2Router);
+// Le chemin specifique d'abord : `/roulage/mes-sessions` (relecture de l'agent, DT-9) cohabite avec la consultation `/roulage/sessions`.
+apiV2Router.use("/roulage/mes-sessions", mesSessionsRoulageV2Router);
+apiV2Router.use("/roulage", roulageV2Router);
 apiV2Router.use("/observations", observationsV2Router);
 apiV2Router.use("/defauts", defautsV2Router);
 apiV2Router.use("/field", fieldV2Router);
@@ -119,7 +123,6 @@ apiV2Router.use("/fiche-360", fiche360V2Router);
 apiV2Router.use("/taches-internes", tachesInternesV2Router);
 apiV2Router.use("/correspondances", correspondancesV2Router);
 apiV2Router.use("/mobile", mobileV2Router);
-apiV2Router.use("/roulage", roulageV2Router);
 
 /**
  * Inventaire de la surface v2, pour qu'un client sache ce qui existe reellement.

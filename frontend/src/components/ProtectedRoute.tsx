@@ -12,7 +12,7 @@ function ModuleAccessDenied() {
   const { logout } = useAuth();
   return (
     <div className="h-screen flex flex-col items-center justify-center gap-3 text-center px-6">
-      <ShieldAlert className="h-10 w-10 text-amber-500" />
+      <ShieldAlert className="h-10 w-10 text-amber-700" />
       <h1 className="text-lg font-bold text-navy">Accès non autorisé</h1>
       <p className="text-sm text-gray-500 max-w-sm">
         Votre compte n'a pas accès à ce module. Contactez un administrateur si vous pensez qu'il s'agit d'une erreur.
@@ -51,7 +51,7 @@ export function ProtectedRoute({ roles, ouvertAuxDelegants = false }: { roles?: 
   const navigate = useNavigate();
   const sl = useSessionLocaleOptionnelle();
 
-  if (loading) return <div className="h-screen flex items-center justify-center text-gray-400">Chargement...</div>;
+  if (loading) return <div className="h-screen flex items-center justify-center text-gray-500">Chargement...</div>;
 
   const session = sl?.session ?? null;
   const surLaFile = routeUtiliseLaFile(location.pathname);
@@ -86,7 +86,7 @@ export function ProtectedRoute({ roles, ouvertAuxDelegants = false }: { roles?: 
     // (ControleurSession.deverrouiller) ; si un rendu la voit un instant absente (defaut E2E-5), on attend au lieu de renvoyer vers
     // /login. Seule une session FERMEE (refus 401/403 du serveur, deconnexion) ou un depart voulu (« Aller a la connexion », etat
     // verrouille sans ecran) mene a la connexion.
-    if (session?.etat === "HORS_LIGNE_OUVERT") return <div className="h-screen flex items-center justify-center text-gray-400">Chargement...</div>;
+    if (session?.etat === "HORS_LIGNE_OUVERT") return <div className="h-screen flex items-center justify-center text-gray-500">Chargement...</div>;
     return <Navigate to={location.pathname === "/" ? "/carte" : "/login"} replace />;
   }
   const delegantAutorise = ouvertAuxDelegants && user.peutDeleguerValidation === true;

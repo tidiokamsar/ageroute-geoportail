@@ -253,7 +253,7 @@ export function InspectionTerrainPage() {
               ))}
         </select>
         {objetOptions.length === 0 && (
-          <p className="mt-1 text-xs text-amber-600">
+          <p className="mt-1 text-xs text-amber-700">
             Référentiel non chargé. Connectez-vous une première fois en ligne pour le mettre en cache.
           </p>
         )}
@@ -357,7 +357,7 @@ export function InspectionTerrainPage() {
             {recentSubmissions.map((s) => (
               <div key={s.localId} className="flex items-center justify-between text-xs">
                 <span className="text-gray-600">{new Date(s.createdAt).toLocaleString("fr-FR")}</span>
-                <span className={`inline-flex items-center gap-1 font-medium ${s.status === "error" ? "text-red-600" : "text-amber-600"}`}>
+                <span className={`inline-flex items-center gap-1 font-medium ${s.status === "error" ? "text-red-600" : "text-amber-700"}`}>
                   {s.status === "error" ? <X className="h-3 w-3" /> : <CheckCircle2 className="h-3 w-3" />}
                   {s.status === "error" ? "Échec" : "En attente"}
                 </span>

@@ -36,7 +36,7 @@ function Field({ label, children, required }: { label: string; children: React.R
   return (
     <div>
       <label className="block text-xs font-medium text-gray-600 mb-1">
-        {label}{required && <span className="text-red-500 ml-0.5">*</span>}
+        {label}{required && <span className="text-red-600 ml-0.5">*</span>}
       </label>
       {children}
     </div>
@@ -105,7 +105,7 @@ export function DrawTronconForm({ points, lengthKm, onClose, onSaved }: Props) {
           Nouveau tronçon — {lengthKm.toFixed(2)} km tracés
         </DialogTitle>
 
-        <p className="text-xs text-gray-400 -mt-1">
+        <p className="text-xs text-gray-500 -mt-1">
           {points.length} points • Complétez les informations puis validez pour enregistrer.
         </p>
 
@@ -185,7 +185,7 @@ export function DrawTronconForm({ points, lengthKm, onClose, onSaved }: Props) {
         </Field>
 
         {error && (
-          <p className="text-sm text-red-600 bg-red-50 rounded-md px-3 py-2">{error}</p>
+          <p className="text-sm text-red-700 bg-red-50 rounded-md px-3 py-2">{error}</p>
         )}
 
         <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">

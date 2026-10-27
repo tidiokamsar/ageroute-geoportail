@@ -86,7 +86,7 @@ export function MoveOuvrageLayer({
           <p className="text-[11px] text-gray-500 mt-1">
             Position actuelle : {positionRef.current.lat.toFixed(5)}, {positionRef.current.lng.toFixed(5)}
           </p>
-          <p className="text-[11px] text-gray-400 mt-1">
+          <p className="text-[11px] text-gray-500 mt-1">
             {enregistre
               ? "Enregistré ✓ — l'écriture est journalisée (audit)."
               : "Glissez le marqueur à l'endroit exact vu sur l'imagerie, puis enregistrez."}

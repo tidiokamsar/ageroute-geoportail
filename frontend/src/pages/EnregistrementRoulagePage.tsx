@@ -12,6 +12,7 @@ import {
 import { declarerRoulageActif, signalerActivite } from "../session/activiteExterne";
 import { AlerteStockageLocal, messageStockageLocal } from "../components/AlerteStockageLocal";
 import { Button } from "../components/ui/Button";
+import { MesSessions } from "./roulage/MesSessions";
 import { Card } from "../components/ui/Card";
 import { libelleDuree, libelleKm } from "../lib/releve";
 import {
@@ -1206,6 +1207,9 @@ export function EnregistrementRoulagePage() {
           )}
         </section>
       )}
+
+      {/* Pas pendant l'enregistrement : rien ne doit distraire du trajet. */}
+      {!enCours && <MesSessions />}
     </div>
   );
 }

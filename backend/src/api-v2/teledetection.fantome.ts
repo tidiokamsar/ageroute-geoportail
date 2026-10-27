@@ -32,6 +32,8 @@ export const etat = {
   /** Lignes que rendent les requetes de liste, de detail et de synthese. */
   lignesListe: [] as Ligne[],
   lignesDetail: [] as Ligne[],
+  /** Lignes de la vue `coherence_teledetection` (route `/coherence`, reportee du lot 17). */
+  lignesCoherence: [] as Ligne[],
   total: 0,
   /** Message de l'erreur que la base leve a la prochaine ecriture (refus de geometrie, panne...). */
   erreurBase: null as string | null,
@@ -42,7 +44,7 @@ export const etat = {
 
 export function reinitialiser(): void {
   etat.comptes.clear();
-  for (const k of ["propositions", "produits", "missions", "observations", "lignesPreuves", "sources", "audits", "journal", "preuves", "executions", "requetes", "lignesListe", "lignesDetail"] as const) etat[k].length = 0;
+  for (const k of ["propositions", "produits", "missions", "observations", "lignesPreuves", "sources", "audits", "journal", "preuves", "executions", "requetes", "lignesListe", "lignesDetail", "lignesCoherence"] as const) etat[k].length = 0;
   etat.total = 0; etat.erreurBase = null; etat.panneLecture = false; etat.idsProduitsConnus.clear();
 }
 
@@ -122,7 +124,7 @@ export function creerPrisma() {
       if (sql.includes('ANY(') && !(valeurs[1] as number[]).includes(p.regionId as number)) return [];
       return [{ id: p.id, regionId: p.regionId ?? null, statut: p.statut, missionId: p.missionId ?? null }];
     }
-    if (etat.panneLecture && (sql.includes("count(*)") || sql.includes('FROM "sources_observation"') || sql.includes("precision_teledetection") || sql.includes("qualite_methodes_eo"))) {
+    if (etat.panneLecture && (sql.includes("count(*)") || sql.includes('FROM "sources_observation"') || sql.includes("precision_teledetection") || sql.includes("qualite_methodes_eo") || sql.includes("coherence_teledetection"))) {
       throw new Error("panne de lecture simulee");
     }
     if (sql.includes('FROM "propositions_teledetection" pt JOIN "earth_observation_products" p') && sql.includes("GROUP BY pt")) return [];
@@ -146,6 +148,7 @@ export function creerPrisma() {
     if (sql.includes('FROM "earth_observation_products" p WHERE p."id"')) return etat.produits.filter((p) => p.id === valeurs[0]);
     if (sql.includes('FROM "sources_observation" WHERE "deletedAt" IS NULL ORDER BY "code"')) return etat.sources;
     if (sql.includes('SELECT "etat" FROM "sources_observation"')) return etat.sources.map((s) => ({ etat: s.etat }));
+    if (sql.includes("coherence_teledetection")) return etat.lignesCoherence;
     if (sql.includes("precision_teledetection")) return [];
     if (sql.includes("qualite_methodes_eo")) return [];
     if (sql.includes('FROM "earth_observation_products" p WHERE p."deletedAt" IS NULL AND NOT p."synthetique" ORDER BY')) return [];
