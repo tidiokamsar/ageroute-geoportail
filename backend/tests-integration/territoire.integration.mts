@@ -368,8 +368,11 @@ async function main() {
   const f360Dans = await appeler("get", `/api/v2/fiche-360/troncons/${T1}/portions`, T.regional);
   const f360Nat = await appeler("get", `/api/v2/fiche-360/troncons/${T2}/portions`, T.national);
   const f360Inconnu = await appeler("get", `/api/v2/fiche-360/troncons/${randomUUID()}/portions`, T.regional);
-  verifier("lecture : fiche 360 d'un troncon de R2 refusee au compte regional (403 HORS_PERIMETRE) ; de R1 : 200 ; le national lit R2 : 200 ; troncon inconnu : 404",
-    refus(f360Hors, "HORS_PERIMETRE") && f360Dans.status === 200 && f360Nat.status === 200 && f360Inconnu.status === 404, [f360Hors.status, f360Dans.status, f360Nat.status, f360Inconnu.status]);
+  // INTEGRATION (27/10/2026) : la lignee Aide a la decision (lot AD-7, A10) MASQUE la lecture hors perimetre : 404, meme corps qu'un troncon
+  // inexistant, au lieu du 403 HORS_PERIMETRE du Lot 1 (le 403 etait un oracle d'existence). Le banc suit la regle la plus stricte.
+  verifier("lecture : fiche 360 d'un troncon de R2 masquee au compte regional (404, meme corps qu'un troncon inconnu) ; de R1 : 200 ; le national lit R2 : 200",
+    f360Hors.status === 404 && f360Inconnu.status === 404 && JSON.stringify(f360Hors.body) === JSON.stringify(f360Inconnu.body)
+    && f360Dans.status === 200 && f360Nat.status === 200, [f360Hors.status, f360Dans.status, f360Nat.status, f360Inconnu.status]);
 
   const tdbReg = await appeler("get", "/api/v2/tableau-de-bord/indicateurs?groupes=reseau", T.regional);
   const tdbBi = await appeler("get", "/api/v2/tableau-de-bord/indicateurs?groupes=reseau", T.bi);

@@ -52,7 +52,8 @@ const produit = (code: string, date: string) => ({
   code, palier: 0, source: "Sentinel-1 GRD", nature: "RADAR", dateAcquisition: new Date(date), resolutionM: 10,
   incertitude: "chatoiement radar", provenance: `scene-${code}`, licence: "relevee a la source", versionTraitement: "v0", emprise: EMPRISE,
 });
-const point = (x: number, y: number) => ({ type: "INONDATION", geometrie: { type: "Point", coordinates: [x, y] } });
+// Depuis le workflow EO (migrations 20261028*), une proposition deposee doit porter ses limites (LIMITES_REQUISES) : le banc de lot/17 les fournit.
+const point = (x: number, y: number) => ({ type: "INONDATION", geometrie: { type: "Point", coordinates: [x, y] }, limites: ["resolution native 10 m, banc d'integration"] });
 
 async function main() {
   const vueAvant = (await lire<{ d: string }>(`SELECT pg_get_viewdef('coherence_teledetection'::regclass) AS d`))[0].d;
