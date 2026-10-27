@@ -18,6 +18,7 @@ import { chantierApproxIcon, ouvrageIcon, pointNoirIcon, TYPE_OUVRAGE_LABEL } fr
 import { CHANTIER_COLORS, CREDIT_DONNEES } from "../../../pages/geoportail/types";
 import type { FiltresDecision } from "../../decision/types";
 import { FONDS, ZOOM_CADRAGE_MAX, ZOOM_MAX, type CleFond } from "./fonds";
+import { ElementsCarteHorsTabulation } from "../../carte/ElementsCarteHorsTabulation";
 import { RechercheZoneTroncon } from "./RechercheZoneTroncon";
 import type { CouchesContexte } from "./useCouchesContexte";
 
@@ -36,8 +37,8 @@ import type { CouchesContexte } from "./useCouchesContexte";
  * CE QU'ELLE DESSINE : ce qui est dans les donnees recues, rien d'autre. Une feature illisible est ecartee ET comptee. Au-dela du plafond ou si le
  * serveur a tronque (`tronque`, `total`), la carte le DIT. Une erreur n'est jamais rendue comme une carte vide : `role="alert"`.
  *
- * CLAVIER : les marqueurs ne sont pas des arrets de tabulation (300 d'un coup rendraient la page inutilisable, mesure faite sur Observation de la
- * Terre) ; la liste alternative, sous la carte, donne a chaque intervention affichee un bouton et reflechit la selection.
+ * CLAVIER : les marqueurs et les traces ne sont pas des arrets de tabulation (`ElementsCarteHorsTabulation`, dont le commentaire donne la mesure
+ * et les conditions d'emploi) ; la liste alternative, sous la carte, donne a chaque intervention affichee un bouton et reflechit la selection.
  */
 
 const echapper = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
@@ -95,27 +96,6 @@ function CapteCarte({ onMap, onVue }: { onMap: (m: L.Map) => void; onVue: (bbox:
     ouvrirSurLaGuinee(map);
     lire();
   }, [map]); // eslint-disable-line react-hooks/exhaustive-deps
-  return null;
-}
-
-/**
- * ARRETS DE TABULATION DE LA CARTE. Mesure faite dans Chromium (verification du lot, plein ecran puis Tab) : chaque trace SVG interactif de Leaflet
- * (`path.leaflet-interactive`) est un arret de Tab, sans attribut tabindex ; avec le reseau classe (environ 1 700 troncons) et 300 interventions, la
- * page serait inutilisable au clavier. Les icones de groupe de `react-leaflet-cluster` sont des arrets de Tab aussi (`keyboard: true` de L.Marker). Aucun de
- * ces elements n'a d'action clavier : tous sont retires de la tabulation (`tabindex="-1"`) a chaque ajout de calque. Le clavier dispose de la
- * carte elle-meme (fleches, + et -, un seul arret), de la recherche et de la liste alternative des interventions.
- */
-function ElementsCarteHorsTabulation() {
-  const map = useMap();
-  useEffect(() => {
-    const c = map.getContainer?.();
-    if (!c || typeof MutationObserver === "undefined") return;
-    const corriger = () => c.querySelectorAll<Element>(".leaflet-marker-icon:not([tabindex='-1']), path.leaflet-interactive:not([tabindex='-1'])").forEach((e) => e.setAttribute("tabindex", "-1"));
-    corriger();
-    const o = new MutationObserver(corriger);
-    o.observe(c, { childList: true, subtree: true });
-    return () => o.disconnect();
-  }, [map]);
   return null;
 }
 
