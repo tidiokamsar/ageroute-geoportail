@@ -63,6 +63,17 @@ describe("changerStatut", () => {
     expect(depot.$transaction).toHaveBeenCalledTimes(1);
   });
 
+  // E2E-EO-6 : sous charge, la transaction de decision depassait les 5 s par defaut de Prisma (« Transaction already closed »).
+  it("la transaction de decision porte un delai explicite (au moins 15 s), plus long que les 5 s par defaut de Prisma", async () => {
+    const { depot } = faux([[{ statut: "A_VERIFIER", regionId: 1, motifAttente: null }]]);
+    await changerStatut(depot, demande);
+    const appels = (depot.$transaction as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect(appels).toHaveLength(1);
+    const options = appels[0][1] as { timeout?: number; maxWait?: number } | undefined;
+    expect(options?.timeout).toBeGreaterThanOrEqual(15_000);
+    expect(options?.maxWait).toBeGreaterThanOrEqual(5_000);
+  });
+
   it("le journal porte de, vers, auteur, motif et commentaire", async () => {
     const { depot, tx } = faux([[{ statut: "A_VERIFIER", regionId: null, motifAttente: null }]]);
     await changerStatut(depot, { ...demande, commentaire: " a revoir " });

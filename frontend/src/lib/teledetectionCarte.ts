@@ -262,6 +262,8 @@ export function libelleRattachement(r: Rattachement): string {
   return "rattachement non renseigné";
 }
 
+export type LatLng = [number, number];
+
 export interface PropositionCarte {
   id: string;
   type: string;
@@ -269,10 +271,15 @@ export interface PropositionCarte {
   statut: string;
   priorite: NiveauPriorite | null;
   rattachee: Rattachement;
-  /** [lat, lon] du repere : le point lui-meme, ou le centre de l'emprise d'un polygone. */
-  position: [number, number];
-  /** Anneaux [lat, lon] d'un polygone, pour tracer sa surface ; absent pour un point. */
-  contour: [number, number][] | null;
+  /**
+   * [lat, lon] du repere : le point lui-meme ; le milieu de la plus longue ligne ; le centre de l'emprise des surfaces ;
+   * le premier point d'un MultiPoint. Toujours un lieu de la geometrie deposee ou de son emprise, jamais une valeur par defaut.
+   */
+  position: LatLng;
+  /** Anneaux exterieurs [lat, lon] des surfaces (Polygon, MultiPolygon), pour tracer leur emprise ; vide sinon. */
+  surfaces: LatLng[][];
+  /** Traits [lat, lon] des lignes (LineString, MultiLineString : nouvelle route, coupure), pour les tracer ; vide sinon. */
+  lignes: LatLng[][];
 }
 
 function lirePriorite(v: unknown): NiveauPriorite | null {
@@ -284,9 +291,115 @@ export type LectureProposition =
   | { ok: true; proposition: PropositionCarte }
   | { ok: false; raison: "SANS_IDENTIFIANT" | "GEOMETRIE_ABSENTE" | "GEOMETRIE_NON_DESSINABLE" | "POSITION_INVALIDE" };
 
+/** Ce qu'une geometrie GeoJSON apporte a la carte : ses points, ses traits et ses surfaces, en [lon, lat]. */
+interface PartiesGeometrie { points: Position[]; lignes: Position[][]; surfaces: Position[][] }
+
+/** Une liste de positions TOUTES valides (au moins `minimum`) ; `null` des qu'une seule est illisible : on ne tronque pas en silence. */
+function sommets(coords: unknown, minimum: number): Position[] | null {
+  if (!Array.isArray(coords) || coords.length < minimum) return null;
+  const pos = positionsDe(coords, 1);
+  return pos.length === coords.length ? pos : null;
+}
+
+/**
+ * Decompose une geometrie GeoJSON. `GEOMETRIE_NON_DESSINABLE` ne vise qu'un type que GeoJSON ne connait pas ;
+ * une geometrie d'un type connu mais aux coordonnees fausses (trop courte, hors bornes, absente) est `POSITION_INVALIDE`.
+ */
+function partiesDe(geo: { type?: unknown; coordinates?: unknown; geometries?: unknown }): PartiesGeometrie | "GEOMETRIE_NON_DESSINABLE" | "POSITION_INVALIDE" {
+  const vide = (): PartiesGeometrie => ({ points: [], lignes: [], surfaces: [] });
+  const liste = (c: unknown): unknown[] | null => (Array.isArray(c) && c.length > 0 ? c : null);
+  const r = vide();
+  switch (geo.type) {
+    case "Point": {
+      const p = positionsDe(geo.coordinates, 0);
+      if (p.length !== 1) return "POSITION_INVALIDE";
+      r.points.push(p[0]);
+      return r;
+    }
+    case "MultiPoint": {
+      const pts = sommets(geo.coordinates, 1);
+      if (!pts) return "POSITION_INVALIDE";
+      r.points.push(...pts);
+      return r;
+    }
+    case "LineString": {
+      const l = sommets(geo.coordinates, 2);
+      if (!l) return "POSITION_INVALIDE";
+      r.lignes.push(l);
+      return r;
+    }
+    case "MultiLineString": {
+      const parts = liste(geo.coordinates);
+      if (!parts) return "POSITION_INVALIDE";
+      for (const part of parts) {
+        const l = sommets(part, 2);
+        if (!l) return "POSITION_INVALIDE";
+        r.lignes.push(l);
+      }
+      return r;
+    }
+    case "Polygon": {
+      const anneaux = liste(geo.coordinates);
+      const ext = anneaux ? sommets(anneaux[0], 3) : null;
+      if (!ext) return "POSITION_INVALIDE";
+      r.surfaces.push(ext);
+      return r;
+    }
+    case "MultiPolygon": {
+      const polygones = liste(geo.coordinates);
+      if (!polygones) return "POSITION_INVALIDE";
+      for (const polygone of polygones) {
+        const anneaux = liste(polygone);
+        const ext = anneaux ? sommets(anneaux[0], 3) : null;
+        if (!ext) return "POSITION_INVALIDE";
+        r.surfaces.push(ext);
+      }
+      return r;
+    }
+    case "GeometryCollection": {
+      const membres = liste(geo.geometries);
+      if (!membres) return "POSITION_INVALIDE";
+      for (const m of membres) {
+        if (!m || typeof m !== "object") return "POSITION_INVALIDE";
+        const p = partiesDe(m as { type?: unknown });
+        if (typeof p === "string") return p;
+        r.points.push(...p.points); r.lignes.push(...p.lignes); r.surfaces.push(...p.surfaces);
+      }
+      return r;
+    }
+    default:
+      return "GEOMETRIE_NON_DESSINABLE";
+  }
+}
+
+const longueurLigne = (l: Position[]): number => {
+  let t = 0;
+  for (let i = 1; i < l.length; i += 1) t += Math.hypot(l[i][0] - l[i - 1][0], l[i][1] - l[i - 1][1]);
+  return t;
+};
+
+/** Le point a mi-longueur d'une ligne (distance plane en degres : suffisant pour poser un repere). */
+function milieuLigne(l: Position[]): Position {
+  const moitie = longueurLigne(l) / 2;
+  let parcouru = 0;
+  for (let i = 1; i < l.length; i += 1) {
+    const seg = Math.hypot(l[i][0] - l[i - 1][0], l[i][1] - l[i - 1][1]);
+    if (seg > 0 && parcouru + seg >= moitie) {
+      const t = (moitie - parcouru) / seg;
+      return [l[i - 1][0] + (l[i][0] - l[i - 1][0]) * t, l[i - 1][1] + (l[i][1] - l[i - 1][1]) * t];
+    }
+    parcouru += seg;
+  }
+  return l[0]; // ligne de longueur nulle (sommets confondus) : son seul lieu
+}
+
+const enLatLng = (l: Position[]): LatLng[] => l.map(([lon, lat]) => [lat, lon]);
+
 /**
  * Lit UNE feature. Priorite acceptee en chaine ou en objet `{ niveau }` (la liste du contrat §6 porte un objet,
- * le geojson §5 une valeur minimale : on lit les deux). Seuls Point et Polygon sont dessines (contrat §5).
+ * le geojson §5 une valeur minimale : on lit les deux). Toute geometrie GeoJSON valide est lue : points, lignes
+ * (LineString, MultiLineString : une nouvelle route, une coupure), surfaces, leurs Multi et GeometryCollection ; ne sont
+ * ecartees que les geometries absentes, d'un type inconnu ou aux coordonnees invalides (comptees, jamais devinees).
  */
 export function lireProposition(feature: unknown): LectureProposition {
   const f = feature as { properties?: Record<string, unknown> | null; geometry?: { type?: unknown; coordinates?: unknown } | null } | null;
@@ -297,21 +410,18 @@ export function lireProposition(feature: unknown): LectureProposition {
   const geo = f?.geometry;
   if (!geo || typeof geo !== "object") return { ok: false, raison: "GEOMETRIE_ABSENTE" };
 
-  let position: [number, number];
-  let contour: [number, number][] | null = null;
-  if (geo.type === "Point") {
-    const p = positionsDe(geo.coordinates, 0);
-    if (p.length !== 1) return { ok: false, raison: "POSITION_INVALIDE" };
-    position = [p[0][1], p[0][0]];
-  } else if (geo.type === "Polygon") {
-    const anneaux = Array.isArray(geo.coordinates) ? geo.coordinates : [];
-    const exterieur = positionsDe(anneaux[0], 1);
-    if (exterieur.length < 3) return { ok: false, raison: "POSITION_INVALIDE" };
-    contour = exterieur.map(([lon, lat]) => [lat, lon]);
-    const b = bboxDeGeometrie({ type: "Polygon", coordinates: [exterieur] }) as Bbox;
-    position = centreBbox(b);
+  const parties = partiesDe(geo);
+  if (typeof parties === "string") return { ok: false, raison: parties };
+
+  let position: LatLng;
+  if (parties.lignes.length > 0) {
+    const principale = parties.lignes.reduce((a, b) => (longueurLigne(b) > longueurLigne(a) ? b : a));
+    const [lon, lat] = milieuLigne(principale);
+    position = [lat, lon];
+  } else if (parties.surfaces.length > 0) {
+    position = centreBbox(bboxDeGeometrie({ type: "MultiPolygon", coordinates: parties.surfaces.map((s) => [s]) }) as Bbox);
   } else {
-    return { ok: false, raison: "GEOMETRIE_NON_DESSINABLE" };
+    position = [parties.points[0][1], parties.points[0][0]];
   }
 
   return {
@@ -323,7 +433,8 @@ export function lireProposition(feature: unknown): LectureProposition {
       priorite: lirePriorite(props?.priorite),
       rattachee: typeof props?.rattachee === "boolean" ? props.rattachee : null,
       position,
-      contour,
+      surfaces: parties.surfaces.map(enLatLng),
+      lignes: parties.lignes.map(enLatLng),
     },
   };
 }

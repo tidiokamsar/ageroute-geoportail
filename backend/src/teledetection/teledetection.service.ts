@@ -42,11 +42,20 @@ type ClientTx = Pick<
 /** `$transaction` est facultatif : un client DEJA dans une transaction (EO-API, bancs) n'en ouvre pas de seconde. */
 export type DepotTeledetection = ClientTx & { $transaction?: PrismaClient["$transaction"] };
 
-/** Delai technique des transactions de lot (milliers de lignes) ; la valeur par defaut de Prisma (5 s) est trop courte. */
-const OPTIONS_LOT = { timeout: 120_000, maxWait: 10_000 } as const;
+/** Delais d'une transaction Prisma interactive (millisecondes). */
+type OptionsTransaction = { readonly timeout: number; readonly maxWait: number };
 
-async function dansTransaction<T>(depot: DepotTeledetection, f: (tx: ClientTx) => Promise<T>, lot = false): Promise<T> {
-  return depot.$transaction ? depot.$transaction((tx) => f(tx), lot ? OPTIONS_LOT : undefined) : f(depot);
+/** Delai technique des transactions de lot (milliers de lignes) ; la valeur par defaut de Prisma (5 s) est trop courte. */
+const OPTIONS_LOT: OptionsTransaction = { timeout: 120_000, maxWait: 10_000 };
+/**
+ * Delai d'une decision sur une proposition (verrou, journal, preuves, mise a jour, audit, relecture : une suite d'allers-retours a la base). Le
+ * delai par defaut de Prisma (5 s) cede quand la base ou le serveur sont charges (« Transaction already closed », constat E2E-EO-6) :
+ * la decision echouait alors en 500 alors qu'elle etait valide. 15 s laisse de la marge sans masquer un blocage durable.
+ */
+const OPTIONS_DECISION: OptionsTransaction = { timeout: 15_000, maxWait: 10_000 };
+
+async function dansTransaction<T>(depot: DepotTeledetection, f: (tx: ClientTx) => Promise<T>, options?: OptionsTransaction): Promise<T> {
+  return depot.$transaction ? depot.$transaction((tx) => f(tx), options) : f(depot);
 }
 
 export class RefusTeledetection extends Error {
@@ -181,7 +190,7 @@ export async function enregistrerProduits(
         WHERE "code" = ${code}`;
     }
     return rapport;
-  }, true);
+  }, OPTIONS_LOT);
 }
 
 /** Traduit les refus d'emprise et de melange synthetique du declencheur en refus metier (400) ; le reste remonte tel quel. */
@@ -347,7 +356,7 @@ export async function deposerPropositions(depot: DepotTeledetection, d: DepotPro
       ipAddress: ctx.ipAddress,
     });
     return { deposees: ids.length, rattachees, nonRattachees: ids.length - rattachees, ids, toleranceRattachementM: tol, parConfianceRattachement: parConfiance };
-  }, true);
+  }, OPTIONS_LOT);
 }
 
 // ============================================================ transitions de statut
@@ -419,7 +428,7 @@ export async function changerStatut(depot: DepotTeledetection, d: DemandeChangem
     });
     const proposition = await tx.propositionTeledetection.findUniqueOrThrow({ where: { id: d.propositionId } });
     return { proposition, transitionId, de, vers, preuvesAjoutees: preuves.count };
-  });
+  }, OPTIONS_DECISION);
 }
 
 /**

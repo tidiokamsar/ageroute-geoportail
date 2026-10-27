@@ -292,6 +292,25 @@ describe("dessin des propositions", () => {
     expect(screen.getByText(/2 propositions illisibles ignorées/)).toBeInTheDocument();
   });
 
+  it("E2E-EO-1 : une proposition en ligne ou en multi-geometrie est dessinee (trait + repere), jamais declaree illisible", () => {
+    const ligne = (i: number, geometry: unknown) => ({ type: "Feature", properties: { id: `synth-g${i}`, type: "NOUVELLE_ROUTE", statut: "A_VERIFIER", priorite: "HAUTE", rattachee: true }, geometry });
+    rendre({
+      propositions: collection(
+        feature(1),
+        ligne(2, { type: "LineString", coordinates: [[-13.7, 9.6], [-13.6, 9.6], [-13.5, 9.6]] }),
+        ligne(3, { type: "MultiLineString", coordinates: [[[-13.7, 9.7], [-13.6, 9.7]], [[-13.5, 9.7], [-13.4, 9.7]]] }),
+        ligne(4, { type: "MultiPolygon", coordinates: [[[[-13.7, 9.8], [-13.69, 9.8], [-13.69, 9.81], [-13.7, 9.8]]]] }),
+      ),
+    });
+    expect(marqueurs()).toHaveLength(4);
+    expect(screen.queryByText(/illisible/)).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("ligne")).toHaveLength(3); // 1 LineString + 2 traits du MultiLineString
+    expect(screen.getAllByTestId("polygone")).toHaveLength(1);
+    // repere de la LineString a mi-longueur du trace (9,6 ; -13,6)
+    const positions = marqueurs().map((m) => (m.getAttribute("data-pos") ?? "").split(",").map(Number));
+    expect(positions.some(([lat, lon]) => Math.abs(lat - 9.6) < 1e-6 && Math.abs(lon + 13.6) < 1e-6)).toBe(true);
+  });
+
   it("ne dessine jamais une position inventee : une feature hors bornes est ecartee", () => {
     rendre({ propositions: collection({ type: "Feature", properties: { id: "synth-x" }, geometry: { type: "Point", coordinates: [-13.7, 99] } }) });
     expect(marqueurs()).toHaveLength(0);

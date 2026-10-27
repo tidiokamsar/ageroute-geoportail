@@ -7,8 +7,8 @@ import { attendreEcran, capturer, carte, expect, test } from "../lib/fixtures";
  * Parcours 1 : l'ecran REEL, ADMIN, contre l'API REELLE et la base REELLE. Lecture seule (aucune decision : les decisions sont au
  * parcours 3). Chaque valeur lue a l'ecran est comparee a l'API (jeton du meme compte) ET a un comptage SQL direct.
  *
- * CONSTAT E2E-EO-1 (carte) : les propositions dont la geometrie deposee est une LIGNE (nouvelle route, coupure) sont comptees
- * « illisibles » par la carte, alors que l'API les sert valides. Voir le test marque `test.fail`.
+ * CORRIGES (voir docs/observation-terre/E2E.md) : E2E-EO-1 (les propositions deposees en LIGNE etaient comptees « illisibles » par la
+ * carte ; elles sont maintenant tracees) et E2E-EO-2 (la recherche trouve aussi le nom de la region).
  */
 test.describe.serial("ecran ADMIN : indicateurs, carte, liste, filtres, detail", () => {
   test("indicateurs : memes valeurs que GET /synthese et que la base", async ({ ouvrirSession, run }) => {
@@ -73,8 +73,10 @@ test.describe.serial("ecran ADMIN : indicateurs, carte, liste, filtres, detail",
     expect(fc.tronque).toBe(false);
     await expect(s.page.getByText("Zoomez pour afficher les propositions")).toHaveCount(0);
 
-    // Marqueurs dessines = features que la carte sait dessiner (Point, Polygon : contrat §5).
-    const dessinables = fc.features.filter((f) => f.geometry.type === "Point" || f.geometry.type === "Polygon").length;
+    // Marqueurs dessines = features a geometrie GeoJSON valide : tous les types que le depot accepte (E2E-EO-1 corrige : les lignes sont tracees).
+    const TYPES_VALIDES = ["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon"];
+    const dessinables = fc.features.filter((f) => TYPES_VALIDES.includes(f.geometry.type)).length;
+    expect(dessinables, "aucune geometrie servie n'est d'un type inconnu").toBe(fc.features.length);
     await expect.poll(() => s.page.locator(".bdri-proposition-eo").count(), { timeout: 30_000 }).toBe(dessinables);
     // Chaque marqueur a un nom accessible.
     const noms = await s.page.locator(".bdri-proposition-eo [role=img]").evaluateAll((els) => els.map((x) => x.getAttribute("aria-label") ?? ""));
@@ -88,12 +90,11 @@ test.describe.serial("ecran ADMIN : indicateurs, carte, liste, filtres, detail",
     await capturer(s.page, "01-carte-ouverture-1440");
   });
 
-  // E2E-EO-1 : DEFAUT NON CORRIGE. `lireProposition` (frontend/src/lib/teledetectionCarte.ts, ~l.300-315) ne lit que Point et Polygon ;
-  // le depot (backend/src/teledetection/api.noyau.ts l.329) accepte aussi LineString, MultiLineString, MultiPoint, MultiPolygon et
-  // `propositions.geojson` rend `ST_AsGeoJSON(pt.geom)` tel quel (api.lecture.ts l.128). Une « nouvelle route » ou une « coupure » deposee en ligne
-  // est donc declaree « illisible » et n'est pas dessinee. Quand ce sera corrige, Playwright dira « le test devait echouer » : retirer test.fail.
+  // E2E-EO-1 (corrige) : le depot (backend/src/teledetection/api.noyau.ts) accepte LineString, MultiLineString, MultiPoint, MultiPolygon et
+  // `propositions.geojson` rend la geometrie telle quelle (api.lecture.ts). `lireProposition` (frontend/src/lib/teledetectionCarte.ts) les lit
+  // maintenant toutes : une « nouvelle route » ou une « coupure » deposee en ligne est tracee et recoit son repere ; seule une geometrie
+  // vraiment invalide reste comptee « illisible ».
   test("carte : aucune proposition valide n'est declaree illisible (E2E-EO-1)", async ({ ouvrirSession, run }) => {
-    test.fail(true, "E2E-EO-1 : les geometries LineString servies par l'API sont comptees « illisibles » par la carte");
     const s = await ouvrirSession(run.comptes.admin);
     await s.page.goto("/teledetection");
     await attendreEcran(s.page);
@@ -216,11 +217,10 @@ test.describe.serial("ecran ADMIN : indicateurs, carte, liste, filtres, detail",
     expect(s.erreursPage).toEqual([]);
   });
 
-  // E2E-EO-2 : DEFAUT NON CORRIGE (faible). Le champ de recherche annonce « Rechercher une zone, un tronçon… » et la liste affiche la region
-  // de chaque proposition comme sa « zone », mais le serveur ne cherche ni dans le nom de region ni dans la zone : `q` porte sur le code et le nom
-  // du troncon, la methode et le debut de l'identifiant (backend/src/teledetection/api.lecture.ts l.84-88).
+  // E2E-EO-2 (corrige) : le champ de recherche annonce « Rechercher une zone, un tronçon… » et la liste affiche la region de chaque proposition
+  // comme sa « zone » ; `q` porte maintenant aussi sur le nom de la region (backend/src/teledetection/api.lecture.ts), en plus du code et du
+  // nom du troncon, de la methode et du debut de l'identifiant.
   test("recherche : le nom de la zone (region) affichee dans la liste trouve ses propositions (E2E-EO-2)", async ({ ouvrirSession, run }) => {
-    test.fail(true, "E2E-EO-2 : la recherche par nom de region (zone) ne trouve rien");
     const s = await ouvrirSession(run.comptes.admin);
     await s.page.goto("/teledetection");
     await attendreEcran(s.page);

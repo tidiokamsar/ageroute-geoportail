@@ -15,7 +15,7 @@ const point = (id: string, lon: number, lat: number, props: Record<string, unkno
   properties: { id, type: "COUPURE_PROBABLE", statut: "A_VERIFIER", priorite: "HAUTE", rattachee: true, ...props },
 });
 const prop = (id: string, over: Partial<PropositionCarte> = {}): PropositionCarte => ({
-  id, type: "COUPURE_PROBABLE", statut: "A_VERIFIER", priorite: "HAUTE", rattachee: true, position: [10, -11], contour: null, ...over,
+  id, type: "COUPURE_PROBABLE", statut: "A_VERIFIER", priorite: "HAUTE", rattachee: true, position: [10, -11], surfaces: [], lignes: [], ...over,
 });
 
 describe("constantes d'ouverture", () => {
@@ -209,7 +209,7 @@ describe("geometries GeoJSON", () => {
 describe("lireProposition", () => {
   it("lit un point (latitude et longitude dans le bon ordre)", () => {
     const l = lireProposition(point("p1", -13.2, 9.9));
-    expect(l).toEqual({ ok: true, proposition: { id: "p1", type: "COUPURE_PROBABLE", statut: "A_VERIFIER", priorite: "HAUTE", rattachee: true, position: [9.9, -13.2], contour: null } });
+    expect(l).toEqual({ ok: true, proposition: { id: "p1", type: "COUPURE_PROBABLE", statut: "A_VERIFIER", priorite: "HAUTE", rattachee: true, position: [9.9, -13.2], surfaces: [], lignes: [] } });
   });
   it("lit un polygone : contour dessine, repere au centre de son emprise", () => {
     const l = lireProposition({
@@ -219,9 +219,67 @@ describe("lireProposition", () => {
     expect(l.ok).toBe(true);
     if (l.ok) {
       expect(l.proposition.position).toEqual([10, -12.5]);
-      expect(l.proposition.contour).toHaveLength(5);
-      expect(l.proposition.contour?.[0]).toEqual([9, -13]);
+      expect(l.proposition.surfaces).toHaveLength(1);
+      expect(l.proposition.surfaces[0]).toHaveLength(5);
+      expect(l.proposition.surfaces[0][0]).toEqual([9, -13]);
+      expect(l.proposition.lignes).toEqual([]);
     }
+  });
+  // E2E-EO-1 : l'API sert aussi des lignes (nouvelle route, coupure) ; la carte les declarait « illisibles ».
+  describe("geometries valides servies par l'API (E2E-EO-1)", () => {
+    const feat = (geometry: unknown) => ({ type: "Feature", properties: { id: "g", type: "NOUVELLE_ROUTE", statut: "A_VERIFIER", priorite: "HAUTE", rattachee: true }, geometry });
+    const lue = (geometry: unknown) => { const l = lireProposition(feat(geometry)); if (!l.ok) throw new Error(l.raison); return l.proposition; };
+
+    it("LineString : trait dessine ([lat, lon]), repere a mi-longueur du trace", () => {
+      const p = lue({ type: "LineString", coordinates: [[-13, 9], [-12, 9], [-11, 9]] });
+      expect(p.lignes).toEqual([[[9, -13], [9, -12], [9, -11]]]);
+      expect(p.surfaces).toEqual([]);
+      expect(p.position).toEqual([9, -12]);
+    });
+    it("LineString en L : le repere est SUR le trace (mi-longueur), pas au centre de l'emprise", () => {
+      const p = lue({ type: "LineString", coordinates: [[-13, 9], [-13, 11], [-12, 11]] });
+      // longueur 3, moitie 1,5 : a mi-chemin du premier segment (2) = 9 + 1,5 de latitude
+      expect(p.position).toEqual([10.5, -13]);
+    });
+    it("MultiLineString : tous les traits sont dessines, le repere est au milieu du plus long", () => {
+      const p = lue({ type: "MultiLineString", coordinates: [[[-13, 9], [-12.5, 9]], [[-11, 9], [-9, 9]]] });
+      expect(p.lignes).toHaveLength(2);
+      expect(p.position).toEqual([9, -10]);
+    });
+    it("MultiPolygon : toutes les surfaces sont dessinees, repere au centre de l'emprise de l'ensemble", () => {
+      const p = lue({ type: "MultiPolygon", coordinates: [[[[-13, 9], [-12, 9], [-12, 10], [-13, 9]]], [[[-11, 10], [-10, 10], [-10, 11], [-11, 10]]]] });
+      expect(p.surfaces).toHaveLength(2);
+      expect(p.lignes).toEqual([]);
+      expect(p.position).toEqual([10, -11.5]);
+    });
+    it("MultiPoint : un repere sur le premier point", () => {
+      const p = lue({ type: "MultiPoint", coordinates: [[-13, 9], [-12, 10]] });
+      expect(p.position).toEqual([9, -13]);
+      expect(p.lignes).toEqual([]);
+      expect(p.surfaces).toEqual([]);
+    });
+    it("GeometryCollection : lue membre par membre", () => {
+      const p = lue({ type: "GeometryCollection", geometries: [{ type: "Point", coordinates: [-13, 9] }, { type: "LineString", coordinates: [[-13, 9], [-12, 9]] }] });
+      expect(p.lignes).toHaveLength(1);
+      expect(p.position).toEqual([9, -12.5]);
+    });
+    it("ligne de longueur nulle (sommets confondus) : son seul lieu, sans NaN", () => {
+      const p = lue({ type: "LineString", coordinates: [[-13, 9], [-13, 9]] });
+      expect(p.position).toEqual([9, -13]);
+    });
+    it("lirePropositions ne compte AUCUNE illisible pour un melange Point, LineString, Polygon et leurs Multi", () => {
+      const r = lirePropositions({
+        features: [
+          { ...feat({ type: "Point", coordinates: [-13, 9] }), properties: { id: "a" } },
+          { ...feat({ type: "LineString", coordinates: [[-13, 9], [-12, 10]] }), properties: { id: "b" } },
+          { ...feat({ type: "Polygon", coordinates: [[[-13, 9], [-12, 9], [-12, 10], [-13, 9]]] }), properties: { id: "c" } },
+          { ...feat({ type: "MultiLineString", coordinates: [[[-13, 9], [-12, 10]]] }), properties: { id: "d" } },
+          { ...feat({ type: "MultiPolygon", coordinates: [[[[-13, 9], [-12, 9], [-12, 10], [-13, 9]]]] }), properties: { id: "e" } },
+        ],
+      });
+      expect(r.ignorees).toBe(0);
+      expect(r.propositions.map((x) => x.id)).toEqual(["a", "b", "c", "d", "e"]);
+    });
   });
   it("accepte une priorite sous la forme { niveau } de la liste (contrat §6)", () => {
     const l = lireProposition(point("p3", -13, 9, { priorite: { niveau: "MOYENNE", regle: "r" } }));
@@ -248,7 +306,14 @@ describe("lireProposition", () => {
     ["identifiant blanc", point("   ", -13, 9), "SANS_IDENTIFIANT"],
     ["sans proprietes", { type: "Feature", geometry: { type: "Point", coordinates: [-13, 9] } }, "SANS_IDENTIFIANT"],
     ["sans geometrie", { type: "Feature", properties: { id: "z" }, geometry: null }, "GEOMETRIE_ABSENTE"],
-    ["ligne (non dessinee)", { type: "Feature", properties: { id: "z" }, geometry: { type: "LineString", coordinates: [[-13, 9], [-12, 10]] } }, "GEOMETRIE_NON_DESSINABLE"],
+    ["de type inconnu", { type: "Feature", properties: { id: "z" }, geometry: { type: "Cercle", coordinates: [[-13, 9], [-12, 10]] } }, "GEOMETRIE_NON_DESSINABLE"],
+    ["ligne a un seul sommet", { type: "Feature", properties: { id: "z" }, geometry: { type: "LineString", coordinates: [[-13, 9]] } }, "POSITION_INVALIDE"],
+    ["ligne sans coordonnees", { type: "Feature", properties: { id: "z" }, geometry: { type: "LineString" } }, "POSITION_INVALIDE"],
+    ["ligne dont un sommet est hors bornes", { type: "Feature", properties: { id: "z" }, geometry: { type: "LineString", coordinates: [[-13, 9], [-12, 95], [-11, 9]] } }, "POSITION_INVALIDE"],
+    ["multiligne vide", { type: "Feature", properties: { id: "z" }, geometry: { type: "MultiLineString", coordinates: [] } }, "POSITION_INVALIDE"],
+    ["multiligne dont un trait est trop court", { type: "Feature", properties: { id: "z" }, geometry: { type: "MultiLineString", coordinates: [[[-13, 9], [-12, 10]], [[-11, 9]]] } }, "POSITION_INVALIDE"],
+    ["multipolygone dont un anneau est trop court", { type: "Feature", properties: { id: "z" }, geometry: { type: "MultiPolygon", coordinates: [[[[-13, 9], [-12, 9]]]] } }, "POSITION_INVALIDE"],
+    ["collection vide", { type: "Feature", properties: { id: "z" }, geometry: { type: "GeometryCollection", geometries: [] } }, "POSITION_INVALIDE"],
     ["point hors bornes", point("z", -13, 95), "POSITION_INVALIDE"],
     ["point sans coordonnees", { type: "Feature", properties: { id: "z" }, geometry: { type: "Point" } }, "POSITION_INVALIDE"],
     ["polygone a deux sommets", { type: "Feature", properties: { id: "z" }, geometry: { type: "Polygon", coordinates: [[[-13, 9], [-12, 9]]] } }, "POSITION_INVALIDE"],

@@ -84,7 +84,7 @@ function conditionsPropositions(f: Omit<FiltresPropositions, "limite" | "curseur
   if (f.q) {
     const motif = `%${echapperLike(f.q)}%`;
     const debutId = `${echapperLike(f.q)}%`;
-    c.push(Prisma.sql`(t."code" ILIKE ${motif} OR t."nom" ILIKE ${motif} OR pt."methode" ILIKE ${motif} OR pt."id" ILIKE ${debutId})`);
+    c.push(Prisma.sql`(t."code" ILIKE ${motif} OR t."nom" ILIKE ${motif} OR r."nom" ILIKE ${motif} OR pt."methode" ILIKE ${motif} OR pt."id" ILIKE ${debutId})`);
   }
   return c;
 }

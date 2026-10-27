@@ -264,8 +264,8 @@ function Legende() {
           </ul>
         </div>
         <p className="text-xs text-gray-700 sm:col-span-2">
-          La couleur n'est jamais seule : chaque statut a son signe, chaque priorité sa forme. Le repère d'un polygone est placé au centre de son
-          emprise ; le contour est tracé tel que reçu.
+          La couleur n'est jamais seule : chaque statut a son signe, chaque priorité sa forme. Le repère d'une ligne (route, coupure) est placé à mi-longueur du tracé, celui d'un polygone au centre de son
+          emprise ; le tracé et le contour sont dessinés tels que reçus.
         </p>
       </div>
     </details>
@@ -550,9 +550,10 @@ export function CarteObservationTerre(p: CarteObservationTerreProps) {
             const choisie = prop.id === selectionId;
             return (
               <Fragment key={prop.id}>
-                {prop.contour && (
+                {prop.surfaces.map((contour, i) => (
                   <Polygon
-                    positions={prop.contour}
+                    key={`s${i}`}
+                    positions={contour}
                     pathOptions={{
                       color: styleMarqueur(prop.statut, prop.priorite, prop.rattachee).remplissage,
                       weight: choisie ? 4 : 2,
@@ -562,7 +563,20 @@ export function CarteObservationTerre(p: CarteObservationTerreProps) {
                     }}
                     eventHandlers={{ click: () => onSelect(prop.id) }}
                   />
-                )}
+                ))}
+                {prop.lignes.map((trait, i) => (
+                  <Polyline
+                    key={`l${i}`}
+                    positions={trait}
+                    pathOptions={{
+                      color: styleMarqueur(prop.statut, prop.priorite, prop.rattachee).remplissage,
+                      weight: choisie ? 6 : 4,
+                      dashArray: prop.rattachee === true ? undefined : "6 4",
+                      bubblingMouseEvents: false,
+                    }}
+                    eventHandlers={{ click: () => onSelect(prop.id) }}
+                  />
+                ))}
                 <Marker
                   position={prop.position}
                   icon={iconeProposition(prop, choisie)}
