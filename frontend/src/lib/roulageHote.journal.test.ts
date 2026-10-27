@@ -258,7 +258,9 @@ describe("echecs d'ecriture comptes, sans lever d'erreur dans le noyau", () => {
     await ouvrir("agent-A");
     const j = stockageIndexedDb()!;
     j.ajouter(entree(1, "DEMARRAGE"));
-    await attendre();
+    // Attente de la CONDITION et non d'une duree : sous charge, l'entree 1 pouvait encore etre en cours d'ecriture quand
+    // l'espion s'installait, et son ecriture etait alors comptee parmi les pertes (echecs() = 3 au lieu de 2).
+    await vi.waitFor(async () => { expect((await j.toutes()).map((e) => e.seq)).toEqual([1]); }, { timeout: 5000 });
     expect(j.echecs()).toBe(0);
 
     const vrai = IDBObjectStore.prototype.put;
@@ -269,6 +271,7 @@ describe("echecs d'ecriture comptes, sans lever d'erreur dans le noyau", () => {
     });
     expect(() => j.ajouter(entree(2))).not.toThrow();
     j.ajouter(entree(3));
+    await vi.waitFor(() => { expect(j.echecs()).toBe(2); }, { timeout: 5000 });
     await attendre(80);
     expect(j.echecs()).toBe(2);
     espion.mockRestore();

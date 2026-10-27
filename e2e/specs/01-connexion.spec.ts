@@ -56,10 +56,7 @@ test.describe("connexion", () => {
   });
 
   test("les champs de la page de connexion ont une etiquette accessible (E2E-3)", async ({ ouvrirProfil }) => {
-    // E2E-3 (accessibilite) : l'adresse et le mot de passe n'ont qu'un texte indicatif (placeholder), pas d'etiquette ni d'aria-label :
-    // un lecteur d'ecran ne les annonce pas de facon fiable. `getByLabel` ne les trouve pas. Corrige cote tronçon (Inspection terrain)
-    // mais pas ici : le test decrit le comportement attendu, en echec attendu jusqu'a la correction de LoginPage.tsx.
-    test.fail(true, "E2E-3 : les champs de LoginPage n'ont pas d'etiquette (placeholder seulement)");
+    // E2E-3 (accessibilite) : corrige le 27/10/2026 (aria-label sur les deux champs de LoginPage).
     const { page } = await ouvrirProfil();
     await page.goto("/login");
     await expect(page.getByLabel("Mot de passe")).toBeVisible({ timeout: 5_000 });

@@ -100,10 +100,12 @@ export function LoginPage() {
         <h1 className="text-center text-navy text-lg font-bold mb-1">BDRI</h1>
         <p className="text-center text-gray-500 text-xs mb-6">AGEROUTE Guinée</p>
         <div className="space-y-3">
-          <Input type="email" placeholder="E-mail" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <Input type="email" placeholder="E-mail" aria-label="E-mail" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} required />
           <Input
             type="password"
             placeholder="Mot de passe"
+            aria-label="Mot de passe"
+            autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required

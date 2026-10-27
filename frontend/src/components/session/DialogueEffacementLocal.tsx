@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useOfflineSync } from "../../hooks/useOfflineSync";
 import { syncPendingOfflineData } from "../../lib/offlineSync";
 import { toast } from "../../lib/toast";
 import type { DecisionSuppression } from "../../session/politiqueDeconnexion";
@@ -25,13 +26,25 @@ export function DialogueEffacementLocal({ ouvert, surFermer }: { ouvert: boolean
   const [occupe, setOccupe] = useState(false);
   const [erreur, setErreur] = useState("");
 
-  const evaluer = useCallback(async () => {
-    setCharge(false);
+  const evaluer = useCallback(async (silencieux = false) => {
+    if (!silencieux) setCharge(false);
     try { setDecision(await controleur.apercuPerte()); } catch { setDecision(null); }
     setCharge(true);
   }, [controleur]);
 
-  useEffect(() => { if (ouvert) void evaluer(); }, [ouvert, evaluer]);
+  // L'etat de la file est LU en direct : une synchronisation deja en cours (automatique) peut vider la file apres le clic sur
+  // « Synchroniser maintenant » (syncPendingOfflineData rend la main tout de suite quand une synchronisation tourne). Sans cette
+  // relecture, la decision « refusee » restait affichee alors que la file etait vide (defaut (i) du test de bout en bout).
+  const { pendingCount, syncing, conflitCount, abandonCount, refusDroitsCount } = useOfflineSync();
+  const empreinteFile = `${pendingCount}|${syncing}|${conflitCount}|${abandonCount}|${refusDroitsCount ?? 0}`;
+
+  // Une seule lecture a l'ouverture (avec « Verification... »), puis des relectures silencieuses a chaque changement de la file.
+  const dejaCharge = useRef(false);
+  useEffect(() => {
+    if (!ouvert) { dejaCharge.current = false; return; }
+    void evaluer(dejaCharge.current);
+    dejaCharge.current = true;
+  }, [ouvert, evaluer, empreinteFile]);
 
   if (!ouvert) return null;
 
@@ -39,7 +52,7 @@ export function DialogueEffacementLocal({ ouvert, surFermer }: { ouvert: boolean
     setOccupe(true);
     // « Synchroniser maintenant » est un geste de l'agent : il reessaie l'enregistrement de l'appareil meme pendant un delai de revocation recente.
     try { await syncPendingOfflineData({ manuel: true }); } finally { setOccupe(false); }
-    await evaluer();
+    await evaluer(true);
   }
 
   async function effacer() {

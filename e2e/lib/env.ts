@@ -8,8 +8,16 @@ import path from "node:path";
  * et ecrits dans le dossier temporaire du poste, jamais dans le depot.
  */
 
+/**
+ * Coefficient des delais d'attente (variable E2E_FACTEUR_DELAI, defaut 1) : a monter (2, 3) quand la machine est chargee. Les tests attendent des
+ * CONDITIONS (ligne en base, ecran affiche), jamais une duree ; ce coefficient ne rallonge que le plafond de ces attentes.
+ */
+export const FACTEUR_DELAI = Math.max(1, Number(process.env.E2E_FACTEUR_DELAI ?? 1) || 1);
+
 export const PORT_API = 3101;
 export const PORT_WEB = 5201;
+/** Port de controle de l'API de test (remise a zero du plafond des evenements locaux). */
+export const PORT_CONTROLE = 3102;
 /** Projet « build » : le build de production servi par un serveur statique (scripts/serveur-statique.ts). */
 export const PORT_BUILD = 5301;
 
@@ -45,7 +53,7 @@ export const DOSSIER_API = path.join(DOSSIER_RUN, "api");
  * par d'autres travaux (CPU a 100 %), et une attente trop juste donnerait des echecs qui ne disent rien de l'application.
  * Un vrai defaut est constate par une assertion qui reste fausse, pas par un delai court : on prefere attendre.
  */
-export const DELAI_SYNC_MS = 60_000;
+export const DELAI_SYNC_MS = 60_000 * FACTEUR_DELAI;
 
 /** Build de production du frontend (vite build) : dossier temporaire, jamais frontend/dist. */
 export const DOSSIER_BUILD = path.join(DOSSIER_RUN, "build");

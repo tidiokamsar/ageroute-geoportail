@@ -1050,15 +1050,24 @@ export class ControleurSession {
     }
 
     if (r.ok) {
+      // Ouverture hors ligne : l'utilisateur est reconstruit du profil du coffre. En ligne, il vient du serveur.
+      // ORDRE ESSENTIEL (defaut E2E-5) : l'utilisateur est pose AVANT `appliquer`. `appliquer` EMET un instantane (etat
+      // HORS_LIGNE_OUVERT, ecran AUCUN) ; l'emission suivante n'a lieu qu'apres `await migrer()` (IndexedDB). Entre les deux,
+      // React rend l'instantane courant : avec un utilisateur encore nul, ProtectedRoute y lisait « non connecte » et
+      // redirigeait vers /login, alors que l'agent venait de donner le bon code. Les tests qui rendaient la migration
+      // instantanee ne voyaient jamais cet instantane transitoire.
+      const utilisateurAvant = this.utilisateur;
+      if (utilisateurAvant === null) this.utilisateur = utilisateurDepuisProfil(r.profil);
       this.appliquer({ type: "DEVERROUILLAGE_REUSSI", valideLeMs: r.profil.valideLe, expireLeMs: r.profil.expireLe });
       if (!this.contexte.cleEnMemoire) {
-        // Le noyau a refuse l'ouverture (validite depassee entre-temps, ou etat qui n'en permet pas) : la cle est reoubliee.
+        // Le noyau a refuse l'ouverture (validite depassee entre-temps, ou etat qui n'en permet pas) : la cle est reoubliee,
+        // et l'identite reconstruite est retiree (rien n'est ouvert).
+        this.utilisateur = utilisateurAvant;
         const etatApres = this.etat as EtatSession; // relu apres `appliquer` : le compilateur croit encore l'etat d'avant
         const code = etatApres === "EXPIRE" ? "EXPIRE" : "INDISPONIBLE";
+        this.emettre();
         return echec(code, messageErreur(code));
       }
-      // Ouverture hors ligne : l'utilisateur est reconstruit du profil du coffre. En ligne, il vient du serveur.
-      if (this.utilisateur === null) this.utilisateur = utilisateurDepuisProfil(r.profil);
       this.reouvrirCompte();
       if (revalide) {
         this.droitsAReverifier = null;

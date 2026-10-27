@@ -76,28 +76,25 @@ test.describe("(a) ouverture hors ligne autorisee", () => {
     // Mauvais code : message, rien ne se perd ; bon code : la saisie est lisible.
     await essayerPin(profil.page, "pas-le-bon-code");
     await expect(verrouRouvert.getByRole("alert")).toContainText("Code incorrect");
-    // Rien n'est parti : le serveur n'a vu aucune des deux sessions hors ligne.
+    // Rien n'est parti : le serveur n'a rien vu, et le stockage brut ne contient pas la saisie en clair.
     expect(await observationsAvecMarqueur(marqueur)).toHaveLength(0);
-    const brutAvant = await lireStockageBrut(profil.page);
-    expect(contientEnClair(brutAvant, m1), "contenu de la saisie en clair dans le stockage").toBe(false);
+    expect(contientEnClair(await lireStockageBrut(profil.page), m1), "contenu de la saisie en clair dans le stockage").toBe(false);
 
-    // Le deverrouillage HORS LIGNE lui-meme est le defaut E2E-5 (test dedie plus bas, `test.fail`) : l'application renvoie vers
-    // /login. Ici, le reseau revient AVANT le bon code : la reouverture a froid a bien affiche l'ecran du PIN hors ligne.
-    await modeAvion(profil.context, profil.page, false);
-    // Le retour du reseau declenche un rafraichissement de session : le laisser finir avant de recharger (sinon sa reponse est perdue, E2E-4).
-    await profil.attendreCalme();
-    await profil.page.reload();
+    // Bon code, TOUJOURS HORS LIGNE : la file se rouvre (defaut E2E-5 corrige), l'ecran dit que les droits seront reverifies.
     await deverrouiller(profil.page, A);
-    // La saisie en file part des le deverrouillage, une seule fois.
-    await expect.poll(async () => (await observationsAvecMarqueur(marqueur)).length, { timeout: DELAI_SYNC_MS }).toBe(1);
-
-    // Nouvelle saisie hors ligne, page deverrouillee, puis retour du reseau : une seule ligne de plus, jamais de doublon.
-    await modeAvion(profil.context, profil.page, true);
-    await saisirObservation(profil.page, { type: "CHAUSSEE", description: `${m2} affaissement` });
+    await expect(profil.page).not.toHaveURL(/\/login/);
     await expect(profil.page.getByRole("heading", { name: /Saisies sur ce téléphone \(1\)/ })).toBeVisible();
-    expect(await observationsAvecMarqueur(marqueur)).toHaveLength(1);
+    await expect(profil.page.getByText(`${m1} nid de poule`)).toBeVisible();
+    await expect(profil.page.getByText("Mode hors ligne : vos droits seront revérifiés à la reconnexion.")).toBeVisible();
+
+    // Nouvelle saisie hors ligne : deux saisies en file, toujours rien chez le serveur, toujours rien en clair.
+    await saisirObservation(profil.page, { type: "CHAUSSEE", description: `${m2} affaissement` });
+    await expect(profil.page.getByRole("heading", { name: /Saisies sur ce téléphone \(2\)/ })).toBeVisible();
+    expect(await observationsAvecMarqueur(marqueur)).toHaveLength(0);
     const brut = await lireStockageBrut(profil.page);
     expect(contientEnClair(brut, m1) || contientEnClair(brut, m2), "contenu des saisies en clair dans le stockage").toBe(false);
+
+    // Retour du reseau (sans recharger : la reponse d'un rafraichissement en vol serait perdue, voir E2E-4) : tout part, une seule fois chacune.
     await modeAvion(profil.context, profil.page, false);
     await expect.poll(async () => (await observationsAvecMarqueur(marqueur)).length, { timeout: DELAI_SYNC_MS }).toBe(2);
     const lignes = await observationsAvecMarqueur(marqueur);
@@ -110,17 +107,15 @@ test.describe("(a) ouverture hors ligne autorisee", () => {
   });
 
   /**
-   * DEFAUT E2E-5 (candidat, a confirmer par l'equipe frontend). Attendu (SESSION-HORS-LIGNE.md : « ouverture hors ligne autorisee ») :
-   * a froid, sans reseau, le bon code PIN rouvre la file locale. Constate : la page affiche bien l'ecran du PIN hors ligne, le bon code
-   * est accepte, puis l'application navigue vers /login SANS aucune requete d'API (seul le logo est demande) et la saisie reste
-   * illisible. Piste de lecture du code (non verifiee) : `ProtectedRoute` renvoie vers /login quand `useAuth().user` est nul
-   * (frontend/src/components/ProtectedRoute.tsx, bloc `if (!user)`), et rien ne renseigne l'utilisateur apres un deverrouillage hors ligne.
-   * REPRODUCTION : `npm run test:e2e -- --project=build -g E2E-5` (le test passe parce qu'il est `test.fail` ; retirer `test.fail`
-   * pour voir l'echec : « page.url() = /login »). A la correction, ce test passera en echec : retirer alors `test.fail`.
+   * E2E-5 (CORRIGE). Attendu (SESSION-HORS-LIGNE.md : « ouverture hors ligne autorisee ») : a froid, sans reseau, le bon code PIN
+   * rouvre la file locale. Le defaut : `ControleurSession.deverrouiller` emettait l'instantane « HORS_LIGNE_OUVERT » AVANT de renseigner
+   * l'utilisateur (reconstruit du profil du coffre) ; la migration d'IndexedDB (`await`) laissait React rendre cet instantane, et
+   * `ProtectedRoute` (bloc `if (!user)`) renvoyait vers /login sans aucune requete d'API. Corrige : l'utilisateur est pose avant
+   * l'emission (useSessionLocale.tsx) et `ProtectedRoute` n'envoie plus jamais vers /login une session hors ligne ouverte.
+   * Preuve jsdom de l'ordre des evenements : src/session/useSessionLocale.horsLigne.test.tsx. Ce test-ci est la preuve navigateur reel.
    */
-  test("@froid E2E-5 (defaut) : le bon code PIN hors ligne, apres redemarrage, rouvre la saisie au lieu de renvoyer vers /login", async ({ ouvrirProfil, run, marqueur }, testInfo) => {
+  test("@froid E2E-5 : le bon code PIN hors ligne, apres redemarrage, rouvre la saisie au lieu de renvoyer vers /login", async ({ ouvrirProfil, run, marqueur }, testInfo) => {
     test.skip(testInfo.project.name !== "build", "exige une reouverture a froid sans serveur : projet build seulement");
-    test.fail(true, "E2E-5 : deverrouillage hors ligne renvoye vers /login (voir le commentaire du test)");
     const profil = await ouvrirProfil();
     const A = run.comptes.agentA;
     await ouvrirObservations(profil.page, A);
@@ -222,7 +217,10 @@ test.describe("(c) expiration et horloge reculee", () => {
     await profil.page.goto(ECRAN_OBSERVATIONS);
     // En ligne, la session retrouvee par le cookie : le code suffit.
     await passerParLaConnexionSiDemande(profil.page, A);
-    await expect(profil.page.getByText(`${marqueur} avant expiration`)).toBeVisible();
+    // En ligne, la file part des le deverrouillage : la saisie n'est lisible qu'un instant a l'ecran (file vide ensuite). La preuve que le
+    // code a rouvert les MEMES donnees est donc la ligne en base, portant l'identifiant local de la saisie d'avant l'expiration.
+    await expect(profil.page).not.toHaveURL(/\/login/);
+    await expect(profil.page.getByRole("heading", { name: "Nouvelle observation" })).toBeVisible();
     await expect.poll(async () => (await observationsAvecMarqueur(marqueur)).length, { timeout: DELAI_SYNC_MS }).toBe(1);
     const [ligne] = await observationsAvecMarqueur(marqueur);
     expect(ligne.clientOperationId).toBe(avant.localId);
@@ -234,7 +232,7 @@ test.describe("(c) expiration et horloge reculee", () => {
 async function refuseParExpiration(page: import("@playwright/test").Page, compte: import("./lib/donnees").CompteRun) {
   const verrou = page.getByRole("dialog", { name: "Session verrouillée" });
   const expiree = page.getByRole("dialog", { name: "Session locale expirée" });
-  await expect.poll(async () => ((await verrou.isVisible()) ? "verrou" : (await expiree.isVisible()) ? "expiree" : "rien"), { timeout: 60_000 }).not.toBe("rien");
+  await expect.poll(async () => ((await verrou.isVisible()) ? "verrou" : (await expiree.isVisible()) ? "expiree" : "rien"), { timeout: DELAI_SYNC_MS }).not.toBe("rien");
   if (await verrou.isVisible()) await essayerPin(page, compte.pin);
   await expect(expiree).toBeVisible();
   return expiree;
@@ -245,7 +243,7 @@ async function passerParLaConnexionSiDemande(page: import("@playwright/test").Pa
   const verrou = page.getByRole("dialog", { name: "Session verrouillée" });
   const expiree = page.getByRole("dialog", { name: "Session locale expirée" });
   await expect.poll(async () => ((await verrou.isVisible()) ? "verrou" : (await expiree.isVisible()) || /\/login/.test(page.url()) ? "connexion" : "rien"),
-    { timeout: 60_000 }).not.toBe("rien");
+    { timeout: DELAI_SYNC_MS }).not.toBe("rien");
   if (!(await verrou.isVisible())) {
     await seConnecter(page, compte);
     await page.goto(ECRAN_OBSERVATIONS);
@@ -360,8 +358,10 @@ test.describe("(f) deux comptes sur le meme appareil, hors ligne", () => {
     await essayerPin(profil.page, A.pin);
     await expect(verrou.getByRole("alert")).toContainText("Code incorrect");
     await deverrouiller(profil.page, B);
-    // Le bon code de B est ACCEPTE (l'ecran de verrou disparait) et rien de A n'apparait. La lecture du contenu de B apres ce deverrouillage
-    // hors ligne est le defaut E2E-5 (l'application renvoie vers /login) : elle est verifiee par le test `test.fail` de la section (a).
+    // Le bon code de B est ACCEPTE (l'ecran de verrou disparait), l'agent reste sur l'ecran (E2E-5 corrige : plus de renvoi vers /login),
+    // la saisie de B est LISIBLE et rien de A n'apparait.
+    await expect(profil.page).not.toHaveURL(/\/login/);
+    await expect(profil.page.getByText(mB)).toBeVisible();
     await expect(profil.page.getByText(mA)).toHaveCount(0);
     // Dans le stockage brut : deux bases, aucun texte en clair.
     const bases = await nomsBases(profil.page);

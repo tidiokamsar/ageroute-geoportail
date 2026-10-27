@@ -15,9 +15,10 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import http from "node:http";
 import { pathToFileURL } from "node:url";
 import { preparerBase } from "../lib/donnees";
-import { DOSSIER_API, ORIGINE_BUILD, ORIGINE_WEB, PORT_API, RACINE_DEPOT } from "../lib/env";
+import { DOSSIER_API, ORIGINE_BUILD, ORIGINE_WEB, PORT_API, PORT_CONTROLE, RACINE_DEPOT } from "../lib/env";
 
 async function main() {
   const d = await preparerBase();
@@ -44,6 +45,20 @@ async function main() {
 
   // URL file:// : sous Windows, import() refuse un chemin absolu de type F:\.
   await import(pathToFileURL(path.join(RACINE_DEPOT, "backend", "src", "server.ts")).href);
+
+  // PORT DE CONTROLE (127.0.0.1 seulement, ce processus de test seulement). Le serveur plafonne les evenements de session locale a
+  // 5 lots par 15 min ET PAR COMPTE (backend/src/modules/auth/evenements-locaux.ts) : toute la batterie partage les memes comptes, donc
+  // le plafond serait epuise au milieu de la suite (reponse 429, evenement garde mais non depose avant 15 min). Chaque test remet donc le
+  // compteur a zero par ce port, avec la fonction que le module exporte pour ses propres tests ; le code du serveur n'est pas modifie.
+  const limites = await import(pathToFileURL(path.join(RACINE_DEPOT, "backend", "src", "modules", "auth", "evenements-locaux.ts")).href);
+  http.createServer((req, res) => {
+    if (req.method === "POST" && req.url === "/reinitialiser-limites") {
+      limites._reinitialiserLimiteEvenementsLocaux();
+      res.writeHead(204).end();
+    } else {
+      res.writeHead(404).end();
+    }
+  }).listen(PORT_CONTROLE, "127.0.0.1");
 }
 
 main().catch((e) => {
