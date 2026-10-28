@@ -213,9 +213,9 @@ def _():
     raise AssertionError("un nom a ete resolu")
 
 
-@controle("aucune connexion sortante (TCP 1.1.1.1:443, TCP 93.184.216.34:80, UDP 8.8.8.8:53)")
+@controle("aucune connexion sortante (TCP 192.0.2.1:443, TCP 198.51.100.1:80, UDP 203.0.113.1:53)")
 def _():
-    for hote, port in (("1.1.1.1", 443), ("93.184.216.34", 80)):
+    for hote, port in (("192.0.2.1", 443), ("198.51.100.1", 80)):
         try:
             socket.create_connection((hote, port), timeout=3).close()
         except OSError as e:
@@ -225,7 +225,7 @@ def _():
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     s.settimeout(2)
     try:
-        s.sendto(b"\x00", ("8.8.8.8", 53))
+        s.sendto(b"\x00", ("203.0.113.1", 53))
     except OSError as e:
         assert e.errno in (errno.ENETUNREACH, errno.EHOSTUNREACH), e
     else:
