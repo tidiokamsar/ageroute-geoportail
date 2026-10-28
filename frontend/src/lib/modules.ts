@@ -20,6 +20,7 @@ export const MODULES = [
   { key: "ordres-travaux", label: "Ordres de travaux", path: "/ordres-travaux" },
   { key: "signalements", label: "Signalements citoyens", path: "/signalements" },
   { key: "teledetection", label: "Observation de la Terre", path: "/teledetection" },
+  { key: "projets-voirie", label: "Projets de voirie", path: "/projets-voirie" },
 ] as const;
 
 export type ModuleKey = (typeof MODULES)[number]["key"];
