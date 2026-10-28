@@ -37,15 +37,13 @@ set -euo pipefail
 COMMIT="${1:-}"
 SHA_ATTENDU="${2:-}"
 ARCHIVE_LOCALE="${3:-}"
-# HYPOTHESE (branche integration/depuis-vendredi, calcul du 27/10/2026) : la production est supposee a l'etat releve le 23/10/2026
-# (79 migrations appliquees, AUTONOMOUS_EXECUTION_TRACKER.md T-41), SANS le deploiement des trois migrations alors attendues
-# (20261026300000, 20261026400000, 20261026410000) : aucun document date ne consigne qu'il ait eu lieu (voir AGENTS.md). En attente = les
-# migrations du depot absentes de ces 79, soit 14 : 20261025120000 (lot 17) ; 20261026300000, 20261026400000, 20261026410000 ; 20261027100000 (x2),
-# 20261027110000 (x2), 20261027120000 ; 20261028100000 a 20261028130000 (Observation de la Terre, x4) ; 20261029300000 (Aide a la decision).
-# Si ces trois migrations (26300000 a 26410000) sont en fait deja appliquees, le compte reel est 11 et le script refusera ce nombre-ci :
-# le corriger alors EN LE LISANT dans l'etape 5, sans deviner. La premiere en attente est la meme dans les deux cas.
+# Branche integration/depuis-vendredi, releve de la production du 28/10/2026 (apres le deploiement du commit 747ac38) : 84 migrations
+# appliquees, toutes presentes dans cette branche (aucune orpheline). En attente = les 9 migrations de la branche absentes de la base :
+# 20261025120000 (lot 17) ; 20261027100000_registre_anomalies_referentiel, 20261027110000_chantier_sections, 20261027120000 (lot 18) ;
+# 20261028100000 a 20261028130000 (Observation de la Terre, x4) ; 20261029300000 (Aide a la decision). Les 9 ont une descente.
+# La premiere par ordre alphabetique est 20261025120000, anterieure a des migrations deja appliquees : migrate deploy l'applique quand meme.
 # Rappel : deux couples d'horodatages identiques (20261027100000, 20261027110000) se rejouent dans l'ordre alphabetique du nom de dossier.
-ATTENDUES_EN_ATTENTE=14
+ATTENDUES_EN_ATTENTE=9
 # Seuil de disque libre en %. Defaut 15. L'operateur peut le passer consciemment
 # (ex. SEUIL_DISQUE=13) quand il a verifie le besoin transient du build (~1,6 Go :
 # dump, code-avant, couches d'image) et que l'arrondi de df arrete a tort.
