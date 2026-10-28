@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { violationsAccessibilite } from "../test/accessibilite";
 
 /**
@@ -18,6 +18,8 @@ vi.mock("../lib/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 vi.mock("../lib/download", () => ({ downloadViaApi: vi.fn() }));
 vi.mock("../components/CarteReleve", () => ({ CarteReleve: () => <div data-testid="carte" /> }));
 // Leaflet exige un vrai moteur de rendu : la carte de l'observation de la Terre est mesuree a part.
+// Projets de voirie : Leaflet n'est pas rendu sous jsdom ; la carte est mesuree a part (captures du rapport).
+vi.mock("../components/projets-voirie/CarteProjet", () => ({ CarteProjet: () => <div role="img" aria-label="Carte du projet (doublure de test)" /> }));
 vi.mock("../components/observation-terre/CarteObservationTerre", () => ({ CarteObservationTerre: () => <div role="img" aria-label="Carte (doublure de test)" /> }));
 vi.mock("../lib/api", () => ({
   api: {
@@ -33,6 +35,9 @@ import { VeilleConfigurationPage } from "./VeilleConfigurationPage";
 import { TeledetectionPage } from "./TeledetectionPage";
 import { page, proposition, source, synthese } from "../components/observation-terre/synthetique.testutil";
 import { MainCourantePage } from "./MainCourantePage";
+import { ProjetsVoirieListePage } from "./ProjetsVoirieListePage";
+import { ProjetVoirieDetailPage } from "./ProjetVoirieDetailPage";
+import { analyse as analyseProjet, projetFiche, projetResume } from "../components/projets-voirie/synthetique.testutil";
 import { DefautsRegistrePage } from "./DefautsRegistrePage";
 import { MissionsPage } from "./MissionsPage";
 import { PortionsGestionPage } from "./PortionsGestionPage";
@@ -195,6 +200,12 @@ beforeEach(() => {
     "/v2/defauts": { defauts: [{ id: "d", code: null, statutValidation: "A_CORRIGER", etat: "ACTIF", traiteA: null, constateA: "2026-10-01T08:00:00Z",
       catalogue: { code: "NID", libelle: "Nid de poule", unite: "UNITE" }, constatePar: { id: "u", nomComplet: "Agent" }, medias: [] }], curseurSuivant: "d" },
     "/v2/missions": [{ id: "m", code: "MIS-1", intitule: "RN1", type: "INSPECTION", statut: "EN_COURS", debutPrevu: null }],
+    // Projets de voirie : reponses SYNTHETIQUES au format du contrat v2.
+    "/v2/projets-voirie": { projets: [projetResume(), projetResume({ id: "p2", code: "AUTRE-2026", nom: "Autre projet", statutParametres: "VALIDE", commune: null, prefecture: null, nbJeux: 0 })], suivant: null },
+    "/v2/projets-voirie/p1": projetFiche(),
+    "/v2/projets-voirie/p1/analyse": analyseProjet(),
+    "/v2/projets-voirie/p1/carte": [],
+    "/v2/projets-voirie/concessionnaires": [{ id: "c1", nom: "Operateur synthetique A", typeReseau: "TELECOM" }],
   };
 });
 
@@ -439,4 +450,97 @@ describe("Accessibilite de la page Lots d'import : etats cles", () => {
     await within(form).findAllByText(/Erreur :/);
     expect(await violationsAccessibilite(container)).toEqual([]);
   }, 30_000);
+});
+
+describe("Accessibilite du module Projets de voirie : etats cles", () => {
+  function rendreProjet() {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <MemoryRouter initialEntries={["/projets-voirie/p1"]}>
+        <QueryClientProvider client={qc}>
+          <Routes><Route path="/projets-voirie/:id" element={<ProjetVoirieDetailPage />} /></Routes>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+  }
+  const implOriginale = vi.mocked(api.get).getMockImplementation();
+  beforeEach(() => {
+    vi.mocked(api.get).mockImplementation(async (url: string) => {
+      const r = h.get[url];
+      if (r instanceof Error) throw r;
+      return { data: r ?? {} };
+    });
+  });
+  afterEach(() => { if (implOriginale) vi.mocked(api.get).mockImplementation(implOriginale); });
+
+  it("liste des projets", async () => {
+    const { container } = rendre(<ProjetsVoirieListePage />);
+    await screen.findByRole("table", { name: "Projets de voirie et réseaux" }, { timeout: 10_000 });
+    expect(await violationsAccessibilite(container)).toEqual([]);
+  }, 30_000);
+
+  it("liste vide (comment commencer) et dialogue de creation", async () => {
+    h.get["/v2/projets-voirie"] = { projets: [], suivant: null };
+    const { container } = rendre(<ProjetsVoirieListePage />);
+    await screen.findByText("Aucun projet pour l'instant", undefined, { timeout: 10_000 });
+    expect(await violationsAccessibilite(container)).toEqual([]);
+    await userEvent.click(screen.getByRole("button", { name: /Nouveau projet/ }));
+    await screen.findByRole("dialog");
+    expect(await violationsAccessibilite(container.ownerDocument.body)).toEqual([]);
+  }, 30_000);
+
+  it("liste en erreur (acces refuse)", async () => {
+    h.get["/v2/projets-voirie"] = Object.assign(new Error("403"), { response: { status: 403, data: {} } });
+    const { container } = rendre(<ProjetsVoirieListePage />);
+    await screen.findByRole("alert", undefined, { timeout: 10_000 });
+    expect(await violationsAccessibilite(container)).toEqual([]);
+  }, 30_000);
+
+  it("page projet : onglet Analyse (tableau par axe, hypotheses, limites)", async () => {
+    const { container } = rendreProjet();
+    await screen.findByText("Réseaux par type", undefined, { timeout: 10_000 });
+    expect(await violationsAccessibilite(container)).toEqual([]);
+  }, 30_000);
+
+  it("page projet : onglet Couches (jeux, quarantaine, couches de conflit)", async () => {
+    const { container } = rendreProjet();
+    await userEvent.click(await screen.findByRole("tab", { name: "Couches" }, { timeout: 10_000 }));
+    await screen.findByRole("heading", { name: /Fichiers reçus, à autoriser/ });
+    expect(await violationsAccessibilite(container)).toEqual([]);
+  }, 30_000);
+
+  it("page projet : dialogue de depot, puis simulation affichee", async () => {
+    vi.mocked(api.post).mockResolvedValueOnce({ data: {
+      simulation: true, jeu: null, resume: { nbObjets: 3, parTypeGeom: { LIGNE: 3 }, longueurTotaleM: 1200, longueurTraceFusionneM: 900, bbox: [-10.103, 9.177, -10.097, 9.183], attributsDetectes: [{ nom: "Name", nb: 3 }] },
+      crs: { source: "WGS84 (EPSG:4326)", cible: "EPSG:4326", methode: "aucune transformation", justification: "WGS84 par norme KML 2.2" },
+      delta: { ajoutes: 1, retires: 0, identiques: 2 }, remplace: null, avertissements: [{ code: "ALTITUDE_IGNOREE", message: "L'altitude est ignorée.", nb: 3 }],
+    } } as never);
+    const { container } = rendreProjet();
+    await userEvent.click(await screen.findByRole("button", { name: /Ajouter des données/ }, { timeout: 10_000 }));
+    const d = await screen.findByRole("dialog");
+    expect(await violationsAccessibilite(container.ownerDocument.body)).toEqual([]);
+    await userEvent.upload(d.querySelector("input[type=file]")!, new File(["<kml/>"], "reseau.kml"));
+    await screen.findByRole("option", { name: /Operateur synthetique A/ });
+    await userEvent.selectOptions(within(d).getByLabelText("Concessionnaire propriétaire du réseau"), "c1");
+    await userEvent.click(within(d).getByRole("button", { name: "Simuler le dépôt" }));
+    await within(d).findByRole("heading", { name: "Résultat de la simulation" });
+    expect(await violationsAccessibilite(container.ownerDocument.body)).toEqual([]);
+  }, 60_000);
+
+  it("page projet : erreurs 403 puis 404, projet sans donnee", async () => {
+    h.get["/v2/projets-voirie/p1"] = Object.assign(new Error("403"), { response: { status: 403, data: {} } });
+    const a = rendreProjet();
+    await screen.findByRole("alert", undefined, { timeout: 10_000 });
+    expect(await violationsAccessibilite(a.container)).toEqual([]);
+    a.unmount();
+    h.get["/v2/projets-voirie/p1"] = Object.assign(new Error("404"), { response: { status: 404, data: {} } });
+    const b = rendreProjet();
+    await screen.findByRole("alert", undefined, { timeout: 10_000 });
+    expect(await violationsAccessibilite(b.container)).toEqual([]);
+    b.unmount();
+    h.get["/v2/projets-voirie/p1"] = projetFiche({ jeux: [], bbox: null });
+    const c = rendreProjet();
+    await screen.findByText("Ce projet n'a pas encore de données", undefined, { timeout: 10_000 });
+    expect(await violationsAccessibilite(c.container)).toEqual([]);
+  }, 60_000);
 });
