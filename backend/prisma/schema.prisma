@@ -368,6 +368,9 @@ model User {
   produitsObservationTerre        EarthObservationProduct[]  @relation("EoEnregistreur")
   propositionsTeledetectionCrees  PropositionTeledetection[] @relation("PtCreateur")
   propositionsTeledetectionJugees PropositionTeledetection[] @relation("PtVerificateur")
+  sourcesObservationEtatsAuteur   SourceObservationEtat[]      @relation("SourceEtatAuteur")
+  propositionsTeledetectionTransitions PropositionTeledetectionTransition[] @relation("PtTransitionAuteur")
+  propositionsTeledetectionPreuves PropositionTeledetectionPreuve[] @relation("PtPreuveAjoutee")
   programmesBudgetairesCrees      ProgrammeBudgetaire[]      @relation("ProgrammationAuteur")
 
   @@map("users")
@@ -426,6 +429,7 @@ model Region {
   chantiers      Chantier[]
   ordresTravaux  OrdreTravaux[]
   voiriesLocales VoirieLocale[]
+  propositionsTeledetectionRegion PropositionTeledetection[] @relation("PtRegion")
   Mission        Mission[]
 
   delegationsValidation DelegationValidation[]
@@ -1666,6 +1670,7 @@ model Observation {
   updatedAt DateTime  @updatedAt
 
   medias MediaObservation[]
+  preuvesTeledetection PropositionTeledetectionPreuve[]
 
   defauts  Defaut[]
   portions Portion[]
@@ -3456,11 +3461,85 @@ model EarthObservationProduct {
   createdAt              DateTime                               @default(now())
   deletedAt              DateTime?
 
+  /// Tracabilite fournisseur (migration 20261028100000). Nulle pour un produit saisi a la main ou anterieur.
+  sourceCode             String?
+  sourceRef              SourceObservation?                     @relation("ProduitSource", fields: [sourceCode], references: [code], onDelete: Restrict)
+  fournisseur            String?
+  identifiantFournisseur String?
+  collection             String?
+  capteur                String?
+  orbite                 String?
+  scene                  String?
+  niveauTraitement       String?
+  /// Resolution native du capteur, distincte de `resolutionM` (produit livre).
+  resolutionNativeM      Float?
+  empreinteSha256        String?
+  stockageChemin         String?
+  /// CATALOGUE, TELECHARGE, TRAITE, ARCHIVE, PURGE, EN_ECHEC.
+  cycleVie               String                                 @default("CATALOGUE")
+  licenceCode            String?
+  licenceAttribution     String?
+  /// Jeu de demonstration ou de test : exclu de toute vue de production.
+  synthetique            Boolean                                @default(false)
+
   propositions          PropositionTeledetection[] @relation("PtProduit")
   propositionsReference PropositionTeledetection[] @relation("PtProduitReference")
 
+  @@unique([fournisseur, identifiantFournisseur], map: "earth_observation_products_fournisseur_identifiant_key")
   @@index([emprise], map: "earth_observation_products_emprise_gist", type: Gist)
+  @@index([dateAcquisition], map: "earth_observation_products_date_idx")
+  @@index([source], map: "earth_observation_products_source_idx")
+  @@index([nature], map: "earth_observation_products_nature_idx")
+  @@index([sourceCode], map: "earth_observation_products_source_code_idx")
   @@map("earth_observation_products")
+}
+
+/// Registre des sources d'observation de la Terre. L'etat est LU ici (echelle du contrat, section 4), jamais
+/// deduit d'un nom de fournisseur : « active » = TRAITEMENT_OPERATIONNEL. Amorce par migration : aucune active.
+model SourceObservation {
+  id                     String    @id @default(uuid())
+  code                   String    @unique
+  nom                    String
+  fournisseur            String
+  capteur                String?
+  resolutionM            Float?
+  /// NON_CONFIGUREE, CONFIGUREE, AUTHENTIFIEE, ACCESSIBLE, PRODUIT_DISPONIBLE, TRAITEMENT_OPERATIONNEL,
+  /// EN_ERREUR, EN_ATTENTE_CONFIGURATION.
+  etat                   String    @default("NON_CONFIGUREE")
+  dernierMessage         String?
+  derniereVerificationLe DateTime?
+  derniereAcquisitionLe  DateTime?
+  requiertIdentifiants   Boolean   @default(false)
+  /// Parametres NON secrets. Jamais d'identifiant ni de cle.
+  configJson             Json      @default("{}")
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @default(now()) @updatedAt
+  deletedAt              DateTime?
+
+  etats    SourceObservationEtat[]
+  produits EarthObservationProduct[] @relation("ProduitSource")
+
+  @@index([etat], map: "sources_observation_etat_idx")
+  @@map("sources_observation")
+}
+
+/// Historique des changements d'etat d'une source (ajout seul).
+model SourceObservationEtat {
+  id            String            @id @default(uuid())
+  sourceId      String
+  source        SourceObservation @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  /// Nul pour la ligne de creation.
+  de            String?
+  vers          String
+  creeLe        DateTime          @default(now())
+  message       String
+  auteurId      String?
+  auteur        User?             @relation("SourceEtatAuteur", fields: [auteurId], references: [id], onDelete: Restrict)
+  /// Pose par la base (txid_current()) : le declencheur differe exige la ligne dans la meme transaction.
+  transactionId BigInt            @default(dbgenerated("txid_current()"))
+
+  @@index([sourceId, creeLe], map: "sources_observation_etats_source_idx")
+  @@map("sources_observation_etats")
 }
 
 /// Proposition issue de la teledetection : A_VERIFIER jusqu'au verdict du terrain, qui ne se
@@ -3479,7 +3558,7 @@ model PropositionTeledetection {
   tronconId          String?
   troncon            Troncon?                                @relation(fields: [tronconId], references: [id], onDelete: Restrict)
   distanceTronconM   Float?
-  /// A_VERIFIER, CONFIRMEE, INFIRMEE.
+  /// A_VERIFIER, EN_ATTENTE, NON_CONCLUANTE, CONFIRMEE, INFIRMEE. CONFIRMEE et INFIRMEE sont definitifs.
   statut             String                                  @default("A_VERIFIER")
   verifieeParId      String?
   verifieePar        User?                                   @relation("PtVerificateur", fields: [verifieeParId], references: [id], onDelete: Restrict)
@@ -3492,10 +3571,90 @@ model PropositionTeledetection {
   creePar            User                                    @relation("PtCreateur", fields: [creeParId], references: [id], onDelete: Restrict)
   createdAt          DateTime                                @default(now())
 
+  /// Workflow (migration 20261028110000). Les colonnes ci-dessous sont NULL sur les lignes d'avant : « non evalue ».
+  /// Priorite d'inspection : HAUTE, MOYENNE, FAIBLE, et la regle qui l'a produite.
+  prioriteNiveau           String?
+  prioriteRegle            String?
+  /// Indice de detection rendu par la methode. Une probabilite seulement si `confianceCalibree` (jamais aujourd'hui).
+  confianceDetection       Float?
+  confianceCalibree        Boolean                                 @default(false)
+  imageCouvertureNuagesPct Float?
+  imageNote                String?
+  /// HAUTE, MOYENNE, FAIBLE, AUCUN.
+  rattachementConfiance    String?
+  rattachementAlgorithme   String?
+  /// Troncons concurrents dans la tolerance : [{ tronconId, code, distanceM }].
+  rattachementCandidats    Json?
+  methodeNom               String?
+  methodeVersion           String?
+  /// Limites de la detection. NULL en base (lignes d'avant) : le client la lit comme liste vide.
+  limites                  String[]
+  /// Jeu de demonstration ou de test : exclu de toute vue de production.
+  synthetique              Boolean                                 @default(false)
+  /// Region du troncon de rattachement, denormalisee au depot.
+  regionId                 Int?
+  region                   Region?                                 @relation("PtRegion", fields: [regionId], references: [id], onDelete: Restrict)
+  /// INFO_DEMANDEE ou AUTRE ; renseigne si et seulement si le statut est EN_ATTENTE.
+  motifAttente             String?
+  /// Point garanti sur la geometrie, CALCULE par la base (ST_PointOnSurface) : jamais ecrit par le client.
+  /// Colonne GENEREE (GENERATED ALWAYS AS ... STORED). PostgreSQL la presente comme ayant une valeur par defaut ; le `dbgenerated` ci-dessous
+  /// ne cree rien (Prisma ne l'ecrit jamais : le type est `Unsupported`), il dit seulement au controle de derive que ce « defaut » existe,
+  /// pour qu'il ne propose plus `ALTER COLUMN "centre" DROP DEFAULT` (DDL que PostgreSQL refuserait sur une colonne generee).
+  centre                   Unsupported("geometry(Point, 4326)")? @default(dbgenerated("st_pointonsurface(geom)"))
+
+  transitions PropositionTeledetectionTransition[]
+  preuves     PropositionTeledetectionPreuve[]
+
   @@index([statut], map: "propositions_teledetection_statut_idx")
   @@index([tronconId], map: "propositions_teledetection_troncon_idx")
+  @@index([regionId], map: "propositions_teledetection_region_idx")
+  @@index([prioriteNiveau], map: "propositions_teledetection_priorite_idx")
+  @@index([produitId], map: "propositions_teledetection_produit_idx")
   @@index([geom], map: "propositions_teledetection_geom_gist", type: Gist)
+  @@index([centre], map: "propositions_teledetection_centre_gist", type: Gist)
   @@map("propositions_teledetection")
+}
+
+/// Journal des transitions de statut (ajout seul). Un changement de statut a sa ligne dans la meme transaction
+/// (declencheur differe).
+model PropositionTeledetectionTransition {
+  id            String                   @id @default(uuid())
+  propositionId String
+  proposition   PropositionTeledetection @relation(fields: [propositionId], references: [id], onDelete: Restrict)
+  de            String
+  vers          String
+  auteurId      String
+  auteur        User                     @relation("PtTransitionAuteur", fields: [auteurId], references: [id], onDelete: Restrict)
+  creeLe        DateTime                 @default(now())
+  motif         String
+  commentaire   String?
+  /// INFO_DEMANDEE ou AUTRE ; seulement si `vers` est EN_ATTENTE.
+  motifAttente  String?
+  /// Pose par la base (txid_current()).
+  transactionId BigInt                   @default(dbgenerated("txid_current()"))
+
+  preuves PropositionTeledetectionPreuve[]
+
+  @@index([propositionId, creeLe], map: "pt_transitions_proposition_idx")
+  @@map("propositions_teledetection_transitions")
+}
+
+/// Observations de terrain citees a l'appui d'une proposition : cle etrangere, aucune copie de contenu.
+model PropositionTeledetectionPreuve {
+  id            String                              @id @default(uuid())
+  propositionId String
+  proposition   PropositionTeledetection            @relation(fields: [propositionId], references: [id], onDelete: Restrict)
+  observationId String
+  observation   Observation                         @relation(fields: [observationId], references: [id], onDelete: Restrict)
+  transitionId  String?
+  transition    PropositionTeledetectionTransition? @relation(fields: [transitionId], references: [id], onDelete: Restrict)
+  ajouteeParId  String
+  ajoutePar     User                                @relation("PtPreuveAjoutee", fields: [ajouteeParId], references: [id], onDelete: Restrict)
+  ajouteeLe     DateTime                            @default(now())
+
+  @@unique([propositionId, observationId], map: "pt_preuves_proposition_observation_key")
+  @@index([observationId], map: "pt_preuves_observation_idx")
+  @@map("propositions_teledetection_preuves")
 }
 
 /// Perimetre regional d'un compte (A10, « 403 hors zone »). AUCUNE ligne = perimetre NATIONAL,
@@ -3880,4 +4039,58 @@ model PlanPluriannuel {
 
   @@index([anneeDebut, creeLe(sort: Desc)], map: "plans_pluriannuels_debut_idx")
   @@map("plans_pluriannuels")
+}
+
+// ===================== AIDE A LA DECISION, LOT 6 : HISTORIQUE DES BAREMES ET JOURNAL DES EXPORTS =====================
+//
+// Deux tables creees par la migration 20261029300000_ad_baremes_historique, en AJOUT SEUL (declencheur). Leurs cles
+// etrangeres (baremes_intervention, users) existent EN BASE mais ne sont pas declarees en `@relation` ici : le faire
+// imposerait d'ajouter un champ inverse a `BaremeIntervention` et `User`, que d'autres chantiers modifient en parallele.
+
+/// Historique d'une ligne de bareme : une ligne par modification ou approbation, ecrite dans la meme transaction que la
+/// mutation. `modifieCalcul` : un champ qui change le calcul (prix, unite, devise, validite, millesime, largeur, source)
+/// a change ; un simple libelle ou commentaire n'invalide pas l'approbation. L'auteur d'une version est l'auteur de la
+/// derniere ligne `modifieCalcul` de cette version : l'approbateur ne peut pas etre lui.
+model BaremeHistorique {
+  id                       Int      @id @default(autoincrement())
+  baremeId                 Int
+  version                  Int
+  evenement                String
+  champsModifies           String[] @default([])
+  modifieCalcul            Boolean  @default(false)
+  approbationReinitialisee Boolean  @default(false)
+  statutApprobation        String
+  valeursAvant             Json
+  valeursApres             Json
+  auteurId                 String?
+  auteurEmail              String
+  motif                    String
+  commentaire              String?
+  creeLe                   DateTime @default(now())
+
+  @@index([baremeId, id(sort: Desc)], map: "baremes_historique_bareme_idx")
+  @@map("baremes_historique")
+}
+
+/// Journal des exports gouvernes : qui, quand, type, filtres, perimetre, nombre de lignes, empreinte SHA-256 du fichier
+/// remis. Ecrit AVANT la remise du fichier : pas de fichier sans trace.
+model ExportJournal {
+  id               String   @id @default(dbgenerated("(gen_random_uuid())::text"))
+  type             String
+  format           String
+  auteurId         String?
+  auteurEmail      String
+  auteurRole       String
+  filtres          Json     @default("{}")
+  perimetre        Json     @default("{}")
+  nbLignes         Int
+  tailleOctets     Int
+  empreinteSha256  String
+  droitFinancier   Boolean
+  colonnesRetirees Json     @default("[]")
+  creeLe           DateTime @default(now())
+
+  @@index([creeLe(sort: Desc)], map: "exports_journal_recent_idx")
+  @@index([auteurId, creeLe(sort: Desc)], map: "exports_journal_auteur_idx")
+  @@map("exports_journal")
 }

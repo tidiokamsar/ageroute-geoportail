@@ -3,7 +3,7 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/auth.middleware";
 import { requireModuleAccess } from "../middleware/module-access.middleware";
 import { requireRole } from "../middleware/rbac.middleware";
-import { requireTerritoire } from "../middleware/territoire.middleware";
+import { requireTerritoireMasque } from "../middleware/territoire.middleware";
 import { prisma } from "../lib/prisma";
 import { perimetreDe, regionsFiche } from "../territoire/territoire.service";
 import { GROUPES, regionsDuPerimetre, type Groupe, type Portee } from "../tableau-de-bord/indicateurs.noyau";
@@ -81,13 +81,17 @@ tableauDeBordV2Router.get("/controle", requireRole("ADMIN", "GESTIONNAIRE"), asy
 /**
  * `/api/v2/fiche-360` -- les volets portion et programmation de la fiche d'un troncon.
  *
- * LECTURE REFUSEE HORS PERIMETRE (A10) : un compte regional qui demande un troncon d'une autre region
- * (ou d'une region inconnue) recoit 403, pas la fiche. Un troncon introuvable repond 404.
+ * LECTURE MASQUEE HORS PERIMETRE (A10, lot AD-7) : un compte regional qui demande un troncon d'une autre region (ou d'une
+ * region inconnue) recoit 404, le MEME 404 et le meme corps qu'un troncon inexistant. Avant, il recevait 403 : la difference
+ * entre 403 et 404 lui apprenait quels identifiants existent dans les autres regions (oracle d'existence).
  */
 export const fiche360V2Router = Router();
 fiche360V2Router.use(requireAuth);
 
-const horsPerimetre = requireTerritoire((req) => regionsFiche("troncon", req.params.id));
+const horsPerimetre = requireTerritoireMasque(
+  (req) => regionsFiche("troncon", req.params.id),
+  { corps: { error: "tronçon introuvable ou supprimé", code: "INTROUVABLE" } },
+);
 
 fiche360V2Router.get("/troncons/:id/portions", horsPerimetre, async (req, res, next) => {
   try {

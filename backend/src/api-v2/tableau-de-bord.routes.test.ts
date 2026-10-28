@@ -8,7 +8,7 @@ import request from "supertest";
  *   - la portee vient du COMPTE : un compte a perimetre regional ne recoit que ses regions, un
  *     indicateur sans ventilation regionale lui est refuse, et aucun parametre ne l'elargit (A10) ;
  *   - le rapprochement calcul / controle est reserve a ADMIN et GESTIONNAIRE ;
- *   - une fiche de troncon hors perimetre repond 403 SANS appeler le service ; un troncon inconnu, 404 ;
+ *   - une fiche de troncon hors perimetre repond 404 masque (comme un troncon inconnu) SANS appeler le service ; un troncon inconnu, 404 ;
  *   - les modules sont respectes (tableau de bord, programmation).
  */
 
@@ -172,13 +172,14 @@ describe("Fiche 360 : lecture refusee hors perimetre (A10)", () => {
     expect(r.body.tronconId).toBe("t-1");
   });
 
-  it("compte regional, troncon d'une AUTRE region : 403 et le service n'est pas appele", async () => {
+  it("compte regional, troncon d'une AUTRE region : 404 masque (identique a un troncon inconnu) et le service n'est pas appele", async () => {
+    // Lot AD-7 : un 403 revelait l'existence du troncon ; la ressource hors perimetre n'existe pas pour ce compte.
     h.national = false; h.regions = [5]; h.regionDuTroncon = 3;
     const r = await request(app).get("/fiche/troncons/t-1/portions");
-    expect(r.status).toBe(403);
-    expect(r.body.code).toBe("HORS_PERIMETRE");
+    expect(r.status).toBe(404);
+    expect(r.body.code).toBe("INTROUVABLE");
     expect(h.appelsFiche).toEqual([]);
-    expect((await request(app).get("/fiche/troncons/t-1/programmation")).status).toBe(403);
+    expect((await request(app).get("/fiche/troncons/t-1/programmation")).status).toBe(404);
     expect(h.appelsFiche).toEqual([]);
   });
 
@@ -191,8 +192,8 @@ describe("Fiche 360 : lecture refusee hors perimetre (A10)", () => {
   it("compte regional, troncon de region INCONNUE : refuse (on ne deduit pas une localisation d'une absence)", async () => {
     h.national = false; h.regions = [3]; h.regionDuTroncon = null;
     const r = await request(app).get("/fiche/troncons/t-1/portions");
-    expect(r.status).toBe(403);
-    expect(r.body.code).toBe("REGION_INCONNUE");
+    expect(r.status).toBe(404);
+    expect(r.body.code).toBe("INTROUVABLE");
   });
 
   it("troncon introuvable : 404", async () => {
@@ -209,12 +210,12 @@ describe("Fiche 360 : lecture refusee hors perimetre (A10)", () => {
 });
 
 describe("GET /fiche/troncons/:id/constats et /fiche/a-controler (phase 6)", () => {
-  it("le volet constats est rendu pour un troncon du perimetre, et 403 hors perimetre sans appeler le service", async () => {
+  it("le volet constats est rendu pour un troncon du perimetre, et 404 masque hors perimetre sans appeler le service", async () => {
     h.national = false; h.regions = [3]; h.regionDuTroncon = 3;
     expect((await request(app).get("/fiche/troncons/t-1/constats")).status).toBe(200);
     h.appelsFiche = [];
     h.regionDuTroncon = 9;
-    expect((await request(app).get("/fiche/troncons/t-1/constats")).status).toBe(403);
+    expect((await request(app).get("/fiche/troncons/t-1/constats")).status).toBe(404);
     expect(h.appelsFiche).toEqual([]);
   });
 

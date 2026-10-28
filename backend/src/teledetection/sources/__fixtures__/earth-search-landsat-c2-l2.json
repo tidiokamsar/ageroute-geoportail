@@ -1,0 +1,404 @@
+{
+ "_fixture": {
+  "capturee": "2026-10-25",
+  "reel": true,
+  "source": "earth-search",
+  "description": "un produit Landsat",
+  "params": {
+   "bbox": [
+    -14.39,
+    10.83,
+    -14.19,
+    11.03
+   ],
+   "collections": [
+    "landsat-c2-l2"
+   ],
+   "debut": "2026-10-01T00:00:00Z",
+   "fin": "2026-10-25T23:59:59Z",
+   "nuagesMax": 90,
+   "limiteParPage": 1,
+   "pagesMax": 1
+  },
+  "requete": {
+   "methode": "POST",
+   "url": "https://earth-search.aws.element84.com/v1/search",
+   "corps": {
+    "collections": [
+     "landsat-c2-l2"
+    ],
+    "bbox": [
+     -14.39,
+     10.83,
+     -14.19,
+     11.03
+    ],
+    "datetime": "2026-10-01T00:00:00Z/2026-10-25T23:59:59Z",
+    "limit": 1,
+    "sortby": [
+     {
+      "field": "properties.datetime",
+      "direction": "desc"
+     }
+    ],
+    "query": {
+     "eo:cloud_cover": {
+      "lte": 90
+     }
+    }
+   }
+  },
+  "reduction": "actifs limites aux bandes de reflectance, a la vignette et aux actifs retenus (les doublons -jp2, les metadonnees et les indices sont retires) ; champs d'actif limites a href, type, title, roles, gsd, file:size, nom de bande et resolution spatiale ; liens limites a self, license, derived_from/cite-as/via ; stac_extensions retire. Les proprietes, la geometrie et les liens `next` sont intacts."
+ },
+ "reponse": {
+  "type": "FeatureCollection",
+  "stac_version": "1.0.0",
+  "context": {
+   "limit": 1,
+   "matched": 3,
+   "returned": 1
+  },
+  "numberMatched": 3,
+  "numberReturned": 1,
+  "features": [
+   {
+    "type": "Feature",
+    "stac_version": "1.0.0",
+    "id": "LC09_L2SP_203053_20261015_02_T1",
+    "properties": {
+     "platform": "landsat-9",
+     "instruments": [
+      "oli",
+      "tirs"
+     ],
+     "created": "2026-10-22T23:44:03.982Z",
+     "gsd": 30,
+     "description": "Landsat Collection 2 Level-2",
+     "eo:cloud_cover": 77.07,
+     "view:off_nadir": 0,
+     "view:sun_elevation": 61.27445526,
+     "view:sun_azimuth": 129.96890023,
+     "proj:epsg": 32628,
+     "proj:shape": [
+      7731,
+      7581
+     ],
+     "proj:transform": [
+      30,
+      0,
+      437085,
+      0,
+      -30,
+      1234515
+     ],
+     "proj:centroid": {
+      "lat": 10.1185,
+      "lon": -14.53397
+     },
+     "landsat:cloud_cover_land": 62.74,
+     "landsat:wrs_type": "2",
+     "landsat:wrs_path": "203",
+     "landsat:wrs_row": "053",
+     "landsat:collection_category": "T1",
+     "landsat:collection_number": "02",
+     "landsat:correction": "L2SP",
+     "landsat:scene_id": "LC92030532026288LGN00",
+     "landsat:product_generated": "2026-10-21T03:28:46Z",
+     "grid:code": "WRS2-203053",
+     "sci:doi": "10.5066/P9OGBGM6",
+     "datetime": "2026-10-15T11:16:26.411531Z",
+     "earthsearch:payload_id": "usgs-landsat-c2l2/workflow-landsat-to-stac/b836be989934fcec788eb2646e23c4d9",
+     "processing:software": {
+      "landsat-to-stac": "v2023.11.16"
+     },
+     "updated": "2026-10-22T23:44:03.982Z"
+    },
+    "geometry": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        -15.178368685879962,
+        11.161884119369399
+       ],
+       [
+        -15.550400423363342,
+        9.426880616837984
+       ],
+       [
+        -13.89256767966331,
+        9.073150465684506
+       ],
+       [
+        -13.511356160471703,
+        10.811059939153038
+       ],
+       [
+        -15.178368685879962,
+        11.161884119369399
+       ]
+      ]
+     ]
+    },
+    "links": [
+     {
+      "rel": "self",
+      "type": "application/geo+json",
+      "href": "https://earth-search.aws.element84.com/v1/collections/landsat-c2-l2/items/LC09_L2SP_203053_20261015_02_T1"
+     },
+     {
+      "rel": "cite-as",
+      "href": "https://doi.org/10.5066/P9OGBGM6",
+      "title": "Landsat 8-9 OLI/TIRS Collection 2 Level-2"
+     },
+     {
+      "rel": "via",
+      "href": "https://landsatlook.usgs.gov/stac-server/collections/landsat-c2l2-sr/items/LC09_L2SP_203053_20261015_20261021_02_T1_SR",
+      "type": "application/json",
+      "title": "USGS STAC Item"
+     },
+     {
+      "rel": "via",
+      "href": "https://landsatlook.usgs.gov/stac-server/collections/landsat-c2l2-st/items/LC09_L2SP_203053_20261015_20261021_02_T1_ST",
+      "type": "application/json",
+      "title": "USGS STAC Item"
+     }
+    ],
+    "assets": {
+     "thumbnail": {
+      "href": "s3://usgs-landsat/collection02/level-2/standard/oli-tirs/2026/203/053/LC09_L2SP_203053_20261015_20261021_02_T1/LC09_L2SP_203053_20261015_20261021_02_T1_thumb_small.jpeg",
+      "type": "image/jpeg",
+      "title": "Thumbnail image",
+      "roles": [
+       "thumbnail"
+      ]
+     },
+     "qa_pixel": {
+      "href": "s3://usgs-landsat/collection02/level-2/standard/oli-tirs/2026/203/053/LC09_L2SP_203053_20261015_20261021_02_T1/LC09_L2SP_203053_20261015_20261021_02_T1_QA_PIXEL.TIF",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "title": "Pixel Quality Assessment Band",
+      "roles": [
+       "cloud",
+       "cloud-shadow",
+       "snow-ice",
+       "water-mask"
+      ],
+      "raster:bands": [
+       {
+        "spatial_resolution": 30
+       }
+      ]
+     },
+     "coastal": {
+      "href": "s3://usgs-landsat/collection02/level-2/standard/oli-tirs/2026/203/053/LC09_L2SP_203053_20261015_20261021_02_T1/LC09_L2SP_203053_20261015_20261021_02_T1_SR_B1.TIF",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "title": "Coastal/Aerosol Band",
+      "roles": [
+       "data",
+       "reflectance"
+      ],
+      "eo:bands": [
+       {
+        "name": "OLI_B1",
+        "common_name": "coastal"
+       }
+      ],
+      "raster:bands": [
+       {
+        "spatial_resolution": 30
+       }
+      ]
+     },
+     "blue": {
+      "href": "s3://usgs-landsat/collection02/level-2/standard/oli-tirs/2026/203/053/LC09_L2SP_203053_20261015_20261021_02_T1/LC09_L2SP_203053_20261015_20261021_02_T1_SR_B2.TIF",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "title": "Blue Band",
+      "roles": [
+       "data",
+       "reflectance"
+      ],
+      "eo:bands": [
+       {
+        "name": "OLI_B2",
+        "common_name": "blue"
+       }
+      ],
+      "raster:bands": [
+       {
+        "spatial_resolution": 30
+       }
+      ]
+     },
+     "green": {
+      "href": "s3://usgs-landsat/collection02/level-2/standard/oli-tirs/2026/203/053/LC09_L2SP_203053_20261015_20261021_02_T1/LC09_L2SP_203053_20261015_20261021_02_T1_SR_B3.TIF",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "title": "Green Band",
+      "roles": [
+       "data",
+       "reflectance"
+      ],
+      "eo:bands": [
+       {
+        "name": "OLI_B3",
+        "common_name": "green"
+       }
+      ],
+      "raster:bands": [
+       {
+        "spatial_resolution": 30
+       }
+      ]
+     },
+     "red": {
+      "href": "s3://usgs-landsat/collection02/level-2/standard/oli-tirs/2026/203/053/LC09_L2SP_203053_20261015_20261021_02_T1/LC09_L2SP_203053_20261015_20261021_02_T1_SR_B4.TIF",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "title": "Red Band",
+      "roles": [
+       "data",
+       "reflectance"
+      ],
+      "eo:bands": [
+       {
+        "name": "OLI_B4",
+        "common_name": "red"
+       }
+      ],
+      "raster:bands": [
+       {
+        "spatial_resolution": 30
+       }
+      ]
+     },
+     "nir08": {
+      "href": "s3://usgs-landsat/collection02/level-2/standard/oli-tirs/2026/203/053/LC09_L2SP_203053_20261015_20261021_02_T1/LC09_L2SP_203053_20261015_20261021_02_T1_SR_B5.TIF",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "title": "Near Infrared Band 0.8",
+      "roles": [
+       "data",
+       "reflectance"
+      ],
+      "eo:bands": [
+       {
+        "name": "OLI_B5",
+        "common_name": "nir08"
+       }
+      ],
+      "raster:bands": [
+       {
+        "spatial_resolution": 30
+       }
+      ]
+     },
+     "swir16": {
+      "href": "s3://usgs-landsat/collection02/level-2/standard/oli-tirs/2026/203/053/LC09_L2SP_203053_20261015_20261021_02_T1/LC09_L2SP_203053_20261015_20261021_02_T1_SR_B6.TIF",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "title": "Short-wave Infrared Band 1.6",
+      "roles": [
+       "data",
+       "reflectance"
+      ],
+      "eo:bands": [
+       {
+        "name": "OLI_B6",
+        "common_name": "swir16"
+       }
+      ],
+      "raster:bands": [
+       {
+        "spatial_resolution": 30
+       }
+      ]
+     },
+     "swir22": {
+      "href": "s3://usgs-landsat/collection02/level-2/standard/oli-tirs/2026/203/053/LC09_L2SP_203053_20261015_20261021_02_T1/LC09_L2SP_203053_20261015_20261021_02_T1_SR_B7.TIF",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "title": "Short-wave Infrared Band 2.2",
+      "roles": [
+       "data",
+       "reflectance"
+      ],
+      "eo:bands": [
+       {
+        "name": "OLI_B7",
+        "common_name": "swir22"
+       }
+      ],
+      "raster:bands": [
+       {
+        "spatial_resolution": 30
+       }
+      ]
+     },
+     "lwir11": {
+      "href": "s3://usgs-landsat/collection02/level-2/standard/oli-tirs/2026/203/053/LC09_L2SP_203053_20261015_20261021_02_T1/LC09_L2SP_203053_20261015_20261021_02_T1_ST_B10.TIF",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "title": "Surface Temperature Band",
+      "roles": [
+       "data",
+       "temperature"
+      ],
+      "gsd": 100,
+      "eo:bands": [
+       {
+        "name": "TIRS_B10",
+        "common_name": "lwir11"
+       }
+      ],
+      "raster:bands": [
+       {
+        "spatial_resolution": 30
+       }
+      ]
+     }
+    },
+    "bbox": [
+     -15.574073,
+     9.0688,
+     -13.494246,
+     11.165841
+    ],
+    "collection": "landsat-c2-l2"
+   }
+  ],
+  "links": [
+   {
+    "rel": "next",
+    "title": "Next page of Items",
+    "method": "POST",
+    "type": "application/geo+json",
+    "href": "https://earth-search.aws.element84.com/v1/search",
+    "merge": false,
+    "body": {
+     "datetime": "2026-10-01T00:00:00Z/2026-10-25T23:59:59Z",
+     "query": {
+      "eo:cloud_cover": {
+       "lte": 90
+      }
+     },
+     "sortby": [
+      {
+       "field": "properties.datetime",
+       "direction": "desc"
+      }
+     ],
+     "collections": [
+      "landsat-c2-l2"
+     ],
+     "bbox": [
+      -14.39,
+      10.83,
+      -14.19,
+      11.03
+     ],
+     "limit": 1,
+     "next": "2026-10-15T11:16:26.411531Z"
+    }
+   },
+   {
+    "rel": "root",
+    "type": "application/json",
+    "href": "https://earth-search.aws.element84.com/v1"
+   }
+  ]
+ }
+}

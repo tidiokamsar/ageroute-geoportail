@@ -1,0 +1,678 @@
+{
+ "_fixture": {
+  "capturee": "2026-10-25",
+  "reel": true,
+  "source": "cdse-stac",
+  "description": "une page de deux produits",
+  "params": {
+   "bbox": [
+    -14.39,
+    10.83,
+    -14.19,
+    11.03
+   ],
+   "collections": [
+    "sentinel-2-l1c"
+   ],
+   "debut": "2026-10-01T00:00:00Z",
+   "fin": "2026-10-25T23:59:59Z",
+   "nuagesMax": 50,
+   "limiteParPage": 2,
+   "pagesMax": 1
+  },
+  "requete": {
+   "methode": "POST",
+   "url": "https://stac.dataspace.copernicus.eu/v1/search",
+   "corps": {
+    "collections": [
+     "sentinel-2-l1c"
+    ],
+    "bbox": [
+     -14.39,
+     10.83,
+     -14.19,
+     11.03
+    ],
+    "datetime": "2026-10-01T00:00:00Z/2026-10-25T23:59:59Z",
+    "limit": 2,
+    "sortby": [
+     {
+      "field": "properties.datetime",
+      "direction": "desc"
+     }
+    ],
+    "query": {
+     "eo:cloud_cover": {
+      "lte": 50
+     }
+    },
+    "fields": {
+     "include": [
+      "id",
+      "bbox",
+      "geometry",
+      "collection",
+      "properties.datetime",
+      "properties.start_datetime",
+      "properties.end_datetime",
+      "properties.platform",
+      "properties.constellation",
+      "properties.gsd",
+      "properties.product:type",
+      "properties.processing:level",
+      "properties.processing:version",
+      "properties.sat:orbit_state",
+      "properties.sat:relative_orbit",
+      "properties.sat:absolute_orbit",
+      "properties.published",
+      "properties._private.product_size",
+      "properties.eo:cloud_cover",
+      "properties.grid:code",
+      "properties.statistics.nodata",
+      "assets.thumbnail.href",
+      "assets.thumbnail.type",
+      "assets.thumbnail.roles",
+      "assets.thumbnail.file:size",
+      "assets.thumbnail.gsd",
+      "assets.B02.href",
+      "assets.B02.type",
+      "assets.B02.roles",
+      "assets.B02.file:size",
+      "assets.B02.gsd",
+      "assets.B03.href",
+      "assets.B03.type",
+      "assets.B03.roles",
+      "assets.B03.file:size",
+      "assets.B03.gsd",
+      "assets.B04.href",
+      "assets.B04.type",
+      "assets.B04.roles",
+      "assets.B04.file:size",
+      "assets.B04.gsd",
+      "assets.B08.href",
+      "assets.B08.type",
+      "assets.B08.roles",
+      "assets.B08.file:size",
+      "assets.B08.gsd",
+      "assets.B8A.href",
+      "assets.B8A.type",
+      "assets.B8A.roles",
+      "assets.B8A.file:size",
+      "assets.B8A.gsd",
+      "assets.B11.href",
+      "assets.B11.type",
+      "assets.B11.roles",
+      "assets.B11.file:size",
+      "assets.B11.gsd",
+      "assets.B12.href",
+      "assets.B12.type",
+      "assets.B12.roles",
+      "assets.B12.file:size",
+      "assets.B12.gsd",
+      "assets.TCI.href",
+      "assets.TCI.type",
+      "assets.TCI.roles",
+      "assets.TCI.file:size",
+      "assets.TCI.gsd",
+      "assets.Product.href",
+      "assets.Product.type",
+      "assets.Product.roles",
+      "assets.Product.file:size",
+      "assets.Product.gsd",
+      "assets.B01.gsd",
+      "assets.B05.gsd",
+      "assets.B06.gsd",
+      "assets.B07.gsd",
+      "assets.B09.gsd",
+      "assets.B10.gsd"
+     ]
+    }
+   }
+  },
+  "reduction": "aucune : reponse telle que rendue (extension `fields` demandee par l'adaptateur)"
+ },
+ "reponse": {
+  "type": "FeatureCollection",
+  "links": [
+   {
+    "rel": "next",
+    "type": "application/geo+json",
+    "method": "POST",
+    "href": "https://stac.dataspace.copernicus.eu/v1/search",
+    "body": {
+     "collections": [
+      "sentinel-2-l1c"
+     ],
+     "bbox": [
+      -14.39,
+      10.83,
+      -14.19,
+      11.03
+     ],
+     "datetime": "2026-10-01T00:00:00Z/2026-10-25T23:59:59Z",
+     "limit": 2,
+     "sortby": [
+      {
+       "field": "properties.datetime",
+       "direction": "desc"
+      }
+     ],
+     "query": {
+      "eo:cloud_cover": {
+       "lte": 50
+      }
+     },
+     "fields": {
+      "include": [
+       "id",
+       "bbox",
+       "geometry",
+       "collection",
+       "properties.datetime",
+       "properties.start_datetime",
+       "properties.end_datetime",
+       "properties.platform",
+       "properties.constellation",
+       "properties.gsd",
+       "properties.product:type",
+       "properties.processing:level",
+       "properties.processing:version",
+       "properties.sat:orbit_state",
+       "properties.sat:relative_orbit",
+       "properties.sat:absolute_orbit",
+       "properties.published",
+       "properties._private.product_size",
+       "properties.eo:cloud_cover",
+       "properties.grid:code",
+       "properties.statistics.nodata",
+       "assets.thumbnail.href",
+       "assets.thumbnail.type",
+       "assets.thumbnail.roles",
+       "assets.thumbnail.file:size",
+       "assets.thumbnail.gsd",
+       "assets.B02.href",
+       "assets.B02.type",
+       "assets.B02.roles",
+       "assets.B02.file:size",
+       "assets.B02.gsd",
+       "assets.B03.href",
+       "assets.B03.type",
+       "assets.B03.roles",
+       "assets.B03.file:size",
+       "assets.B03.gsd",
+       "assets.B04.href",
+       "assets.B04.type",
+       "assets.B04.roles",
+       "assets.B04.file:size",
+       "assets.B04.gsd",
+       "assets.B08.href",
+       "assets.B08.type",
+       "assets.B08.roles",
+       "assets.B08.file:size",
+       "assets.B08.gsd",
+       "assets.B8A.href",
+       "assets.B8A.type",
+       "assets.B8A.roles",
+       "assets.B8A.file:size",
+       "assets.B8A.gsd",
+       "assets.B11.href",
+       "assets.B11.type",
+       "assets.B11.roles",
+       "assets.B11.file:size",
+       "assets.B11.gsd",
+       "assets.B12.href",
+       "assets.B12.type",
+       "assets.B12.roles",
+       "assets.B12.file:size",
+       "assets.B12.gsd",
+       "assets.TCI.href",
+       "assets.TCI.type",
+       "assets.TCI.roles",
+       "assets.TCI.file:size",
+       "assets.TCI.gsd",
+       "assets.Product.href",
+       "assets.Product.type",
+       "assets.Product.roles",
+       "assets.Product.file:size",
+       "assets.Product.gsd",
+       "assets.B01.gsd",
+       "assets.B05.gsd",
+       "assets.B06.gsd",
+       "assets.B07.gsd",
+       "assets.B09.gsd",
+       "assets.B10.gsd"
+      ]
+     },
+     "token": "(jeton de page retire)"
+    }
+   },
+   {
+    "rel": "root",
+    "type": "application/json",
+    "href": "https://stac.dataspace.copernicus.eu/v1/"
+   },
+   {
+    "rel": "self",
+    "type": "application/json",
+    "href": "https://stac.dataspace.copernicus.eu/v1/search"
+   }
+  ],
+  "features": [
+   {
+    "assets": {
+     "TCI": {
+      "file:size": 119776496,
+      "gsd": 10,
+      "roles": [
+       "visual"
+      ],
+      "href": "s3://eodata/Sentinel-2/MSI/L1C/2026/10/25/S2C_MSIL1C_20261025T112141_N0513_R037_T28PET_20261025T131709.SAFE/GRANULE/L1C_T28PET_A011161_20261025T113239/IMG_DATA/T28PET_20261025T112141_TCI.jp2",
+      "type": "image/jp2"
+     },
+     "Product": {
+      "type": "application/zip",
+      "file:size": 764183257,
+      "href": "https://download.dataspace.copernicus.eu/odata/v1/Products(6c3cc8f8-d75f-4724-bd74-b8b37c7518ce)/$value",
+      "roles": [
+       "data",
+       "metadata",
+       "archive"
+      ]
+     },
+     "B03": {
+      "href": "s3://eodata/Sentinel-2/MSI/L1C/2026/10/25/S2C_MSIL1C_20261025T112141_N0513_R037_T28PET_20261025T131709.SAFE/GRANULE/L1C_T28PET_A011161_20261025T113239/IMG_DATA/T28PET_20261025T112141_B03.jp2",
+      "file:size": 104448503,
+      "type": "image/jp2",
+      "gsd": 10,
+      "roles": [
+       "data",
+       "reflectance"
+      ]
+     },
+     "B08": {
+      "file:size": 125012042,
+      "href": "s3://eodata/Sentinel-2/MSI/L1C/2026/10/25/S2C_MSIL1C_20261025T112141_N0513_R037_T28PET_20261025T131709.SAFE/GRANULE/L1C_T28PET_A011161_20261025T113239/IMG_DATA/T28PET_20261025T112141_B08.jp2",
+      "type": "image/jp2",
+      "roles": [
+       "data",
+       "reflectance"
+      ],
+      "gsd": 10
+     },
+     "thumbnail": {
+      "type": "image/jpeg",
+      "roles": [
+       "thumbnail",
+       "overview"
+      ],
+      "file:size": 40136,
+      "href": "https://datahub.creodias.eu/odata/v1/Assets(aedb3f7c-99e7-4d42-b3d9-a6f5dab20dfa)/$value"
+     },
+     "B11": {
+      "href": "s3://eodata/Sentinel-2/MSI/L1C/2026/10/25/S2C_MSIL1C_20261025T112141_N0513_R037_T28PET_20261025T131709.SAFE/GRANULE/L1C_T28PET_A011161_20261025T113239/IMG_DATA/T28PET_20261025T112141_B11.jp2",
+      "file:size": 31123766,
+      "type": "image/jp2",
+      "gsd": 20,
+      "roles": [
+       "data",
+       "reflectance"
+      ]
+     },
+     "B8A": {
+      "href": "s3://eodata/Sentinel-2/MSI/L1C/2026/10/25/S2C_MSIL1C_20261025T112141_N0513_R037_T28PET_20261025T131709.SAFE/GRANULE/L1C_T28PET_A011161_20261025T113239/IMG_DATA/T28PET_20261025T112141_B8A.jp2",
+      "type": "image/jp2",
+      "gsd": 20,
+      "roles": [
+       "data",
+       "reflectance"
+      ],
+      "file:size": 33178210
+     },
+     "B07": {
+      "gsd": 20
+     },
+     "B02": {
+      "href": "s3://eodata/Sentinel-2/MSI/L1C/2026/10/25/S2C_MSIL1C_20261025T112141_N0513_R037_T28PET_20261025T131709.SAFE/GRANULE/L1C_T28PET_A011161_20261025T113239/IMG_DATA/T28PET_20261025T112141_B02.jp2",
+      "gsd": 10,
+      "file:size": 99320551,
+      "type": "image/jp2",
+      "roles": [
+       "data",
+       "reflectance"
+      ]
+     },
+     "B12": {
+      "file:size": 29008154,
+      "gsd": 20,
+      "href": "s3://eodata/Sentinel-2/MSI/L1C/2026/10/25/S2C_MSIL1C_20261025T112141_N0513_R037_T28PET_20261025T131709.SAFE/GRANULE/L1C_T28PET_A011161_20261025T113239/IMG_DATA/T28PET_20261025T112141_B12.jp2",
+      "type": "image/jp2",
+      "roles": [
+       "data",
+       "reflectance"
+      ]
+     },
+     "B05": {
+      "gsd": 20
+     },
+     "B04": {
+      "type": "image/jp2",
+      "file:size": 103138729,
+      "href": "s3://eodata/Sentinel-2/MSI/L1C/2026/10/25/S2C_MSIL1C_20261025T112141_N0513_R037_T28PET_20261025T131709.SAFE/GRANULE/L1C_T28PET_A011161_20261025T113239/IMG_DATA/T28PET_20261025T112141_B04.jp2",
+      "roles": [
+       "data",
+       "reflectance"
+      ],
+      "gsd": 10
+     },
+     "B10": {
+      "gsd": 60
+     },
+     "B06": {
+      "gsd": 20
+     },
+     "B09": {
+      "gsd": 60
+     },
+     "B01": {
+      "gsd": 60
+     }
+    },
+    "properties": {
+     "datetime": "2026-10-25T11:21:41.025000Z",
+     "gsd": 10,
+     "sat:relative_orbit": 37,
+     "processing:level": "L1",
+     "eo:cloud_cover": 20.76,
+     "constellation": "sentinel-2",
+     "product:type": "S2MSI1C",
+     "sat:orbit_state": "descending",
+     "_private": {
+      "product_size": 764159885
+     },
+     "grid:code": "MGRS-28PET",
+     "start_datetime": "2026-10-25T11:21:41.025000Z",
+     "published": "2026-10-25T14:30:50.035353Z",
+     "platform": "sentinel-2c",
+     "sat:absolute_orbit": 11161,
+     "end_datetime": "2026-10-25T11:21:41.025000Z",
+     "processing:version": "05.13"
+    },
+    "id": "S2C_MSIL1C_20261025T112141_N0513_R037_T28PET_20261025T131709",
+    "geometry": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        -13.994307339129934,
+        11.231368206715036
+       ],
+       [
+        -13.992477155478163,
+        11.7582650727341
+       ],
+       [
+        -15.000183562989813,
+        11.76004402797152
+       ],
+       [
+        -15.000182934531386,
+        10.767029753366492
+       ],
+       [
+        -14.101671291038892,
+        10.76557575117088
+       ],
+       [
+        -14.097385671062131,
+        10.784100236281432
+       ],
+       [
+        -14.063162329850162,
+        10.932590925754564
+       ],
+       [
+        -14.029133396257809,
+        11.081172814927864
+       ],
+       [
+        -13.994710286699334,
+        11.229633487563047
+       ],
+       [
+        -13.994307339129934,
+        11.231368206715036
+       ]
+      ]
+     ]
+    },
+    "collection": "sentinel-2-l1c",
+    "bbox": [
+     -15.000183562989813,
+     10.76557575117088,
+     -13.992477155478163,
+     11.76004402797152
+    ],
+    "links": [
+     {
+      "rel": "collection",
+      "type": "application/json",
+      "href": "https://stac.dataspace.copernicus.eu/v1/collections/sentinel-2-l1c"
+     },
+     {
+      "rel": "parent",
+      "type": "application/json",
+      "href": "https://stac.dataspace.copernicus.eu/v1/collections/sentinel-2-l1c"
+     },
+     {
+      "rel": "root",
+      "type": "application/json",
+      "href": "https://stac.dataspace.copernicus.eu/v1/"
+     },
+     {
+      "rel": "self",
+      "type": "application/geo+json",
+      "href": "https://stac.dataspace.copernicus.eu/v1/collections/sentinel-2-l1c/items/S2C_MSIL1C_20261025T112141_N0513_R037_T28PET_20261025T131709"
+     }
+    ]
+   },
+   {
+    "assets": {
+     "TCI": {
+      "file:size": 93296620,
+      "gsd": 10,
+      "roles": [
+       "visual"
+      ],
+      "href": "s3://eodata/Sentinel-2/MSI/L1C/2026/10/25/S2C_MSIL1C_20261025T112141_N0513_R037_T28PES_20261025T131709.SAFE/GRANULE/L1C_T28PES_A011161_20261025T113239/IMG_DATA/T28PES_20261025T112141_TCI.jp2",
+      "type": "image/jp2"
+     },
+     "Product": {
+      "type": "application/zip",
+      "file:size": 575965869,
+      "href": "https://download.dataspace.copernicus.eu/odata/v1/Products(f23fd9a0-1c51-4537-8098-78f424b53e87)/$value",
+      "roles": [
+       "data",
+       "metadata",
+       "archive"
+      ]
+     },
+     "B03": {
+      "href": "s3://eodata/Sentinel-2/MSI/L1C/2026/10/25/S2C_MSIL1C_20261025T112141_N0513_R037_T28PES_20261025T131709.SAFE/GRANULE/L1C_T28PES_A011161_20261025T113239/IMG_DATA/T28PES_20261025T112141_B03.jp2",
+      "file:size": 81139836,
+      "type": "image/jp2",
+      "gsd": 10,
+      "roles": [
+       "data",
+       "reflectance"
+      ]
+     },
+     "B08": {
+      "file:size": 86139742,
+      "href": "s3://eodata/Sentinel-2/MSI/L1C/2026/10/25/S2C_MSIL1C_20261025T112141_N0513_R037_T28PES_20261025T131709.SAFE/GRANULE/L1C_T28PES_A011161_20261025T113239/IMG_DATA/T28PES_20261025T112141_B08.jp2",
+      "type": "image/jp2",
+      "roles": [
+       "data",
+       "reflectance"
+      ],
+      "gsd": 10
+     },
+     "thumbnail": {
+      "type": "image/jpeg",
+      "roles": [
+       "thumbnail",
+       "overview"
+      ],
+      "file:size": 24195,
+      "href": "https://datahub.creodias.eu/odata/v1/Assets(10f3870a-51f6-4592-8398-9deacabe8618)/$value"
+     },
+     "B11": {
+      "href": "s3://eodata/Sentinel-2/MSI/L1C/2026/10/25/S2C_MSIL1C_20261025T112141_N0513_R037_T28PES_20261025T131709.SAFE/GRANULE/L1C_T28PES_A011161_20261025T113239/IMG_DATA/T28PES_20261025T112141_B11.jp2",
+      "file:size": 21715411,
+      "type": "image/jp2",
+      "gsd": 20,
+      "roles": [
+       "data",
+       "reflectance"
+      ]
+     },
+     "B8A": {
+      "href": "s3://eodata/Sentinel-2/MSI/L1C/2026/10/25/S2C_MSIL1C_20261025T112141_N0513_R037_T28PES_20261025T131709.SAFE/GRANULE/L1C_T28PES_A011161_20261025T113239/IMG_DATA/T28PES_20261025T112141_B8A.jp2",
+      "type": "image/jp2",
+      "gsd": 20,
+      "roles": [
+       "data",
+       "reflectance"
+      ],
+      "file:size": 23356160
+     },
+     "B07": {
+      "gsd": 20
+     },
+     "B02": {
+      "href": "s3://eodata/Sentinel-2/MSI/L1C/2026/10/25/S2C_MSIL1C_20261025T112141_N0513_R037_T28PES_20261025T131709.SAFE/GRANULE/L1C_T28PES_A011161_20261025T113239/IMG_DATA/T28PES_20261025T112141_B02.jp2",
+      "gsd": 10,
+      "file:size": 79774533,
+      "type": "image/jp2",
+      "roles": [
+       "data",
+       "reflectance"
+      ]
+     },
+     "B12": {
+      "file:size": 20634131,
+      "gsd": 20,
+      "href": "s3://eodata/Sentinel-2/MSI/L1C/2026/10/25/S2C_MSIL1C_20261025T112141_N0513_R037_T28PES_20261025T131709.SAFE/GRANULE/L1C_T28PES_A011161_20261025T113239/IMG_DATA/T28PES_20261025T112141_B12.jp2",
+      "type": "image/jp2",
+      "roles": [
+       "data",
+       "reflectance"
+      ]
+     },
+     "B05": {
+      "gsd": 20
+     },
+     "B04": {
+      "type": "image/jp2",
+      "file:size": 81016733,
+      "href": "s3://eodata/Sentinel-2/MSI/L1C/2026/10/25/S2C_MSIL1C_20261025T112141_N0513_R037_T28PES_20261025T131709.SAFE/GRANULE/L1C_T28PES_A011161_20261025T113239/IMG_DATA/T28PES_20261025T112141_B04.jp2",
+      "roles": [
+       "data",
+       "reflectance"
+      ],
+      "gsd": 10
+     },
+     "B10": {
+      "gsd": 60
+     },
+     "B06": {
+      "gsd": 20
+     },
+     "B09": {
+      "gsd": 60
+     },
+     "B01": {
+      "gsd": 60
+     }
+    },
+    "properties": {
+     "datetime": "2026-10-25T11:21:41.025000Z",
+     "gsd": 10,
+     "sat:relative_orbit": 37,
+     "processing:level": "L1",
+     "eo:cloud_cover": 25.24,
+     "constellation": "sentinel-2",
+     "product:type": "S2MSI1C",
+     "sat:orbit_state": "descending",
+     "_private": {
+      "product_size": 575942497
+     },
+     "grid:code": "MGRS-28PES",
+     "start_datetime": "2026-10-25T11:21:41.025000Z",
+     "published": "2026-10-25T14:30:50.086058Z",
+     "platform": "sentinel-2c",
+     "sat:absolute_orbit": 11161,
+     "end_datetime": "2026-10-25T11:21:41.025000Z",
+     "processing:version": "05.13"
+    },
+    "id": "S2C_MSIL1C_20261025T112141_N0513_R037_T28PES_20261025T131709",
+    "geometry": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        -14.081279658503018,
+        10.853982159695999
+       ],
+       [
+        -15.000182988120683,
+        10.855481221715783
+       ],
+       [
+        -15.000182413015212,
+        9.862408925783892
+       ],
+       [
+        -14.30866101042615,
+        9.861382870801462
+       ],
+       [
+        -14.081279658503018,
+        10.853982159695999
+       ]
+      ]
+     ]
+    },
+    "collection": "sentinel-2-l1c",
+    "bbox": [
+     -15.000182988120683,
+     9.861382870801462,
+     -14.08127965850302,
+     10.855481221715785
+    ],
+    "links": [
+     {
+      "rel": "collection",
+      "type": "application/json",
+      "href": "https://stac.dataspace.copernicus.eu/v1/collections/sentinel-2-l1c"
+     },
+     {
+      "rel": "parent",
+      "type": "application/json",
+      "href": "https://stac.dataspace.copernicus.eu/v1/collections/sentinel-2-l1c"
+     },
+     {
+      "rel": "root",
+      "type": "application/json",
+      "href": "https://stac.dataspace.copernicus.eu/v1/"
+     },
+     {
+      "rel": "self",
+      "type": "application/geo+json",
+      "href": "https://stac.dataspace.copernicus.eu/v1/collections/sentinel-2-l1c/items/S2C_MSIL1C_20261025T112141_N0513_R037_T28PES_20261025T131709"
+     }
+    ]
+   }
+  ],
+  "numberReturned": 2
+ }
+}

@@ -15,6 +15,7 @@ import type { LigneBareme } from "../engines/cout.noyau";
 import type { ConditionTraitement, LigneMatrice, Traitement } from "../engines/traitement.noyau";
 import { fragmentPerimetre } from "../lib/reseau";
 import type { ParametresProgrammation } from "./parametres.noyau";
+import { candidatDepuisMesures, resoudreSecurite } from "./priorite.noyau";
 import type { CandidatTroncon } from "./scenario.noyau";
 
 export type Db = Pick<PrismaClient, "$queryRaw" | "$executeRaw">;
@@ -79,52 +80,72 @@ export async function poserApprobation(db: Db, id: string, approbateurId: string
 export interface FiltreCandidats {
   regionId?: number | null;
   classe?: string | null;
+  /**
+   * Nombre minimum de points noirs CONFIRMES que le registre de la region doit compter pour qu'un « zero point noir » soit une donnee
+   * (parametre `registrePointsNoirsMinimum` de la version : `blocEffectif(parametres).bloc.registrePointsNoirsMinimum`). Obligatoire :
+   * le simulateur, le moteur v2 et la liste priorisee appliquent LA MEME regle (`resoudreSecurite`).
+   */
+  registrePointsNoirsMinimum: number;
   /** Plafond de lignes lu : on demande une ligne de plus que le maximum pour savoir si on le depasse. */
   limite: number;
 }
 
 interface LigneCandidat {
   id: string; code: string; nom: string | null; regionId: number | null; classe: string | null; revetement: string | null; etat: string | null;
-  longueurKm: number | null; longueurGeometriqueM: number | null; traficMoyenJma: number | null; criticiteStrategique: number | null; nbPointsNoirs: number | null;
+  longueurKm: number | null; longueurGeometriqueM: number | null; longueurDerivee: boolean; traficMoyenJma: number | null; criticiteStrategique: number | null;
+  /** Points noirs CONFIRMES rattaches au troncon, alertes non confirmees du troncon, points noirs CONFIRMES du registre de la region. */
+  pnConfirmes: number; pnNonConfirmes: number; pnRegistre: number;
 }
 
 /**
  * Les troncons candidats : reseau classe de reference, non supprimes, ni rejetes ni a corriger.
  *
- * SECURITE : le nombre de points noirs n'est lu que si le registre en contient au moins un (sinon
- * il n'y a pas de source et le facteur est ABSENT, pas zero). Le registre n'est pas prouve
- * exhaustif ; le facteur le dit.
+ * POINTS NOIRS : la regle du lot 3, UNE SEULE FOIS (`resoudreSecurite`, priorite.noyau.ts). Ce depot ne dit jamais « zero » :
+ * il releve trois comptes (points noirs confirmes du troncon, alertes non confirmees, confirmes du registre de la REGION) et
+ * la regle decide. Un troncon sans point noir n'a zero que si le registre de sa region est exploite (au moins `registrePointsNoirsMinimum`
+ * points confirmes) ; sinon le facteur est ABSENT. L'ancienne lecture donnait 0 a tout troncon sans point noir des que le registre
+ * national n'etait pas vide, et comptait les alertes A_VALIDER et les points rejetes : le simulateur classait autrement que la liste.
  *
- * LONGUEUR : la colonne `longueurKm` si elle est positive, sinon la longueur de la geometrie
- * (geography), AVEC SON ORIGINE, pour que la ligne dise de quoi son cout est fait.
+ * LONGUEUR : `candidatDepuisMesures` (la meme fonction que la liste) : la colonne `longueurKm` si elle est positive, sinon la longueur
+ * de la geometrie (geography), AVEC SON ORIGINE ; le drapeau « derivee » (valeurs_qualite DERIVED) est conserve pour l'affichage.
  */
 export async function chargerCandidats(db: Db, f: FiltreCandidats): Promise<CandidatTroncon[]> {
   const region = f.regionId != null ? Prisma.sql`AND tr."regionId" = ${f.regionId}` : Prisma.empty;
   const classe = f.classe ? Prisma.sql`AND tr."classe"::text = ${f.classe}` : Prisma.empty;
   const lignes = await db.$queryRaw<LigneCandidat[]>`
+    WITH pn_troncon AS (
+      SELECT "tronconId",
+             count(*) FILTER (WHERE "statutValidation" IS NULL OR "statutValidation" = 'VALIDE')::int AS "confirmes",
+             count(*) FILTER (WHERE "statutValidation" IN ('A_VALIDER', 'A_CORRIGER'))::int AS "nonConfirmes"
+        FROM "points_noirs" WHERE "deletedAt" IS NULL AND "tronconId" IS NOT NULL GROUP BY "tronconId"
+    ), pn_region AS (
+      SELECT "regionId", count(*)::int AS "n"
+        FROM "points_noirs" WHERE "deletedAt" IS NULL AND ("statutValidation" IS NULL OR "statutValidation" = 'VALIDE') GROUP BY "regionId"
+    )
     SELECT tr."id", tr."code", tr."nom", tr."regionId", tr."classe"::text AS "classe", tr."revetement"::text AS "revetement", tr."etat"::text AS "etat",
            tr."longueurKm", ST_Length(tr."geom"::geography) AS "longueurGeometriqueM",
+           EXISTS (SELECT 1 FROM "valeurs_qualite" vl WHERE vl."entityType" = 'Troncon' AND vl."entityId" = tr."id" AND vl."champ" = 'longueurKm' AND vl."statut" = 'DERIVED') AS "longueurDerivee",
            tr."traficMoyenJma", tr."criticiteStrategique",
-           CASE WHEN EXISTS (SELECT 1 FROM "points_noirs" x WHERE x."deletedAt" IS NULL)
-                THEN (SELECT count(*)::int FROM "points_noirs" pn WHERE pn."tronconId" = tr."id" AND pn."deletedAt" IS NULL)
-                ELSE NULL END AS "nbPointsNoirs"
+           COALESCE(pt."confirmes", 0) AS "pnConfirmes", COALESCE(pt."nonConfirmes", 0) AS "pnNonConfirmes", COALESCE(pr."n", 0) AS "pnRegistre"
       FROM "troncons" tr
+      LEFT JOIN pn_troncon pt ON pt."tronconId" = tr."id"
+      LEFT JOIN pn_region pr ON pr."regionId" = tr."regionId"
      WHERE tr."deletedAt" IS NULL
        AND (tr."statutValidation" IS NULL OR tr."statutValidation" = 'VALIDE')
        ${fragmentPerimetre("reference", 'tr."sourceReference"')}
        ${region} ${classe}
      ORDER BY tr."id" ASC
      LIMIT ${f.limite}`;
-  return lignes.map((l) => {
-    const saisie = l.longueurKm !== null && l.longueurKm > 0;
-    const geo = l.longueurGeometriqueM !== null && l.longueurGeometriqueM > 0;
+  return lignes.map((l): CandidatTroncon => {
+    const secu = resoudreSecurite({ confirmes: l.pnConfirmes, nonConfirmes: l.pnNonConfirmes, registreRegion: l.pnRegistre }, f.registrePointsNoirsMinimum);
     return {
-      id: l.id, code: l.code, nom: l.nom, regionId: l.regionId, classe: l.classe, revetement: l.revetement, etat: l.etat,
-      longueurM: saisie ? Math.round((l.longueurKm as number) * 1000) : geo ? Math.round(l.longueurGeometriqueM as number) : null,
-      longueurOrigine: saisie ? "LONGUEUR_KM" : geo ? "GEOMETRIE" : null,
-      traficMoyenJma: l.traficMoyenJma, criticiteStrategique: l.criticiteStrategique, nbPointsNoirs: l.nbPointsNoirs,
-      vulnerabiliteClimatique: null, populationDesservie: null,
-    } satisfies CandidatTroncon;
+      ...candidatDepuisMesures({
+        id: l.id, code: l.code, nom: l.nom, regionId: l.regionId, classe: l.classe, revetement: l.revetement, etat: l.etat,
+        longueurKm: l.longueurKm, longueurGeometriqueM: l.longueurGeometriqueM, traficMoyenJma: l.traficMoyenJma, criticiteStrategique: l.criticiteStrategique,
+      }, secu.nb),
+      // Drapeau d'affichage seulement (jamais serialise ni utilise par le calcul) : « metier » mais derive de la geometrie.
+      longueurMetierDerivee: l.longueurKm !== null && l.longueurKm > 0 ? l.longueurDerivee : null,
+    };
   });
 }
 

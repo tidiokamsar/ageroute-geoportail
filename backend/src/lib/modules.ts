@@ -7,6 +7,9 @@ export const MODULE_KEYS = [
   "troncons", "ouvrages", "points-noirs", "postes",
   "chantiers", "programmation", "marches", "inspections",
   "documents", "decision", "ordres-travaux", "signalements",
+  // Observation de la Terre (Lot 1 EO, contrat §2). L'attribution de cette cle a un compte est un geste d'administration :
+  // aucune migration de donnees ne l'octroie (un compte non ADMIN sans la cle recoit 403).
+  "teledetection",
 ] as const;
 
 export type ModuleKey = (typeof MODULE_KEYS)[number];

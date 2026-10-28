@@ -40,7 +40,9 @@ const h = vi.hoisted(() => {
     base,
     lignes: [] as Array<typeof base & { troncon?: { code: string } | null }>,
     creee: null as Record<string, unknown> | null,
-    audite: [] as Array<{ action: string; entityId?: string; after?: unknown; before?: unknown }>,
+    audite: [] as Array<{ action: string; entityId?: string; after?: unknown; before?: unknown; userId?: string }>,
+    /** Entrees d'audit anterieures a ce correctif (sans le drapeau `contenuModifie`) : le journal est relu pour opposer l'approbateur a ceux qui ont modifie le contenu. */
+    auditAnterieur: [] as Array<{ userId: string | null; before: unknown; after: unknown }>,
     tronconConnu: { id: "t1", code: "RN1-001" },
   };
 });
@@ -81,6 +83,13 @@ vi.mock("../lib/prisma", () => ({
       }),
     },
     troncon: { findUnique: vi.fn(async () => h.tronconConnu) },
+    auditLog: {
+      // Journal de la ligne, du plus recent au plus ancien : les ecritures de ce test, puis les entrees anterieures.
+      findMany: vi.fn(async () => [
+        ...h.audite.filter((a) => a.action === "UPDATE").reverse().map((a) => ({ userId: a.userId ?? null, before: a.before, after: a.after })),
+        ...h.auditAnterieur,
+      ]),
+    },
     $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn({
       programmeBudgetaire: {
         create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
@@ -97,8 +106,8 @@ vi.mock("../lib/prisma", () => ({
   },
 }));
 vi.mock("../utils/audit", () => ({
-  logAuditTransactionnelle: vi.fn(async (_tx: unknown, p: { action: string; entityId?: string; after?: unknown; before?: unknown }) => {
-    h.audite.push({ action: p.action, entityId: p.entityId, after: p.after, before: p.before });
+  logAuditTransactionnelle: vi.fn(async (_tx: unknown, p: { action: string; entityId?: string; after?: unknown; before?: unknown; userId?: string }) => {
+    h.audite.push({ action: p.action, entityId: p.entityId, after: p.after, before: p.before, userId: p.userId });
   }),
 }));
 
@@ -108,9 +117,11 @@ const app = express();
 app.use(express.json(), programmationV2Router);
 
 beforeEach(() => {
+  h.compte = { id: "u1", role: "GESTIONNAIRE" };
   h.lignes = [{ ...h.base }];
   h.creee = null;
   h.audite = [];
+  h.auditAnterieur = [];
 });
 
 describe("GET /api/v2/programmation", () => {
@@ -158,14 +169,128 @@ describe("POST /api/v2/programmation", () => {
 });
 
 describe("PATCH /api/v2/programmation/:id", () => {
-  it("révise montant et statut, avec before/after dans l'audit", async () => {
-    const r = await request(app).patch("/p1").send({ montantPrevuGnf: "3100000000", statut: "RETENU" });
+  // CONTRAT MODIFIE (AD-07, revue : separation des taches des previsions). Ce test envoyait {montantPrevuGnf, statut: "RETENU"} dans UNE
+  // requete par un compte etranger a la saisie : modifier le contenu ET le retenir d'un seul geste, la porte que la separation des
+  // taches doit fermer (le compte B changeait le montant puis se l'approuvait). Modification et retenue sont deux actes distincts.
+  it("retient une prevision (compte etranger a la saisie), avec before/after dans l'audit", async () => {
+    h.compte = { id: "u2", role: "GESTIONNAIRE" };
+    const r = await request(app).patch("/p1").send({ statut: "RETENU" });
     expect(r.status).toBe(200);
-    expect(r.body.montantPrevuGnf).toBe("3100000000");
     expect(r.body.statut).toBe("RETENU");
     expect(h.audite[0].action).toBe("UPDATE");
     expect((h.audite[0].before as { statut?: string } | undefined)?.statut).toBe("PROPOSE");
     expect((h.audite[0].after as { statut?: string } | undefined)?.statut).toBe("RETENU");
+  });
+
+  it("revise le montant (acte distinct), avec before/after dans l'audit et le drapeau contenuModifie", async () => {
+    h.compte = { id: "u2", role: "GESTIONNAIRE" };
+    const r = await request(app).patch("/p1").send({ montantPrevuGnf: "3100000000" });
+    expect(r.status).toBe(200);
+    expect(r.body.montantPrevuGnf).toBe("3100000000");
+    expect(r.body.statut).toBe("PROPOSE");
+    expect(h.audite[0].before).toMatchObject({ montantPrevuGnf: "2400000000" });
+    expect(h.audite[0].after).toMatchObject({ montantPrevuGnf: "3100000000", contenuModifie: true });
+  });
+
+  it("SEPARATION DES TACHES : modifier le contenu ET retenir dans la meme requete est refuse (422), rien n'est modifie ni audite", async () => {
+    h.compte = { id: "u2", role: "GESTIONNAIRE" };
+    for (const corps of [
+      { montantPrevuGnf: "3100000000", statut: "RETENU" }, { annee: 2028, statut: "RETENU" }, { intitule: "Autre objet", statut: "RETENU" },
+      { tronconId: "t1", statut: "RETENU" }, { bailleur: "BAD", statut: "RETENU" }, { typeIntervention: "Reconstruction", statut: "RETENU" }, { priorite: 1, statut: "RETENU" },
+    ]) {
+      const r = await request(app).patch("/p1").send(corps);
+      expect([r.status, r.body.code], JSON.stringify(corps)).toEqual([422, "MODIFICATION_ET_APPROBATION"]);
+    }
+    expect(h.lignes[0]).toMatchObject({ montantPrevuGnf: 2_400_000_000n, statut: "PROPOSE", annee: 2027 });
+    expect(h.audite).toEqual([]);
+  });
+
+  it("un champ renvoye a l'identique, ou un simple commentaire, n'est pas une modification : la retenue passe", async () => {
+    h.compte = { id: "u2", role: "GESTIONNAIRE" };
+    expect((await request(app).patch("/p1").send({ montantPrevuGnf: "2400000000", annee: 2027, bailleur: "AFD", statut: "RETENU" })).status).toBe(200);
+    h.lignes = [{ ...h.base }];
+    expect((await request(app).patch("/p1").send({ commentaire: "arbitrage du comite", statut: "RETENU" })).status).toBe(200);
+  });
+
+  it("SEPARATION DES TACHES : celui qui a modifie le contenu ne peut pas ensuite retenir (deux requetes), un troisieme compte le peut", async () => {
+    h.compte = { id: "u2", role: "GESTIONNAIRE" };
+    expect((await request(app).patch("/p1").send({ montantPrevuGnf: "9900000000" })).status).toBe(200);
+    const refus = await request(app).patch("/p1").send({ statut: "RETENU" });
+    expect([refus.status, refus.body.code]).toEqual([403, "AUTO_VALIDATION"]);
+    expect(refus.body.error).toMatch(/a modifié le contenu de cette prévision/);
+    expect(h.lignes[0].statut).toBe("PROPOSE");
+    // le createur reste exclu, et un compte etranger a la saisie ET aux modifications retient
+    h.compte = { id: "u1", role: "ADMIN" };
+    expect((await request(app).patch("/p1").send({ statut: "RETENU" })).status).toBe(403);
+    h.compte = { id: "u3", role: "GESTIONNAIRE" };
+    expect((await request(app).patch("/p1").send({ statut: "RETENU" })).status).toBe(200);
+    expect(h.lignes[0]).toMatchObject({ statut: "RETENU", montantPrevuGnf: 9_900_000_000n });
+  });
+
+  it("tous les modificateurs sont opposes, pas seulement le dernier ; une entree d'audit ancienne (sans drapeau) compte si le montant a change ; un report n'est pas une modification", async () => {
+    h.auditAnterieur = [{ userId: "u4", before: { annee: 2027, statut: "PROPOSE", montantPrevuGnf: "1" }, after: { annee: 2027, statut: "PROPOSE", montantPrevuGnf: "2400000000" } }];
+    h.compte = { id: "u4", role: "GESTIONNAIRE" };
+    expect((await request(app).patch("/p1").send({ statut: "RETENU" })).status).toBe(403);
+    h.compte = { id: "u2", role: "GESTIONNAIRE" };
+    await request(app).patch("/p1").send({ montantPrevuGnf: "5" });
+    h.compte = { id: "u1", role: "GESTIONNAIRE" };
+    await request(app).patch("/p1").send({ montantPrevuGnf: "6" }); // le dernier modificateur est u1, mais u2 a aussi modifie
+    h.compte = { id: "u2", role: "GESTIONNAIRE" };
+    expect((await request(app).patch("/p1").send({ statut: "RETENU" })).status).toBe(403);
+    h.audite = []; h.auditAnterieur = []; h.lignes = [{ ...h.base }];
+    h.compte = { id: "u2", role: "GESTIONNAIRE" };
+    await request(app).patch("/p1").send({ statut: "REPORTE" });
+    await request(app).patch("/p1").send({ statut: "PROPOSE" });
+    expect((await request(app).patch("/p1").send({ statut: "RETENU" })).status).toBe(200);
+  });
+
+  it("SEPARATION DES TACHES : modifier le contenu d'une prevision RETENUE la renvoie a PROPOSE (nouvelle approbation distincte), et l'audit le dit", async () => {
+    h.lignes = [{ ...h.base, statut: "RETENU" }];
+    h.compte = { id: "u1", role: "GESTIONNAIRE" };
+    const r = await request(app).patch("/p1").send({ montantPrevuGnf: "7000000000" });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ statut: "PROPOSE", montantPrevuGnf: "7000000000" });
+    expect(h.audite[0].before).toMatchObject({ statut: "RETENU" });
+    expect(h.audite[0].after).toMatchObject({ statut: "PROPOSE", contenuModifie: true, reouverte: true });
+    // un report ou une annulation explicites d'une ligne retenue restent possibles avec la modification
+    h.lignes = [{ ...h.base, statut: "RETENU" }];
+    const a = await request(app).patch("/p1").send({ montantPrevuGnf: "1", statut: "ANNULE" });
+    expect([a.status, a.body.statut]).toEqual([200, "ANNULE"]);
+    // modifier ET garder RETENU dans la meme requete : refuse
+    h.lignes = [{ ...h.base, statut: "RETENU" }];
+    expect((await request(app).patch("/p1").send({ montantPrevuGnf: "2", statut: "RETENU" })).status).toBe(422);
+    // un commentaire n'est pas un contenu : la ligne reste retenue
+    h.lignes = [{ ...h.base, statut: "RETENU" }];
+    expect((await request(app).patch("/p1").send({ commentaire: "note" })).body.statut).toBe("RETENU");
+  });
+
+  it("AD-07 : l'auteur de la saisie ne peut pas la retenir lui-meme (403 AUTO_VALIDATION), rien n'est modifie ni audite", async () => {
+    h.compte = { id: "u1", role: "GESTIONNAIRE" };
+    const r = await request(app).patch("/p1").send({ statut: "RETENU" });
+    expect(r.status).toBe(403);
+    expect(r.body.code).toBe("AUTO_VALIDATION");
+    expect(r.body.error).toMatch(/a saisi cette prévision/);
+    expect(h.lignes[0].statut).toBe("PROPOSE");
+    expect(h.audite).toEqual([]);
+  });
+
+  it("AD-07 : un ADMIN auteur n'echappe pas a la regle ; un ADMIN etranger retient", async () => {
+    h.compte = { id: "u1", role: "ADMIN" };
+    expect((await request(app).patch("/p1").send({ statut: "RETENU" })).status).toBe(403);
+    h.compte = { id: "admin2", role: "ADMIN" };
+    expect((await request(app).patch("/p1").send({ statut: "RETENU" })).status).toBe(200);
+  });
+
+  it("AD-07 : l'auteur garde la main sur sa proposition (montant, report, annulation) : seul RETENU est un arbitrage", async () => {
+    h.compte = { id: "u1", role: "GESTIONNAIRE" };
+    expect((await request(app).patch("/p1").send({ montantPrevuGnf: "1" })).status).toBe(200);
+    expect((await request(app).patch("/p1").send({ statut: "REPORTE" })).status).toBe(200);
+    expect((await request(app).patch("/p1").send({ statut: "ANNULE" })).status).toBe(200);
+  });
+
+  it("AD-07 : une prevision sans auteur identifie (createdById nul) peut etre retenue par tout compte habilite", async () => {
+    h.lignes = [{ ...h.base, createdById: null as unknown as string }];
+    expect((await request(app).patch("/p1").send({ statut: "RETENU" })).status).toBe(200);
   });
 
   it("404 sur une prévision inconnue ou supprimée", async () => {

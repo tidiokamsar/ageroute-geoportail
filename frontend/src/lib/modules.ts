@@ -19,6 +19,7 @@ export const MODULES = [
   { key: "decision", label: "Aide à la décision", path: "/decision" },
   { key: "ordres-travaux", label: "Ordres de travaux", path: "/ordres-travaux" },
   { key: "signalements", label: "Signalements citoyens", path: "/signalements" },
+  { key: "teledetection", label: "Observation de la Terre", path: "/teledetection" },
 ] as const;
 
 export type ModuleKey = (typeof MODULES)[number]["key"];

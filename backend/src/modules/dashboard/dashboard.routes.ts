@@ -8,6 +8,8 @@ import { estimerPourDecision } from "../../engines/decision.estimation";
 import type { LigneBareme } from "../../engines/cout.noyau";
 import { REGISTRE } from "../../tableau-de-bord/indicateurs.registre";
 import { evaluer } from "../../tableau-de-bord/tableau-de-bord.service";
+import { filtreRegion, regionsVisibles } from "../../territoire/territoire.lecture";
+import type { NextFunction, Request, Response } from "express";
 
 /**
  * Le reseau classe : tout sauf les troncons issus de la promotion de voirie.
@@ -32,6 +34,44 @@ const INVENTAIRE_REFERENCE: Prisma.OuvrageWhereInput = {
 const RESEAU_REFERENCE: Prisma.TronconWhereInput = WHERE_RESEAU_CLASSE;
 
 export const dashboardRouter = Router();
+
+/**
+ * PERIMETRE TERRITORIAL DES ROUTES HERITEES DE L'AIDE A LA DECISION (lot AD-7, constat 3).
+ *
+ * `/decision`, `/programmation` et `/tendances` rendent des TOTAUX NATIONAUX sans colonne de region exploitable (agregats SQL
+ * sur tous les chantiers, instantanes nationaux de l'historique). Les filtrer par region demanderait de reecrire leurs
+ * requetes ; or ces routes sont DEPRECIEES (l'ecran n'en depend plus : CONTRAT-AD.md, section 4). Le choix le plus simple et le
+ * plus sur est de les REFUSER aux comptes regionaux, plutot que de leur servir un total national. Un compte national
+ * (ADMIN, ou sans rattachement regional) garde exactement le comportement d'avant.
+ *
+ * `/programmation/lignes` et `/rapport-regions` ont une region par ligne : elles sont FILTREES (regions du compte), pas refusees.
+ * La region est relue en base a chaque requete (`regionsVisibles`), comme les modules : un rattachement retire s'applique tout de suite.
+ */
+const nationalSeulement = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    if ((await regionsVisibles(req.user!)) !== null) {
+      res.status(403).json({
+        error: "Cette vue agrège des totaux nationaux : elle n'est pas disponible pour un compte rattaché à une région.",
+        code: "PERIMETRE_NATIONAL_REQUIS",
+      });
+      return;
+    }
+    next();
+  } catch (err) { next(err); }
+};
+
+const ANNEE = /^\d{4}$/;
+const STATUTS_CHANTIER = ["PLANIFIE", "EN_COURS", "SUSPENDU", "TERMINE"] as const;
+/** Une date ISO complete ou partielle (AAAA-MM-JJ, AAAA-MM) qui designe un jour qui existe ; sinon `null`. */
+function dateIso(v: string): Date | null {
+  if (!/^\d{4}-\d{2}(-\d{2})?(T[\d:.]+Z?)?$/.test(v)) return null;
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return null;
+  // new Date("2026-02-31") deborde silencieusement sur mars dans certains moteurs : on relit le jour.
+  const [a, m, j] = v.slice(0, 10).split("-").map(Number);
+  if (j !== undefined && (d.getUTCFullYear() !== a || d.getUTCMonth() + 1 !== m || d.getUTCDate() !== j)) return null;
+  return d;
+}
 
 dashboardRouter.get("/kpis", requireAuth, requireModuleAccess("dashboard"), async (_req, res, next) => {
   try {
@@ -232,9 +272,14 @@ dashboardRouter.get("/alertes", requireAuth, requireModuleAccess("alertes"), asy
 });
 
 // Synthese par region pour les rapports : etat du reseau + activite, agrege cote serveur.
-dashboardRouter.get("/rapport-regions", requireAuth, requireModuleAccess("rapports"), async (_req, res, next) => {
+dashboardRouter.get("/rapport-regions", requireAuth, requireModuleAccess("rapports"), async (req, res, next) => {
   try {
-    const regions = await prisma.region.findMany({ orderBy: { nom: "asc" } });
+    // Un compte regional ne recoit que les lignes de SES regions (une ligne par region : le filtre est exact).
+    const visibles = await regionsVisibles(req.user!);
+    const regions = await prisma.region.findMany({
+      ...(visibles === null ? {} : { where: { id: { in: [...visibles] } } }),
+      orderBy: { nom: "asc" },
+    });
     const notDeleted = { deletedAt: null };
 
     const lignes = await Promise.all(
@@ -272,7 +317,7 @@ dashboardRouter.get("/rapport-regions", requireAuth, requireModuleAccess("rappor
 // Endpoint unique qui alimente les 4 onglets du module décisionnel : KPIs exécutifs,
 // tronçons à prioriser (avec métadonnées pour score multicritère), chantiers pour
 // la courbe en S et les alertes contractuelles, répartition budgétaire par bailleur.
-dashboardRouter.get("/decision", requireAuth, requireModuleAccess("decision"), async (_req, res, next) => {
+dashboardRouter.get("/decision", requireAuth, requireModuleAccess("decision"), nationalSeulement, async (_req, res, next) => {
   try {
     const notDeleted = { deletedAt: null };
     const now = new Date();
@@ -385,7 +430,7 @@ dashboardRouter.get("/decision", requireAuth, requireModuleAccess("decision"), a
 // Programmation budgetaire : agregation des chantiers (montants de marche) par annee et
 // par source de financement. Les montants (BigInt GNF) sont renvoyes en chaine pour eviter
 // toute perte de precision JS. Inspire du volet "Programmation" de l'observatoire de ref.
-dashboardRouter.get("/programmation", requireAuth, requireModuleAccess("programmation"), async (_req, res, next) => {
+dashboardRouter.get("/programmation", requireAuth, requireModuleAccess("programmation"), nationalSeulement, async (_req, res, next) => {
   try {
     const parAnnee = await prisma.$queryRaw<{ annee: number; nb: bigint; montant: string; enCours: bigint; termine: bigint }[]>`
       SELECT EXTRACT(YEAR FROM "dateDebutPrevue")::int AS annee,
@@ -432,10 +477,19 @@ dashboardRouter.get("/programmation/lignes", requireAuth, requireModuleAccess("p
   try {
     const { annee, bailleur, statut, page = "1", pageSize = "20" } = req.query as Record<string, string>;
 
+    // Valeur invalide : 400 net et sans appel a la base (avant, `Number("abc")` donnait une date invalide transmise a Prisma).
+    if (annee && !ANNEE.test(annee)) {
+      res.status(400).json({ error: "annee : une année à quatre chiffres est attendue (ex. 2027)" }); return;
+    }
+    if (statut && !(STATUTS_CHANTIER as readonly string[]).includes(statut)) {
+      res.status(400).json({ error: `statut : l'une des valeurs ${STATUTS_CHANTIER.join(", ")}` }); return;
+    }
+
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const size = Math.min(200, Math.max(1, parseInt(pageSize, 10) || 20));
 
-    const where: Record<string, unknown> = { deletedAt: null };
+    // Chaque chantier porte sa region : un compte regional ne voit que les chantiers de son perimetre.
+    const where: Record<string, unknown> = { deletedAt: null, ...(await filtreRegion(req.user!)) };
     if (annee) {
       const y = Number(annee);
       where["dateDebutPrevue"] = { gte: new Date(Date.UTC(y, 0, 1)), lt: new Date(Date.UTC(y + 1, 0, 1)) };
@@ -476,13 +530,19 @@ dashboardRouter.get("/programmation/lignes", requireAuth, requireModuleAccess("p
 
 // Tendances historiques du réseau — lit indicateurs_reseau_historique.
 // Si la table est vide (aucun snapshot encore), renvoie un tableau vide sans erreur.
-dashboardRouter.get("/tendances", requireAuth, requireModuleAccess("rapports"), async (req, res, next) => {
+dashboardRouter.get("/tendances", requireAuth, requireModuleAccess("rapports"), nationalSeulement, async (req, res, next) => {
   try {
     const { periode_debut, periode_fin } = req.query as { periode_debut?: string; periode_fin?: string };
 
+    const debut = periode_debut ? dateIso(periode_debut) : undefined;
+    const fin = periode_fin ? dateIso(periode_fin) : undefined;
+    if (debut === null || fin === null) {
+      res.status(400).json({ error: "periode_debut et periode_fin : une date AAAA-MM-JJ (ou AAAA-MM) est attendue" }); return;
+    }
+
     const where: Record<string, unknown> = {};
-    if (periode_debut) where["periode"] = { ...(where["periode"] as object ?? {}), gte: new Date(periode_debut) };
-    if (periode_fin)   where["periode"] = { ...(where["periode"] as object ?? {}), lte: new Date(periode_fin) };
+    if (debut) where["periode"] = { ...(where["periode"] as object ?? {}), gte: debut };
+    if (fin)   where["periode"] = { ...(where["periode"] as object ?? {}), lte: fin };
 
     const rows = await prisma.indicateurReseauHistorique.findMany({
       where,

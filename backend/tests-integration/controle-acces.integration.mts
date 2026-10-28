@@ -457,8 +457,11 @@ async function main() {
   const chL = await appeler("get", "/api/chantiers?pageSize=50", T.geo);
   const chG = await appeler("get", "/api/chantiers/geo", T.geo);
   const chRow = (chL.body.data ?? []).find((c: { intitule: string }) => c.intitule === "Chantier acces");
-  verifier("CONSTAT (VOULU a ce jour, decision D-C1-1 en attente) : un compte qui n'a que `geoportail` lit la LISTE v1 des chantiers avec entreprise, bailleur, montant et numero de contrat (lecture v1 ouverte, la fiche de troncon et la carte s'en servent)",
-    chL.status === 200 && chRow?.entreprise === "Entreprise Confidentielle" && chRow?.montantGnf !== null && chRow?.numContrat === "CT-ACC-1", chRow);
+  // CONTRAT MODIFIE (D-C1-1, regle unique droitMontantsContractuels) : ce CONSTAT notait que la liste v1 des chantiers rendait entreprise, bailleur,
+  // montant et numero de contrat a un compte `geoportail` seul. Ces quatre champs valent maintenant `null` sans le droit (ADMIN, marches ou chantiers) ;
+  // le chantier lui-meme reste lisible (carte, fiche de troncon).
+  verifier("D-C1-1 : un compte qui n'a que `geoportail` lit la LISTE v1 des chantiers (la carte et la fiche de troncon s'en servent) mais entreprise, bailleur, montant et numero de contrat valent null",
+    chL.status === 200 && chRow?.intitule === "Chantier acces" && chRow?.entreprise === null && chRow?.bailleur === null && chRow?.montantGnf === null && chRow?.numContrat === null, chRow);
   verifier("CONSTAT (idem) : la route /chantiers/geo de la carte porte les memes champs financiers", chG.status === 200, chG.status);
   const chId = await appeler("get", `/api/chantiers/${chRow?.id ?? randomUUID()}`, T.geo);
   verifier("CONSTAT : la FICHE d'un chantier (GET /chantiers/:id) exige elle le role GESTIONNAIRE et le module `chantiers` : un LECTEUR n'y a pas acces (403)", chId.status === 403, chId.status);

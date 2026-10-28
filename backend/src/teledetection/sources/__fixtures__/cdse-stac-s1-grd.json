@@ -1,0 +1,421 @@
+{
+ "_fixture": {
+  "capturee": "2026-10-25",
+  "reel": true,
+  "source": "cdse-stac",
+  "description": "une page de deux produits radar",
+  "params": {
+   "bbox": [
+    -14.39,
+    10.83,
+    -14.19,
+    11.03
+   ],
+   "collections": [
+    "sentinel-1-grd"
+   ],
+   "debut": "2026-10-01T00:00:00Z",
+   "fin": "2026-10-25T23:59:59Z",
+   "limiteParPage": 2,
+   "pagesMax": 1
+  },
+  "requete": {
+   "methode": "POST",
+   "url": "https://stac.dataspace.copernicus.eu/v1/search",
+   "corps": {
+    "collections": [
+     "sentinel-1-grd"
+    ],
+    "bbox": [
+     -14.39,
+     10.83,
+     -14.19,
+     11.03
+    ],
+    "datetime": "2026-10-01T00:00:00Z/2026-10-25T23:59:59Z",
+    "limit": 2,
+    "sortby": [
+     {
+      "field": "properties.datetime",
+      "direction": "desc"
+     }
+    ],
+    "fields": {
+     "include": [
+      "id",
+      "bbox",
+      "geometry",
+      "collection",
+      "properties.datetime",
+      "properties.start_datetime",
+      "properties.end_datetime",
+      "properties.platform",
+      "properties.constellation",
+      "properties.gsd",
+      "properties.product:type",
+      "properties.processing:level",
+      "properties.processing:version",
+      "properties.sat:orbit_state",
+      "properties.sat:relative_orbit",
+      "properties.sat:absolute_orbit",
+      "properties.published",
+      "properties._private.product_size",
+      "properties.sar:instrument_mode",
+      "properties.sar:polarizations",
+      "properties.sar:pixel_spacing_range",
+      "properties.sar:pixel_spacing_azimuth",
+      "assets.thumbnail.href",
+      "assets.thumbnail.type",
+      "assets.thumbnail.roles",
+      "assets.thumbnail.file:size",
+      "assets.thumbnail.gsd",
+      "assets.vv.href",
+      "assets.vv.type",
+      "assets.vv.roles",
+      "assets.vv.file:size",
+      "assets.vv.gsd",
+      "assets.vh.href",
+      "assets.vh.type",
+      "assets.vh.roles",
+      "assets.vh.file:size",
+      "assets.vh.gsd",
+      "assets.Product.href",
+      "assets.Product.type",
+      "assets.Product.roles",
+      "assets.Product.file:size",
+      "assets.Product.gsd"
+     ]
+    }
+   }
+  },
+  "reduction": "aucune : reponse telle que rendue (extension `fields` demandee par l'adaptateur)"
+ },
+ "reponse": {
+  "type": "FeatureCollection",
+  "links": [
+   {
+    "rel": "next",
+    "type": "application/geo+json",
+    "method": "POST",
+    "href": "https://stac.dataspace.copernicus.eu/v1/search",
+    "body": {
+     "collections": [
+      "sentinel-1-grd"
+     ],
+     "bbox": [
+      -14.39,
+      10.83,
+      -14.19,
+      11.03
+     ],
+     "datetime": "2026-10-01T00:00:00Z/2026-10-25T23:59:59Z",
+     "limit": 2,
+     "sortby": [
+      {
+       "field": "properties.datetime",
+       "direction": "desc"
+      }
+     ],
+     "fields": {
+      "include": [
+       "id",
+       "bbox",
+       "geometry",
+       "collection",
+       "properties.datetime",
+       "properties.start_datetime",
+       "properties.end_datetime",
+       "properties.platform",
+       "properties.constellation",
+       "properties.gsd",
+       "properties.product:type",
+       "properties.processing:level",
+       "properties.processing:version",
+       "properties.sat:orbit_state",
+       "properties.sat:relative_orbit",
+       "properties.sat:absolute_orbit",
+       "properties.published",
+       "properties._private.product_size",
+       "properties.sar:instrument_mode",
+       "properties.sar:polarizations",
+       "properties.sar:pixel_spacing_range",
+       "properties.sar:pixel_spacing_azimuth",
+       "assets.thumbnail.href",
+       "assets.thumbnail.type",
+       "assets.thumbnail.roles",
+       "assets.thumbnail.file:size",
+       "assets.thumbnail.gsd",
+       "assets.vv.href",
+       "assets.vv.type",
+       "assets.vv.roles",
+       "assets.vv.file:size",
+       "assets.vv.gsd",
+       "assets.vh.href",
+       "assets.vh.type",
+       "assets.vh.roles",
+       "assets.vh.file:size",
+       "assets.vh.gsd",
+       "assets.Product.href",
+       "assets.Product.type",
+       "assets.Product.roles",
+       "assets.Product.file:size",
+       "assets.Product.gsd"
+      ]
+     },
+     "token": "(jeton de page retire)"
+    }
+   },
+   {
+    "rel": "root",
+    "type": "application/json",
+    "href": "https://stac.dataspace.copernicus.eu/v1/"
+   },
+   {
+    "rel": "self",
+    "type": "application/json",
+    "href": "https://stac.dataspace.copernicus.eu/v1/search"
+   }
+  ],
+  "features": [
+   {
+    "properties": {
+     "sar:polarizations": [
+      "VV",
+      "VH"
+     ],
+     "platform": "sentinel-1d",
+     "sat:absolute_orbit": 5176,
+     "processing:level": "L1",
+     "product:type": "IW_GRDH_1S",
+     "processing:version": "01.00",
+     "end_datetime": "2026-10-25T19:08:33.039890Z",
+     "start_datetime": "2026-10-25T19:08:08.040663Z",
+     "sar:pixel_spacing_azimuth": 10,
+     "published": "2026-10-25T20:18:24.131185Z",
+     "sar:pixel_spacing_range": 10,
+     "sat:relative_orbit": 60,
+     "sat:orbit_state": "ascending",
+     "sar:instrument_mode": "IW",
+     "datetime": "2026-10-25T19:08:08.040663Z",
+     "constellation": "sentinel-1",
+     "_private": {
+      "product_size": 1177905038
+     }
+    },
+    "id": "S1D_IW_GRDH_1SDV_20261025T190808_20261025T190833_005176_009D21_624C_COG",
+    "assets": {
+     "Product": {
+      "href": "https://download.dataspace.copernicus.eu/odata/v1/Products(00b99bac-9432-4830-bb5d-30b62f21bb53)/$value",
+      "type": "application/zip",
+      "file:size": 1177914294,
+      "roles": [
+       "data",
+       "metadata",
+       "archive"
+      ]
+     },
+     "vh": {
+      "roles": [
+       "data"
+      ],
+      "file:size": 536231945,
+      "href": "s3://eodata/Sentinel-1/SAR/IW_GRDH_1S-COG/2026/10/25/S1D_IW_GRDH_1SDV_20261025T190808_20261025T190833_005176_009D21_624C_COG.SAFE/measurement/s1d-iw-grd-vh-20261025t190808-20261025t190833-005176-009d21-002-cog.tiff",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized"
+     },
+     "vv": {
+      "roles": [
+       "data"
+      ],
+      "file:size": 634735189,
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "href": "s3://eodata/Sentinel-1/SAR/IW_GRDH_1S-COG/2026/10/25/S1D_IW_GRDH_1SDV_20261025T190808_20261025T190833_005176_009D21_624C_COG.SAFE/measurement/s1d-iw-grd-vv-20261025t190808-20261025t190833-005176-009d21-001-cog.tiff"
+     },
+     "thumbnail": {
+      "href": "https://datahub.creodias.eu/odata/v1/Assets(af7c6914-0fd1-4129-839d-07af95307fe1)/$value",
+      "type": "image/png",
+      "file:size": 103332,
+      "roles": [
+       "thumbnail"
+      ]
+     }
+    },
+    "collection": "sentinel-1-grd",
+    "bbox": [
+     -15.200158,
+     9.45552,
+     -12.637074,
+     11.413551
+    ],
+    "geometry": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        -15.200158,
+        10.967805
+       ],
+       [
+        -14.890106,
+        9.45552
+       ],
+       [
+        -12.637074,
+        9.905173
+       ],
+       [
+        -12.935491,
+        11.413551
+       ],
+       [
+        -15.200158,
+        10.967805
+       ]
+      ]
+     ]
+    },
+    "links": [
+     {
+      "rel": "collection",
+      "type": "application/json",
+      "href": "https://stac.dataspace.copernicus.eu/v1/collections/sentinel-1-grd"
+     },
+     {
+      "rel": "parent",
+      "type": "application/json",
+      "href": "https://stac.dataspace.copernicus.eu/v1/collections/sentinel-1-grd"
+     },
+     {
+      "rel": "root",
+      "type": "application/json",
+      "href": "https://stac.dataspace.copernicus.eu/v1/"
+     },
+     {
+      "rel": "self",
+      "type": "application/geo+json",
+      "href": "https://stac.dataspace.copernicus.eu/v1/collections/sentinel-1-grd/items/S1D_IW_GRDH_1SDV_20261025T190808_20261025T190833_005176_009D21_624C_COG"
+     }
+    ]
+   },
+   {
+    "properties": {
+     "sar:polarizations": [
+      "VV",
+      "VH"
+     ],
+     "platform": "sentinel-1c",
+     "sat:absolute_orbit": 9950,
+     "processing:level": "L1",
+     "product:type": "IW_GRDH_1S",
+     "processing:version": "01.00",
+     "end_datetime": "2026-10-19T06:42:32.164118Z",
+     "start_datetime": "2026-10-19T06:42:09.576658Z",
+     "sar:pixel_spacing_azimuth": 10,
+     "published": "2026-10-19T15:35:49.142179Z",
+     "sar:pixel_spacing_range": 10,
+     "sat:relative_orbit": 52,
+     "sat:orbit_state": "descending",
+     "sar:instrument_mode": "IW",
+     "datetime": "2026-10-19T06:42:09.576658Z",
+     "constellation": "sentinel-1",
+     "_private": {
+      "product_size": 972058770
+     }
+    },
+    "id": "S1C_IW_GRDH_1SDV_20261019T064209_20261019T064232_009950_013D62_F584_COG",
+    "assets": {
+     "Product": {
+      "href": "https://download.dataspace.copernicus.eu/odata/v1/Products(d59b6a73-175e-467c-b590-5bc830051685)/$value",
+      "type": "application/zip",
+      "file:size": 972068026,
+      "roles": [
+       "data",
+       "metadata",
+       "archive"
+      ]
+     },
+     "vh": {
+      "roles": [
+       "data"
+      ],
+      "file:size": 447205022,
+      "href": "s3://eodata/Sentinel-1/SAR/IW_GRDH_1S-COG/2026/10/19/S1C_IW_GRDH_1SDV_20261019T064209_20261019T064232_009950_013D62_F584_COG.SAFE/measurement/s1c-iw-grd-vh-20261019t064209-20261019t064232-009950-013d62-002-cog.tiff",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized"
+     },
+     "vv": {
+      "roles": [
+       "data"
+      ],
+      "file:size": 518547022,
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "href": "s3://eodata/Sentinel-1/SAR/IW_GRDH_1S-COG/2026/10/19/S1C_IW_GRDH_1SDV_20261019T064209_20261019T064232_009950_013D62_F584_COG.SAFE/measurement/s1c-iw-grd-vv-20261019t064209-20261019t064232-009950-013d62-001-cog.tiff"
+     },
+     "thumbnail": {
+      "href": "https://datahub.creodias.eu/odata/v1/Assets(1a110776-76df-4068-abc6-05dfac773bc0)/$value",
+      "type": "image/png",
+      "file:size": 95131,
+      "roles": [
+       "thumbnail"
+      ]
+     }
+    },
+    "collection": "sentinel-1-grd",
+    "bbox": [
+     -14.884932,
+     9.102054,
+     -12.367113,
+     10.914685
+    ],
+    "geometry": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        -12.642806,
+        9.102054
+       ],
+       [
+        -12.367113,
+        10.469355
+       ],
+       [
+        -14.619221,
+        10.914685
+       ],
+       [
+        -14.884932,
+        9.550969
+       ],
+       [
+        -12.642806,
+        9.102054
+       ]
+      ]
+     ]
+    },
+    "links": [
+     {
+      "rel": "collection",
+      "type": "application/json",
+      "href": "https://stac.dataspace.copernicus.eu/v1/collections/sentinel-1-grd"
+     },
+     {
+      "rel": "parent",
+      "type": "application/json",
+      "href": "https://stac.dataspace.copernicus.eu/v1/collections/sentinel-1-grd"
+     },
+     {
+      "rel": "root",
+      "type": "application/json",
+      "href": "https://stac.dataspace.copernicus.eu/v1/"
+     },
+     {
+      "rel": "self",
+      "type": "application/geo+json",
+      "href": "https://stac.dataspace.copernicus.eu/v1/collections/sentinel-1-grd/items/S1C_IW_GRDH_1SDV_20261019T064209_20261019T064232_009950_013D62_F584_COG"
+     }
+    ]
+   }
+  ],
+  "numberReturned": 2
+ }
+}
