@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, configure, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -22,6 +22,9 @@ import { violationsAccessibilite } from "../test/accessibilite";
  * Page d'un projet : carte + panneau. Les reponses de l'API sont SYNTHETIQUES. On verifie ce qui part sur le fil (parametres de la carte,
  * de l'analyse, de l'export) et ce que la page montre dans chaque etat.
  */
+
+// La carte est un chunk charge a la demande (import dynamique) : sous la charge de la suite complete, 1 s ne suffit pas toujours.
+configure({ asyncUtilTimeout: 8000 });
 
 const BASE = "/v2/projets-voirie/p1";
 

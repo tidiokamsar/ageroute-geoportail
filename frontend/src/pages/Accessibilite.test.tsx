@@ -517,13 +517,13 @@ describe("Accessibilite du module Projets de voirie : etats cles", () => {
     } } as never);
     const { container } = rendreProjet();
     await userEvent.click(await screen.findByRole("button", { name: /Ajouter des données/ }, { timeout: 10_000 }));
-    const d = await screen.findByRole("dialog");
+    const d = await screen.findByRole("dialog", undefined, { timeout: 10_000 });
     expect(await violationsAccessibilite(container.ownerDocument.body)).toEqual([]);
     await userEvent.upload(d.querySelector("input[type=file]")!, new File(["<kml/>"], "reseau.kml"));
-    await screen.findByRole("option", { name: /Operateur synthetique A/ });
+    await screen.findByRole("option", { name: /Operateur synthetique A/ }, { timeout: 10_000 });
     await userEvent.selectOptions(within(d).getByLabelText("Concessionnaire propriétaire du réseau"), "c1");
     await userEvent.click(within(d).getByRole("button", { name: "Simuler le dépôt" }));
-    await within(d).findByRole("heading", { name: "Résultat de la simulation" });
+    await within(d).findByRole("heading", { name: "Résultat de la simulation" }, { timeout: 10_000 });
     expect(await violationsAccessibilite(container.ownerDocument.body)).toEqual([]);
   }, 60_000);
 
