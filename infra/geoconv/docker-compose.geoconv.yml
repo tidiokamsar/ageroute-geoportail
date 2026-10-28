@@ -1,0 +1,101 @@
+# Overlay de PREPRODUCTION du worker de conversion GDAL isole.
+#
+# NON ACTIVE PAR DEFAUT : ce fichier n'est reference ni par docker-compose.yml ni par
+# infra/deployer-console.sh. Il se lance a part, sous son propre nom de projet :
+#
+#   docker compose -f infra/geoconv/docker-compose.geoconv.yml -p geoconv up -d --build
+#
+# Le worker n'a : AUCUN reseau, AUCUN secret, AUCUNE variable d'environnement sensible, AUCUN acces
+# a la base ni au socket Docker. Il ne parle au backend que par deux volumes de fichiers (le spool).
+# Voir docs/projets-voirie/CHAINE-GDAL.md pour le branchement du backend et la procedure.
+name: geoconv
+
+x-logging: &logging-defaut
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
+
+services:
+  geoconv:
+    image: ageroute-geoconv:0.1.0
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ${GEOCONV_CONTENEUR:-geoconv-worker}
+    logging: *logging-defaut
+
+    # --- Isolation ---------------------------------------------------------------------------
+    network_mode: none                  # ni interface reseau (hors loopback), ni DNS, ni sortie
+    read_only: true                     # systeme de fichiers racine en lecture seule
+    user: "10001:10001"                 # non root (UID/GID fixes, identiques a ceux de l'image)
+    cap_drop: [ALL]                     # aucune capacite Linux
+    security_opt:
+      - no-new-privileges:true          # aucune elevation (setuid, capacites de fichier)
+    privileged: false
+    init: true                          # PID 1 minimal : reaper de zombies et relais des signaux
+    tmpfs:
+      # Seul espace d'ecriture hors sortie. Compte dans mem_limit : tmpfs plein = memoire utilisee.
+      - /tmp:size=512m,mode=1777,noexec,nosuid,nodev
+
+    # --- Ressources --------------------------------------------------------------------------
+    mem_limit: 1g
+    memswap_limit: 1g                   # = mem_limit : aucun swap
+    cpus: 1.0
+    pids_limit: 64
+    ulimits:
+      nofile: { soft: 512, hard: 512 }
+      fsize: 268435456                  # 256 Mo : taille maximale d'un fichier ecrit (octets)
+      core: 0
+      # nproc n'est volontairement PAS pose : il compte les processus par UID de l'HOTE, pas par
+      # conteneur. Le plafond de processus est pids_limit (par conteneur).
+    stop_grace_period: 20s
+
+    # --- Donnees -----------------------------------------------------------------------------
+    volumes:
+      - geoconv_entree:/spool/entree:ro   # le backend y depose ; le worker ne peut pas y ecrire
+      - geoconv_sortie:/spool/sortie      # le worker y ecrit ; le backend la lit (et la purge)
+
+    # --- Configuration (aucune valeur sensible) ----------------------------------------------
+    # Plafonds du worker. demande.json peut les ABAISSER pour un job, jamais les relever.
+    environment:
+      GEOCONV_SPOOL: /spool
+      GEOCONV_TMP: /tmp/geoconv
+      GEOCONV_SCRUTATION_S: "2"
+      GEOCONV_RETENTION_H: "72"
+      GEOCONV_LIMITE_TAILLE_ENTREE: "52428800"       # 50 Mo
+      GEOCONV_LIMITE_ENTREES_ARCHIVE: "200"
+      GEOCONV_LIMITE_TAILLE_DECOMPRESSEE: "262144000" # 250 Mo
+      GEOCONV_LIMITE_TAUX_COMPRESSION: "100"
+      GEOCONV_LIMITE_OBJETS: "50000"
+      GEOCONV_LIMITE_COUCHES: "50"
+      GEOCONV_LIMITE_CHAMPS: "500"
+      GEOCONV_LIMITE_SORTIE: "209715200"             # 200 Mo
+      GEOCONV_LIMITE_DELAI_S: "120"
+      GEOCONV_MEMOIRE_ENFANT: "1073741824"           # 1 Go d'espace d'adressage par processus GDAL
+
+    # --- Vie du service ----------------------------------------------------------------------
+    restart: "on-failure:5"             # borne : pas de boucle de redemarrage infinie
+    healthcheck:
+      # Sans reseau : le worker ecrit un battement dans /tmp a chaque tour de boucle.
+      test:
+        - CMD
+        - python3
+        - -E
+        - -s
+        - -c
+        - "import os,sys,time; sys.exit(0 if time.time()-os.stat('/tmp/geoconv.battement').st_mtime < 30 else 1)"
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    labels:
+      ageroute.module: "projets-voirie"
+      ageroute.role: "conversion-gdal-isolee"
+
+volumes:
+  # Noms explicites : le backend (autre fichier compose) peut les referencer en `external: true`.
+  geoconv_entree:
+    name: ${GEOCONV_VOLUME_ENTREE:-geoconv_entree}
+  geoconv_sortie:
+    name: ${GEOCONV_VOLUME_SORTIE:-geoconv_sortie}
