@@ -38,12 +38,15 @@ set -euo pipefail
 COMMIT="${1:-}"
 SHA_ATTENDU="${2:-}"
 ARCHIVE_LOCALE="${3:-}"
-ATTENDUES_EN_ATTENTE=2
+# Branche fusion/observation-terre, releve de la production du 28/10/2026 (apres le deploiement du commit 747ac38) : 84 migrations
+# appliquees, toutes presentes dans cet arbre (88 dossiers au total, aucune orpheline). En attente = les 4 migrations d'Observation de la
+# Terre, 20261028100000 a 20261028130000, qui ont chacune une descente. Si l'etape 5 lit un autre nombre, le corriger EN LE LISANT.
+ATTENDUES_EN_ATTENTE=4
 # Seuil de disque libre en %. Defaut 15. L'operateur peut le passer consciemment
 # (ex. SEUIL_DISQUE=13) quand il a verifie le besoin transient du build (~1,6 Go :
 # dump, code-avant, couches d'image) et que l'arrondi de df arrete a tort.
 SEUIL_DISQUE="${SEUIL_DISQUE:-15}"
-PREMIERE_EN_ATTENTE="20261027100000_medias_observation_analyse"
+PREMIERE_EN_ATTENTE="20261028100000_eo_produits_sources"
 DEPOT="tidiokamsar/ageroute-geoportail"
 HORODATAGE="$(date +%Y%m%d-%H%M%S)"
 # Racine des sauvegardes de deploiement. Par defaut /var/backups/bdri-deploiement (dossier de root : lancer avec sudo).
