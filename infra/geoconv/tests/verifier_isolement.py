@@ -321,7 +321,7 @@ def _():
     rc, out = ogrinfo(["-ro", "-if", "GPKG", "/vsicurl/http://example.com/x.gpkg"])
     assert rc != 0, "ogrinfo vsicurl a reussi"
     rc2, out2 = ogrinfo(["-ro", "PG:host=127.0.0.1 port=5432 dbname=console_bdri user=x"])
-    assert rc2 != 0 and "supported file format" in out2, out2[:200]
+    assert rc2 != 0 and ("No such file" in out2 or "supported file format" in out2), out2[:200]
     assert time.time() - t0 < 12, "tentative reseau lente"
     return "echecs immediats"
 

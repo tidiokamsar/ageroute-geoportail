@@ -236,6 +236,17 @@ def fabriquer_valides():
     # V12 DXF tel qu'ecrit par GDAL, sans patch : l'unite lue est celle de l'en-tete
     # V13 extension mensongere MAIS contenu valide : DXF nomme .gpkg => accepte avec avertissement
     job("v13-dxf-nomme-gpkg", "gpkg", dxf_valide, attendu={"statut": "termine", "avert": ["EXTENSION_INCOHERENTE"]})
+    # V15 DXF BINAIRE fabrique octet par octet (GDAL sait le lire depuis 3.12 mais pas l'ecrire)
+    out = bytearray(b"AutoCAD Binary DXF\r\n\x1a\x00")
+    def bs(code, val): out.extend(bytes([code]) + val.encode() + b"\x00")
+    def bd(code, val): out.extend(bytes([code]) + struct.pack("<d", val))
+    bs(0, "SECTION"); bs(2, "ENTITIES")
+    for k in range(3):
+        bs(0, "LINE"); bs(8, "0"); bd(10, x0 + k); bd(20, y0); bd(30, 0.0); bd(11, x0 + 100 + k); bd(21, y0 + 50); bd(31, 0.0)
+    bs(0, "ENDSEC"); bs(0, "EOF")
+    job("v15-dxf-binaire", "dxf", bytes(out), attendu={
+        "statut": "termine", "avert": ["CRS_ABSENT", "UNITES_ABSENTES"], "inventaire_pilote": "DXF",
+        "couches": {"entities": {"nb": 3, "reprojete": False, "crs_null": True, "premier_sommet": [x0, y0], "coordonnees": "brutes"}}})
     # V14 GeoPackage en 4326 : pas de reprojection
     p14 = os.path.join(t, "v14.gpkg")
     ds = ogr.GetDriverByName("GPKG").CreateDataSource(p14)
@@ -427,7 +438,7 @@ def fabriquer_malveillants():
     c.execute("insert into gpkg_geometry_columns values ('boucle','geom','POINT',4326,0,0)")
     c.commit(); c.close()
     job("m21-gpkg-vue-boucle-infinie", "gpkg", lire(p), demande={"limites": {"delai_s": 6}},
-        attendu={"statut": "echec", "codes": ["DELAI_DEPASSE", "SOURCE_ILLISIBLE", "TROP_D_OBJETS", "MEMOIRE_EPUISEE"], "duree_max_ms": 25000})
+        attendu={"statut": "echec", "code": "DELAI_DEPASSE", "duree_max_ms": 25000})
     # nombre d'objets MENTEUR : declare 999999999, contient 3
     ds, p = gpkg_base("menteur.gpkg")
     ds = None
@@ -474,14 +485,20 @@ def fabriquer_malveillants():
         wkb_pt(LON0, LAT0),
     ]
     p = gpkg_wkb("aberrant4326.gpkg", 4326, blobs)
-    job("m24-geometries-aberrantes-4326", "gpkg", lire(p), attendu={"statut": "borne", "duree_max_ms": 30000})
+    job("m24-geometries-aberrantes-4326", "gpkg", lire(p), attendu={
+        "statut": "termine", "avert": ["COORDONNEES_HORS_PLAGE", "GEOMETRIES_NULLES", "AVERTISSEMENTS_GDAL"], "duree_max_ms": 30000,
+        "couches": {"bizarre": {"nb": 9, "types": {"null": 5, "Point": 3, "Polygon": 1}, "reprojete": False}}})
     p = gpkg_wkb("aberrant32629.gpkg", 32629, [wkb_pt(1e308, 1e308), wkb_pt(nan, 1.0), wkb_pt(500000, 1015000)])
-    job("m25-geometries-aberrantes-utm", "gpkg", lire(p), attendu={"statut": "borne", "duree_max_ms": 30000})
+    job("m25-geometries-aberrantes-utm", "gpkg", lire(p), attendu={"statut": "echec", "code": "REPROJECTION_ECHEC", "duree_max_ms": 30000})
     # un million de sommets
     n = 1_000_000
     pts = [(LON0 + (i % 1000) * 1e-5, LAT0 + (i // 1000) * 1e-5) for i in range(n)]
     p = gpkg_wkb("million.gpkg", 4326, [wkb_ligne(pts)])
     job("m26-un-million-de-sommets", "gpkg", lire(p), attendu={"statut": "termine", "couches": {"bizarre": {"nb": 1}}, "duree_max_ms": 60000, "mesure": True})
+    # 3 millions de sommets (48 Mo de WKB) : doit se terminer proprement, quelle que soit l'issue
+    pts3 = [(LON0 + (i % 1000) * 1e-5, LAT0 + (i // 1000) * 1e-5) for i in range(3_000_000)]
+    p = gpkg_wkb("trois_millions.gpkg", 4326, [wkb_ligne(pts3)])
+    job("m29-trois-millions-de-sommets", "gpkg", lire(p), attendu={"statut": "echec", "code": "MEMOIRE_EPUISEE", "duree_max_ms": 120000, "mesure": True})
     # DXF : bombe de blocs imbriques (10^6 insertions potentielles)
     def dxf_bombe(profondeur, largeur):
         l = ["0", "SECTION", "2", "HEADER", "9", "$INSUNITS", "70", "6", "0", "ENDSEC", "0", "SECTION", "2", "BLOCKS"]
@@ -496,10 +513,10 @@ def fabriquer_malveillants():
         l += ["0", "ENDSEC", "0", "SECTION", "2", "ENTITIES", "0", "INSERT", "8", "0", "2", "B0", "10", "0", "20", "0", "30", "0", "0", "ENDSEC", "0", "EOF"]
         return ("\n".join(l) + "\n").encode()
     job("m27-dxf-bombe-blocs", "dxf", dxf_bombe(8, 10), demande={"limites": {"delai_s": 20}},
-        attendu={"statut": "borne", "duree_max_ms": 40000})
+        attendu={"statut": "echec", "code": "DELAI_DEPASSE", "duree_max_ms": 40000})
     # DXF avec une ligne de 20 Mo sans fin de ligne
     job("m28-dxf-ligne-geante", "dxf", b"  0\nSECTION\n  2\nHEADER\n  9\n$X\n  1\n" + b"A" * (20 * 1024 * 1024) + b"\n  0\nENDSEC\n  0\nEOF\n",
-        attendu={"statut": "borne", "duree_max_ms": 30000})
+        attendu={"statut": "echec", "code": "SOURCE_ILLISIBLE", "duree_max_ms": 30000})
 
 
 # ----------------------------------------------------------------------------- volumineux

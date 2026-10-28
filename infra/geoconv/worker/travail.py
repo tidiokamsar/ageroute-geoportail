@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import resource
 import shutil
 import stat
 import tempfile
@@ -216,7 +217,8 @@ class Job:
             "source": self.source, "format": self.format_detecte,
             "couches": self.resultat_couches, "avertissements": self.avert,
             "limitesAppliquees": vars(self.lim).copy(),
-            "mesures": {"dureeMs": self.duree_ms(), "etapes": self.mesures},
+            "mesures": {"dureeMs": self.duree_ms(), "etapes": self.mesures,
+                        "picMemoireWorkerKo": resource.getrusage(resource.RUSAGE_SELF).ru_maxrss},
             "gdal": {"version": self.gdal.version, "proj": self.gdal.proj, "pilotesActifs": self.gdal.pilotes_actifs},
         }
         ecrire_json(os.path.join(self.sortie, "resultat.json"), res)
@@ -474,6 +476,12 @@ class Job:
         em = stats["emprise"]
         if (reproj or epsg_src == 4326) and em and (abs(em[0]) > 180 or abs(em[2]) > 180 or abs(em[1]) > 90 or abs(em[3]) > 90):
             av("COORDONNEES_HORS_PLAGE", "coordonnees WGS84 hors plage (longitude > 180 ou latitude > 90)")
+        if stats["sans_geometrie"]:
+            av("GEOMETRIES_NULLES", f"{stats['sans_geometrie']} objet(s) sans geometrie en sortie (geometrie absente, illisible ou non finie)",
+               nb=stats["sans_geometrie"])
+        nb_avert_gdal = sum(1 for l in ex.stderr.splitlines() if l.startswith(("Warning", "ERROR")))
+        if nb_avert_gdal:
+            av("AVERTISSEMENTS_GDAL", f"GDAL a emis {nb_avert_gdal} avertissement(s) : " + nettoyer(ex.stderr.strip().splitlines()[0], 160), nb=nb_avert_gdal)
         if stats["non_analysees"]:
             av("ANALYSE_GEOMETRIE_PARTIELLE", f"{stats['non_analysees']} objet(s) trop volumineux pour l'analyse", nb=stats["non_analysees"])
         if stats["nb"] == 0:

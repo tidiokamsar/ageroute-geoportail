@@ -83,9 +83,12 @@ def recuperer_orphelins(cfg):
             s.update({"statut": "echec", "code": "INTERROMPU", "etape": "echec",
                       "message": "traitement interrompu (redemarrage du worker)",
                       "fin": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())})
-            shutil.rmtree(os.path.join(base, n, "couches"), ignore_errors=True)
-            ecrire_json(p, s)
-            journal(evt="orphelin-recupere", job=n)
+            try:
+                shutil.rmtree(os.path.join(base, n, "couches"), ignore_errors=True)
+                ecrire_json(p, s)
+                journal(evt="orphelin-recupere", job=n)
+            except OSError as e:  # un repertoire non inscriptible ne doit jamais empecher le demarrage
+                journal(evt="orphelin-non-recuperable", job=n, erreur=str(e.strerror))
 
 
 def purger_anciennes_sorties(cfg):

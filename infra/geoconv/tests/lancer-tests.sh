@@ -58,6 +58,8 @@ json.dump({'version': 1, 'limites': {'delai_s': 100}}, open('/e2/t-arret-boucle/
 os.makedirs('/s2/t-orphelin-00')
 json.dump({'statut': 'en_cours', 'etape': 'conversion', 'jobId': 't-orphelin-00'}, open('/s2/t-orphelin-00/statut.json', 'w'))
 os.makedirs('/s2/t-orphelin-00/couches'); open('/s2/t-orphelin-00/couches/partiel.geojson', 'w').write('{}')
+for r, ds, fs in os.walk('/s2'):
+    for n in ds + fs: os.chown(os.path.join(r, n), 10001, 10001)
 os.chown('/s2', 10001, 10001); os.chmod('/s2', 0o755)
 " || return 1
   GEOCONV_VOLUME_ENTREE="$E2" GEOCONV_VOLUME_SORTIE="$S2" "${COMPOSE[@]}" run -d --no-deps --name "${CONT}-term" -T geoconv >/dev/null || return 1

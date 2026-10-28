@@ -115,7 +115,7 @@ def verifier(jid, att):
     duree = res["mesures"]["dureeMs"]
     if att.get("duree_max_ms") and duree > att["duree_max_ms"]:
         erreurs.append(f"duree {duree} ms > {att['duree_max_ms']} ms")
-    pic = max([e.get("picMemoireKo", 0) for e in res["mesures"]["etapes"]] or [0])
+    pic = max([e.get("picMemoireKo", 0) for e in res["mesures"]["etapes"]] + [res["mesures"].get("picMemoireWorkerKo", 0)])
     return erreurs, (st, res), (duree, pic)
 
 
