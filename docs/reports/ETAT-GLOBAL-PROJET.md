@@ -3,6 +3,14 @@
 Mise à jour : 27/10/2026 (fin du Lot 1 et du lot UX Lots d'import). Branche `lot/03-map-matching`. Dernier commit de code : `4ca04f4` ; le commit des corrections finales et de ce fichier le suit. Historique des sections : 27/10 (Lot 1), 25/10 (Lot 0).
 Historique : chaque mise à jour ajoute une section datée en tête, sans effacer les précédentes. Rapports de lot : `docs/reports/LOT-XX-RAPPORT.md`.
 
+## Mise à jour du 28/10/2026 : déploiement du commit 747ac38 en production
+
+- **Fait.** Le commit `747ac3811581aa541abf9a2a6a9faf1d1b9f874b` (archive SHA-256 `5429d9879a9ac2d6fda5c5eb090e38b9703b5b043521cef677774ae97fa5dfad`) a été déployé le 28/10/2026 vers 11 h 52 sur `gec` (`/opt/console-bdri`) par `infra/deployer-console.sh`, lancé par le DSI avec `sudo` (confirmation à l'étape 9 donnée par le DSI, avec l'attestation des trois conditions de la session GLPI). Sortie du script : « DEPLOIEMENT TERMINE : commit 747ac38, compteurs identiques, 0 echec d'audit, 401 sur route protegee, .env inchanges ». Sauvegarde d'avant : `/var/backups/bdri-deploiement/20261028-115212`.
+- **Relevé en lecture seule après coup.** 84 migrations terminées (dernière `20261027110000_composante_rci_valeurs`), `backend` sain, page d'accueil en 200.
+- **Contenu.** Lots 0 et 1 seulement (session hors ligne, contrôles d'accès, Lots d'import, correctifs de bout en bout). **Ni l'Aide à la décision, ni l'Observation de la Terre, ni les lots 17 et 18 n'en font partie** : ils sont dans `integration/depuis-vendredi` (voir `AGENTS.md`), non déployée à cette date.
+- **Non vérifié.** Aucune connexion applicative avec un compte réel ; WebView Android ; téléphone réel. Le service worker n'impose pas la nouvelle version : elle apparaît après fermeture de tous les onglets du site.
+- **Dette de sécurité signalée.** Les conditions (a), (b) et (c) de l'étape 9 n'ont pas pu être vérifiées par l'assistant : `sshd` a été arrêté proprement le 23/10 à 06 h 41 (journal), des tentatives de connexion en force brute sur root, admin et user sont visibles les 24 et 25/10, `.env` et `backend/.env` datent du 02/09. Le mot de passe du compte `agergec` a circulé en clair dans une conversation : à changer.
+
 ## Mise à jour du 27/10/2026 : Lot 1 (session hors ligne, accès, qualité, dérive) et lot UX « Lots d'import »
 
 Rapports : `LOT-01-RAPPORT.md`, `LOT-UX-IMPORTS-RAPPORT.md`. Commits : `65bb346`, `a98252c`, `c846fdf`, `d8f092b`, `e9fd62c`, `ada84d4`, `4ca04f4` (+ `1af3e6e`, autre session). **Rien n'est déployé.**
