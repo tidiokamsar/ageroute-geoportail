@@ -36,9 +36,13 @@ export const formesVides = (): FormesBrutes => ({ points: [], lignes: [], polygo
 const PRECISION = 1e7;
 const arrondi = (v: number) => Math.round(v * PRECISION) / PRECISION;
 
+/** `String.prototype.toWellFormed` (Node 20+), absent de la bibliotheque de types ES2022. */
+const bienForme = (s: string): string => (s as unknown as { toWellFormed(): string }).toWellFormed();
+
 /** Retire les caracteres NUL (refuses par jsonb) de toute chaine d'une valeur d'attribut. */
 export function nettoyerValeur(v: unknown, profondeur = 0): unknown {
-  if (typeof v === "string") return v.includes("\u0000") ? v.replace(/\u0000/g, "") : v;
+  // NUL et substituts isoles sont refuses par jsonb : on retire les premiers et on remplace les seconds.
+  if (typeof v === "string") return bienForme(v.includes("\u0000") ? v.replace(/\u0000/g, "") : v);
   if (profondeur > 16) return null;
   if (Array.isArray(v)) return v.map((x) => nettoyerValeur(x, profondeur + 1));
   if (v && typeof v === "object") {

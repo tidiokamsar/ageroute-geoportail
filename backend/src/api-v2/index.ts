@@ -40,6 +40,7 @@ import { tableauDeBordV2Router, fiche360V2Router } from "./tableau-de-bord.route
 import { tachesInternesV2Router } from "./taches-internes.routes";
 import { correspondancesV2Router } from "./correspondances.routes";
 import { mobileV2Router } from "./mobile.routes";
+import { projetsVoirieV2Router } from "./projets-voirie.routes";
 import { requireAuth } from "../middleware/auth.middleware";
 
 /**
@@ -140,6 +141,8 @@ apiV2Router.use("/fiche-360", fiche360V2Router);
 apiV2Router.use("/taches-internes", tachesInternesV2Router);
 apiV2Router.use("/correspondances", correspondancesV2Router);
 apiV2Router.use("/mobile", mobileV2Router);
+// Projets de voirie et reseaux : module `projets-voirie`, donnees sensibles, jamais dans l'API publique.
+apiV2Router.use("/projets-voirie", projetsVoirieV2Router);
 
 /**
  * Inventaire de la surface v2, pour qu'un client sache ce qui existe reellement.
@@ -155,7 +158,7 @@ apiV2Router.use("/mobile", mobileV2Router);
 apiV2Router.get("/", requireAuth, (_req, res) => {
   res.json({
     version: "v2",
-    domaines: ["geo", "sync", "devices", "missions", "observations", "defauts", "field", "portions", "referentiels", "qualite", "reseau", "imports", "exploitation", "teledetection", "aide-decision", "programmation", "baremes", "perimetres", "integrations", "tableau-de-bord", "fiche-360", "taches-internes", "correspondances", "roulage", "referentiel", "chantiers", "inspections"],
+    domaines: ["geo", "sync", "devices", "missions", "observations", "defauts", "field", "portions", "referentiels", "qualite", "reseau", "imports", "exploitation", "teledetection", "aide-decision", "programmation", "baremes", "perimetres", "integrations", "tableau-de-bord", "fiche-360", "taches-internes", "correspondances", "roulage", "referentiel", "chantiers", "inspections", "projets-voirie"],
     aVenir: [
       "auth", "tracks",
       "assets", "offline", "intelligence", "ai",

@@ -87,6 +87,12 @@ export const MODULE_PAR_ENTITE: Record<string, ModuleKey | null> = {
   ExportScenario: "rapports",
   Document: "documents",
   SignalementCitoyen: "signalements",
+  // Module Projets de voirie et reseaux : l'historique (depot, autorisation, rejet, retrait, export) suit la cle de module des routes.
+  // Les valeurs auditees ne portent AUCUNE geometrie (nom de fichier, empreinte, comptes, decisions).
+  ProjetVoirie: "projets-voirie",
+  JeuDonneesProjet: "projets-voirie",
+  ConcessionnaireReseau: "projets-voirie",
+  ExportProjetVoirie: "projets-voirie",
   User: null,
   AppSetting: null,
 };

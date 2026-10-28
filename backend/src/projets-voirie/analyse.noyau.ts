@@ -225,7 +225,7 @@ export function construireHypotheses(c: ContexteTextes): string[] {
     `La chaussée est supposée large de ${fr(c.largeurChausseeM)} m et l'emprise de ${fr(c.largeurEmpriseM)} m, centrées sur chaque axe de travaux (axe ± ${fr(c.largeurChausseeM / 2)} m pour la chaussée, axe ± ${fr(c.largeurEmpriseM / 2)} m pour l'emprise). ${th}`,
     "Les axes sont les tracés du plan d'axes autorisé ; un axe est une ligne, sans épaisseur propre.",
     c.inclureNonAutorises
-      ? `Les jeux en contrôle (non autorisés) sont INCLUS à la demande de l'utilisateur (${c.nbJeuxNonAutorises} jeu${c.nbJeuxNonAutorises > 1 ? "x" : ""}) et marqués « non autorisé » : ces chiffres ne sont pas ceux de l'analyse officielle.`
+      ? `Les jeux en contrôle (non autorisés) sont INCLUS à la demande de l'utilisateur (${c.nbJeuxNonAutorises} jeu${c.nbJeuxNonAutorises > 1 ? "x" : ""}) et marqués « non autorisé » ; pour ce calcul seulement, un jeu en contrôle remplace le jeu autorisé de même rôle et de même concessionnaire. Ces chiffres ne sont pas ceux de l'analyse officielle.`
       : "Seuls les jeux autorisés entrent dans le calcul : un lot reçu en contrôle n'est pas un lot importé.",
     `Les calculs sont plans, en mètres, dans la projection ${c.projection}, choisie selon la longitude du centre du projet. L'altitude est ignorée.`,
     "Un même tracé répété par plusieurs circuits n'est compté qu'une fois dans la longueur des tracés fusionnés d'un jeu ; les conflits sont calculés sur ces tracés fusionnés. Le nombre d'objets d'un fichier est un nombre de « circuits ou objets du fichier », jamais un nombre de câbles physiques.",
@@ -245,7 +245,7 @@ export function construireLimites(c: ContexteTextes): string[] {
   if (c.nbJeuxReseau > 0) {
     l.push(precis.length === 0
       ? "La précision de position des réseaux est INCONNUE : aucun fournisseur ne l'a déclarée. Les positions sont celles du fichier fourni."
-      : `La précision de position des réseaux n'est déclarée que pour ${precis.length} jeu(x) sur ${c.nbJeuxReseau} (de ${fr(Math.min(...precis))} à ${fr(Math.max(...precis))} m) ; elle est inconnue pour les autres.`);
+      : `La précision de position des réseaux n'est déclarée que pour ${precis.length} jeu(x) sur ${c.nbJeuxReseau} (${Math.min(...precis) === Math.max(...precis) ? fr(Math.min(...precis)) : `de ${fr(Math.min(...precis))} à ${fr(Math.max(...precis))}`} m) ; elle est inconnue pour les autres.`);
   }
   if (c.nbJeuxLimites > 0) l.push("Les limites de route chargées ne servent pas encore au calcul : l'emprise est théorique (axe ± demi-largeur).");
   if (c.datesDonnees.some((d) => d === null)) l.push("La date de levé ou de fourniture n'est pas renseignée pour tous les jeux : l'actualité des données n'est pas garantie.");

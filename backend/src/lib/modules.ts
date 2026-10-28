@@ -10,6 +10,9 @@ export const MODULE_KEYS = [
   // Observation de la Terre (Lot 1 EO, contrat §2). L'attribution de cette cle a un compte est un geste d'administration :
   // aucune migration de donnees ne l'octroie (un compte non ADMIN sans la cle recoit 403).
   "teledetection",
+  // Projets de voirie et reseaux (contrat docs/projets-voirie/CONTRAT.md) : tracés d'infrastructure de tiers, donnees sensibles.
+  // Comme `teledetection`, aucune migration ne l'octroie et aucun profil metier ne la porte : c'est un geste d'administration.
+  "projets-voirie",
 ] as const;
 
 export type ModuleKey = (typeof MODULE_KEYS)[number];
