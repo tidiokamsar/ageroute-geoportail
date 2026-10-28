@@ -88,7 +88,7 @@ export async function carte(d: DemandeCarte) {
         type: "Feature" as const,
         id: l.objetId,
         geometry: JSON.parse(l.geojson) as unknown,
-        properties: { objetId: l.objetId, jeuId: l.jeuId, nom: l.nom, typeGeom: l.typeGeom, longueurM: l.longueurM, attributs: l.attributs },
+        properties: { objetId: l.objetId, jeuId: l.jeuId, nom: l.nom, typeGeom: l.typeGeom, longueurM: l.longueurM === null ? null : Math.round(l.longueurM * 100) / 100, attributs: l.attributs },
       })),
     });
   }

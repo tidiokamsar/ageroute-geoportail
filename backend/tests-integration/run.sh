@@ -55,6 +55,8 @@ lancer "eo-api.integration.mts"
 lancer "registre.integration.mts"
 lancer "sections.integration.mts"
 lancer "inspection-terrain.integration.mts"
+# Projets de voirie et reseaux : clone `essai_projets_voirie` ; exige la migration 20261030100000 dans `replay` (95 migrations).
+lancer "projets-voirie.integration.mts"
 
 printf '\n%s\n' "Resultat des bancs d'integration"
 printf '%s\n' "${lignes[@]}"

@@ -453,6 +453,28 @@ Classes : **publique** (sans jeton, par conception), **gardée** (rôle, module,
 | POST | `/api/v2/correspondances/:id/clore` | ADMIN/GESTIONNAIRE | - | - | écriture GESTIONNAIRE+ ; lecture a tout compte connecté | D-C1-4 : correspondances d'identifiants externes | ouverte, décision en attente |
 | GET | `/api/v2` | - | - | - | - | inventaire des domaines v2 | gardée |
 
+#### V2 : projets de voirie et réseaux (15 routes, ajoutées le 30/10/2026, hors décompte ci-dessus)
+
+Module `projets-voirie` sur chaque route (clé jamais portée par un profil métier : geste d'administration). Données sensibles (tracés d'infrastructure de tiers) : aucune route publique, aucune route d'export de géométrie, `Cache-Control: no-store`. Région : projet sans région = comptes nationaux seulement ; projet hors périmètre = 404 identique à l'inexistant. Preuves : `inventaire-acces.test.ts` (bloc « Projets de voirie »), `api-v2/projets-voirie.routes.test.ts`, `projets-voirie/isolation.test.ts`, banc `projets-voirie.integration.mts`.
+
+| Methode | Chemin | Rôle | Module | Région | Contrôles internes | Données / effet | Classe |
+|---|---|---|---|---|---|---|---|
+| GET | `/api/v2/projets-voirie` | - | `projets-voirie` | liste filtrée dans le service (régions du compte) | - | lecture, aucun audit | gardée |
+| POST | `/api/v2/projets-voirie` | ADMIN/GESTIONNAIRE | `projets-voirie` | oui : Région (403), un compte régional crée dans sa région seulement | code unique, largeurs cohérentes ; audit | projet | gardée |
+| GET | `/api/v2/projets-voirie/concessionnaires` | - | `projets-voirie` | - | - | annuaire national, lecture | gardée |
+| POST | `/api/v2/projets-voirie/concessionnaires` | ADMIN/GESTIONNAIRE | `projets-voirie` | - | nom unique (casse ignorée) ; audit | concessionnaire | gardée |
+| GET | `/api/v2/projets-voirie/:id` | - | `projets-voirie` | oui : région (404 masqué) | - | fiche, jeux sans géométrie | gardée |
+| PATCH | `/api/v2/projets-voirie/:id` | ADMIN/GESTIONNAIRE | `projets-voirie` | oui : région (404 masqué) | `VALIDE` réservé à ADMIN ; audit | projet | gardée |
+| DELETE | `/api/v2/projets-voirie/:id` | ADMIN | `projets-voirie` | oui : région (404 masqué) | retrait logique ; audit | projet | gardée |
+| POST | `/api/v2/projets-voirie/:id/jeux` | ADMIN/GESTIONNAIRE | `projets-voirie` | oui : région (404 masqué, avant la validation) | lecture par le contenu, 25 Mo, 50 000 objets, simulation sans écriture, quarantaine `CONTROLE`, SHA-256 unique, audit | jeu + objets | gardée |
+| GET | `/api/v2/projets-voirie/:id/jeux` | - | `projets-voirie` | oui : région (404 masqué) | - | jeux sans géométrie | gardée |
+| DELETE | `/api/v2/projets-voirie/:id/jeux/:jeuId` | ADMIN/GESTIONNAIRE | `projets-voirie` | oui : région (404 masqué) | retrait logique ; audit | jeu | gardée |
+| POST | `/api/v2/projets-voirie/:id/jeux/:jeuId/autoriser` | ADMIN/GESTIONNAIRE | `projets-voirie` | oui : région (404 masqué) | justification de 10 caractères ; `memePersonne` noté ; audit `VALIDATE` | jeu | gardée |
+| POST | `/api/v2/projets-voirie/:id/jeux/:jeuId/rejeter` | ADMIN/GESTIONNAIRE | `projets-voirie` | oui : région (404 masqué) | justification de 10 caractères ; audit `REJECT` | jeu | gardée |
+| GET | `/api/v2/projets-voirie/:id/carte` | - | `projets-voirie` | oui : région (404 masqué) | plafond 20 000 objets ; jeux autorisés (ou en contrôle à la demande) | géométries d'affichage, jamais en fichier | gardée |
+| GET | `/api/v2/projets-voirie/:id/analyse` | - | `projets-voirie` | oui : région (404 masqué) | lecture seule (`READ ONLY`) ; tout résultat `A_VERIFIER` | agrégats et couches de conflit | gardée |
+| GET | `/api/v2/projets-voirie/:id/analyse/export.csv` | ADMIN/GESTIONNAIRE | `projets-voirie` | oui : région (404 masqué) | audit `ExportProjetVoirie` avant la remise ; aucune géométrie | CSV d'agrégats | gardée |
+
 ## 6. Ce que le serveur ne peut pas vérifier, et les garde-fous mis en place
 
 **Limites** (chacune est une propriété du système, pas un oubli) :
