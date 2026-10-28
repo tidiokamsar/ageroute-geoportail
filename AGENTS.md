@@ -43,9 +43,9 @@ Docker + Traefik). Voir `README.md` pour la stack et l'installation.
   `origin/lot/18-bdri-troncons` (page Tronçons, registre d'anomalies, chantiers
   multi-tronçons, fiche d'inspection) et `origin/fix/geoportail-tabulation-traces`
   (qui porte l'autre lignée de l'Aide à la décision, lot 6, et la tabulation des
-  cartes). Le dépôt y compte **93 migrations**. Relevé de production du 28/10/2026
+  cartes). Le dépôt y compte **94 migrations**. Relevé de production du 28/10/2026
   (après le déploiement du commit `747ac38`) : 84 appliquées, toutes présentes dans
-  cette branche, donc **9 migrations en attente**
+  cette branche, donc **10 migrations en attente**
   (voir le commentaire de `ATTENDUES_EN_ATTENTE` dans `infra/deployer-console.sh`) ;
   le script refuse tout autre nombre. Deux couples d'horodatages sont identiques
   (`20261027100000`, `20261027110000`) : ils se rejouent dans l'ordre du nom de dossier.

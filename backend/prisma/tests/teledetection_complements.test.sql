@@ -91,8 +91,19 @@ BEGIN
     DELETE FROM earth_observation_products WHERE id = 'c-libre';
     RAISE EXCEPTION 'Produit supprime physiquement';
   EXCEPTION WHEN integrity_constraint_violation THEN RAISE NOTICE 'Suppression physique d''un produit, meme non cite, REFUSEE'; END;
+  -- Depuis le module Observation de la Terre (20261028130000), la provenance de TOUT produit est figee, cite ou non : une
+  -- fiche ne se corrige que par la voie exceptionnelle, motivee et journalisee. Regle plus stricte que celle de lot/17
+  -- (produit cite seulement) : sans motif, refus ; avec motif et auteur connu, la correction passe.
+  BEGIN
+    UPDATE earth_observation_products SET licence = 'licence relevee a la source le 22/10' WHERE id = 'c-libre';
+    RAISE EXCEPTION 'Licence d''un produit non cite modifiee sans motif';
+  EXCEPTION WHEN integrity_constraint_violation THEN RAISE NOTICE 'Produit non cite : correction SANS motif REFUSEE'; END;
+  PERFORM set_config('bdri.correction_produit_motif', 'correction de la licence relevee a la source', true);
+  PERFORM set_config('bdri.correction_produit_auteur', 'u-tcc', true);
   UPDATE earth_observation_products SET licence = 'licence relevee a la source le 22/10' WHERE id = 'c-libre';
-  RAISE NOTICE 'Produit non cite : sa fiche se corrige';
+  PERFORM set_config('bdri.correction_produit_motif', '', true);
+  PERFORM set_config('bdri.correction_produit_auteur', '', true);
+  RAISE NOTICE 'Produit non cite : sa fiche se corrige par la voie exceptionnelle motivee';
 
   -- ---------- Ce qui survient apres : la vue le signale ----------
   INSERT INTO missions (id, code, intitule, type, statut, "createurId", "updatedAt")

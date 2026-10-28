@@ -38,12 +38,13 @@ COMMIT="${1:-}"
 SHA_ATTENDU="${2:-}"
 ARCHIVE_LOCALE="${3:-}"
 # Branche integration/depuis-vendredi, releve de la production du 28/10/2026 (apres le deploiement du commit 747ac38) : 84 migrations
-# appliquees, toutes presentes dans cette branche (aucune orpheline). En attente = les 9 migrations de la branche absentes de la base :
+# appliquees, toutes presentes dans cette branche (aucune orpheline). En attente = les 10 migrations de la branche (94 au total) absentes de la base :
 # 20261025120000 (lot 17) ; 20261027100000_registre_anomalies_referentiel, 20261027110000_chantier_sections, 20261027120000 (lot 18) ;
-# 20261028100000 a 20261028130000 (Observation de la Terre, x4) ; 20261029300000 (Aide a la decision). Les 9 ont une descente.
+# 20261028100000 a 20261028130000 (Observation de la Terre, x4) ; 20261029300000 (Aide a la decision) ; 20261029400000_teledetection_reprise_gardes_lot17
+# (reprise des gardes de coherence de lot/17 ecrasees par EO : produit/reference retire, distance mesuree, pas de suppression physique). Les 10 ont une descente.
 # La premiere par ordre alphabetique est 20261025120000, anterieure a des migrations deja appliquees : migrate deploy l'applique quand meme.
 # Rappel : deux couples d'horodatages identiques (20261027100000, 20261027110000) se rejouent dans l'ordre alphabetique du nom de dossier.
-ATTENDUES_EN_ATTENTE=9
+ATTENDUES_EN_ATTENTE=10
 # Seuil de disque libre en %. Defaut 15. L'operateur peut le passer consciemment
 # (ex. SEUIL_DISQUE=13) quand il a verifie le besoin transient du build (~1,6 Go :
 # dump, code-avant, couches d'image) et que l'arrondi de df arrete a tort.
