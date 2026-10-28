@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { MapContainer, TileLayer, Polyline, CircleMarker, Marker, GeoJSON, Tooltip, useMap, useMapEvents } from "react-leaflet";
+// Feuille de style de Leaflet servie par l'application elle-meme (precachee par le service worker) : plus de CDN tiers, la carte garde sa mise en forme hors ligne.
+import "leaflet/dist/leaflet.css";
 import { canvas, divIcon, latLngBounds, type LatLngBounds, type Map as CarteLeaflet } from "leaflet";
-import { LogIn, AlertTriangle, LocateFixed, Loader2, Plus, Minus, MapPin, X } from "lucide-react";
+import { LogIn, AlertTriangle, LocateFixed, Loader2, Plus, Minus, MapPin, X, Link2, Check } from "lucide-react";
+import { ecrireVue, lireVue } from "../lib/permalien";
 import axios from "axios";
 import { ETAT_COLORS, ETAT_LABELS, CHANTIER_COLORS, CREDIT_DONNEES } from "./geoportail/types";
 import { ouvrageIcon, TYPE_OUVRAGE_LABEL } from "./geoportail/symbols";
@@ -97,6 +100,22 @@ function SuiviVue({ onChange }: { onChange: (v: { zoom: number; bounds: LatLngBo
 }
 
 /** Expose l'instance Leaflet au parent, pour recentrer depuis la recherche. */
+/**
+ * Permalien : l'adresse suit la vue a chaque fin de deplacement, et devient donc a tout
+ * instant un lien vers ce que l'on regarde (paragraphe 7.14 ; § 7.16 ligne 11). `replaceState`
+ * et non une navigation : chaque deplacement n'ajoute pas une entree a l'historique.
+ */
+function PermalienVue() {
+  const map = useMapEvents({
+    moveend: () => {
+      const c = map.getCenter();
+      const recherche = ecrireVue(window.location.search, { lat: c.lat, lng: c.lng, zoom: map.getZoom() });
+      window.history.replaceState(window.history.state, "", `${window.location.pathname}?${recherche}`);
+    },
+  });
+  return null;
+}
+
 function CaptureCarte({ onReady }: { onReady: (m: CarteLeaflet) => void }) {
   const map = useMap();
   useEffect(() => {
@@ -118,6 +137,18 @@ function CaptureCarte({ onReady }: { onReady: (m: CarteLeaflet) => void }) {
  * comme celui-ci, souvent en itinerance et sur un reseau lent.
  */
 export function PublicCartePage() {
+  // Vue portee par un lien partage, validee ; sinon, le cadrage sur l'emprise nationale.
+  const [vueDuLien] = useState(() => lireVue(window.location.search));
+  const [lienCopie, setLienCopie] = useState(false);
+  async function copierLien() {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setLienCopie(true);
+      setTimeout(() => setLienCopie(false), 2000);
+    } catch {
+      window.prompt("Copiez ce lien :", window.location.href);
+    }
+  }
   const [couches, setCouches] = useState<Record<CoucheKey, boolean>>({
     troncons: true,
     // Decochee au demarrage. Un visiteur vient d'abord voir l'etat des routes ; les
@@ -384,6 +415,15 @@ export function PublicCartePage() {
             L'état des routes de Guinée, ouvert à tous
           </p>
         </div>
+        <button
+          type="button"
+          onClick={copierLien}
+          className="inline-flex shrink-0 items-center gap-2 rounded-md border border-white/30 px-3 py-2 text-sm font-medium text-white transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+        >
+          {lienCopie ? <Check className="h-4 w-4" aria-hidden /> : <Link2 className="h-4 w-4" aria-hidden />}
+          <span className="hidden sm:inline">{lienCopie ? "Lien copié" : "Copier le lien de cette vue"}</span>
+          <span className="sr-only sm:hidden">{lienCopie ? "Lien copié" : "Copier le lien de cette vue"}</span>
+        </button>
         <Link
           to="/login"
           className="inline-flex shrink-0 items-center gap-2 rounded-md bg-gold px-3 py-2 text-sm font-medium text-navy transition hover:brightness-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
@@ -396,8 +436,9 @@ export function PublicCartePage() {
 
       <div className="relative flex-1">
         <MapContainer
-          bounds={GUINEE_BOUNDS}
-          boundsOptions={GUINEE_BOUNDS_OPTIONS}
+          {...(vueDuLien
+            ? { center: [vueDuLien.lat, vueDuLien.lng] as [number, number], zoom: vueDuLien.zoom }
+            : { bounds: GUINEE_BOUNDS, boundsOptions: GUINEE_BOUNDS_OPTIONS })}
           zoomSnap={PAS_DE_ZOOM}
           maxZoom={20}
           renderer={renderer}
@@ -420,6 +461,7 @@ export function PublicCartePage() {
             maxNativeZoom={19}
           />
           <SuiviVue onChange={onVueChange} />
+          <PermalienVue />
           {/* Voirie locale avant les troncons : le reseau AGEROUTE reste au-dessus. */}
           {couches.voirie && (
             <VoirieLocaleLayer
@@ -650,7 +692,7 @@ export function PublicCartePage() {
             onToggleClasse={(c) =>
               setClassesMasquees((prev) => {
                 const n = new Set(prev);
-                n.has(c) ? n.delete(c) : n.add(c);
+                if (n.has(c)) n.delete(c); else n.add(c);
                 return n;
               })
             }

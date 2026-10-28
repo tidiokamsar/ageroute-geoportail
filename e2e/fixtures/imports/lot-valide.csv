@@ -1,0 +1,4 @@
+systeme_source;type_objet;identifiant_source;code_route;debut_m;fin_m;geometrie;date_source;note
+{{SOURCE}};comptage;CPT-001;RN1;;;"{""type"":""Point"",""coordinates"":[-13.68,9.53]}";2026-10-01;comptage du matin
+{{SOURCE}};comptage;CPT-002;RN1;;;;2026-10-01;comptage du soir
+{{SOURCE}};comptage;CPT-003;RN1;;;;2026-10-01;

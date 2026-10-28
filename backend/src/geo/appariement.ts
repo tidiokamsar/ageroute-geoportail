@@ -73,6 +73,8 @@ export interface Candidat {
   distanceM: number;
   /** Position le long du trace, de 0 a 1 (ST_LineLocatePoint). */
   fraction: number;
+  /** Longueur réelle du tronçon en mètres, pour produire une abscisse locale. */
+  longueurM: number;
   pkDebut: number | null;
   pkFin: number | null;
 }
@@ -83,6 +85,8 @@ export interface Appariement {
   nom: string | null;
   classe: string;
   distanceM: number;
+  /** Abscisse locale mesurée depuis le début du tronçon, indépendante du PK. */
+  abscisseM: number;
   /** PK calcule, ou null quand le troncon n'en porte pas d'exploitable. */
   pk: number | null;
   /** Dit POURQUOI le PK vaut ce qu'il vaut, au lieu de laisser interpreter un null. */
@@ -204,6 +208,7 @@ export function choisir(
     nom: premier.nom,
     classe: premier.classe,
     distanceM: Math.round(premier.distanceM * 10) / 10,
+    abscisseM: Math.round(premier.fraction * premier.longueurM * 100) / 100,
     pk,
     pkMotif: motif,
     confiance: c,
@@ -231,6 +236,7 @@ export async function candidats(
     `SELECT t.id AS "tronconId", t.code, t.nom, t.classe::text AS classe,
             ST_Distance(t.geom::geography, ${point}::geography) AS "distanceM",
             ST_LineLocatePoint(t.geom, ${point}) AS fraction,
+            ST_Length(t.geom::geography) AS "longueurM",
             t."pkDebut", t."pkFin"
        FROM troncons t
       WHERE t."deletedAt" IS NULL

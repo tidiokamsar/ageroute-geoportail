@@ -3,6 +3,7 @@ import { loginSchema, refreshSchema, twoFaLoginVerifySchema, twoFaConfirmSchema,
 import * as authService from "./auth.service";
 import { ApiError } from "../../middleware/error.middleware";
 import { poserCookieRefresh, effacerCookieRefresh, REFRESH_COOKIE } from "../../lib/session-cookie";
+import { perimetreDe } from "../../territoire/territoire.service";
 
 export async function loginHandler(req: Request, res: Response, next: NextFunction) {
   try {
@@ -73,8 +74,32 @@ export async function meHandler(req: Request, res: Response, next: NextFunction)
   try {
     if (!req.user) throw new ApiError(401, "Authentification requise");
     const { prisma } = await import("../../lib/prisma");
-    const dbUser = await prisma.user.findUnique({ where: { id: req.user.id }, select: { totpEnabled: true, nomComplet: true, modulesAutorises: true } });
-    res.json({ user: { ...req.user, totpEnabled: dbUser?.totpEnabled ?? false, nomComplet: dbUser?.nomComplet, modulesAutorises: dbUser?.modulesAutorises ?? [] } });
+    // `peutDeleguerValidation` remonte dans la session : sans lui, l'interface ne peut
+    // pas montrer l'ecran de designation a la Direction Technique, qui n'est pas ADMIN.
+    // C'est une information d'habilitation sur SON PROPRE compte, pas une donnee d'autrui.
+    const dbUser = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        totpEnabled: true, nomComplet: true, modulesAutorises: true,
+        peutDeleguerValidation: true,
+      },
+    });
+    // DROITS EFFECTIFS, lus en base (D4, point 6) : `role` vient deja de la base via `requireAuth`, les modules
+    // sont lus ci-dessus, et le perimetre territorial est lu ici. Le client compare ces trois valeurs a celles de
+    // sa session locale a la reconnexion (`SESSION-HORS-LIGNE.md` section 8) : un changement invalide la session.
+    // `regions` vide ne veut PAS dire « aucune region » : c'est un compte national (`perimetreNational`).
+    const perimetre = await perimetreDe(req.user);
+    res.json({
+      user: {
+        ...req.user,
+        totpEnabled: dbUser?.totpEnabled ?? false,
+        nomComplet: dbUser?.nomComplet,
+        modulesAutorises: dbUser?.modulesAutorises ?? [],
+        peutDeleguerValidation: dbUser?.peutDeleguerValidation ?? false,
+        perimetreNational: perimetre.national,
+        regions: perimetre.national ? [] : [...perimetre.regions].sort((a, b) => a - b),
+      },
+    });
   } catch (err) {
     next(err);
   }

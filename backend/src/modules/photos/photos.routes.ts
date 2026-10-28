@@ -12,7 +12,7 @@ import { ApiError } from "../../middleware/error.middleware";
 // Avant : tout utilisateur authentifié pouvait obtenir n'importe quel fichier
 // photo en connaissant son nom. Connaître un identifiant ne doit pas suffire :
 // le fichier n'est servi que si l'utilisateur a accès au MODULE de l'objet auquel
-// la photo appartient (OT, ouvrage ou inspection).
+// la photo appartient (OT, ouvrage, inspection, défaut ou observation).
 //
 // Utilisateur → authentification → objet propriétaire → module → permission → fichier.
 //
@@ -24,15 +24,53 @@ photosRouter.use(requireAuth);
 
 // Exportée pour les tests d'autorisation (P1-06) : la résolution propriétaire→module
 // est la pièce à non-régression du endpoint.
-export async function moduleProprietaire(filename: string): Promise<ModuleKey | null> {
-  const [ot, ouvrage, inspection] = await Promise.all([
+export async function moduleProprietaire(
+  filename: string,
+  user: { id: string; role: string },
+): Promise<ModuleKey | null> {
+  const responsable = user.role === "ADMIN" || user.role === "GESTIONNAIRE";
+  const missions = responsable ? [] : await prisma.mission.findMany({
+    where: { deletedAt: null, OR: [{ assigneId: user.id }, { createurId: user.id }] },
+    select: { id: true },
+  });
+  const missionIds = missions.map((mission) => mission.id);
+  const [ot, ouvrage, inspection, mediaDefaut, mediaObservation] = await Promise.all([
     prisma.otPhoto.findFirst({ where: { fileName: filename, deletedAt: null }, select: { id: true } }),
     prisma.ouvrage.findFirst({ where: { photos: { has: filename }, deletedAt: null }, select: { id: true } }),
-    prisma.inspection.findFirst({ where: { photos: { has: filename }, deletedAt: null }, select: { id: true } }),
+    prisma.inspection.findFirst({
+      where: {
+        photos: { has: filename },
+        deletedAt: null,
+        ...(!responsable ? { inspecteurId: user.id } : {}),
+      },
+      select: { id: true },
+    }),
+    prisma.mediaDefaut.findFirst({
+      where: { chemin: filename, defaut: { deletedAt: null } },
+      select: { id: true, defaut: { select: { constateParId: true, missionId: true } } },
+    }),
+    // Preuve photo d'une OBSERVATION : sans cette ligne le fichier serait televerse mais JAMAIS servi (404), et le responsable
+    // ne verrait pas la preuve qu'il doit valider. Memes regles que pour un defaut : l'auteur, les missions de l'agent, le responsable.
+    prisma.mediaObservation.findFirst({
+      where: { chemin: filename, observation: { deletedAt: null } },
+      select: { id: true, observation: { select: { agentId: true, missionId: true } } },
+    }),
   ]);
   if (ot) return "ordres-travaux";
   if (ouvrage) return "ouvrages";
   if (inspection) return "inspections";
+  if (
+    mediaDefaut
+    && (responsable
+      || mediaDefaut.defaut.constateParId === user.id
+      || (mediaDefaut.defaut.missionId !== null && missionIds.includes(mediaDefaut.defaut.missionId)))
+  ) return "inspections";
+  if (
+    mediaObservation
+    && (responsable
+      || mediaObservation.observation.agentId === user.id
+      || (mediaObservation.observation.missionId !== null && missionIds.includes(mediaObservation.observation.missionId)))
+  ) return "inspections";
   return null;
 }
 
@@ -41,7 +79,7 @@ photosRouter.get("/:filename", async (req, res, next) => {
     if (!req.user) throw new ApiError(401, "Authentification requise");
     // basename dans photoAbsolutePath : le paramètre ne désigne qu'un nom de fichier.
     const absolute = photoAbsolutePath(req.params.filename);
-    const module = await moduleProprietaire(req.params.filename);
+    const module = await moduleProprietaire(req.params.filename, req.user);
     if (!module) throw new ApiError(404, "Photo introuvable");
     const modules = await modulesAutorisesDe(req.user);
     if (!moduleAutorise(modules, module)) throw new ApiError(404, "Photo introuvable");

@@ -20,6 +20,8 @@ import { parseApiError } from "../../lib/errors";
 import { ETAT_COLORS, ETAT_LABELS, CHANTIER_COLORS } from "./types";
 import type { SelectedFeature, TronconGeoFeature } from "./types";
 import type { EtatPatrimoine, StatutChantier, Ouvrage, PointNoir, Poste, Chantier, Inspection, Document } from "../../types";
+import { formaterPk, formaterPlagePk } from "../../lib/pk";
+import { echapDansAutreDialogue } from "./echap";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -42,17 +44,16 @@ const STATUT_LABELS: Record<StatutChantier, string> = {
   PLANIFIE: "Planifié", EN_COURS: "En cours", SUSPENDU: "Suspendu", TERMINE: "Terminé",
 };
 
+// Les treize valeurs de `TypeOuvrage`. Les quatre dernieres — fosse, caniveau, signalisation,
+// glissiere — ont ete ajoutees a l'enumeration le 13/10/2026 sans que cette table suive :
+// elles s'affichaient donc en code brut (« GLISSIERE ») dans la fiche.
 const TYPE_OUVRAGE_LABELS: Record<string, string> = {
   PONT: "Pont", DALOT: "Dalot", BUSE: "Buse", RADIER: "Radier", PONCEAU: "Ponceau",
   MUR_SOUTENEMENT: "Mur de soutènement", TUNNEL: "Tunnel", PASSERELLE: "Passerelle", VIADUC: "Viaduc",
+  FOSSE: "Fossé", CANIVEAU: "Caniveau", SIGNALISATION: "Signalisation", GLISSIERE: "Glissière",
 };
 
-function fmtPk(pk: number | null | undefined) {
-  if (pk == null) return "—";
-  const km = Math.floor(pk);
-  const m = Math.round((pk - km) * 1000);
-  return `PK ${km}+${String(m).padStart(3, "0")}`;
-}
+
 
 function fmtDate(iso: string | null | undefined) {
   if (!iso) return "—";
@@ -304,6 +305,8 @@ export function DetailPanel({
   const [isEditing, setIsEditing] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [editDraft, setEditDraft] = useState<Record<string, unknown>>({});
+  // Instantane du brouillon a l'ouverture de l'edition : sert a savoir si la saisie a change.
+  const editInitialRef = useRef("");
 
   // Quick edit state
   const [etatDraft, setEtatDraft] = useState<EtatPatrimoine | null>(null);
@@ -386,7 +389,7 @@ export function DetailPanel({
   function startEdit() {
     if (feature.kind !== "troncon") return;
     const d = feature.data;
-    setEditDraft({
+    const brouillon = {
       nom: d.nom,
       classe: d.classe,
       revetement: d.revetement ?? "",
@@ -398,9 +401,49 @@ export function DetailPanel({
       prefecture: fiche?.troncon.prefecture ?? "",
       commune: fiche?.troncon.commune ?? "",
       observations: fiche?.troncon.observations ?? "",
-    });
+    };
+    editInitialRef.current = JSON.stringify(brouillon);
+    setEditDraft(brouillon);
     setIsEditing(true);
   }
+
+  /**
+   * Saisie non enregistree dans la fiche : le formulaire d'edition modifie, ou l'un des
+   * brouillons rapides (etat, statut, avancement, signalement de chantier). Fermer la fiche
+   * (croix, « Fermer », Echap) ne doit pas les perdre en silence.
+   */
+  function saisieNonEnregistree(): boolean {
+    if (isEditing && JSON.stringify(editDraft) !== editInitialRef.current) return true;
+    if (feature.kind === "troncon" && etatDraft != null && etatDraft !== feature.data.etat) return true;
+    if (statutDraft != null || avancementDraft != null) return true;
+    return chantierOpen && (chantierIntitule.trim() !== "" || chantierEntreprise.trim() !== "");
+  }
+
+  async function demanderFermeture() {
+    if (saisieNonEnregistree()
+      && !(await confirm("Des modifications n'ont pas été enregistrées. Fermer quand même ?", { danger: true }))) return;
+    onClose();
+  }
+
+  async function annulerEdition() {
+    if (saisieNonEnregistree()
+      && !(await confirm("Abandonner les modifications non enregistrées ?", { danger: true }))) return;
+    setIsEditing(false);
+  }
+
+  // Echap ferme la fiche (avec confirmation s'il y a une saisie). Le gestionnaire est relu a
+  // chaque rendu via une reference : l'ecouteur n'est pose qu'une fois mais voit toujours le
+  // brouillon courant. Un Echap destine a une autre boite de dialogue ouverte est ignore.
+  const fermetureRef = useRef(demanderFermeture);
+  useEffect(() => { fermetureRef.current = demanderFermeture; });
+  useEffect(() => {
+    const surTouche = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || echapDansAutreDialogue(e)) return;
+      void fermetureRef.current();
+    };
+    window.addEventListener("keydown", surTouche);
+    return () => window.removeEventListener("keydown", surTouche);
+  }, []);
 
   async function saveEdit() {
     if (feature.kind !== "troncon") return;
@@ -433,13 +476,13 @@ export function DetailPanel({
     return (
       <div className="p-4 space-y-3">
         <div>
-          <label className="text-xs font-medium text-gray-600 block mb-1">Nom</label>
-          <input type="text" value={String(editDraft.nom ?? "")} onChange={setField("nom")} className={inputCls} />
+          <label htmlFor="detail-panel-champ-2" className="text-xs font-medium text-gray-600 block mb-1">Nom</label>
+          <input id="detail-panel-champ-2" type="text" value={String(editDraft.nom ?? "")} onChange={setField("nom")} className={inputCls} />
         </div>
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">Classe</label>
-            <select value={String(editDraft.classe ?? "")} onChange={setField("classe")} className={inputCls}>
+            <label htmlFor="detail-panel-champ-3" className="text-xs font-medium text-gray-600 block mb-1">Classe</label>
+            <select id="detail-panel-champ-3" value={String(editDraft.classe ?? "")} onChange={setField("classe")} className={inputCls}>
               <option value="RN">Route Nationale</option>
               <option value="RR">Route Préfectorale</option>
               <option value="RU">Voirie Urbaine</option>
@@ -447,8 +490,8 @@ export function DetailPanel({
             </select>
           </div>
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">Revêtement</label>
-            <select value={String(editDraft.revetement ?? "")} onChange={setField("revetement")} className={inputCls}>
+            <label htmlFor="detail-panel-champ-4" className="text-xs font-medium text-gray-600 block mb-1">Revêtement</label>
+            <select id="detail-panel-champ-4" value={String(editDraft.revetement ?? "")} onChange={setField("revetement")} className={inputCls}>
               <option value="BITUME">Bitume</option>
               <option value="TERRE">Terre</option>
               <option value="LATERITE">Latérite</option>
@@ -457,8 +500,8 @@ export function DetailPanel({
           </div>
         </div>
         <div>
-          <label className="text-xs font-medium text-gray-600 block mb-1">État</label>
-          <select value={String(editDraft.etat ?? "")} onChange={setField("etat")} className={inputCls}>
+          <label htmlFor="detail-panel-champ-5" className="text-xs font-medium text-gray-600 block mb-1">État</label>
+          <select id="detail-panel-champ-5" value={String(editDraft.etat ?? "")} onChange={setField("etat")} className={inputCls}>
             <option value="BON">Bon</option>
             <option value="MOYEN">Moyen</option>
             <option value="MAUVAIS">Mauvais</option>
@@ -468,35 +511,35 @@ export function DetailPanel({
         </div>
         <div className="grid grid-cols-3 gap-2">
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">PK début</label>
-            <input type="number" step="0.001" value={String(editDraft.pkDebut ?? "")} onChange={setField("pkDebut")} className={inputCls} />
+            <label htmlFor="detail-panel-champ-6" className="text-xs font-medium text-gray-600 block mb-1">PK début</label>
+            <input id="detail-panel-champ-6" type="number" step="0.001" value={String(editDraft.pkDebut ?? "")} onChange={setField("pkDebut")} className={inputCls} />
           </div>
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">PK fin</label>
-            <input type="number" step="0.001" value={String(editDraft.pkFin ?? "")} onChange={setField("pkFin")} className={inputCls} />
+            <label htmlFor="detail-panel-champ-7" className="text-xs font-medium text-gray-600 block mb-1">PK fin</label>
+            <input id="detail-panel-champ-7" type="number" step="0.001" value={String(editDraft.pkFin ?? "")} onChange={setField("pkFin")} className={inputCls} />
           </div>
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">Longueur (km)</label>
-            <input type="number" step="0.001" value={String(editDraft.longueurKm ?? "")} onChange={setField("longueurKm")} className={inputCls} />
+            <label htmlFor="detail-panel-champ-8" className="text-xs font-medium text-gray-600 block mb-1">Longueur (km)</label>
+            <input id="detail-panel-champ-8" type="number" step="0.001" value={String(editDraft.longueurKm ?? "")} onChange={setField("longueurKm")} className={inputCls} />
           </div>
         </div>
         <div>
-          <label className="text-xs font-medium text-gray-600 block mb-1">Trafic moyen (véh/j)</label>
-          <input type="number" value={String(editDraft.traficMoyenJma ?? "")} onChange={setField("traficMoyenJma")} className={inputCls} />
+          <label htmlFor="detail-panel-champ-9" className="text-xs font-medium text-gray-600 block mb-1">Trafic moyen (véh/j)</label>
+          <input id="detail-panel-champ-9" type="number" value={String(editDraft.traficMoyenJma ?? "")} onChange={setField("traficMoyenJma")} className={inputCls} />
         </div>
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">Préfecture</label>
-            <input type="text" value={String(editDraft.prefecture ?? "")} onChange={setField("prefecture")} className={inputCls} />
+            <label htmlFor="detail-panel-champ-10" className="text-xs font-medium text-gray-600 block mb-1">Préfecture</label>
+            <input id="detail-panel-champ-10" type="text" value={String(editDraft.prefecture ?? "")} onChange={setField("prefecture")} className={inputCls} />
           </div>
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">Commune</label>
-            <input type="text" value={String(editDraft.commune ?? "")} onChange={setField("commune")} className={inputCls} />
+            <label htmlFor="detail-panel-champ-11" className="text-xs font-medium text-gray-600 block mb-1">Commune</label>
+            <input id="detail-panel-champ-11" type="text" value={String(editDraft.commune ?? "")} onChange={setField("commune")} className={inputCls} />
           </div>
         </div>
         <div>
-          <label className="text-xs font-medium text-gray-600 block mb-1">Observations</label>
-          <textarea value={String(editDraft.observations ?? "")} onChange={setField("observations")} rows={3} className={`${inputCls} resize-none`} />
+          <label htmlFor="detail-panel-champ-12" className="text-xs font-medium text-gray-600 block mb-1">Observations</label>
+          <textarea id="detail-panel-champ-12" value={String(editDraft.observations ?? "")} onChange={setField("observations")} rows={3} className={`${inputCls} resize-none`} />
         </div>
       </div>
     );
@@ -511,7 +554,7 @@ export function DetailPanel({
       subtitle: feature.kind === "troncon" ? `${CLASSE_LABELS[feature.data.classe] ?? feature.data.classe} — ${feature.data.code}` : "",
       etat: feature.kind === "troncon" ? feature.data.etat : "NON_EVALUE" as EtatPatrimoine,
       meta: feature.kind === "troncon"
-        ? `${fmtPk(feature.data.pkDebut)} → ${fmtPk(feature.data.pkFin)} · ${feature.data.longueurKm.toFixed(2)} km`
+        ? `${formaterPlagePk(feature.data.pkDebut, feature.data.pkFin)} · ${feature.data.longueurKm.toFixed(2)} km`
         : "",
     },
     ouvrage: {
@@ -520,7 +563,7 @@ export function DetailPanel({
       subtitle: feature.kind === "ouvrage" ? `${TYPE_OUVRAGE_LABELS[feature.data.type] ?? feature.data.type}${feature.data.code ? ` · ${feature.data.code}` : ""}` : "",
       etat: feature.kind === "ouvrage" ? feature.data.etat : "NON_EVALUE" as EtatPatrimoine,
       meta: feature.kind === "ouvrage"
-        ? `${feature.data.pk != null ? fmtPk(feature.data.pk) + " · " : ""}position héritée, non vérifiée`
+        ? `${feature.data.pk != null ? formaterPk(feature.data.pk) + " · " : ""}position héritée, non vérifiée`
         : "",
     },
     pointNoir: {
@@ -619,8 +662,8 @@ export function DetailPanel({
             <SectionTitle icon={<MapPin className="h-3.5 w-3.5" />} title="Position géographique" />
             <InfoRow label="Région" value={d.region ?? "—"} />
             {ft && <InfoRow label="Préfecture" value={ft.prefecture} />}
-            <InfoRow label="PK début" value={fmtPk(d.pkDebut)} />
-            <InfoRow label="PK fin" value={fmtPk(d.pkFin)} />
+            <InfoRow label="PK début" value={formaterPk(d.pkDebut)} />
+            <InfoRow label="PK fin" value={formaterPk(d.pkFin)} />
             <InfoRow label="Longueur" value={`${d.longueurKm.toFixed(3)} km`} />
             {firstPt && (
               <div className="flex items-center justify-between py-2 border-b border-gray-50">
@@ -679,14 +722,24 @@ export function DetailPanel({
       case "etat":
         return (
           <div>
-            <SectionTitle icon={<AlertTriangle className="h-3.5 w-3.5" />} title="État observé" />
+            <SectionTitle icon={<AlertTriangle className="h-3.5 w-3.5" />} title={d.etatDeclare ? "État déclaré" : "État observé"} />
             <div className="flex items-center gap-3 p-3 rounded-lg mb-4" style={{ backgroundColor: `${etatColor}15`, border: `1px solid ${etatColor}30` }}>
               <span className="h-4 w-4 rounded-full shrink-0" style={{ backgroundColor: etatColor }} />
               <div>
                 <p className="text-sm font-semibold text-navy">{ETAT_LABELS[d.etat]}</p>
-                <p className="text-xs text-gray-500">Dernier état constaté</p>
+                {/* Un etat declare n'est pas un etat constate : la fiche ne doit jamais
+                    presenter la valeur annoncee par un gestionnaire comme un releve. */}
+                <p className="text-xs text-gray-500">
+                  {d.etatDeclare ? "Déclaré, non constaté sur le terrain" : "Dernier état constaté"}
+                </p>
               </div>
             </div>
+            {d.etatDeclare && (
+              <p role="note" className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-snug text-amber-950">
+                Cet état a été déclaré par un gestionnaire et n'a pas fait l'objet d'un relevé de
+                terrain. Sur la carte, ce tronçon est tracé en pointillé.
+              </p>
+            )}
             {canEdit && (
               <div className="mb-4">
                 <p className="text-xs font-medium text-gray-600 mb-2">Mettre à jour l'état</p>
@@ -733,7 +786,7 @@ export function DetailPanel({
           </div>
         );
 
-      case "patrimoine":
+      case "patrimoine": {
         const ouvrages = fiche?.ouvrages ?? [];
         const postes = fiche?.postes ?? [];
         const pns = fiche?.pointsNoirs ?? [];
@@ -749,7 +802,7 @@ export function DetailPanel({
                     <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ backgroundColor: ETAT_COLORS[o.etat] }} />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-navy truncate">{o.nom}</p>
-                      <p className="text-[11px] text-gray-500">{TYPE_OUVRAGE_LABELS[o.type] ?? o.type}{o.pk != null ? ` · ${fmtPk(o.pk)}` : ""}{o.longueurM ? ` · ${o.longueurM} m` : ""}</p>
+                      <p className="text-[11px] text-gray-500">{TYPE_OUVRAGE_LABELS[o.type] ?? o.type}{o.pk != null ? ` · ${formaterPk(o.pk)}` : ""}{o.longueurM ? ` · ${o.longueurM} m` : ""}</p>
                     </div>
                     <EtatBadge etat={o.etat} />
                   </div>
@@ -764,7 +817,7 @@ export function DetailPanel({
                 {postes.map((p) => (
                   <div key={p.id} className="flex items-center justify-between p-2 rounded bg-gray-50 border border-gray-100">
                     <span className="text-sm text-navy">{p.nom}</span>
-                    <span className="text-xs text-gray-500">{p.type}{p.pk != null ? ` · ${fmtPk(p.pk)}` : ""}</span>
+                    <span className="text-xs text-gray-500">{p.type}{p.pk != null ? ` · ${formaterPk(p.pk)}` : ""}</span>
                   </div>
                 ))}
               </div>
@@ -786,7 +839,8 @@ export function DetailPanel({
           </div>
         );
 
-      case "chantiers":
+      }
+      case "chantiers": {
         const chantiers = fiche?.chantiers ?? [];
         return (
           <div>
@@ -834,6 +888,7 @@ export function DetailPanel({
           </div>
         );
 
+      }
       case "photos":
         return <PhotoGallery endpoint="troncons" entityId={d.id} canWrite={!!canEdit} />;
 
@@ -843,7 +898,7 @@ export function DetailPanel({
       case "historique":
         return renderHistorique();
 
-      case "stats":
+      case "stats": {
         const f = fiche;
         return (
           <div>
@@ -882,6 +937,7 @@ export function DetailPanel({
           </div>
         );
 
+      }
       default: return null;
     }
   }
@@ -907,7 +963,7 @@ export function DetailPanel({
             <SectionTitle icon={<MapPin className="h-3.5 w-3.5" />} title="Localisation" />
             <InfoRow label="Région" value={d.region ?? "—"} />
             <InfoRow label="Tronçon" value={d.tronconCode ? `${d.tronconCode}` : null} />
-            <InfoRow label="PK" value={d.pk != null ? fmtPk(d.pk) : null} />
+            <InfoRow label="PK" value={d.pk != null ? formaterPk(d.pk) : null} />
             {d.lat != null && d.lon != null && (
               <div className="flex items-center justify-between py-2 border-b border-gray-50">
                 <span className="text-xs text-gray-500">Coordonnées GPS</span>
@@ -1017,31 +1073,39 @@ export function DetailPanel({
   // Minimized strip
   if (isMinimized) {
     return (
-      <div className="absolute right-0 top-0 h-full w-10 shadow-2xl z-[900] flex flex-col items-center py-3 gap-2 border-l border-white/10" style={{ background: "linear-gradient(180deg, #1a2942 0%, #2d4a6b 100%)" }}>
-        <button onClick={() => setIsMinimized(false)} title="Afficher le panneau" className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10">
+      <div role="dialog" aria-label={`Fiche réduite : ${headerConfig.title || headerConfig.subtitle}`} className="absolute right-0 top-0 h-full w-10 shadow-2xl z-[900] flex flex-col items-center py-3 gap-2 border-l border-white/10" style={{ background: "linear-gradient(180deg, #1a2942 0%, #2a4666 100%)" }}>
+        <button onClick={() => setIsMinimized(false)} title="Afficher le panneau" aria-label="Afficher le panneau" className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10">
           <ChevronLeft className="h-4 w-4" />
         </button>
         <div className="flex-1 flex items-center justify-center">
-          <span className="text-white/40 text-[10px] uppercase tracking-widest" style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}>
+          <span className="text-white/70 text-[10px] uppercase tracking-widest" style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}>
             {feature.kind === "troncon" ? feature.data.nom.slice(0, 20) : feature.kind}
           </span>
         </div>
-        <button onClick={onClose} title="Fermer" className="p-1.5 rounded-lg text-white/50 hover:text-white hover:bg-white/10">
+        <button onClick={() => void demanderFermeture()} title="Fermer" aria-label="Fermer la fiche" className="p-1.5 rounded-lg text-white/70 hover:text-white hover:bg-white/10">
           <X className="h-3.5 w-3.5" />
         </button>
+        {/* La confirmation de fermeture doit pouvoir s'afficher aussi quand la fiche est reduite. */}
+        {confirmDialog}
       </div>
     );
   }
 
   return (
-    <div className="absolute right-0 top-0 h-full w-[520px] bg-white shadow-2xl z-[900] flex flex-col border-l border-gray-200">
+    // Pleine largeur sous le breakpoint `md` : 520 px fixes depassent un telephone de 375 px et
+    // masquaient toute la carte ; sur bureau la largeur historique est inchangee.
+    <div
+      role="dialog"
+      aria-label={`Fiche : ${headerConfig.title || headerConfig.subtitle}`}
+      className="absolute right-0 top-0 h-full w-full md:w-[520px] max-w-full bg-white shadow-2xl z-[900] flex flex-col border-l border-gray-200"
+    >
       {/* ── Header ── */}
-      <div className="relative shrink-0" style={{ background: "linear-gradient(135deg, #1a2942 0%, #2d4a6b 100%)" }}>
+      <div className="relative shrink-0" style={{ background: "linear-gradient(135deg, #1a2942 0%, #2a4666 100%)" }}>
         <div className="absolute top-3 right-3 flex items-center gap-1">
-          <button onClick={() => setIsMinimized(true)} title="Réduire" className="p-1.5 rounded-lg hover:bg-white/10 text-white/70 hover:text-white">
+          <button onClick={() => setIsMinimized(true)} title="Réduire" aria-label="Réduire la fiche" className="p-1.5 rounded-lg hover:bg-white/10 text-white/70 hover:text-white">
             <ChevronRight className="h-4 w-4" />
           </button>
-          <button onClick={onClose} title="Fermer" className="p-1.5 rounded-lg hover:bg-white/10 text-white/70 hover:text-white">
+          <button onClick={() => void demanderFermeture()} title="Fermer" aria-label="Fermer la fiche" className="p-1.5 rounded-lg hover:bg-white/10 text-white/70 hover:text-white">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -1050,9 +1114,9 @@ export function DetailPanel({
           <div className="flex items-start gap-3">
             <div className="p-2 rounded-lg bg-white/10 text-white shrink-0 mt-0.5">{headerConfig.icon}</div>
             <div className="flex-1 min-w-0">
-              <p className="text-white/60 text-[11px] font-medium uppercase tracking-wider mb-0.5">{headerConfig.subtitle}</p>
+              <p className="text-white/70 text-[11px] font-medium uppercase tracking-wider mb-0.5">{headerConfig.subtitle}</p>
               <h2 className="text-white font-semibold text-base leading-tight pr-8">{headerConfig.title}</h2>
-              {headerConfig.meta && <p className="text-white/50 text-xs mt-1">{headerConfig.meta}</p>}
+              {headerConfig.meta && <p className="text-white/70 text-xs mt-1">{headerConfig.meta}</p>}
             </div>
           </div>
 
@@ -1064,6 +1128,7 @@ export function DetailPanel({
               >
                 <span className="h-1.5 w-1.5 rounded-full bg-white" />
                 {ETAT_LABELS[headerConfig.etat]}
+                {feature.kind === "troncon" && feature.data.etatDeclare && " (déclaré)"}
               </span>
               {feature.kind === "troncon" && (
                 <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-white/10 text-white/80">
@@ -1081,7 +1146,7 @@ export function DetailPanel({
 
         {/* Action buttons */}
         <div className="flex items-center gap-1 px-4 pb-3 border-t border-white/10 pt-2.5">
-          <button onClick={printFiche} title="Imprimer" className="flex items-center gap-1 text-white/60 hover:text-white text-[11px] px-2 py-1 rounded hover:bg-white/10">
+          <button onClick={printFiche} title="Imprimer" className="flex items-center gap-1 text-white/70 hover:text-white text-[11px] px-2 py-1 rounded hover:bg-white/10">
             <Printer className="h-3 w-3" /> Imprimer
           </button>
           {canEdit && feature.kind === "troncon" && !isEditing && (
@@ -1092,6 +1157,7 @@ export function DetailPanel({
           {onZoomTo && feature.kind === "troncon" && (
             <button
               title="Zoomer"
+              aria-label="Zoomer sur le tronçon"
               onClick={() => {
                 try {
                   const coords = (JSON.parse(feature.data.geometry) as { coordinates: number[][] }).coordinates;
@@ -1099,7 +1165,7 @@ export function DetailPanel({
                   onZoomTo([mid[1], mid[0]]);
                 } catch {/* */ }
               }}
-              className="flex items-center gap-1 text-white/60 hover:text-white text-[11px] px-2 py-1 rounded hover:bg-white/10"
+              className="flex items-center gap-1 text-white/70 hover:text-white text-[11px] px-2 py-1 rounded hover:bg-white/10"
             >
               <ZoomIn className="h-3 w-3" /> Zoom
             </button>
@@ -1107,13 +1173,13 @@ export function DetailPanel({
           {onZoomTo && (feature.kind === "ouvrage" || feature.kind === "poste" || feature.kind === "pointNoir") && (
             <button
               onClick={() => { const d = feature.data as { lat: number; lon: number }; if (d.lat && d.lon) onZoomTo([d.lat, d.lon]); }}
-              className="flex items-center gap-1 text-white/60 hover:text-white text-[11px] px-2 py-1 rounded hover:bg-white/10"
+              className="flex items-center gap-1 text-white/70 hover:text-white text-[11px] px-2 py-1 rounded hover:bg-white/10"
             >
               <ZoomIn className="h-3 w-3" /> Zoom
             </button>
           )}
           {feature.kind === "troncon" && (
-            <button onClick={() => exportGeoJSON(feature.data)} className="flex items-center gap-1 text-white/60 hover:text-white text-[11px] px-2 py-1 rounded hover:bg-white/10">
+            <button onClick={() => exportGeoJSON(feature.data)} className="flex items-center gap-1 text-white/70 hover:text-white text-[11px] px-2 py-1 rounded hover:bg-white/10">
               <Download className="h-3 w-3" /> GeoJSON
             </button>
           )}
@@ -1194,14 +1260,14 @@ export function DetailPanel({
             {canEdit && (
               <div className="mt-4 pt-4 border-t border-gray-100 space-y-3">
                 <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Statut</label>
-                  <Select value={statutDraft ?? feature.data.statut} onChange={(e) => setStatutDraft(e.target.value as StatutChantier)}>
+                  <label htmlFor="detail-panel-champ-1" className="text-xs font-medium text-gray-600 block mb-1">Statut</label>
+                  <Select id="detail-panel-champ-1" value={statutDraft ?? feature.data.statut} onChange={(e) => setStatutDraft(e.target.value as StatutChantier)}>
                     {Object.entries(STATUT_LABELS).map(([k, l]) => <option key={k} value={k}>{l}</option>)}
                   </Select>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600 block mb-1">Avancement (%)</label>
-                  <input type="number" min={0} max={100} defaultValue={feature.data.avancementPct} onChange={(e) => setAvancementDraft(Number(e.target.value))} className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
+                  <label htmlFor="detail-panel-champ-13" className="text-xs font-medium text-gray-600 block mb-1">Avancement (%)</label>
+                  <input id="detail-panel-champ-13" type="number" min={0} max={100} defaultValue={feature.data.avancementPct} onChange={(e) => setAvancementDraft(Number(e.target.value))} className="w-full rounded-lg border border-gray-300 px-3 py-1.5 text-sm" />
                 </div>
                 <Button size="sm" className="w-full" disabled={(!statutDraft && avancementDraft == null) || chantiersMut.update.isPending} onClick={saveChantierStatut}>
                   Enregistrer
@@ -1219,7 +1285,7 @@ export function DetailPanel({
             <Save className="h-3 w-3" />
             {tronconsMut.update.isPending ? "Enregistrement…" : "Enregistrer"}
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => setIsEditing(false)}>Annuler</Button>
+          <Button size="sm" variant="ghost" onClick={() => void annulerEdition()}>Annuler</Button>
           <div className="flex-1" />
           <span className="text-[11px] text-amber-600 italic">Mode édition</span>
         </div>
@@ -1249,10 +1315,10 @@ export function DetailPanel({
               </button>
             )}
             <div className="flex-1" />
-            <button onClick={() => setIsMinimized(true)} title="Réduire" className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1.5">
+            <button onClick={() => setIsMinimized(true)} title="Réduire" aria-label="Réduire la fiche" className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1.5">
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
-            <button onClick={onClose} className="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5">Fermer</button>
+            <button onClick={() => void demanderFermeture()} className="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5">Fermer</button>
           </div>
         )
       )}

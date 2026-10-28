@@ -13,6 +13,8 @@ export const CATEGORIES_VALIDES = [
   "CHEMIN", "SENTIER", "PIETON", "INCONNU",
 ] as const;
 
+import type { EtatPatrimoine } from "@prisma/client";
+
 export const ETATS_VALIDES = ["BON", "MOYEN", "MAUVAIS", "CRITIQUE", "NON_EVALUE"] as const;
 export const REVETEMENTS_VALIDES = ["BITUME", "TERRE", "LATERITE", "PAVE", "NON_RENSEIGNE"] as const;
 export const CLASSES_VALIDES = ["RN", "RR", "RU", "PISTE", "NON_CLASSEE"] as const;
@@ -132,12 +134,15 @@ export function analyserPrefixe(brut: string | undefined): string {
   return p;
 }
 
-export function analyserEtat(brut: string | undefined): string {
+export function analyserEtat(brut: string | undefined): EtatPatrimoine {
   const e = (brut ?? "NON_EVALUE").toUpperCase();
   if (!(ETATS_VALIDES as readonly string[]).includes(e)) {
     throw new Error(`--etat invalide : ${e}`);
   }
-  return e;
+  // Le controle ci-dessus garantit l'appartenance a l'enum ; le dire au type evite
+  // que chaque appelant le recaste a l'aveugle. Si l'enum change au schema, c'est
+  // ICI que tsc le signalera, et non dans cinq scripts a la fois.
+  return e as EtatPatrimoine;
 }
 
 export function analyserClasse(brut: string | undefined): string {

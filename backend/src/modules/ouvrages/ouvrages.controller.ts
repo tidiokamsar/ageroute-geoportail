@@ -1,4 +1,5 @@
 import type { Request, Response, NextFunction } from "express";
+import { supprimerTeleversementNonEnregistre } from "../../lib/photos";
 import { ouvragesService } from "./ouvrages.service";
 import { ouvrageCreateSchema, ouvrageUpdateSchema } from "./ouvrages.schema";
 import { parseListQuery } from "../../lib/list-query";
@@ -51,14 +52,25 @@ export async function deleteHandler(req: Request, res: Response, next: NextFunct
   } catch (err) { next(err); }
 }
 export async function geolocateHandler(req: Request, res: Response, next: NextFunction) {
-  try { res.json(await ouvragesService.geolocateFromTroncon(req.params.id)); } catch (err) { next(err); }
+  try {
+    if (!req.user) throw new ApiError(401, "Authentification requise");
+    res.json(await ouvragesService.geolocateFromTroncon(req.params.id, req.user.id, req.ip));
+  } catch (err) { next(err); }
 }
 export async function addPhotoHandler(req: Request, res: Response, next: NextFunction) {
+  // Distingue « jamais enregistree » de « enregistree puis probleme ailleurs » :
+  // seule la premiere justifie de supprimer le fichier televerse.
+  let enregistree = false;
   try {
     if (!req.file) throw new ApiError(400, "Photo manquante");
     if (!req.user) throw new ApiError(401, "Authentification requise");
-    res.status(201).json(await ouvragesService.addPhoto(req.params.id, req.file.filename, req.user.id));
-  } catch (err) { next(err); }
+    const ajoutee = await ouvragesService.addPhoto(req.params.id, req.file.filename, req.user.id);
+    enregistree = true;
+    res.status(201).json(ajoutee);
+  } catch (err) {
+    await supprimerTeleversementNonEnregistre(enregistree, req.file);
+    next(err);
+  }
 }
 export async function removePhotoHandler(req: Request, res: Response, next: NextFunction) {
   try {

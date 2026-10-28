@@ -40,7 +40,7 @@ supposée, une archive non chiffrée ne quitte pas le serveur, un échec est bru
 | Chiffrement | AES-256-CBC, PBKDF2 200 000 itérations |
 | Clé | `~/.bdri/cle-sauvegarde` sur le serveur source |
 | Rétention locale | 14 jours |
-| Copie hors serveur | `agerdb@102.211.199.132:~/ageroute-depots/bdri-sauvegardes/` |
+| Copie hors serveur | `<utilisateur>@<hote-depot>:~/ageroute-depots/bdri-sauvegardes/` |
 | Manifeste | Migrations, volumétrie, empreintes SHA-256 |
 
 ### Restauration — VÉRIFIÉE
@@ -76,7 +76,7 @@ exécution réelle.**
 
 > « Si le serveur est détruit aujourd'hui, comment récupérons-nous la BDRI ? »
 
-Archive chiffrée sur `102.211.199.132` → déchiffrement avec la clé →
+Archive chiffrée sur `<hote-depot>` → déchiffrement avec la clé →
 `pg_restore` dans un PostGIS 17 → extraction de l'archive des fichiers dans le
 volume → `docker compose up`. **Le chemin est vérifié jusqu'à `pg_restore` inclus.**
 

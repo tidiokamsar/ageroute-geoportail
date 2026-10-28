@@ -1,8 +1,10 @@
 import type { Request, Response, NextFunction } from "express";
+import { supprimerTeleversementNonEnregistre } from "../../lib/photos";
 import { otService } from "./ot.service";
 import { otCreateSchema, otUpdateSchema, otChangeStatutSchema, otAssignSchema } from "./ot.schema";
 import { parseListQuery } from "../../lib/list-query";
 import { ApiError } from "../../middleware/error.middleware";
+import { regionsVisibles } from "../../territoire/territoire.lecture";
 
 export async function listHandler(req: Request, res: Response, next: NextFunction) {
   try {
@@ -13,6 +15,8 @@ export async function listHandler(req: Request, res: Response, next: NextFunctio
       assigneA, type, search: q.search,
       aTraiter: aTraiter === "1" || aTraiter === "true",
       userId: req.user?.id,
+      // Perimetre territorial (A10) : relu en base, jamais pris dans la requete.
+      regions: req.user ? await regionsVisibles(req.user) : null,
     }));
   } catch (err) { next(err); }
 }
@@ -58,15 +62,23 @@ export async function convertirHandler(req: Request, res: Response, next: NextFu
 }
 
 export async function addPhotoHandler(req: Request, res: Response, next: NextFunction) {
+  // Distingue « jamais enregistree » de « enregistree puis probleme ailleurs » :
+  // seule la premiere justifie de supprimer le fichier televerse.
+  let enregistree = false;
   try {
     if (!req.user) throw new ApiError(401, "Authentification requise");
     if (!req.file) throw new ApiError(400, "Photo manquante");
     const { type, lat, lon } = req.body as { type?: string; lat?: string; lon?: string };
-    res.status(201).json(await otService.addPhoto(
+    const ajoutee = await otService.addPhoto(
       req.params.id, req.file.filename, type ?? "AVANT",
       lat ? Number(lat) : undefined, lon ? Number(lon) : undefined, req.user.id,
-    ));
-  } catch (err) { next(err); }
+    );
+    enregistree = true;
+    res.status(201).json(ajoutee);
+  } catch (err) {
+    await supprimerTeleversementNonEnregistre(enregistree, req.file);
+    next(err);
+  }
 }
 
 export async function removePhotoHandler(req: Request, res: Response, next: NextFunction) {
@@ -85,8 +97,8 @@ export async function deleteHandler(req: Request, res: Response, next: NextFunct
   } catch (err) { next(err); }
 }
 
-export async function statsHandler(_req: Request, res: Response, next: NextFunction) {
-  try { res.json(await otService.stats()); } catch (err) { next(err); }
+export async function statsHandler(req: Request, res: Response, next: NextFunction) {
+  try { res.json(await otService.stats(req.user ? await regionsVisibles(req.user) : null)); } catch (err) { next(err); }
 }
 
 export async function assignablesHandler(_req: Request, res: Response, next: NextFunction) {

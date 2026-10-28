@@ -1,3 +1,5 @@
+import tailwindcssAnimate from "tailwindcss-animate";
+
 /** @type {import('tailwindcss').Config} */
 export default {
     darkMode: ["class"],
@@ -72,6 +74,27 @@ export default {
   			danger: 'var(--danger)',
   			info: 'var(--info)'
   		},
+  		// Teintes de TEXTE relevees pour le contraste (WCAG 1.4.3, 4,5:1), mesurees dans un navigateur
+  		// reel le 23/10/2026 (docs/accessibilite/CONTRASTE.md). Seul l'utilitaire `text-*` est
+  		// touche : `bg-*` et `border-*` gardent la palette Tailwind d'origine, donc les aplats et
+  		// les filets ne bougent pas. Chaque valeur est la teinte d'origine assombrie (meme teinte,
+  		// luminosite reduite) jusqu'a 4,5:1 sur le PIRE fond ou elle est posee : blanc, gris-50
+  		// (#f9fafb), fond applicatif (#f4f6f8), gris-100, muted (#eef1f4), et le -50 de sa famille.
+  		// Le test src/styles/contraste.test.ts recalcule ces ratios ; ne pas les ajuster a l'oeil.
+  		textColor: {
+  			gray: { '300': '#656c79', '400': '#656c79', '500': '#656c79' },
+  			slate: { '400': '#5e6d82', '500': '#5e6d82' },
+  			red: { '500': '#d32222', '600': '#d32222' },
+  			orange: { '400': '#b9460a', '500': '#b9460a', '600': '#b9460a', '700': '#b43f0a' },
+  			amber: { '500': '#a35405', '600': '#a35405', '700': '#a35405' },
+  			yellow: { '700': '#9a5e07' },
+  			lime: { '600': '#4b780a' },
+  			green: { '500': '#147c3b', '600': '#147c3b', '700': '#147c3b' },
+  			emerald: { '600': '#047b56' },
+  			teal: { '600': '#0b786e' },
+  			blue: { '500': '#2361eb', '600': '#2361eb' },
+  			purple: { '500': '#9530f5' }
+  		},
   		borderRadius: {
   			lg: 'var(--radius)',
   			md: 'calc(var(--radius) - 2px)',
@@ -114,5 +137,5 @@ export default {
   		}
   	}
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [tailwindcssAnimate],
 };

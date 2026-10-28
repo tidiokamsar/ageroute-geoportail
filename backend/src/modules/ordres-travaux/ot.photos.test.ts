@@ -1,11 +1,32 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-vi.mock("../../utils/audit", () => ({ logAudit: vi.fn() }));
+vi.mock("../../utils/audit", () => {
+  const logAudit = vi.fn();
+  // Les deux chemins transactionnels delegent au MEME espion. Les assertions existantes
+  // continuent ainsi d'observer exactement les memes parametres, et verifient donc le
+  // chemin reel — notamment celle qui exige qu'aucun jeton brut n'atteigne l'audit.
+  return {
+    logAudit,
+    construireAudit: vi.fn((p: Record<string, unknown>) => {
+      logAudit(p);
+      return { __audit: p };
+    }),
+    logAuditTransactionnelle: vi.fn(async (_tx: unknown, p: Record<string, unknown>) => {
+      logAudit(p);
+    }),
+  };
+});
 
-const db = vi.hoisted(() => ({
-  otPhoto: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
-  ordreTravaux: { findFirst: vi.fn(), findMany: vi.fn(), count: vi.fn(), groupBy: vi.fn(), update: vi.fn() },
-}));
+const db = vi.hoisted(() => {
+  const client = {
+    otPhoto: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    ordreTravaux: { findFirst: vi.fn(), findMany: vi.fn(), count: vi.fn(), groupBy: vi.fn(), update: vi.fn() },
+    // Les DEUX formes : interactive pour l'ajout, tableau pour le retrait.
+    $transaction: vi.fn(async (arg: unknown) =>
+      Array.isArray(arg) ? Promise.all(arg) : (arg as (tx: unknown) => Promise<unknown>)(client)),
+  };
+  return client;
+});
 
 vi.mock("../../lib/prisma", () => ({ prisma: db }));
 

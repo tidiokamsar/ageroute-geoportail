@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { toleranceSelonZoom } from "./public.controller";
+import { decimalesSelonZoom, toleranceSelonZoom } from "./public.controller";
 
 /**
  * Simplification de la carte publique selon le zoom.
@@ -56,5 +56,24 @@ describe("Un zoom absent ou aberrant protege le visiteur", () => {
   it("traite un zoom demesurement grand comme le plus fin", () => {
     // Aucun fond de plan ne va au-dela de 20 ; mieux vaut rendre l'exact que rien.
     expect(toleranceSelonZoom(99)).toBe(0);
+  });
+});
+
+describe("Les chiffres apres la virgule suivent la tolerance de simplification", () => {
+  it("jamais plus fins que la tolerance, et sans arrondi quand rien n'est simplifie", () => {
+    expect(decimalesSelonZoom(7)).toBe(4); // 0,002 deg ~ 220 m : 4 chiffres = 11 m
+    expect(decimalesSelonZoom(11)).toBe(5); // 0,0005 deg ~ 55 m : 5 chiffres = 1,1 m
+    expect(decimalesSelonZoom(14)).toBe(6); // 0,0001 deg ~ 11 m : 6 chiffres = 0,11 m
+    expect(decimalesSelonZoom(16)).toBe(9); // forme exacte : le defaut de PostGIS
+  });
+
+  it("l'arrondi reste sous la tolerance pour tous les paliers simplifies (demi-pas < tolerance)", () => {
+    for (const z of [7, 11, 14]) {
+      expect(0.5 * 10 ** -decimalesSelonZoom(z)).toBeLessThan(toleranceSelonZoom(z));
+    }
+  });
+
+  it("un zoom absent retombe sur le palier le plus grossier, comme la tolerance", () => {
+    expect(decimalesSelonZoom(undefined)).toBe(4);
   });
 });

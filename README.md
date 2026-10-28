@@ -39,6 +39,7 @@ cp .env.example .env        # adapter DATABASE_URL, secrets JWT, etc.
 npm install
 npm run prisma:migrate      # cree les tables (prisma migrate dev)
 npm run prisma:seed         # admin + 8 regions + donnees de demo
+npm run catalogue:defauts:seed # ajoute les types de défauts manquants sans modifier le catalogue administré
 npm run dev                 # http://localhost:4000, doc API : /api/docs
 ```
 
@@ -58,7 +59,7 @@ Pour reprendre les données de l'ancienne base `sig_routier` (PostGIS/PostgREST)
 
 ```bash
 cd backend
-LEGACY_DATABASE_URL="postgresql://agergec:***@db-legacy.interne:5432/sig_routier" npm run migrate:legacy
+LEGACY_DATABASE_URL="postgresql://<utilisateur>:<motdepasse>@<hote>:5432/<base>" npm run migrate:legacy
 ```
 
 ## Tests

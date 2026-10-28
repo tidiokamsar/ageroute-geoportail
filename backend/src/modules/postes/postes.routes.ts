@@ -9,6 +9,7 @@ import {
   listHandler, getHandler, listGeoHandler, createHandler, updateHandler, deleteHandler,
   exportHandler, importHandler, geolocateHandler,
 } from "./postes.controller";
+import { territoireFiche } from "../../territoire/territoire.v1";
 
 export const postesRouter = Router();
 postesRouter.use(requireAuth);
@@ -20,5 +21,5 @@ postesRouter.use(requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("post
 postesRouter.get("/:id", getHandler);
 postesRouter.post("/", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("postes"), createHandler);
 postesRouter.put("/:id", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("postes"), updateHandler);
-postesRouter.post("/:id/geolocate", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("postes"), geolocateHandler);
+postesRouter.post("/:id/geolocate", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("postes"), territoireFiche("poste"), geolocateHandler);
 postesRouter.delete("/:id", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("postes"), deleteHandler);

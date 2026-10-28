@@ -157,7 +157,7 @@ export function AlertesPage() {
           <AlertCircle className="h-6 w-6 text-red-200 shrink-0" />
           <div>
             <h1 className="text-lg font-bold">Alertes Réseau</h1>
-            <p className="text-sm text-red-100/70">Tronçons et ouvrages en état dégradé nécessitant une intervention</p>
+            <p className="text-sm text-white">Tronçons et ouvrages en état dégradé nécessitant une intervention</p>
           </div>
         </div>
       </div>
@@ -244,8 +244,8 @@ export function AlertesPage() {
             </h3>
             <span className="text-xs text-gray-400">Triés par sévérité</span>
           </div>
-          <div className="rounded-xl border border-gray-200 overflow-hidden hover:shadow-md transition-shadow">
-            <table className="w-full text-sm">
+          <div className="rounded-xl border border-gray-200 overflow-x-auto hover:shadow-md transition-shadow">
+            <table className="w-full min-w-[36rem] text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 font-medium">
                   <th className="text-left px-4 py-3">Ouvrage</th>
@@ -328,8 +328,8 @@ export function AlertesPage() {
             Chantiers en retard{" "}
             <span className="text-gray-400 font-normal">({chantiersEnRetard.length})</span>
           </h3>
-          <div className="rounded-xl border border-gray-200 overflow-hidden hover:shadow-md transition-shadow">
-            <table className="w-full text-sm">
+          <div className="rounded-xl border border-gray-200 overflow-x-auto hover:shadow-md transition-shadow">
+            <table className="w-full min-w-[36rem] text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 font-medium">
                   <th className="text-left px-4 py-3">Chantier</th>
@@ -390,8 +390,8 @@ export function AlertesPage() {
             Tronçons jamais inspectés{" "}
             <span className="text-gray-400 font-normal">({tronconsJamaisInspectes.length})</span>
           </h3>
-          <div className="rounded-xl border border-gray-200 overflow-hidden hover:shadow-md transition-shadow">
-            <table className="w-full text-sm">
+          <div className="rounded-xl border border-gray-200 overflow-x-auto hover:shadow-md transition-shadow">
+            <table className="w-full min-w-[36rem] text-sm">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 font-medium">
                   <th className="text-left px-4 py-3">Code</th>

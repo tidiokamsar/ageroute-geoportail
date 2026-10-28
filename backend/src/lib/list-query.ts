@@ -3,7 +3,7 @@ import { z } from "zod";
 
 // z.coerce.boolean() utilise Boolean(value) : la chaine "false" devient `true` (chaine non
 // vide), donc inutilisable pour des query params texte. On compare explicitement a "true".
-const queryBoolean = z
+export const queryBoolean = z
   .union([z.literal("true"), z.literal("false")])
   .optional()
   .transform((v) => (v === undefined ? undefined : v === "true"));

@@ -30,7 +30,12 @@ const compte = {
 
 vi.mock("../../lib/prisma", () => ({
   prisma: {
-    user: { findUnique: vi.fn(async () => ({ modulesAutorises: compte.modulesAutorises })) },
+    // requireAuth relit le compte en base (D4) : un compte actif, non verrouille, de ce role ; les modules suivent.
+    user: {
+      findUnique: vi.fn(async () => ({
+        actif: true, lockedUntil: null, role: compte.role, email: compte.email, modulesAutorises: compte.modulesAutorises,
+      })),
+    },
   },
 }));
 

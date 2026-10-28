@@ -7,7 +7,17 @@ import { ApiError } from "../../middleware/error.middleware";
 import { createPhotoService } from "../../lib/photos";
 import { ouvrageCreateSchema } from "./ouvrages.schema";
 
-const base = createCrudService(prisma.ouvrage, "Ouvrage", { region: true, troncon: true });
+/**
+ * Ouvrage est migre a l'audit transactionnel (ADR 11), avec Troncon.
+ *
+ * Quatre de ses champs sont suivis par `CHAMPS_SUIVIS` : ses ecritures entrainent donc
+ * aussi des lignes de provenance qui doivent rejoindre la transaction.
+ */
+const base = createCrudService(prisma.ouvrage, "Ouvrage", {
+  include: { region: true, troncon: true },
+  delegueTransactionnel: (tx) => (tx as typeof prisma).ouvrage,
+  controleTerritorial: true,
+});
 const photos = createPhotoService(prisma.ouvrage, "Ouvrage");
 
 function extractLatLon<T extends { lat?: number; lon?: number }>(data: T) {
@@ -35,12 +45,14 @@ async function update(id: string, data: { lat?: number; lon?: number } & Record<
   return updated;
 }
 
-async function geolocateFromTroncon(id: string) {
+async function geolocateFromTroncon(id: string, userId: string, ipAddress?: string) {
   const item = await base.getById(id) as { tronconId?: string | null; pk?: number | null };
   if (!item.tronconId || item.pk == null) {
     throw new ApiError(400, "Cet ouvrage doit avoir un tronçon rattaché et un PK pour être géolocalisé automatiquement.");
   }
-  const ok = await deriveGeomFromTroncon("ouvrages", id, item.tronconId, item.pk);
+  const ok = await deriveGeomFromTroncon("ouvrages", id, item.tronconId, item.pk, {
+    userId, entityType: "Ouvrage", ipAddress,
+  });
   if (!ok) throw new ApiError(400, "Géolocalisation impossible : tracé du tronçon indisponible.");
   return getPointLatLon("ouvrages", id);
 }

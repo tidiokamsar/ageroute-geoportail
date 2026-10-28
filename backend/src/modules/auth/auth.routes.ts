@@ -4,6 +4,7 @@ import {
   twoFaLoginVerifyHandler, twoFaSetupHandler, twoFaConfirmHandler, twoFaDisableHandler,
 } from "./auth.controller";
 import { requireAuth } from "../../middleware/auth.middleware";
+import { evenementsLocauxHandler, limiteurEvenementsLocaux } from "./evenements-locaux";
 
 export const authRouter = Router();
 
@@ -21,6 +22,8 @@ authRouter.post("/logout", logoutHandler);
 // (tous appareils), avec journalisation SECURITY_EVENT.
 authRouter.post("/logout-all", requireAuth, logoutAllHandler);
 authRouter.get("/me", requireAuth, meHandler);
+// Evenements de session locale (hors ligne) deposes a la reconnexion : lot borne, idempotent, SECURITY_EVENT.
+authRouter.post("/evenements-locaux", requireAuth, limiteurEvenementsLocaux, evenementsLocauxHandler);
 
 authRouter.post("/2fa/login-verify", twoFaLoginVerifyHandler);
 authRouter.post("/2fa/setup", requireAuth, twoFaSetupHandler);

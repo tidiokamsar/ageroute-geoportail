@@ -9,6 +9,7 @@ import {
   listHandler, getHandler, listGeoHandler, createHandler, updateHandler, deleteHandler,
   exportHandler, importHandler, ficheHandler, itineraireHandler, updateGeomHandler,
 } from "./troncons.controller";
+import { territoireFiche } from "../../territoire/territoire.v1";
 
 export const tronconsRouter = Router();
 
@@ -36,5 +37,5 @@ tronconsRouter.post("/import", requireRole("ADMIN", "GESTIONNAIRE"), requireModu
 tronconsRouter.use(requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), createBulkRouter(tronconsService));
 tronconsRouter.post("/", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), createHandler);
 tronconsRouter.put("/:id", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), updateHandler);
-tronconsRouter.patch("/:id/geom", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), updateGeomHandler);
+tronconsRouter.patch("/:id/geom", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), territoireFiche("troncon"), updateGeomHandler);
 tronconsRouter.delete("/:id", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("troncons"), deleteHandler);
