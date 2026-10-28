@@ -30,9 +30,9 @@ export const SELECTEUR_ELEMENTS_TABULABLES = ".leaflet-marker-icon:not([tabindex
  *  - le tooltip qui s'ouvre au focus est une INFORMATION (nom, etat) que ce correctif supprime pour le clavier : elle doit exister autrement
  *    (liste, recherche, fiche). Les groupes de marqueurs ont une action (Entree zoome ou deploie le groupe, `clusterkeypress`) : a conserver s'il
  *    n'y a pas d'autre voie vers elle.
- * Le Geoportail (`pages/GeoportailPage.tsx`) n'offre ni liste ni action sur Entree pour ses marqueurs et ses traces (la fiche s'ouvre au clic ou
- * par la recherche d'un nom) : il n'utilise donc PAS ce composant. Une solution sure pour lui demande un parcours clavier a un seul arret
- * (fleches entre les elements, Entree pour ouvrir la fiche), pas le retrait pur et simple des arrets.
+ * Le Geoportail (`pages/GeoportailPage.tsx`) n'offrait ni liste ni action sur Entree pour ses marqueurs et ses traces (la fiche s'ouvre au clic ou
+ * par la recherche d'un nom) : il n'utilise donc PAS ce composant, mais `NavigationClavierCarte` (un seul arret de Tab, fleches entre les
+ * elements, Entree pour ouvrir la fiche), qui retire les arrets en offrant a la place la voie clavier qu'ils portaient.
  *
  * Sans effet hors navigateur (pas de `MutationObserver`) et sans conteneur lisible : rien n'est touche.
  */

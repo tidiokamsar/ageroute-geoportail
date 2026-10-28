@@ -22,6 +22,7 @@ import { useAuth, canDelete, canWrite } from "../lib/auth";
 import { Checkbox } from "../components/ui/checkbox";
 import type { DashboardKpis, EtatPatrimoine, Region } from "../types";
 import { DetailPanel } from "./geoportail/DetailPanel";
+import { NavigationClavierCarte } from "../components/carte/NavigationClavierCarte";
 import { CurseurTemporel } from "./geoportail/CurseurTemporel";
 import { PortionsDateLayer, type EtatCouchePortions } from "./geoportail/PortionsDateLayer";
 import { aujourdhui, ecrireCurseur, lireCurseur, SANS_CURSEUR, type Chronologie, type EtatCurseur } from "../lib/curseur";
@@ -1482,6 +1483,8 @@ export function GeoportailPage() {
         >
           {/* Le zoom est en bas a gauche : en haut a gauche, la recherche le recouvrait. */}
           <ZoomControl position="bottomleft" />
+          {/* Un seul arret de Tab pour tous les elements de la carte, parcourus aux fleches (Entree ouvre la fiche). */}
+          <NavigationClavierCarte />
           <TileLayer
             attribution={`${bm.attribution} · ${CREDIT_DONNEES}`}
             url={bm.url}
