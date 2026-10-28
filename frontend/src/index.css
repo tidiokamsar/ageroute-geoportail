@@ -125,3 +125,23 @@ body.printing-fiche [role="dialog"] button {
 aside :is(a[href], button, input, select, textarea, [role="button"], [tabindex]:not([tabindex="-1"])):focus-visible {
   outline-color: var(--sidebar-ring) !important;
 }
+
+/* Navigation clavier de la carte (components/carte/NavigationClavierCarte.tsx).
+   Le controleur (un seul arret de Tab) est navy une fois focalise : son anneau est or, comme sur les surfaces navy.
+   L'element choisi aux fleches est entoure sur la carte : anneau navy double d'un halo blanc pour un marqueur, trait epaissi
+   et or, double d'une ombre navy, pour un trace (la CSS l'emporte sur les attributs de presentation SVG poses par Leaflet). */
+[data-navigation-clavier-carte]:focus-visible {
+  outline-color: var(--sidebar-ring) !important;
+}
+.leaflet-marker-icon.carte-nav-actif {
+  outline: 3px solid var(--ring);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 7px #fff;
+  border-radius: 50%;
+}
+path.leaflet-interactive.carte-nav-actif {
+  stroke: var(--sidebar-ring);
+  stroke-width: 10px;
+  stroke-opacity: 1;
+  filter: drop-shadow(0 0 2px var(--ring)) drop-shadow(0 0 2px var(--ring));
+}

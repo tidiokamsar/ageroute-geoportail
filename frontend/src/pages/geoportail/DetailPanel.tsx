@@ -1097,7 +1097,9 @@ export function DetailPanel({
     <div
       role="dialog"
       aria-label={`Fiche : ${headerConfig.title || headerConfig.subtitle}`}
-      className="absolute right-0 top-0 h-full w-full md:w-[520px] max-w-full bg-white shadow-2xl z-[900] flex flex-col border-l border-gray-200"
+      // Focalisable par programme (pas a Tab) : la navigation clavier de la carte y met le focus apres Entree sur un element.
+      tabIndex={-1}
+      className="absolute right-0 top-0 h-full w-full md:w-[520px] max-w-full bg-white shadow-2xl z-[900] flex flex-col border-l border-gray-200 outline-none"
     >
       {/* ── Header ── */}
       <div className="relative shrink-0" style={{ background: "linear-gradient(135deg, #1a2942 0%, #2a4666 100%)" }}>
