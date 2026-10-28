@@ -124,6 +124,10 @@ Aucune transformation silencieuse. KML : WGS 84 par la norme KML 2.2. GeoJSON : 
 
 `GET /:id/carte` : réponse `{ projetId, zoom, bbox, plafond: 20000, tronque, jeux: [ … ] }`. Chaque entrée de `jeux` est une `FeatureCollection` portant `jeuId`, `role`, `concessionnaire` (`{ id, nom }` ou null), `typeReseau`, `statut`, `nonAutorise`, `version`, `confidentialite`, `natureObjets`, `classePrecision`, `nbFeatures`, `tronque`. Par défaut seulement les jeux `AUTORISE` ; avec `inclureNonAutorises=true`, les jeux `CONTROLE` s'ajoutent, marqués `nonAutorise: true`. Une `Feature` porte `properties: { objetId, jeuId, nom, typeGeom, longueurM, attributs }`. Simplification de la géométrie selon le zoom (sans effet à partir du zoom 17), plafond de 20 000 objets par réponse (`tronque: true` au-delà, nombre exact dans `total`).
 
+### 4.5 Enveloppes des réponses (précisions d'implémentation, référence : `API.md`)
+
+`GET /` : `{ projets: [ { ...projet, jeux: { <statut>: nb } } ], curseurSuivant }`. `POST /` et `PATCH /:id` : `{ projet }` (201 pour la création). `GET /:id` : `{ projet: { ...champs, parametres, bbox, jeux } }`. `DELETE /:id` : `{ id, retire: true }`. `GET /concessionnaires` : `{ concessionnaires }`. `POST /concessionnaires` : 201 `{ concessionnaire }`. `GET /:id/jeux` : `{ jeux }`. `DELETE /:id/jeux/:jeuId` : `{ jeu }`. `POST .../autoriser` et `.../rejeter` : `{ jeu, remplaces }`. Les longueurs sont arrondies au centimètre ; les entrées de `parAxe` portent aussi `axeId`.
+
 ## 5. Analyse (`GET /:id/analyse`)
 
 Calcul métrique en projection UTM choisie selon la longitude du centre du projet (axes autorisés, sinon réseaux) : EPSG 32628 si longitude < -12, sinon 32629. Largeurs : `largeurChausseeM` et `largeurEmpriseM` du projet (ou surchargées par la requête sans les enregistrer), appliquées de part et d'autre de chaque axe (demi-largeurs). Par défaut, seuls les jeux `AUTORISE` entrent dans le calcul ; `inclureNonAutorises=true` y ajoute les jeux `CONTROLE`, marqués `nonAutorise: true`.
