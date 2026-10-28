@@ -34,6 +34,7 @@ const sections = [
     title: "TRAVAUX",
     items: [
       { to: "/chantiers", label: "Chantiers" },
+      { to: "/projets-voirie", label: "Projets de voirie" },
       { to: "/ordres-travaux", label: "Ordres de travaux" },
       { to: "/marches", label: "Marchés" },
       { to: "/programmation", label: "Programmation" },
