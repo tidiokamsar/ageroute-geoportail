@@ -233,8 +233,10 @@ const SANS_MODULE: Exception[] = [
  * garde territoriale. Les lectures de liste, dont le filtre est dans le handler (`filtreRegion`, `regions` du depot), sont
  * listees : leur comportement est prouve par le banc `controle-acces.integration.mts`, pas par la structure.
  */
-const DOMAINES_TERRITORIAUX = [/^\w+ \/api\/ordres-travaux(\/|$)/, /^\w+ \/api\/v2\/missions(\/|$)/, /^\w+ \/api\/v2\/programmation(\/|$)/];
+const DOMAINES_TERRITORIAUX = [/^\w+ \/api\/ordres-travaux(\/|$)/, /^\w+ \/api\/v2\/missions(\/|$)/, /^\w+ \/api\/v2\/programmation(\/|$)/, /^\w+ \/api\/v2\/projets-voirie(\/|$)/];
 const SANS_GARDE_TERRITORIALE: Exception[] = [
+  { motif: /^GET \/api\/v2\/projets-voirie$/, raison: "liste filtree dans le service (regions du compte : un compte regional ne voit que les projets de ses regions) ; banc projets-voirie" },
+  { motif: /^\w+ \/api\/v2\/projets-voirie\/concessionnaires$/, raison: "annuaire national des concessionnaires de reseau : des organismes, pas des donnees regionales" },
   { motif: /^GET \/api\/ordres-travaux$/, raison: "liste filtree dans le handler (regions du compte) ; banc F1" },
   { motif: /^GET \/api\/ordres-travaux\/stats$/, raison: "statistiques filtrees dans le service (regions du compte) ; banc F1" },
   { motif: /^GET \/api\/ordres-travaux\/assignables$/, raison: "annuaire des agents assignables : personnes, pas des OT ; D-C1-5" },
@@ -296,6 +298,52 @@ describe("Observation de la Terre (/api/v2/teledetection)", () => {
     expect(ecritures.map(cle).sort()).toEqual(Object.keys(ROLES_ECRITURE).sort());
     for (const l of ecritures) expect(l.roles.map((r) => [...r].sort()), cle(l)).toEqual([[...ROLES_ECRITURE[cle(l)]].sort()]);
     for (const l of eo.filter((x) => x.methode === "GET")) expect(l.roles, cle(l)).toEqual([]);
+  });
+});
+
+describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
+  const pv = lignes.filter((l) => l.chemin.startsWith("/api/v2/projets-voirie"));
+  const ECRITURES: Record<string, string[]> = {
+    "POST /api/v2/projets-voirie": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/concessionnaires": ["ADMIN", "GESTIONNAIRE"],
+    "PATCH /api/v2/projets-voirie/:id": ["ADMIN", "GESTIONNAIRE"],
+    "DELETE /api/v2/projets-voirie/:id": ["ADMIN"],
+    "POST /api/v2/projets-voirie/:id/jeux": ["ADMIN", "GESTIONNAIRE"],
+    "DELETE /api/v2/projets-voirie/:id/jeux/:jeuId": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/jeux/:jeuId/autoriser": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/jeux/:jeuId/rejeter": ["ADMIN", "GESTIONNAIRE"],
+    // Export CSV de l'analyse (agregats, sans geometrie) : une lecture, mais reservee aux roles d'ecriture et auditee.
+    "GET /api/v2/projets-voirie/:id/analyse/export.csv": ["ADMIN", "GESTIONNAIRE"],
+  };
+
+  it("expose exactement les 15 routes du contrat, ni plus (aucun export de geometrie), ni moins", () => {
+    expect(pv.map(cle).sort()).toEqual([
+      "DELETE /api/v2/projets-voirie/:id", "DELETE /api/v2/projets-voirie/:id/jeux/:jeuId",
+      "GET /api/v2/projets-voirie", "GET /api/v2/projets-voirie/:id", "GET /api/v2/projets-voirie/:id/analyse",
+      "GET /api/v2/projets-voirie/:id/analyse/export.csv", "GET /api/v2/projets-voirie/:id/carte", "GET /api/v2/projets-voirie/:id/jeux",
+      "GET /api/v2/projets-voirie/concessionnaires", "PATCH /api/v2/projets-voirie/:id",
+      "POST /api/v2/projets-voirie", "POST /api/v2/projets-voirie/:id/jeux", "POST /api/v2/projets-voirie/:id/jeux/:jeuId/autoriser",
+      "POST /api/v2/projets-voirie/:id/jeux/:jeuId/rejeter", "POST /api/v2/projets-voirie/concessionnaires",
+    ].sort());
+  });
+
+  it("toute route exige un compte connecte ET le module `projets-voirie`", () => {
+    for (const l of pv) {
+      expect(l.auth, cle(l)).toBe(true);
+      expect(l.modules, cle(l)).toEqual(["projets-voirie"]);
+    }
+  });
+
+  it("chaque ecriture (et l'export CSV) porte exactement la garde de role du contrat ; les autres lectures n'en portent aucune", () => {
+    const gardees = pv.filter((l) => l.methode !== "GET" || ECRITURES[cle(l)]);
+    expect(gardees.map(cle).sort()).toEqual(Object.keys(ECRITURES).sort());
+    for (const l of gardees) expect(l.roles.map((r) => [...r].sort()), cle(l)).toEqual([[...ECRITURES[cle(l)]].sort()]);
+    for (const l of pv.filter((x) => x.methode === "GET" && !ECRITURES[cle(x)])) expect(l.roles, cle(l)).toEqual([]);
+  });
+
+  it("toute route qui designe un projet porte la garde territoriale a 404 masque (lecture comme ecriture), la creation la garde a 403", () => {
+    for (const l of pv.filter((x) => x.chemin.includes("/:id"))) expect(l.territoire, cle(l)).toEqual(["masque"]);
+    expect(pv.find((l) => cle(l) === "POST /api/v2/projets-voirie")!.territoire).toEqual(["oui"]);
   });
 });
 
