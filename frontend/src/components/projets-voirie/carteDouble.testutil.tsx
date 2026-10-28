@@ -68,6 +68,8 @@ export function moduleReactLeaflet() {
               bindTooltip: (el) => { infobulle = el.textContent ?? ""; enfants = el.children.length; },
             });
             const st = style?.(f) ?? {};
+            // Couche non interactive (surbrillance, zones de conflit) : ni bouton, ni objet cliquable.
+            if (interactive === false) return <span key={i} data-testid="couche-passive" data-style={JSON.stringify(st)} />;
             return (
               <button
                 key={i} type="button" data-testid="objet-carte" data-style={JSON.stringify(st)} data-infobulle={infobulle} data-infobulle-enfants={enfants}
