@@ -369,6 +369,9 @@ model User {
   propositionsTeledetectionCrees  PropositionTeledetection[] @relation("PtCreateur")
   propositionsTeledetectionJugees PropositionTeledetection[] @relation("PtVerificateur")
   sourcesObservationEtatsAuteur   SourceObservationEtat[]      @relation("SourceEtatAuteur")
+  projetsVoirieCrees              ProjetVoirie[]             @relation("ProjetVoirieCreateur")
+  jeuxProjetCrees                 JeuDonneesProjet[]         @relation("JeuProjetCreateur")
+  jeuxProjetDecides               JeuDonneesProjet[]         @relation("JeuProjetDecideur")
   propositionsTeledetectionTransitions PropositionTeledetectionTransition[] @relation("PtTransitionAuteur")
   propositionsTeledetectionPreuves PropositionTeledetectionPreuve[] @relation("PtPreuveAjoutee")
   programmesBudgetairesCrees      ProgrammeBudgetaire[]      @relation("ProgrammationAuteur")
@@ -433,6 +436,7 @@ model Region {
   ordresTravaux  OrdreTravaux[]
   voiriesLocales VoirieLocale[]
   propositionsTeledetectionRegion PropositionTeledetection[] @relation("PtRegion")
+  projetsVoirie                   ProjetVoirie[]
   Mission        Mission[]
 
   delegationsValidation DelegationValidation[]
@@ -4198,4 +4202,192 @@ model ExportJournal {
   @@index([creeLe(sort: Desc)], map: "exports_journal_recent_idx")
   @@index([auteurId, creeLe(sort: Desc)], map: "exports_journal_auteur_idx")
   @@map("exports_journal")
+}
+
+// ===================== PROJETS DE VOIRIE ET RESEAUX =====================
+// Contrat : docs/projets-voirie/CONTRAT.md (v2). Migration 20261030100000_projets_voirie_reseaux (additive, avec descente).
+// Les geometries (Unsupported) se lisent et s'ecrivent en SQL brut parametre ; les index GiST, l'index unique
+// d'expression sur `lower(nom)` des concessionnaires et les trois index uniques partiels des jeux sont dans la migration
+// (non representables ici, voir docs/securite/DERIVE-SCHEMA.md).
+
+enum TypeReseauTiers {
+  TELECOM
+  EAU_POTABLE
+  ELECTRICITE
+  ASSAINISSEMENT
+  GAZ_HYDROCARBURES
+  AUTRE
+}
+
+enum RoleJeuProjet {
+  AXES_TRAVAUX
+  RESEAU_TIERS
+  LIMITES_ROUTE
+  AUTRE
+}
+
+enum StatutParametresProjet {
+  THEORIQUE
+  VALIDE
+}
+
+enum FormatJeuProjet {
+  KML
+  GEOJSON
+}
+
+/// PUBLIC et INTERNE ne rendent rien public dans ce lot : le module reste entierement derriere la cle de module.
+enum NiveauConfidentialite {
+  PUBLIC
+  INTERNE
+  RESTREINT_PROJET
+  CONFIDENTIEL_CONCESSIONNAIRE
+  INFRASTRUCTURE_SENSIBLE
+}
+
+/// Un lot recu n'est pas un lot importe : un depot cree un jeu CONTROLE (quarantaine) ; seul un jeu AUTORISE entre dans l'analyse.
+/// RECU est reserve (depot asynchrone futur) : aucun jeu n'y est place dans ce lot.
+enum StatutJeuProjet {
+  RECU
+  CONTROLE
+  AUTORISE
+  REJETE
+  REMPLACE
+  RETIRE
+}
+
+/// Classe de precision DECLAREE par le fournisseur ; nulle (inconnue) tant qu'il ne l'a pas dite. Le serveur ne l'interprete pas.
+enum ClassePrecision {
+  A
+  B
+  C
+  D
+  E
+}
+
+enum NatureObjetReseau {
+  ACTIF_PHYSIQUE
+  CIRCUIT_LOGIQUE
+  EQUIPEMENT
+  AXE
+  EMPRISE
+  INCONNUE
+}
+
+enum TypeGeomObjet {
+  LIGNE
+  POINT
+  POLYGONE
+}
+
+/// Un projet de voirie urbaine : plan d'axes de l'entreprise, reseaux de concessionnaires, limites de route.
+/// Largeurs THEORIQUES tant que `statutParametres` n'est pas VALIDE. Suppression logique uniquement.
+model ProjetVoirie {
+  id               String                 @id @default(uuid())
+  code             String                 @unique
+  nom              String
+  commune          String?
+  prefecture       String?
+  regionId         Int?
+  region           Region?                @relation(fields: [regionId], references: [id], onDelete: Restrict)
+  description      String?
+  largeurEmpriseM  Decimal                @default(15) @db.Decimal(6, 2)
+  largeurChausseeM Decimal                @default(7) @db.Decimal(6, 2)
+  statutParametres StatutParametresProjet @default(THEORIQUE)
+  creeParId        String
+  creePar          User                   @relation("ProjetVoirieCreateur", fields: [creeParId], references: [id], onDelete: Restrict)
+  createdAt        DateTime               @default(now())
+  updatedAt        DateTime               @default(now()) @updatedAt
+  deletedAt        DateTime?
+
+  jeux JeuDonneesProjet[]
+
+  @@index([regionId])
+  @@index([deletedAt])
+  @@map("projets_voirie")
+}
+
+/// Exploitant d'un reseau tiers (telecom, eau, electricite...). Nom unique sans distinction de casse (index d'expression).
+model ConcessionnaireReseau {
+  id         String          @id @default(uuid())
+  nom        String
+  typeReseau TypeReseauTiers
+  contact    String?
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @default(now()) @updatedAt
+  deletedAt  DateTime?
+
+  jeux JeuDonneesProjet[]
+
+  @@map("concessionnaires_reseau")
+}
+
+/// Un fichier charge dans un projet, VERSIONNE et en QUARANTAINE : un depot cree un jeu CONTROLE ; une nouvelle version
+/// laisse l'ancienne AUTORISE jusqu'a son autorisation, puis la passe REMPLACE.
+/// `nbObjets` = « circuits ou objets du fichier », `longueurTraceFusionneM` = union des trace : jamais un nombre de cables.
+model JeuDonneesProjet {
+  id                     String                 @id @default(uuid())
+  projetId               String
+  projet                 ProjetVoirie           @relation(fields: [projetId], references: [id], onDelete: Restrict)
+  role                   RoleJeuProjet
+  concessionnaireId      String?
+  concessionnaire        ConcessionnaireReseau? @relation(fields: [concessionnaireId], references: [id], onDelete: Restrict)
+  typeReseau             TypeReseauTiers?
+  nomFichier             String
+  format                 FormatJeuProjet
+  sha256                 String
+  tailleOctets           Int
+  nbObjets               Int
+  longueurTotaleM        Float                  @default(0)
+  longueurTraceFusionneM Float                  @default(0)
+  dateDonnees            DateTime?              @db.Date
+  /// Texte libre, facultatif : ne bloque jamais un depot (decision DSI du 28/10/2026).
+  origineFichier         String?
+  classePrecision        ClassePrecision?
+  precisionHorizontaleM  Decimal?               @db.Decimal(8, 2)
+  precisionVerticaleM    Decimal?               @db.Decimal(8, 2)
+  methode                String?
+  dateConstat            DateTime?              @db.Date
+  natureObjets           NatureObjetReseau      @default(INCONNUE)
+  confidentialite        NiveauConfidentialite  @default(CONFIDENTIEL_CONCESSIONNAIRE)
+  statut                 StatutJeuProjet        @default(CONTROLE)
+  version                Int                    @default(1)
+  remplaceId             String?
+  remplace               JeuDonneesProjet?      @relation("JeuRemplace", fields: [remplaceId], references: [id], onDelete: Restrict)
+  remplacePar            JeuDonneesProjet[]     @relation("JeuRemplace")
+  avertissements         Json                   @default("[]")
+  resume                 Json                   @default("{}")
+  decideParId            String?
+  decidePar              User?                  @relation("JeuProjetDecideur", fields: [decideParId], references: [id], onDelete: Restrict)
+  decideLe               DateTime?
+  justificationDecision  String?
+  creeParId              String
+  creePar                User                   @relation("JeuProjetCreateur", fields: [creeParId], references: [id], onDelete: Restrict)
+  createdAt              DateTime               @default(now())
+  deletedAt              DateTime?
+
+  objets ObjetProjet[]
+
+  @@index([projetId, statut])
+  @@index([concessionnaireId])
+  @@index([remplaceId])
+  @@map("projets_voirie_jeux")
+}
+
+/// Objet geographique d'un jeu (immuable : un remplacement cree une nouvelle version du jeu). Index GiST sur `geom`.
+model ObjetProjet {
+  id        BigInt           @id @default(autoincrement())
+  jeuId     String
+  jeu       JeuDonneesProjet @relation(fields: [jeuId], references: [id], onDelete: Restrict)
+  nom       String?
+  typeGeom  TypeGeomObjet
+  geom      Unsupported("geometry(Geometry, 4326)")
+  longueurM Float?
+  attributs Json             @default("{}")
+  /// SHA-1 de la geometrie normalisee et du nom (delta de versions).
+  empreinte String
+  ordre     Int
+
+  @@index([jeuId, ordre])
+  @@map("projets_voirie_objets")
 }
