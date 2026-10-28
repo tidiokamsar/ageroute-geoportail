@@ -253,7 +253,7 @@ describe("accessibilite (axe)", () => {
     await userEvent.click(within(container).getByRole("button", { name: /Axe A/ }));
     expect(await violationsAccessibilite(container)).toEqual([]);
     unmount();
-    const vide = rendre({ requete: requeteOk(analyse({ axes: { nb: 0, longueurM: 0 }, reseaux: { parType: [], parConcessionnaire: [] }, conflits: { ...analyse().conflits, parAxe: [], parConcessionnaire: [], total: { chausseeM: 0, empriseM: 0, croisements: 0, axesTouches: 0, objetsTouches: 0 } } })), jeux: [jeu()] });
+    const vide = rendre({ requete: requeteOk(analyse({ axes: { nb: 0, longueurM: 0 }, reseaux: { parType: [], parConcessionnaire: [] }, conflits: { ...analyse().conflits, parAxe: [], parConcessionnaire: [], total: { chausseeM: 0, empriseM: 0, croisements: 0, axesTouches: 0, objetsTouches: 0, empriseHorsChausseeM: null, horsEmpriseM: null } } })), jeux: [jeu()] });
     expect(await violationsAccessibilite(vide.container)).toEqual([]);
     vide.unmount();
     const err = rendre({ requete: requeteErreur({ response: { status: 500, data: {} } }) });
