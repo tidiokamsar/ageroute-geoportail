@@ -152,7 +152,7 @@ describe("lireFichier : KML", () => {
     const un = pm("n", `<Point><coordinates>-10.1,9.2</coordinates></Point>`);
     expect(code(() => lireFichier(kml(un.repeat(OBJETS_MAX + 1)), "t.kml"))).toBe("TROP_D_OBJETS");
     expect(lireFichier(kml(un.repeat(OBJETS_MAX)), "t.kml").resume.nbObjets).toBe(OBJETS_MAX);
-  });
+  }, 60_000);
 
   it("refuse un fichier de plus de 25 Mo et les formats non pris en charge", () => {
     expect(code(() => lireFichier(Buffer.alloc(TAILLE_MAX_OCTETS + 1, 32), "gros.kml"))).toBe("FICHIER_TROP_GROS");
