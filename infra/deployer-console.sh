@@ -44,12 +44,12 @@ ARCHIVE_LOCALE="${3:-}"
 # (reprise des gardes de coherence de lot/17 ecrasees par EO : produit/reference retire, distance mesuree, pas de suppression physique). Les 10 ont une descente.
 # La premiere par ordre alphabetique est 20261025120000, anterieure a des migrations deja appliquees : migrate deploy l'applique quand meme.
 # Rappel : deux couples d'horodatages identiques (20261027100000, 20261027110000) se rejouent dans l'ordre alphabetique du nom de dossier.
-ATTENDUES_EN_ATTENTE=10
+ATTENDUES_EN_ATTENTE=00
 # Seuil de disque libre en %. Defaut 15. L'operateur peut le passer consciemment
 # (ex. SEUIL_DISQUE=13) quand il a verifie le besoin transient du build (~1,6 Go :
 # dump, code-avant, couches d'image) et que l'arrondi de df arrete a tort.
 SEUIL_DISQUE="${SEUIL_DISQUE:-15}"
-PREMIERE_EN_ATTENTE="20261025120000_teledetection_coherence_complements"
+PREMIERE_EN_ATTENTE=""
 DEPOT="tidiokamsar/ageroute-geoportail"
 HORODATAGE="$(date +%Y%m%d-%H%M%S)"
 SAUVEGARDES="/var/backups/bdri-deploiement/${HORODATAGE}"
