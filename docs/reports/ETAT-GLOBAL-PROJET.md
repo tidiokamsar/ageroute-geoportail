@@ -3,6 +3,17 @@
 Mise à jour : 27/10/2026 (fin du Lot 1 et du lot UX Lots d'import). Branche `lot/03-map-matching`. Dernier commit de code : `4ca04f4` ; le commit des corrections finales et de ce fichier le suit. Historique des sections : 27/10 (Lot 1), 25/10 (Lot 0).
 Historique : chaque mise à jour ajoute une section datée en tête, sans effacer les précédentes. Rapports de lot : `docs/reports/LOT-XX-RAPPORT.md`.
 
+## Mise à jour du 01/11/2026 : module « Projets de voirie et réseaux » (lots RC-0, RC-1 socle, RC-1 bis GDAL)
+
+Branche `feat/reseaux-integration` (issue de `integration/depuis-vendredi`, déployée en production le 28/10/2026 au commit `b0f17ca`, 94 migrations). Cahier des charges v2.0 du 28/10/2026. Rapports : `LOT-RC-00-RAPPORT.md` (audit, preuve de CRS), `LOT-RC-01B-GDAL-RAPPORT.md` (chaîne GDAL isolée), `docs/projets-voirie/` (contrat, API, matrice des formats, chaîne GDAL).
+
+- **Livré dans le code** : projets de voirie, jeux de données versionnés en quarantaine puis autorisés (statuts, justification, delta de versions, idempotence par empreinte), objets PostGIS, import KML et GeoJSON avec simulation avant écriture, confidentialité à 5 niveaux, qualité sans précision inventée, carte par projet, analyse 2D indicative (chaussée, emprise, croisements, par axe et par concessionnaire, toujours « à vérifier » avec limites constantes), export CSV d'agrégats audité, interface (liste, carte, panneaux Analyse et Couches, dépôt). Une migration additive avec descente : `20261030100000_projets_voirie_reseaux` (95 au total, 1 en attente par rapport à la production du 28/10).
+- **Formats effectivement testés** : KML et GeoJSON seulement. KMZ, CSV/TSV, GPX : prévus au lot suivant. GeoPackage, Shapefile ZIP et DXF : chaîne de conversion GDAL isolée écrite et testée en banc (71 jobs sur 71, 23 contrôles d'isolement sur 23) mais **non branchée au backend et non activée** : fichier de préproduction `infra/geoconv/docker-compose.geoconv.yml`, hors déploiement.
+- **Preuves** (arbre `feat/reseaux-integration`, poste de développement) : `tsc` backend et frontend propres ; backend 267 fichiers, 5 732 tests dont 1 échec corrigé depuis (`depot-sans-secret`, IP de sonde de test) ; frontend 235 fichiers, 4 788 tests, 1 échec sous charge qui passe isolé (`ProjetsVoirie.nonStockage.test.tsx`) ; banc PostGIS du module 118 sur 118 ; descente rejouée 4 sur 4 ; eslint 0 erreur ; build OK.
+- **Non vérifié** : aucune donnée réelle (Orange, plan de MC GROUPE) dans les tests ; performances de l'analyse sur 50 000 objets ; module non essayé dans un navigateur avec le vrai backend ; datum du plan d'axes ; WebView et appareil réel.
+- **Décisions ouvertes** : conteneur GDAL en production (plafonds, seccomp, scan), source CAO du plan (axe 28 : 135,2 m dessinés contre 155,2 m au tableau), largeurs réelles d'emprise et de chaussée, rôles du cahier (référent concessionnaire, auditeur, terrain), dossiers de conflit persistés (lot RC-3). **Aucun format, aucun conflit ne déclenche de décision ni de déplacement.**
+- **Incident d'environnement** : le volume F: a été corrompu le 28/10/2026 vers 16 h 40 (NTFS) ; le travail du module a été repris sur C: à partir d'un clone propre de GitHub.
+
 ## Mise à jour du 27/10/2026 : Lot 1 (session hors ligne, accès, qualité, dérive) et lot UX « Lots d'import »
 
 Rapports : `LOT-01-RAPPORT.md`, `LOT-UX-IMPORTS-RAPPORT.md`. Commits : `65bb346`, `a98252c`, `c846fdf`, `d8f092b`, `e9fd62c`, `ada84d4`, `4ca04f4` (+ `1af3e6e`, autre session). **Rien n'est déployé.**

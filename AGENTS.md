@@ -50,6 +50,13 @@ Docker + Traefik). Voir `README.md` pour la stack et l'installation.
   le script refuse tout autre nombre. Deux couples d'horodatages sont identiques
   (`20261027100000`, `20261027110000`) : ils se rejouent dans l'ordre du nom de dossier.
   Rien n'est déployé depuis cette branche.
+- **Branche `feat/reseaux-integration`** (01/11/2026, issue de `integration/depuis-vendredi`
+  déployée le 28/10/2026 au commit `b0f17ca`) : ajoute le module « Projets de voirie et
+  réseaux » (clé de module `projets-voirie`, routes `/api/v2/projets-voirie`, migration
+  `20261030100000_projets_voirie_reseaux`, **1 migration en attente**, 95 au total) et, à titre
+  de préproduction seulement, la chaîne de conversion GDAL isolée (`infra/geoconv/`, non
+  référencée par le déploiement). Les données des concessionnaires sont confidentielles :
+  jamais dans le dépôt, jamais dans une route publique, fixtures synthétiques seulement.
 - **L'état exact de la production se vérifie au moment du déploiement**, jamais depuis
   ce fichier : `infra/deployer-console.sh` relève les migrations appliquées, les
   compteurs et l'état de santé avant tout geste. Ne rien déduire d'une ancienne

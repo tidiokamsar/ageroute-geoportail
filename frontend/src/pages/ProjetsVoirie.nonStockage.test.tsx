@@ -115,7 +115,7 @@ describe("preuve a l'execution : un parcours complet ne touche aucun stockage", 
         </QueryClientProvider>
       </MemoryRouter>,
     );
-    await userEvent.click((await screen.findAllByTestId("objet-carte", undefined, { timeout: 8000 }))[0]);
+    await userEvent.click((await screen.findAllByTestId("objet-carte", undefined, { timeout: 25000 }))[0]);
     await screen.findByTestId("fiche-objet");
     await userEvent.click(screen.getByRole("tab", { name: "Couches" }));
     await screen.findByRole("heading", { name: /Fichiers reçus, à autoriser/ });
