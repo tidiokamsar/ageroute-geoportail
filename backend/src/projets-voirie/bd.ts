@@ -47,7 +47,9 @@ export function estDelaiDepasse(e: unknown): boolean {
     if (code === "57014" || code === "55P03") return true;
   }
   const texte = e instanceof Error ? e.message : String(e);
-  return /statement timeout|lock timeout|\b57014\b|\b55P03\b/i.test(texte);
+  // Une requete coupee DANS un calcul GEOS ressort en XX000 « GEOS Error: InterruptedException: Interrupted! » (mesure du banc de
+  // charge) : c'est le meme depassement de delai, pas une panne.
+  return /statement timeout|lock timeout|InterruptedException|\b57014\b|\b55P03\b/i.test(texte);
 }
 
 /**

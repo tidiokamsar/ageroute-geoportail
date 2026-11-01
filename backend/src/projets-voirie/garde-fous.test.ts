@@ -79,6 +79,8 @@ describe("delais cote base", () => {
     expect(estDelaiDepasse(erreurPrisma("23505"))).toBe(false);
     expect(estDelaiDepasse(new Error("ERROR: canceling statement due to statement timeout"))).toBe(true);
     expect(estDelaiDepasse(new Error("could not obtain lock on row: lock timeout"))).toBe(true);
+    expect(estDelaiDepasse(new Error("ERROR: lwgeom_unaryunion_prec: GEOS Error: InterruptedException: Interrupted!"))).toBe(true);
+    expect(estDelaiDepasse(erreurPrisma("XX000"))).toBe(false);
     expect(estDelaiDepasse(new Error("connexion refusee"))).toBe(false);
     expect(estDelaiDepasse("chaine")).toBe(false);
   });
