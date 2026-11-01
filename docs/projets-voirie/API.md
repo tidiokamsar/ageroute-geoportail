@@ -7,7 +7,7 @@ Toutes les routes : jeton d'accès (`Authorization: Bearer ...`), clé de module
 ## Gardes, dans l'ordre
 
 1. Authentification : 401 sans jeton valide.
-2. Module : 403 `{ error }` sans la clé `projets-voirie`.
+2. Module : 403 `{ error }` sans la clé `projets-voirie`. Juste après : tout **octet NUL** dans la requête (paramètres, corps JSON, champs multipart, nom de fichier) donne 400 `PARAMETRES_INVALIDES` ; un identifiant de projet ou de jeu de l'URL qui n'est pas un **UUID** (`%00`, texte, chaîne démesurée) donne 400 `IDENTIFIANT_INVALIDE`, jamais un 500 (le format ne dit rien de l'existence : même réponse pour tous les comptes).
 3. Rôle (écritures) : 403 sans `ADMIN` ou `GESTIONNAIRE` (`DELETE` d'un projet : `ADMIN`). L'export CSV de l'analyse est réservé aux mêmes rôles, bien que ce soit un `GET`.
 4. Projet désigné : **404 `PROJET_INTROUVABLE`** identique si le projet n'existe pas, est retiré, est hors du périmètre régional du compte ou n'a pas de région (un projet sans région n'est visible que des comptes nationaux). Cette garde précède la validation du corps.
 5. Validation des entrées : 400 avec `code`, jamais 500.
@@ -113,7 +113,7 @@ Autoriser une nouvelle version passe le jeu autorisé de même clé en `REMPLACE
 
 `GET /:id/carte?jeux=id1,id2&bbox=ouest,sud,est,nord&zoom=12&inclureNonAutorises=true`
 
-Paramètres : `jeux` (1 à 50 identifiants), `bbox` (degrés, ouest < est, sud < nord), `zoom` (0 à 22 ; simplification de la géométrie, aucune à partir de 17), `inclureNonAutorises`. Plafond : 20 000 objets par réponse, `tronque: true` au-delà (`total` donne le nombre exact par jeu).
+Paramètres : `jeux` (1 à 50 identifiants), `bbox` (degrés, ouest < est, sud < nord), `zoom` (0 à 22 ; simplification de la géométrie, aucune à partir de 17), `inclureNonAutorises` (**`ADMIN` et `GESTIONNAIRE` seulement** : un lecteur reçoit 403 `QUARANTAINE_RESERVEE`). Plafond : **20 000 objets avec `bbox`, 5 000 sans `bbox`** (la réponse porte `plafond`), `tronque: true` au-delà (`total` donne le nombre exact par jeu) ; sans `bbox` ni `zoom`, la géométrie est simplifiée comme au zoom 12. La base coupe la requête au bout de 10 s (504 `CARTE_TROP_LONGUE`) ; 6 cartes simultanées au plus par processus (503 `SERVICE_OCCUPE`). La consultation des jeux de niveau `CONFIDENTIEL_CONCESSIONNAIRE` et `INFRASTRUCTURE_SENSIBLE` est **tracée** (voir « Traçabilité des consultations »).
 
 ```json
 { "projetId": "b2ddd95e-...", "zoom": null, "bbox": null, "plafond": 20000, "tronque": false,
@@ -132,7 +132,8 @@ Les `attributs` sont les champs d'origine du fichier : **à afficher comme du te
 `GET /:id/analyse?largeurEmpriseM=&largeurChausseeM=&inclureNonAutorises=` : la forme complète est au contrat (section 5). Points à connaître :
 
 - `largeurEmpriseM` / `largeurChausseeM` surchargent les paramètres du projet **sans les enregistrer** (`parametres.surcharge: true`) ; 400 si incohérents.
-- Par défaut, seuls les jeux `AUTORISE` comptent. Avec `inclureNonAutorises=true`, un jeu en contrôle **remplace**, pour ce calcul, le jeu autorisé de même rôle et de même concessionnaire (jamais les deux), et l'hypothèse « INCLUS » le dit.
+- Par défaut, seuls les jeux `AUTORISE` comptent. Avec `inclureNonAutorises=true` (`ADMIN` et `GESTIONNAIRE` seulement, sinon 403 `QUARANTAINE_RESERVEE`), un jeu en contrôle **remplace**, pour ce calcul, le jeu autorisé de même rôle et de même concessionnaire (jamais les deux), et l'hypothèse « INCLUS » le dit.
+- **Coût borné** : tracés simplifiés avant calcul (axes 0,1 m, réseaux 0,05 m), tampons à 8 segments par quart de cercle, calcul par objet limité aux morceaux d'axe voisins ; coupée par la base au bout de 20 s (504 `ANALYSE_TROP_LONGUE`) ; refusée en amont au-delà de 500 000 sommets d'axes ou 3 000 000 de réseaux autorisés (422 `ANALYSE_TROP_VOLUMINEUSE`, avec `sommetsAxes` et `sommetsReseau`) ; 3 analyses simultanées au plus par processus (503 `SERVICE_OCCUPE`). Mesures du banc de charge (axe de 100 000 sommets, réseau de 20 000 lignes) : voir `backend/tests-integration/README.md`.
 - Les entrées de `parAxe` portent aussi `axeId` ; `objets` est limité à 100 par axe (`objetsTronques`).
 - `zones` : `chaussee`, `emprise` (hors chaussée), `hors` : géométries GeoJSON `MultiLineString` ou `null` ; `tronque: true` si une couche dépasse 8 Mo.
 - Chaque résultat porte `"statut": "A_VERIFIER"` ; la racine porte `regle: { version: "RC-2D-0.1", chausseeM, empriseM, projection }` et `versionAlgorithme: "2D-UTM-1"`.
@@ -187,7 +188,14 @@ Axe A;Societe des Eaux Synthetique;EAU_POTABLE;r2.kml;1;AUTORISE;inconnue;PROXIM
 | 422 | `CONTENU_NON_RECONNU` | HTML, PDF, exécutable, image, binaire, octets NUL |
 | 422 | `FICHIER_VIDE`, `TROP_D_OBJETS` (> 50 000), `GEOMETRIE_INVALIDE`, `HORS_GUINEE` | contenu refusé |
 | 422 | `XML_INVALIDE`, `DTD_REFUSEE`, `ENTITE_REFUSEE`, `XML_TROP_PROFOND`, `XML_TROP_VOLUMINEUX`, `JSON_INVALIDE`, `JSON_TROP_PROFOND`, `ENCODAGE_NON_SUPPORTE`, `CRS_NON_SUPPORTE` | document illisible ou dangereux |
-| 503 | `SERVICE_OCCUPE` (+ `Retry-After`) | plus de deux dépôts simultanés dans le processus |
+| 400 | `IDENTIFIANT_INVALIDE` | identifiant de projet, de jeu ou `concessionnaireId` qui n'est pas un UUID (`%00` compris) |
+| 400 | `PARAMETRES_INVALIDES` | dont tout octet NUL dans un texte |
+| 403 | `QUARANTAINE_RESERVEE` | `inclureNonAutorises=true` demandé par un compte qui n'est ni ADMIN ni GESTIONNAIRE |
+| 422 | `TROP_DE_SOMMETS` | plus de 100 000 sommets dans un objet, ou 2 000 000 dans le fichier |
+| 422 | `ANALYSE_TROP_VOLUMINEUSE` | trop de sommets autorisés pour calculer l'analyse |
+| 503 | `SERVICE_OCCUPE` (+ `Retry-After`) | plus de 2 dépôts, 4 téléversements (2 par compte), 3 analyses ou 6 cartes simultanés dans le processus |
+| 503 | `PROJET_OCCUPE` | le verrou du projet n'a pas été obtenu en 5 s (autre dépôt, autorisation ou retrait en cours) |
+| 504 | `ANALYSE_TROP_LONGUE`, `CARTE_TROP_LONGUE`, `DEPOT_TROP_LONG` | la base a coupé la requête (délais ci-dessous) ; jamais un 500 |
 | 500 | | erreur interne, message générique sans détail |
 
 Exemples réels :
@@ -208,9 +216,40 @@ Exemples réels :
 - XML lu par un lecteur minimal sans dépendance : ni DTD, ni entité hors des cinq prédéfinies, imbrication limitée à 100 niveaux ; JSON limité à 64 niveaux.
 - CRS : WGS 84 uniquement ; aucune transformation silencieuse ; un `crs` GeoJSON autre que CRS84 / EPSG:4326 est refusé.
 
+## Réglages serveur (variables d'environnement)
+
+Toute valeur absente, illisible ou hors bornes redonne le défaut.
+
+| Variable | Défaut | Bornes | Rôle |
+|---|---|---|---|
+| `PROJETS_VOIRIE_DELAI_ANALYSE_MS` | 20 000 | 1 000 à 300 000 | `statement_timeout` partagé par les requêtes d'une analyse ou d'un export CSV |
+| `PROJETS_VOIRIE_DELAI_CARTE_MS` | 10 000 | 1 000 à 120 000 | idem, carte |
+| `PROJETS_VOIRIE_DELAI_DEPOT_MS` | 60 000 | 5 000 à 600 000 | `statement_timeout` de chaque requête d'un dépôt, d'une décision ou d'un retrait |
+| `PROJETS_VOIRIE_VERROU_MS` | 5 000 | 500 à 60 000 | `lock_timeout` (attente du verrou du projet) |
+| `PROJETS_VOIRIE_SOMMETS_PAR_OBJET` | 100 000 | 1 000 à 1 000 000 | plafond de sommets par objet |
+| `PROJETS_VOIRIE_SOMMETS_PAR_FICHIER` | 2 000 000 | 10 000 à 10 000 000 | plafond de sommets par fichier |
+
+Le délai de transaction de Prisma est un délai CLIENT : il ne coupe pas la requête dans PostgreSQL. Les délais ci-dessus sont posés côté base (`set_config('statement_timeout', ..., true)`) et prouvés par le banc (une requête `pg_sleep(8)` sous un délai de 1 s est coupée en moins de 3 s ; l'analyse du banc de charge sous un délai de 1 s répond 504 en 1,6 s et plus aucune requête n'est active ensuite). Une requête coupée au milieu d'un calcul GEOS ressort en erreur `XX000 ... InterruptedException` : le serveur la traite comme un délai dépassé.
+
+## Traçabilité des consultations
+
+Lire la géométrie d'un réseau de tiers (carte, couche de conflits et croisements de l'analyse) **fait partie de la mission d'un compte qui a la clé de module** `projets-voirie` : ce n'est pas un export de fichier, mais c'est une capacité d'extraction, donc elle est tracée plutôt qu'interdite. Pour chaque jeu `CONFIDENTIEL_CONCESSIONNAIRE` ou `INFRASTRUCTURE_SENSIBLE` rendu, une ligne `audit_logs` `ConsultationJeuProjet` (action `SECURITY_EVENT`) est écrite **avant** la remise des données, au plus une par compte, par jeu et par fenêtre de 15 minutes. Elle porte `route`, `nbObjets`, `bbox`, `zoom`, `confidentialite`, aucune géométrie ni contenu. Les niveaux `RESTREINT_PROJET`, `INTERNE` et `PUBLIC` ne sont pas tracés. Aucun niveau de confidentialité ne restreint encore l'accès : c'est une étiquette, la clé de module et le périmètre territorial décident.
+
+## Décisions à prendre (non traitées par ce lot)
+
+| Point de la revue | Constat | Décision attendue |
+|---|---|---|
+| m2 | L'historique d'audit (`GET /api/audit`) ne filtre par périmètre territorial aucun type d'entité (la règle n'existe nulle part ailleurs) : un compte régional qui connaît l'UUID d'un jeu d'une autre région lit ses lignes d'audit (nom de fichier, empreinte, comptes, justification, jamais de géométrie). | Étendre le filtre territorial de l'audit à tous les types, ou seulement à `ProjetVoirie`, `JeuDonneesProjet`, `ExportProjetVoirie`, `ConsultationJeuProjet`. Non fait ici : `modules/audit/audit.routes.ts` est partagé par tous les modules. |
+| m5 | Le déposant peut autoriser son propre jeu (l'audit note `memePersonne`, sans bloquer : choix du contrat). | Exiger un second compte pour les jeux `RESEAU_TIERS`, ou une alerte. |
+| m6 | Les objets des jeux rejetés, remplacés ou retirés restent en base et en sauvegarde (suppression logique, AGENTS.md règle 2) ; chaîne GDAL en préproduction : sorties conservées 72 h. | Politique de conservation et voie de purge pour un tiers qui retire son accord ; purge des sorties GDAL avant tout branchement. |
+| m7 | Pas de CSP sur la page HTML de l'application (`frontend/nginx.conf`, `location = /index.html`), ancien et hors module. | À traiter par le lot frontend / infra, après test dans Teams. |
+| m8 | Les paramètres `bbox` et `jeux` apparaissent dans les journaux d'accès (morgan, nginx) ; les tuiles OSM et Esri révèlent la zone consultée. | Filtrer ces paramètres des journaux ; décision de fond sur les fonds de carte. |
+| m9 | `docs/reports/LOT-RC-00-RAPPORT.md` (hors module) nomme l'opérateur, le fournisseur du plan et des agrégats du pilote. | Relecture DSI avant toute publication hors équipe. |
+| (nouveau) | `GET /:id/jeux` liste les jeux en contrôle (métadonnées, sans géométrie) à tout lecteur du module. | Dire si la quarantaine doit aussi être masquée aux lecteurs dans cette liste. |
+
 ## Sécurité et audit
 
 - Données RESTREINT par défaut, jamais dans l'API publique ni les tuiles (test statique `isolation.test.ts` + banc : aucune réponse publique ne contient les noms des objets).
 - Aucune écriture hors des tables du module et d'`audit_logs` (test statique + banc : comptes de toutes les tables avant et après).
-- Entités auditées : `ProjetVoirie`, `JeuDonneesProjet`, `ConcessionnaireReseau`, `ExportProjetVoirie`. Actions : `CREATE` (projet, concessionnaire, dépôt, export), `UPDATE` (projet), `VALIDATE` (autorisation), `REJECT` (rejet), `DELETE` (retrait). Les valeurs auditées ne portent aucune géométrie.
+- Entités auditées : `ProjetVoirie`, `JeuDonneesProjet`, `ConcessionnaireReseau`, `ExportProjetVoirie`, `ConsultationJeuProjet` (lecture de la géométrie d'un jeu sensible, voir plus haut). Actions : `CREATE` (projet, concessionnaire, dépôt, export), `UPDATE` (projet), `VALIDATE` (autorisation), `REJECT` (rejet), `DELETE` (retrait). Les valeurs auditées ne portent aucune géométrie.
 - La base refuse : suppression physique, modification d'un objet, objet vide / invalide / hors Guinée / de type incohérent, jeu dont rôle, concessionnaire, nature, version, retrait ou décision sont incohérents, deux jeux autorisés de même clé.
