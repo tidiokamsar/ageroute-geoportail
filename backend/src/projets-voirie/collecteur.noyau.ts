@@ -15,8 +15,8 @@
 
 import { createHash } from "node:crypto";
 import {
-  BBOX_GUINEE, ErreurLecture, OBJETS_MAX,
-  type Avertissement, type Bbox, type CodeAvertissement, type GeometrieLue, type ObjetLu, type Pos, type ResumeLecture, type TypeGeom,
+  BBOX_GUINEE, ErreurLecture, OBJETS_MAX, SOMMETS_PAR_FICHIER_MAX, SOMMETS_PAR_OBJET_MAX,
+  type Avertissement, type Bbox, type CodeAvertissement, type GeometrieLue, type LimitesLecture, type ObjetLu, type Pos, type ResumeLecture, type TypeGeom,
 } from "./lecture.types";
 
 /** Coordonnee brute telle que lue : longitude, latitude, altitude facultative ; peut etre NaN. */
@@ -55,13 +55,45 @@ export function nettoyerValeur(v: unknown, profondeur = 0): unknown {
  * Empreinte d'un objet pour le DELTA de versions : SHA-1 du type, de la geometrie NORMALISEE (coordonnees arrondies au
  * centimetre environ par la lecture ; une ligne se lit dans l'un ou l'autre sens) et du nom. Information seulement.
  */
-export function empreinteDe(typeGeom: TypeGeom, g: GeometrieLue, nom: string | null): string {
-  let s = JSON.stringify(g.coordinates);
+export function empreinteDe(typeGeom: TypeGeom, g: GeometrieLue, nom: string | null, canon: string = chaineCanonique(g)): string {
+  return createHash("sha1").update(`${typeGeom}|${g.type}|${canon}#${nom ?? ""}`).digest("hex");
+}
+
+/**
+ * Ecriture CANONIQUE des coordonnees d'une geometrie : une ligne s'ecrit toujours de son extremite la plus petite (longitude, puis
+ * latitude) a la plus grande, donc dans le meme sens quel que soit celui du fichier. Une seule serialisation par objet (le cout
+ * de la lecture d'un fichier de 50 000 objets en depend), partagee par la detection des doublons et l'empreinte.
+ */
+export function chaineCanonique(g: GeometrieLue): string {
   if (g.type === "LineString") {
-    const inverse = JSON.stringify([...g.coordinates].reverse());
-    if (inverse < s) s = inverse;
+    const c = g.coordinates;
+    const a = c[0], z = c[c.length - 1];
+    const cmp = a[0] - z[0] || a[1] - z[1];
+    if (cmp > 0) return JSON.stringify(c.slice().reverse());
+    if (cmp === 0) {
+      // Ligne fermee : les deux sens commencent au meme point, on retient la plus petite des deux ecritures.
+      const avant = JSON.stringify(c), arriere = JSON.stringify(c.slice().reverse());
+      return arriere < avant ? arriere : avant;
+    }
   }
-  return createHash("sha1").update(`${typeGeom}|${g.type}|${s}#${nom ?? ""}`).digest("hex");
+  return JSON.stringify(g.coordinates);
+}
+
+/**
+ * Nettoie EN PLACE les attributs d'un objet (l'objet appartient au lecteur) : pas de copie par objet sur un fichier de 50 000.
+ * Une valeur ou une cle modifiee est posee par `defineProperty` : une cle `__proto__` d'un fichier reste une donnee, jamais le prototype.
+ */
+function nettoyerAttributs(o: Record<string, unknown>): Record<string, unknown> {
+  const poser = (k: string, v: unknown) => Object.defineProperty(o, k, { value: v, writable: true, enumerable: true, configurable: true });
+  for (const k of Object.keys(o)) {
+    const v = o[k];
+    const w = typeof v === "string" ? nettoyerValeur(v) : v && typeof v === "object" ? nettoyerValeur(v, 1) : v;
+    if (k.includes("\u0000")) {
+      delete o[k];
+      poser(k.replace(/\u0000/g, ""), w);
+    } else if (w !== v) poser(k, w);
+  }
+  return o;
 }
 
 export class Collecteur {
@@ -78,6 +110,14 @@ export class Collecteur {
   private ouest = Infinity; private sud = Infinity; private est = -Infinity; private nord = -Infinity;
   /** Elements lus (valides ou non) : distingue un fichier vide d'un fichier dont tout est ecarte. */
   private lus = 0;
+  private sommetsFichier = 0;
+  private readonly sommetsObjetMax: number;
+  private readonly sommetsFichierMax: number;
+
+  constructor(limites: LimitesLecture = {}) {
+    this.sommetsObjetMax = limites.sommetsParObjet ?? SOMMETS_PAR_OBJET_MAX;
+    this.sommetsFichierMax = limites.sommetsParFichier ?? SOMMETS_PAR_FICHIER_MAX;
+  }
 
   compter(code: CodeAvertissement, n = 1): void { this.c[code] += n; }
 
@@ -95,7 +135,12 @@ export class Collecteur {
     if (b.length > 2 && Number.isFinite(b[2]) && b[2] !== 0) etat.alt = true;
     const [w, s, e, n] = BBOX_GUINEE;
     if (lon < w || lon > e || lat < s || lat > n) return "dehors";
-    return [arrondi(lon), arrondi(lat)];
+    // Le tuple lu appartient au collecteur : il est arrondi et tronque EN PLACE (pas de second tableau par sommet).
+    const m = b as number[];
+    m[0] = arrondi(lon);
+    m[1] = arrondi(lat);
+    if (m.length > 2) m.length = 2;
+    return m as unknown as Pos;
   }
 
   private ligne(brut: Brut[], etat: EtatMembre): Pos[] | Motif {
@@ -126,7 +171,18 @@ export class Collecteur {
    * `nom` et `attributs` sont communs aux objets issus du meme element.
    */
   ajouter(nom: string | null, attributs: Record<string, unknown>, formes: FormesBrutes): void {
-    const sain = nettoyerValeur(attributs) as Record<string, unknown>;
+    // Plafond de sommets, compte sur la matiere BRUTE (avant tout traitement) : refus avant de construire quoi que ce soit de gros.
+    let sommets = formes.points.length;
+    for (const l of formes.lignes) sommets += l.length;
+    for (const p of formes.polygones) for (const a of p) sommets += a.length;
+    if (sommets > this.sommetsObjetMax) {
+      throw new ErreurLecture("TROP_DE_SOMMETS", `un objet porte ${sommets} sommets (maximum ${this.sommetsObjetMax}) : decoupez ce trace`);
+    }
+    this.sommetsFichier += sommets;
+    if (this.sommetsFichier > this.sommetsFichierMax) {
+      throw new ErreurLecture("TROP_DE_SOMMETS", `le fichier depasse ${this.sommetsFichierMax} sommets : decoupez-le`);
+    }
+    const sain = nettoyerAttributs(attributs);
     const nomPropre = nom === null ? null : (nettoyerValeur(nom) as string).trim() || null;
     const etat: EtatMembre = { alt: false, repetes: false, fermes: 0 };
     let invalides = 0, dehors = 0;
@@ -167,21 +223,13 @@ export class Collecteur {
 
     for (const { typeGeom, geometrie } of candidats) {
       if (this.objets.length >= OBJETS_MAX) throw new ErreurLecture("TROP_D_OBJETS", `plus de ${OBJETS_MAX} objets dans le fichier : decoupez-le`);
-      const cle = this.cleDoublon(geometrie);
+      const canon = chaineCanonique(geometrie);
+      const cle = geometrie.type + canon;
       if (this.vus.has(cle)) this.c.TRACES_DOUBLES += 1; else this.vus.add(cle);
       this.etendre(geometrie);
       this.parType[typeGeom] += 1;
-      this.objets.push({ nom: nomPropre, typeGeom, geometrie, attributs: sain, empreinte: empreinteDe(typeGeom, geometrie, nomPropre), ordre: this.objets.length });
+      this.objets.push({ nom: nomPropre, typeGeom, geometrie, attributs: sain, empreinte: empreinteDe(typeGeom, geometrie, nomPropre, canon), ordre: this.objets.length });
     }
-  }
-
-  private cleDoublon(g: GeometrieLue): string {
-    let s = JSON.stringify(g.coordinates);
-    if (g.type === "LineString") {
-      const inverse = JSON.stringify([...g.coordinates].reverse());
-      if (inverse < s) s = inverse;
-    }
-    return g.type + createHash("sha1").update(s).digest("hex");
   }
 
   private etendre(g: GeometrieLue): void {

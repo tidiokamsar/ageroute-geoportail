@@ -14,7 +14,7 @@
 
 import { lireGeoJson } from "./lecture.geojson.noyau";
 import { lireKml } from "./lecture.kml.noyau";
-import { ErreurLecture, TAILLE_MAX_OCTETS, type InfoCrs, type ResultatLecture } from "./lecture.types";
+import { ErreurLecture, TAILLE_MAX_OCTETS, type InfoCrs, type LimitesLecture, type ResultatLecture } from "./lecture.types";
 
 export { ErreurLecture, TAILLE_MAX_OCTETS, OBJETS_MAX, BBOX_GUINEE } from "./lecture.types";
 export type { ResultatLecture } from "./lecture.types";
@@ -119,7 +119,7 @@ const CRS_GEOJSON: InfoCrs = {
 
 const REGEX_HTML = /^(?:<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>]|<script[\s>]|<iframe[\s>]|<svg[\s>]|<\?php)/i;
 
-export function lireFichier(contenu: Buffer, nomFichier: string): ResultatLecture {
+export function lireFichier(contenu: Buffer, nomFichier: string, limites?: LimitesLecture): ResultatLecture {
   if (contenu.length === 0) throw new ErreurLecture("FICHIER_VIDE", "le fichier est vide");
   if (contenu.length > TAILLE_MAX_OCTETS) {
     throw new ErreurLecture("FICHIER_TROP_GROS", `fichier de plus de ${TAILLE_MAX_OCTETS} octets`);
@@ -131,12 +131,12 @@ export function lireFichier(contenu: Buffer, nomFichier: string): ResultatLectur
   const nettoye = texte.trimStart();
   if (nettoye === "") throw new ErreurLecture("FICHIER_VIDE", "le fichier ne contient que des blancs");
   if (REGEX_HTML.test(nettoye)) throw new ErreurLecture("CONTENU_NON_RECONNU", "contenu non reconnu (page HTML ou script) : deposez un fichier KML ou GeoJSON");
-  if (nettoye[0] === "<") return { format: "KML", crs: CRS_KML, ...lireKml(texte) };
+  if (nettoye[0] === "<") return { format: "KML", crs: CRS_KML, ...lireKml(texte, limites) };
   if (nettoye[0] === "{") {
     if (profondeurJson(texte) > PROFONDEUR_JSON_MAX) {
       throw new ErreurLecture("JSON_TROP_PROFOND", `imbrication JSON de plus de ${PROFONDEUR_JSON_MAX} niveaux`);
     }
-    return { format: "GEOJSON", crs: CRS_GEOJSON, ...lireGeoJson(texte) };
+    return { format: "GEOJSON", crs: CRS_GEOJSON, ...lireGeoJson(texte, limites) };
   }
   const ext = extensionDe(nomFichier);
   throw new ErreurLecture("FORMAT_NON_SUPPORTE", `contenu non reconnu${ext ? ` (extension .${ext})` : ""} : seuls les formats KML et GeoJSON sont pris en charge dans ce lot`);

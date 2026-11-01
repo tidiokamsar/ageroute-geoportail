@@ -9,7 +9,7 @@
 
 import { Collecteur, formesVides, type Brut, type FormesBrutes } from "./collecteur.noyau";
 import { ErreurLecture } from "./lecture.types";
-import type { Avertissement, ObjetLu, ResumeLecture } from "./lecture.types";
+import type { Avertissement, LimitesLecture, ObjetLu, ResumeLecture } from "./lecture.types";
 
 const CLES_NOM = ["name", "nom", "Name", "NAME", "NOM", "title"];
 const PROFONDEUR_GEOMETRIE_MAX = 8;
@@ -63,7 +63,7 @@ function nomDe(props: Record<string, Json>): string | null {
   return null;
 }
 
-export function lireGeoJson(texte: string): { objets: ObjetLu[]; avertissements: Avertissement[]; resume: ResumeLecture } {
+export function lireGeoJson(texte: string, limites?: LimitesLecture): { objets: ObjetLu[]; avertissements: Avertissement[]; resume: ResumeLecture } {
   let doc: Json;
   try {
     doc = JSON.parse(texte);
@@ -75,7 +75,7 @@ export function lireGeoJson(texte: string): { objets: ObjetLu[]; avertissements:
   }
   verifierCrs(doc);
 
-  const col = new Collecteur();
+  const col = new Collecteur(limites);
   const traiter = (f: Record<string, Json>): void => {
     col.elementLu();
     const formes = formesVides();
