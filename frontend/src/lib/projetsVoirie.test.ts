@@ -177,3 +177,32 @@ describe("classement des erreurs {error, code}", () => {
     for (const v of [undefined, null, 3, "x", {}, { response: null }, { response: { status: "x" } }]) expect(() => classerErreur(v)).not.toThrow();
   });
 });
+
+describe("durcissement du serveur (revue de securite) : codes expliques en clair", () => {
+  const rep = (status: number, code: string) => ({ response: { status, data: { error: "texte brut du serveur", code } } });
+  it.each([
+    [400, "IDENTIFIANT_INVALIDE", "validation", /identifiant demandé n'est pas valide/],
+    [403, "QUARANTAINE_RESERVEE", "droit", /réservé aux administrateurs et aux gestionnaires/],
+    [403, "ROLE_INSUFFISANT", "droit", /réservée aux administrateurs/],
+    [422, "TROP_DE_SOMMETS", "validation", /trop de sommets/],
+    [422, "ANALYSE_TROP_VOLUMINEUSE", "validation", /trop volumineuse/],
+    [503, "PROJET_OCCUPE", "serveur", /Réessayez/],
+    [503, "SERVICE_OCCUPE", "serveur", /Réessayez/],
+    [504, "ANALYSE_TROP_LONGUE", "serveur", /Réessayez, ou réduisez/],
+    [504, "CARTE_TROP_LONGUE", "serveur", /zoomez pour réduire la zone/],
+    [504, "DEPOT_TROP_LONG", "serveur", /rien n'a été enregistré/],
+  ])("%i %s : message en clair, invite a reessayer ou a reduire", (status, code, genre, motif) => {
+    const e = classerErreur(rep(status as number, code as string));
+    expect(e.genre).toBe(genre);
+    expect(e.message).toMatch(motif as RegExp);
+    expect(e.message).not.toContain("texte brut");
+    expect(e.code).toBe(code);
+  });
+  it("un 403 avec code precis n'est PAS pris pour l'absence de la cle de module", () => {
+    expect(classerErreur(rep(403, "QUARANTAINE_RESERVEE")).message).not.toMatch(/clé de module/);
+    expect(classerErreur({ response: { status: 403, data: { error: "Accès à ce module non autorisé" } } }).genre).toBe("permission");
+  });
+  it("un 404 avec code connu reste « introuvable »", () => {
+    expect(classerErreur(rep(404, "PROJET_INTROUVABLE")).genre).toBe("introuvable");
+  });
+});

@@ -37,7 +37,7 @@ export const JEU_GAZ_CONTROLE = jeu({
 export function projetResume(over: Partial<ProjetResume> = {}): ProjetResume {
   return {
     id: "p1", code: "VOIRIE-SYNTH-2026", nom: "Voirie synthetique", commune: "Commune test", prefecture: "Prefecture test",
-    largeurEmpriseM: 15, largeurChausseeM: 7, statutParametres: "THEORIQUE", nbJeux: 3, createdAt: "2026-10-28T08:00:00Z", ...over,
+    largeurEmpriseM: 15, largeurChausseeM: 7, statutParametres: "THEORIQUE", nbJeux: 3, jeuxParStatut: { AUTORISE: 3 }, createdAt: "2026-10-28T08:00:00Z", ...over,
   };
 }
 
@@ -68,8 +68,8 @@ export function analyse(over: Partial<Analyse> = {}): Analyse {
     conflits: {
       total: { chausseeM: 600, empriseM: 1100, croisements: 6, axesTouches: 2, objetsTouches: 5, empriseHorsChausseeM: null, horsEmpriseM: null },
       parAxe: [
-        { axe: "Axe B", longueurM: 500, chausseeM: 0, empriseM: 500, croisements: 2, concessionnaires: ["Societe des eaux synthetique"], objets: [{ jeuId: "jeu-eau", nom: "Conduite DN200", chausseeM: 0, empriseM: 500 }], verification: verif },
-        { axe: "Axe A", longueurM: 600, chausseeM: 600, empriseM: 1200, croisements: 4, concessionnaires: ["Operateur synthetique A"], objets: [{ jeuId: "jeu-tel", nom: "Fibre FO-01", chausseeM: 600, empriseM: 600 }, { jeuId: "jeu-tel", nom: "Fibre FO-02", chausseeM: 0, empriseM: 600 }], verification: verif },
+        { axe: "Axe B", longueurM: 500, chausseeM: 0, empriseM: 500, croisements: 2, concessionnaires: ["Societe des eaux synthetique"], objets: [{ jeuId: "jeu-eau", objetId: "1", nom: "Conduite DN200", qualification: null, chausseeM: 0, empriseM: 500, croisements: 1 }], verification: verif },
+        { axe: "Axe A", longueurM: 600, chausseeM: 600, empriseM: 1200, croisements: 4, concessionnaires: ["Operateur synthetique A"], objets: [{ jeuId: "jeu-tel", objetId: "2", nom: "Fibre FO-01", qualification: null, chausseeM: 600, empriseM: 600, croisements: 2 }, { jeuId: "jeu-tel", objetId: "3", nom: "Fibre FO-02", qualification: null, chausseeM: 0, empriseM: 600, croisements: 2 }], verification: verif },
         { axe: "Axe C", longueurM: 200, chausseeM: 0, empriseM: 0, croisements: 0, concessionnaires: [], objets: [], verification: verif },
       ],
       parConcessionnaire: [

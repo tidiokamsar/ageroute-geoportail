@@ -39,8 +39,11 @@ export function useConcessionnaires(actif = true) {
 export function useAnalyse(id: string | undefined, largeurs: Largeurs | null, inclureNonAutorises = false) {
   return useQuery({
     queryKey: [...CLE, "analyse", id, largeurs?.largeurEmpriseM ?? null, largeurs?.largeurChausseeM ?? null, inclureNonAutorises],
-    queryFn: () => chargerAnalyse(id as string, largeurs, inclureNonAutorises),
+    // Le signal est transmis a axios : changer de largeurs annule la requete precedente (le serveur borne les analyses a 3 simultanees).
+    queryFn: ({ signal }) => chargerAnalyse(id as string, largeurs, inclureNonAutorises, signal),
     enabled: !!id,
+    // Pas de rechargement automatique : une analyse deja calculee reste valable le temps de la consultation.
+    staleTime: 60_000,
     placeholderData: keepPreviousData,
     ...OPTIONS,
   });

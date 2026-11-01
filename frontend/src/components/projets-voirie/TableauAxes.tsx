@@ -98,18 +98,23 @@ export function TableauAxes({ lignes, nomJeu, versionAlgorithme }: { lignes: Lig
                         <thead>
                           <tr className="text-gray-700">
                             <th scope="col" className="py-1 pr-2 font-semibold">Objet</th>
-                            <th scope="col" className="py-1 pr-2 font-semibold">Jeu de données</th>
+                            <th scope="col" className="py-1 pr-2 font-semibold">Résultat</th>
                             <th scope="col" className="py-1 pr-2 text-right font-semibold">En chaussée</th>
-                            <th scope="col" className="py-1 text-right font-semibold">En emprise</th>
+                            <th scope="col" className="py-1 pr-2 text-right font-semibold">En emprise</th>
+                            <th scope="col" className="py-1 text-right font-semibold">Croisements</th>
                           </tr>
                         </thead>
                         <tbody>
                           {l.objets.map((o, k) => (
                             <tr key={k} className="border-t border-gray-200">
                               <td className="py-1 pr-2 break-words">{o.nom ?? "Objet sans nom"}</td>
-                              <td className="py-1 pr-2 break-words">{nomJeu(o.jeuId)}</td>
+                              <td className="py-1 pr-2 break-words">
+                                {o.qualification === "PROXIMITE_A_VERIFIER" ? "Proximité à vérifier" : o.qualification === "CONFLIT_POTENTIEL" ? "Conflit à vérifier" : "À vérifier"}
+                                {o.jeuId && <span className="block text-gray-600">{nomJeu(o.jeuId)}</span>}
+                              </td>
                               <td className="whitespace-nowrap py-1 pr-2 text-right tabular-nums">{formaterMetres(o.chausseeM)}</td>
-                              <td className="whitespace-nowrap py-1 text-right tabular-nums">{formaterMetres(o.empriseM)}</td>
+                              <td className="whitespace-nowrap py-1 pr-2 text-right tabular-nums">{formaterMetres(o.empriseM)}</td>
+                              <td className="whitespace-nowrap py-1 text-right tabular-nums">{o.croisements === null ? "n/d" : formaterNombre(o.croisements, 0)}</td>
                             </tr>
                           ))}
                         </tbody>
