@@ -37,6 +37,7 @@ const DialogueDepot = lazy(() => import("../components/projets-voirie/DialogueDe
 type IdOnglet = "analyse" | "couches";
 const ONGLETS: { id: IdOnglet; libelle: string }[] = [{ id: "analyse", libelle: "Analyse" }, { id: "couches", libelle: "Couches" }];
 const PLAFOND_OBJETS_LISTE = 5000;
+const PLAFOND_JEUX_CARTE = 50;
 const CONFLITS_PAR_DEFAUT: Record<CleConflit, boolean> = { chaussee: true, emprise: true, hors: false, croisements: true };
 
 export function ProjetVoirieDetailPage() {
@@ -64,13 +65,17 @@ export function ProjetVoirieDetailPage() {
   const tronqueRef = useRef(false);
 
   const fiche = projet.data;
-  const jeux = useMemo(() => fiche?.jeux ?? [], [fiche]);
+  // Les jeux en quarantaine sont reserves aux ADMIN et GESTIONNAIRE (403 QUARANTAINE_RESERVEE cote serveur) : un lecteur ne les voit pas du tout.
+  const jeux = useMemo(() => (fiche?.jeux ?? []).filter((j) => peutEcrire || (j.statut !== "CONTROLE" && j.statut !== "RECU")), [fiche, peutEcrire]);
+  const inclure = peutEcrire && afficherNonAutorises;
   const jeuParId = useMemo(() => new Map(jeux.map((j) => [j.id, j])), [jeux]);
 
   // Jeux qui peuvent apparaitre : AUTORISE toujours, CONTROLE/RECU seulement a la demande ; moins ceux que l'utilisateur a decoches.
   const idsVisibles = useMemo(() => jeux
-    .filter((j) => j.statut === "AUTORISE" || ((j.statut === "CONTROLE" || j.statut === "RECU") && afficherNonAutorises))
-    .filter((j) => !masques.has(j.id)).map((j) => j.id), [jeux, afficherNonAutorises, masques]);
+    .filter((j) => j.statut === "AUTORISE" || ((j.statut === "CONTROLE" || j.statut === "RECU") && inclure))
+    .filter((j) => !masques.has(j.id)).map((j) => j.id), [jeux, inclure, masques]);
+  // L'API accepte 1 a 50 jeux par carte.
+  const idsCarte = useMemo(() => idsVisibles.slice(0, PLAFOND_JEUX_CARTE), [idsVisibles]);
   const visibles = useMemo(() => new Set(idsVisibles), [idsVisibles]);
 
   // Emprise de requete : la vue elargie de 10 %, redemandee seulement quand la vue en sort, change de zoom, ou si le serveur a tronque.
@@ -84,10 +89,11 @@ export function ProjetVoirieDetailPage() {
     });
   }, [vueDiff]);
 
-  const carte = useCarte(id, { jeux: idsVisibles, bbox: requete?.bbox ?? null, zoom: requete?.zoom ?? null, inclureNonAutorises: afficherNonAutorises }, !!requete && enLigne);
-  const analyse = useAnalyse(id, apercu, afficherNonAutorises);
+  const carte = useCarte(id, { jeux: idsCarte, bbox: requete?.bbox ?? null, zoom: requete?.zoom ?? null, inclureNonAutorises: inclure }, !!requete && enLigne);
+  const analyse = useAnalyse(id, apercu, inclure);
 
-  const couches = useMemo(() => (carte.data ?? []).filter((c) => visibles.has(c.jeuId)), [carte.data, visibles]);
+  const couches = useMemo(() => (carte.data?.couches ?? []).filter((c) => visibles.has(c.jeuId)), [carte.data, visibles]);
+  const carteTronquee = carte.data?.tronque === true;
   const tronques = useMemo(() => new Set(couches.filter((c) => c.tronque).map((c) => c.jeuId)), [couches]);
   tronqueRef.current = tronques.size > 0;
   const objets = useMemo(() => {
@@ -205,9 +211,14 @@ export function ProjetVoirieDetailPage() {
               {carte.isFetching && requete ? "Chargement des objets…" : `${formaterNombre(objets.length, 0)} objet(s) affiché(s)`}
             </p>
           </div>
-          {tronques.size > 0 && (
+          {(tronques.size > 0 || carteTronquee) && (
             <p role="status" data-testid="bandeau-tronque" className="border-b border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-900">
-              Affichage tronqué : le serveur plafonne le nombre d&apos;objets par réponse (20 000). Zoomez pour voir le détail de la zone.
+              Affichage tronqué : le serveur plafonne le nombre d&apos;objets par réponse{carte.data?.plafond ? ` (${formaterNombre(carte.data.plafond, 0)})` : ""}. Zoomez pour voir le détail de la zone.
+            </p>
+          )}
+          {idsVisibles.length > PLAFOND_JEUX_CARTE && (
+            <p role="status" className="border-b border-amber-300 bg-amber-50 px-3 py-1.5 text-xs text-amber-900">
+              La carte affiche au plus {PLAFOND_JEUX_CARTE} jeux à la fois : décochez des jeux dans l&apos;onglet Couches pour voir les autres.
             </p>
           )}
           {erreurCarte && (
@@ -261,7 +272,7 @@ export function ProjetVoirieDetailPage() {
                   projet={fiche} jeux={jeux} requete={analyse} apercu={apercu} onApercu={setApercu} nomJeu={nomJeu}
                   peutEcrire={peutEcrire} estAdmin={estAdmin} enLigne={enLigne}
                   enregistrer={(corps) => modifier.mutateAsync(corps)}
-                  exporter={() => exporterCsv(fiche.id, fiche.code, apercu, afficherNonAutorises)}
+                  exporter={() => exporterCsv(fiche.id, fiche.code, apercu, inclure)}
                 />
               </div>
             ) : (

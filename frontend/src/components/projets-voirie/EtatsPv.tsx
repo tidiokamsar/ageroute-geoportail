@@ -41,6 +41,15 @@ export function BandeauHorsLigne() {
 }
 
 export function EtatErreur({ erreur, sujet, onReessayer, enCours }: { erreur: ErreurPv; sujet: string; onReessayer?: () => void; enCours?: boolean }) {
+  if (erreur.genre === "droit") {
+    // 403 avec un code precis (QUARANTAINE_RESERVEE, ROLE_INSUFFISANT) : le compte a bien le module, c'est ce geste-la qui lui est refuse.
+    return (
+      <div role="alert" data-etat="droit" data-code={erreur.code ?? undefined} className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+        <Lock aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+        <p><strong>{sujet} : action refusée.</strong> {erreur.message}</p>
+      </div>
+    );
+  }
   if (erreur.genre === "permission") {
     return (
       <div role="alert" data-etat="permission" className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">

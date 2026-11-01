@@ -228,7 +228,7 @@ export function contientBbox(grande: Bbox, petite: Bbox): boolean {
 // Erreurs
 // ---------------------------------------------------------------------------------------------------
 
-export type GenreErreur = "reseau" | "permission" | "introuvable" | "conflit" | "validation" | "trop-gros" | "serveur" | "inattendue";
+export type GenreErreur = "reseau" | "permission" | "droit" | "introuvable" | "conflit" | "validation" | "trop-gros" | "serveur" | "inattendue";
 
 export interface ErreurPv {
   genre: GenreErreur;
@@ -255,7 +255,17 @@ export const MESSAGE_CODE: Record<string, string> = {
   TROP_D_OBJETS: "Le fichier contient plus de 50 000 objets. Découpez-le en plusieurs fichiers puis réessayez. Rien n'a été écrit.",
   FICHIER_TROP_GROS: "Le fichier dépasse la taille maximale de 25 Mo. Découpez-le ou simplifiez-le puis réessayez.",
   STATUT_INCOMPATIBLE: "Ce jeu n'est plus dans un état qui permet cette action (il a peut-être déjà été autorisé ou rejeté par quelqu'un d'autre). Rechargez la page.",
-  SERVICE_OCCUPE: "Le serveur traite déjà d'autres fichiers. Réessayez dans un instant.",
+  SERVICE_OCCUPE: "Le serveur traite déjà d'autres demandes. Réessayez dans un instant.",
+  PROJET_OCCUPE: "Ce projet est occupé : un autre dépôt, une autorisation ou un retrait est en cours. Réessayez dans quelques secondes.",
+  IDENTIFIANT_INVALIDE: "L'identifiant demandé n'est pas valide (adresse modifiée ou lien tronqué). Revenez à la liste des projets et rouvrez le projet depuis celle-ci.",
+  QUARANTAINE_RESERVEE: "L'affichage des données non autorisées est réservé aux administrateurs et aux gestionnaires.",
+  ROLE_INSUFFISANT: "Votre rôle ne permet pas cette action (la validation des largeurs est réservée aux administrateurs).",
+  TROP_DE_SOMMETS: "Le fichier contient trop de sommets (plus de 100 000 dans un objet, ou 2 000 000 dans le fichier). Simplifiez les tracés ou découpez le fichier, puis réessayez. Rien n'a été écrit.",
+  XML_TROP_VOLUMINEUX: "Le document XML est trop volumineux pour être lu. Découpez le fichier puis réessayez. Rien n'a été écrit.",
+  ANALYSE_TROP_VOLUMINEUSE: "L'analyse est trop volumineuse pour être calculée (trop de sommets d'axes ou de réseaux autorisés). Retirez ou simplifiez des jeux, puis réessayez.",
+  ANALYSE_TROP_LONGUE: "Le calcul de l'analyse a dépassé le délai autorisé et a été interrompu. Réessayez, ou réduisez le volume de données (jeux retirés ou simplifiés).",
+  CARTE_TROP_LONGUE: "L'affichage de la carte a dépassé le délai autorisé. Réessayez, ou zoomez pour réduire la zone affichée.",
+  DEPOT_TROP_LONG: "Le traitement du dépôt a dépassé le délai autorisé et a été interrompu : rien n'a été enregistré. Réessayez, ou découpez le fichier.",
 };
 
 function enObjet(v: unknown): Record<string, unknown> | null {
@@ -284,7 +294,8 @@ export function classerErreur(e: unknown): ErreurPv {
   }
   const base = { status, code, champs, jeuId: typeof corps?.jeuId === "string" ? corps.jeuId : null };
   if (code && MESSAGE_CODE[code]) {
-    const genre: GenreErreur = status === 409 ? "conflit" : status === 413 ? "trop-gros" : status === 503 ? "serveur" : "validation";
+    // 403 QUARANTAINE_RESERVEE et ROLE_INSUFFISANT : un refus de DROIT precis, pas l'absence de la cle de module.
+    const genre: GenreErreur = status === 409 ? "conflit" : status === 413 ? "trop-gros" : status === 503 || status === 504 ? "serveur" : status === 403 ? "droit" : status === 404 ? "introuvable" : "validation";
     return { genre, ...base, message: MESSAGE_CODE[code] };
   }
   if (status === 401 || status === 403) {

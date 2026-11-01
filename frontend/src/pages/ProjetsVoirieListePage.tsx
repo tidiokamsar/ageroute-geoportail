@@ -77,7 +77,7 @@ export function ProjetsVoirieListePage() {
               <tr>
                 <th scope="col" className="px-3 py-2 font-semibold">Projet</th>
                 <th scope="col" className="px-3 py-2 font-semibold">Localisation</th>
-                <th scope="col" className="px-3 py-2 text-right font-semibold">Jeux de données</th>
+                <th scope="col" className="px-3 py-2 text-right font-semibold">Jeux autorisés</th>
                 <th scope="col" className="px-3 py-2 font-semibold">Largeurs de calcul</th>
               </tr>
             </thead>
@@ -91,7 +91,12 @@ export function ProjetsVoirieListePage() {
                     <span className="block text-xs text-gray-600" aria-hidden="true">{p.code}</span>
                   </th>
                   <td className="px-3 py-2 text-gray-800">{[p.commune, p.prefecture].filter(Boolean).join(", ") || "Non renseignée"}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{p.nbJeux === null ? "n/d" : p.nbJeux}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {p.nbJeux === null ? "n/d" : Object.keys(p.jeuxParStatut).length > 0 ? (p.jeuxParStatut.AUTORISE ?? 0) : p.nbJeux}
+                    {peutEcrire && (p.jeuxParStatut.CONTROLE ?? 0) + (p.jeuxParStatut.RECU ?? 0) > 0 && (
+                      <span className="block text-xs font-semibold text-amber-900">et {(p.jeuxParStatut.CONTROLE ?? 0) + (p.jeuxParStatut.RECU ?? 0)} à autoriser</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-xs text-gray-800">
                     Chaussée {formaterMetres(p.largeurChausseeM)}, emprise {formaterMetres(p.largeurEmpriseM)}{" "}
                     <span className={p.statutParametres === "VALIDE" ? "font-semibold text-green-800" : "font-semibold text-amber-900"}>

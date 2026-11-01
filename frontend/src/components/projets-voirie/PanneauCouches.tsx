@@ -185,6 +185,8 @@ export function PanneauCouches(p: PropsPanneauCouches) {
         {rejetes > 0 && <p className="text-[11px] text-gray-600">{rejetes} jeu(x) rejeté(s) restent conservés en base avec leur justification ; ils n&apos;alimentent ni la carte ni l&apos;analyse.</p>}
       </section>
 
+      {/* Quarantaine : reservee aux ADMIN et GESTIONNAIRE (le serveur refuse inclureNonAutorises aux autres, 403 QUARANTAINE_RESERVEE). */}
+      {p.peutEcrire && (
       <section aria-labelledby="pv-titre-quarantaine" className="space-y-2">
         <h3 id="pv-titre-quarantaine" className="flex items-center gap-1 text-sm font-semibold text-navy"><ShieldAlert aria-hidden="true" className="h-4 w-4" /> Fichiers reçus, à autoriser</h3>
         <p role="note" className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">{MESSAGE_QUARANTAINE}</p>
@@ -198,6 +200,7 @@ export function PanneauCouches(p: PropsPanneauCouches) {
           <ul className="space-y-1">{quarantaine.map(ligne)}</ul>
         )}
       </section>
+      )}
 
       <section aria-labelledby="pv-titre-conflits-couches" className="space-y-2">
         <h3 id="pv-titre-conflits-couches" className="text-sm font-semibold text-navy">Couches de conflit</h3>

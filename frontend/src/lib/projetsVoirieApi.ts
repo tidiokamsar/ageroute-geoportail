@@ -81,7 +81,10 @@ export interface ProjetResume {
   largeurEmpriseM: number;
   largeurChausseeM: number;
   statutParametres: StatutParametres;
+  /** Jeux autorises, a autoriser ou recus (hors remplaces, rejetes, retires). Null si le serveur ne donne aucun compteur. */
   nbJeux: number | null;
+  /** Compteurs par statut de la liste (`jeux: { CONTROLE: 1, AUTORISE: 2 }`). */
+  jeuxParStatut: Partial<Record<StatutJeu, number>>;
   createdAt: string | null;
 }
 
@@ -152,6 +155,9 @@ export interface CoucheCarte {
   nonAutorise: boolean;
 }
 
+/** Reponse de la carte : les couches, le plafond d'objets applique (5 000 sans emprise, 20 000 avec) et l'indication « tronque ». */
+export interface ReponseCarte { couches: CoucheCarte[]; plafond: number | null; tronque: boolean }
+
 export interface ParamsCarte { jeux: string[]; bbox: Bbox | null; zoom: number | null; inclureNonAutorises?: boolean }
 
 /** Chaque ligne de resultat est « A VERIFIER » (cahier des charges v2) : statut du serveur et version de la regle de calcul. */
@@ -166,7 +172,8 @@ export interface LigneParConcessionnaire {
   nbObjets: number;
   jeuxIds: string[];
 }
-export interface ObjetAxe { jeuId: string | null; nom: string | null; chausseeM: number; empriseM: number }
+/** Objet de reseau touchant un axe. Le serveur donne `objetId`, la qualification et les croisements ; `jeuId` n'est pas toujours fourni. */
+export interface ObjetAxe { jeuId: string | null; objetId: string | null; nom: string | null; qualification: string | null; chausseeM: number; empriseM: number; croisements: number | null }
 export interface LigneParAxe {
   axe: string;
   longueurM: number;
@@ -266,7 +273,7 @@ export function lireJeu(v: unknown): JeuProjet | null {
     confidentialite: enumOu(v.confidentialite === "RESTREINT" ? "RESTREINT_PROJET" : v.confidentialite, NIVEAUX_CONFIDENTIALITE, "RESTREINT_PROJET"),
     statut,
     nonAutorise: typeof v.nonAutorise === "boolean" ? v.nonAutorise : statut !== "AUTORISE",
-    justification: texte(v.justificationDecision) ?? texte(v.justification),
+    justification: (estObjet(v.decision) ? texte(v.decision.justification) : null) ?? texte(v.justificationDecision) ?? texte(v.justification),
     version: Math.max(1, entier(v.version)),
     avertissements: lireAvertissements(v.avertissements),
     createdAt: texte(v.createdAt),
@@ -280,6 +287,9 @@ export function lireProjetResume(v: unknown): ProjetResume | null {
   const nom = texte(v.nom);
   if (!id || !code || !nom) return null;
   const compteurs = estObjet(v._count) ? versNombre(v._count.jeux) : null;
+  const jeuxParStatut: Partial<Record<StatutJeu, number>> = {};
+  if (estObjet(v.jeux)) for (const k of ["RECU", "CONTROLE", "AUTORISE", "REJETE", "REMPLACE", "RETIRE"] as const) { const n = versNombre(v.jeux[k]); if (n !== null) jeuxParStatut[k] = n; }
+  const vivants = estObjet(v.jeux) ? (jeuxParStatut.AUTORISE ?? 0) + (jeuxParStatut.CONTROLE ?? 0) + (jeuxParStatut.RECU ?? 0) : null;
   return {
     id, code, nom,
     commune: texte(v.commune),
@@ -287,14 +297,19 @@ export function lireProjetResume(v: unknown): ProjetResume | null {
     largeurEmpriseM: versNombre(v.largeurEmpriseM) ?? 15,
     largeurChausseeM: versNombre(v.largeurChausseeM) ?? 7,
     statutParametres: statutParam(v.statutParametres),
-    nbJeux: versNombre(v.nbJeux) ?? versNombre(v.nbJeuxActifs) ?? compteurs,
+    nbJeux: vivants ?? versNombre(v.nbJeux) ?? versNombre(v.nbJeuxActifs) ?? compteurs,
+    jeuxParStatut,
     createdAt: texte(v.createdAt),
   };
 }
 
 export function lireFicheProjet(data: unknown): ProjetFiche {
   const racine = estObjet(data) ? data : null;
-  const projet = racine && estObjet(racine.projet) ? { ...racine.projet, ...(estObjet(racine.parametres) ? racine.parametres : {}) } : racine;
+  const interne = racine && estObjet(racine.projet) ? racine.projet : null;
+  const param = estObjet(interne?.parametres) ? interne.parametres : estObjet(racine?.parametres) ? racine.parametres : {};
+  const projet = interne
+    ? { ...interne, ...param, jeux: undefined, statutParametres: param.statut ?? param.statutParametres ?? interne.statutParametres }
+    : racine;
   const base = projet ? lireProjetResume(projet) : null;
   if (!racine || !base) throw new ReponseInattendue(`GET ${BASE}/:id`);
   const jeux = tableau(racine.jeux ?? (estObjet(racine.projet) ? racine.projet.jeux : undefined)).flatMap((j) => { const x = lireJeu(j); return x ? [x] : []; });
@@ -354,6 +369,12 @@ export function lireReponseDepot(data: unknown): ReponseDepot {
     crs: crsBrut ? { source: texte(crsBrut.source), cible: texte(crsBrut.cible), methode: texte(crsBrut.methode), justification: texte(crsBrut.justification) } : null,
     delta: deltaBrut ? { ajoutes: entier(deltaBrut.ajoutes), retires: entier(deltaBrut.retires), identiques: entier(deltaBrut.identiques) } : null,
   };
+}
+
+export function lireReponseCarte(data: unknown): ReponseCarte {
+  const couches = lireCarte(data);
+  const racine = estObjet(data) ? data : {};
+  return { couches, plafond: versNombre(racine.plafond), tronque: racine.tronque === true || couches.some((c) => c.tronque) };
 }
 
 export function lireCarte(data: unknown): CoucheCarte[] {
@@ -448,7 +469,7 @@ export function lireAnalyse(data: unknown): Analyse {
         return [{
           axe: texte(l.axe) ?? "Axe sans nom", longueurM: entier(l.longueurM), chausseeM: entier(l.chausseeM), empriseM: entier(l.empriseM),
           croisements: entier(l.croisements), concessionnaires: nomsDe(l.concessionnaires), verification: lireVerification(l, versionRegle),
-          objets: tableau(l.objets).flatMap((o): ObjetAxe[] => estObjet(o) ? [{ jeuId: texte(o.jeuId), nom: texte(o.nom), chausseeM: entier(o.chausseeM), empriseM: entier(o.empriseM) }] : []),
+          objets: tableau(l.objets).flatMap((o): ObjetAxe[] => estObjet(o) ? [{ jeuId: texte(o.jeuId), objetId: texte(o.objetId) ?? (typeof o.objetId === "number" ? String(o.objetId) : null), nom: texte(o.nom), qualification: texte(o.qualification), chausseeM: entier(o.chausseeM), empriseM: entier(o.empriseM), croisements: versNombre(o.croisements) }] : []),
         }];
       }),
       parConcessionnaire: tableau(c.parConcessionnaire).flatMap((l): ConflitParConcessionnaire[] => {
@@ -567,22 +588,22 @@ export async function retirerJeu(projetId: string, jeuId: string): Promise<void>
 }
 
 /** Carte par emprise et zoom : `jeux`, `bbox` (ouest,sud,est,nord) et `zoom` en parametres de requete. */
-export async function chargerCarte(projetId: string, p: ParamsCarte, signal?: AbortSignal): Promise<CoucheCarte[]> {
+export async function chargerCarte(projetId: string, p: ParamsCarte, signal?: AbortSignal): Promise<ReponseCarte> {
   const params: Record<string, string | number> = {};
   if (p.jeux.length > 0) params.jeux = p.jeux.join(",");
   if (p.bbox) params.bbox = bboxVersChaine(p.bbox);
   if (p.zoom !== null) params.zoom = Math.round(p.zoom);
   if (p.inclureNonAutorises) params.inclureNonAutorises = "true";
   const { data } = await api.get(`${BASE}/${id(projetId)}/carte`, { params, signal });
-  return lireCarte(data);
+  return lireReponseCarte(data);
 }
 
 /** Analyse ; `largeurs` surcharge les parametres SANS les enregistrer (previsualisation). */
-export async function chargerAnalyse(projetId: string, largeurs?: Largeurs | null, inclureNonAutorises = false): Promise<Analyse> {
+export async function chargerAnalyse(projetId: string, largeurs?: Largeurs | null, inclureNonAutorises = false, signal?: AbortSignal): Promise<Analyse> {
   const params: Record<string, string | number> = {};
   if (largeurs) { params.largeurEmpriseM = largeurs.largeurEmpriseM; params.largeurChausseeM = largeurs.largeurChausseeM; }
   if (inclureNonAutorises) params.inclureNonAutorises = "true";
-  const { data } = await api.get(`${BASE}/${id(projetId)}/analyse`, { params });
+  const { data } = await api.get(`${BASE}/${id(projetId)}/analyse`, { params, signal });
   return lireAnalyse(data);
 }
 
