@@ -19,6 +19,8 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { Limiteur } from "../import/limiteur";
 import { logAuditTransactionnelle } from "../utils/audit";
+import { avecErreurDelai } from "./bd";
+import { delaiDepotMs, sommetsParFichierMax, sommetsParObjetMax } from "./config";
 import { calculerDelta, type Delta } from "./delta.noyau";
 import { ErreurMetier, introuvable } from "./erreurs";
 import { lireFichier } from "./lecture.noyau";
@@ -162,7 +164,7 @@ export interface ResultatDepot {
 
 export async function deposerJeu(d: DemandeDepot): Promise<ResultatDepot> {
   // Lecture AVANT toute connexion a la base : un fichier refuse ne consomme ni transaction ni place dans le limiteur.
-  const lecture: ResultatLecture = lireFichier(d.fichier, d.nomFichier);
+  const lecture: ResultatLecture = lireFichier(d.fichier, d.nomFichier, { sommetsParObjet: sommetsParObjetMax(), sommetsParFichier: sommetsParFichierMax() });
   const sha256 = createHash("sha256").update(d.fichier).digest("hex");
   const c = d.champs;
   const nature = natureEffective(c.role, c.natureObjets);
@@ -175,8 +177,10 @@ export async function deposerJeu(d: DemandeDepot): Promise<ResultatDepot> {
   }
 
   try {
-    return await limiteurDepots.executer(() =>
-      prisma.$transaction((tx) => deposerDansTransaction(tx, d, lecture, sha256, nature), { timeout: DELAI_TRANSACTION_MS, maxWait: 30_000 }));
+    return await limiteurDepots.executer(() => avecErreurDelai(
+      "DEPOT_TROP_LONG",
+      `Le depot a depasse le delai alloue (${Math.round(delaiDepotMs() / 1000)} s par requete) ou le projet est occupe par une autre operation : reessayez, ou decoupez le fichier.`,
+      () => prisma.$transaction((tx) => deposerDansTransaction(tx, d, lecture, sha256, nature), { timeout: DELAI_TRANSACTION_MS, maxWait: 30_000 })));
   } catch (e) {
     if (e instanceof SimulationTerminee) return e.resultat as ResultatDepot;
     if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") {
@@ -234,9 +238,13 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture: Resultat
     },
   });
 
+  const t0 = performance.now();
   const bilan = await insererObjets(tx, id, lecture.objets);
+  if (process.env.PV_TRACE === "1") console.info(`[projets-voirie] insertion de ${lecture.objets.length} objets : ${Math.round(performance.now() - t0)} ms`);
   if (bilan.inseres === 0) throw new ErreurMetier(422, "GEOMETRIE_INVALIDE", "Aucune géométrie exploitable après contrôle par la base (toutes vides une fois réparées).");
+  const t1 = performance.now();
   const mesures = await mesurerJeu(tx, id);
+  if (process.env.PV_TRACE === "1") console.info(`[projets-voirie] mesures (union des trace) : ${Math.round(performance.now() - t1)} ms`);
 
   const avertissements: Avertissement[] = [...lecture.avertissements];
   if (bilan.reparees > 0) avertissements.push({ code: "GEOMETRIES_REPAREES", message: "Géométries invalides réparées par la base (anneau qui se croise, par exemple).", nb: bilan.reparees });

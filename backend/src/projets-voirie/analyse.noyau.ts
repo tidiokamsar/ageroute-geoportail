@@ -231,6 +231,7 @@ export function construireHypotheses(c: ContexteTextes): string[] {
     "Un même tracé répété par plusieurs circuits n'est compté qu'une fois dans la longueur des tracés fusionnés d'un jeu ; les conflits sont calculés sur ces tracés fusionnés. Le nombre d'objets d'un fichier est un nombre de « circuits ou objets du fichier », jamais un nombre de câbles physiques.",
     "Un réseau situé dans l'emprise de deux axes voisins (carrefour) apparaît dans la ligne de chacun de ces axes, mais n'est compté qu'une seule fois dans les totaux.",
     "Un croisement est un point où le tracé d'un réseau coupe un axe de travaux, vu en plan.",
+    "Avant calcul, les tracés sont simplifiés (axes à 0,1 m, réseaux à 0,05 m) et les bandes sont tamponnées avec des bouts arrondis approchés à 0,5 % du rayon : l'écart est très inférieur à la précision de toute donnée de terrain.",
   ];
   const cl = texteClasses(c.classes);
   if (cl) h.push(cl);

@@ -11,6 +11,8 @@ import { prisma } from "../lib/prisma";
 import { logAuditTransactionnelle } from "../utils/audit";
 import { ErreurMetier, introuvable } from "./erreurs";
 import type { Bbox } from "./lecture.types";
+import { estDelaiDepasse, poserDelais } from "./bd";
+import { delaiDepotMs, delaiVerrouMs } from "./config";
 import { INCLURE_JEU, vueJeu, vueProjet } from "./vues";
 
 export interface Acteur { id: string; role: string; ip?: string }
@@ -212,7 +214,15 @@ export async function listerJeux(projetId: string) {
 
 /** Verrou du projet : serialise depots, decisions et retraits d'un meme projet (aucune course sur les index uniques partiels). */
 export async function verrouillerProjet(tx: Tx, id: string): Promise<void> {
-  const l = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "projets_voirie" WHERE "id" = ${id} AND "deletedAt" IS NULL FOR UPDATE`;
+  // Delais cote base pour TOUTES les requetes de la transaction (statement_timeout) et pour l'attente du verrou (lock_timeout).
+  await poserDelais(tx, delaiDepotMs(), delaiVerrouMs());
+  let l: { id: string }[];
+  try {
+    l = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "projets_voirie" WHERE "id" = ${id} AND "deletedAt" IS NULL FOR UPDATE`;
+  } catch (e) {
+    if (estDelaiDepasse(e)) throw new ErreurMetier(503, "PROJET_OCCUPE", "Le projet est occupe par une autre operation : reessayez dans quelques instants.");
+    throw e;
+  }
   if (l.length === 0) throw introuvable("Projet", "PROJET_INTROUVABLE");
 }
 

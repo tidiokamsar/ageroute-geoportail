@@ -11,6 +11,10 @@
 
 import { prisma } from "../lib/prisma";
 import { logAuditTransactionnelle } from "../utils/audit";
+import { Budget, avecErreurDelai } from "./bd";
+import { delaiAnalyseMs, delaiVerrouMs } from "./config";
+import { tracerConsultation } from "./consultation";
+import { limiteurAnalyses } from "./limiteurs";
 import {
   LIBELLES, STATUT_RESULTAT, VERSION_ALGORITHME, VERSION_REGLE, construireHypotheses, construireLimites, epsgPourLongitude, qualificationDe,
   type ClasseLue, type Qualification,
@@ -24,7 +28,9 @@ export const OBJETS_PAR_AXE_MAX = 100;
 const LIGNES_OBJETS_MAX = 100_000;
 const CROISEMENTS_MAX = 5_000;
 const TAILLE_ZONES_MAX = 8_000_000;
-const DELAI_MS = 120_000;
+/** Volumes de sommets au-dela desquels une analyse est refusee (422) plutot que tentee : voir analyse.depot.ts, cout borne. */
+export const SOMMETS_AXES_ANALYSE_MAX = 500_000;
+export const SOMMETS_RESEAU_ANALYSE_MAX = 3_000_000;
 
 export interface DemandeAnalyse {
   projetId: string;
@@ -88,23 +94,35 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
   const axesIds = axes.map((j) => j.id);
   const reseauIds = reseaux.map((j) => j.id);
 
-  const mesures = await prisma.$transaction(async (tx) => {
+  const delai = delaiAnalyseMs();
+  const trop = () => new ErreurMetier(504, "ANALYSE_TROP_LONGUE", `L'analyse a depasse ${Math.round(delai / 1000)} s et a ete interrompue : le projet est trop volumineux pour un calcul immediat.`);
+  // Au plus 3 analyses simultanees (503 SERVICE_OCCUPE au-dela) ; le budget de temps est partage par toutes les requetes de l'analyse.
+  const mesures = await limiteurAnalyses.executer(() => avecErreurDelai("ANALYSE_TROP_LONGUE", trop().message, () => prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SET TRANSACTION READ ONLY`;
-    const etendue = await depot.etendueLongitude(tx, axesIds.length ? axesIds : reseauIds);
+    const budget = new Budget(tx, delai, delaiVerrouMs(), trop);
+    const calcule = axesIds.length > 0 && reseauIds.length > 0;
+    if (calcule) {
+      const v = await budget.etape(() => depot.volumes(tx, axesIds, reseauIds));
+      if (v.sommetsAxes > SOMMETS_AXES_ANALYSE_MAX || v.sommetsReseau > SOMMETS_RESEAU_ANALYSE_MAX) {
+        throw new ErreurMetier(422, "ANALYSE_TROP_VOLUMINEUSE",
+          `Les jeux autorises portent trop de sommets pour une analyse (${Math.round(v.sommetsAxes)} pour les axes, maximum ${SOMMETS_AXES_ANALYSE_MAX} ; ${Math.round(v.sommetsReseau)} pour les reseaux, maximum ${SOMMETS_RESEAU_ANALYSE_MAX}) : simplifiez ou decoupez les fichiers.`,
+          { sommetsAxes: Math.round(v.sommetsAxes), sommetsReseau: Math.round(v.sommetsReseau) });
+      }
+    }
+    const etendue = await budget.etape(() => depot.etendueLongitude(tx, axesIds.length ? axesIds : reseauIds));
     const epsg = etendue ? epsgPourLongitude((etendue.ouest + etendue.est) / 2) : 32629;
     const b: depot.Bandes = { epsg, dc: chau / 2, de: empr / 2, axesIds, reseauIds };
-    const liste = axesIds.length ? await depot.listerAxes(tx, b) : { axes: [], longueurFusionneeM: 0 };
-    const calcule = axesIds.length > 0 && reseauIds.length > 0;
+    const liste = axesIds.length ? await budget.etape(() => depot.listerAxes(tx, b)) : { axes: [], longueurFusionneeM: 0 };
     return {
       epsg,
       liste,
-      parJeu: calcule ? await depot.mesurerParJeu(tx, b) : [],
-      parAxe: calcule ? await depot.mesurerParAxe(tx, b) : [],
-      parObjet: calcule ? await depot.mesurerParObjet(tx, b, LIGNES_OBJETS_MAX + 1) : [],
-      points: calcule ? await depot.pointsDeCroisement(tx, b, CROISEMENTS_MAX) : [],
-      zones: calcule ? await depot.zones(tx, b) : { chaussee: null, emprise: null, hors: null },
+      parJeu: calcule ? await budget.etape(() => depot.mesurerParJeu(tx, b)) : [],
+      parAxe: calcule ? await budget.etape(() => depot.mesurerParAxe(tx, b)) : [],
+      parObjet: calcule ? await budget.etape(() => depot.mesurerParObjet(tx, b, LIGNES_OBJETS_MAX + 1)) : [],
+      points: calcule ? await budget.etape(() => depot.pointsDeCroisement(tx, b, CROISEMENTS_MAX)) : [],
+      zones: calcule ? await budget.etape(() => depot.zones(tx, b)) : { chaussee: null, emprise: null, hors: null },
     };
-  }, { timeout: DELAI_MS, maxWait: 30_000 });
+  }, { timeout: delai + 15_000, maxWait: 10_000 })));
 
   const projection = `EPSG:${mesures.epsg}`;
   const jeuxParId = new Map(retenus.map((j) => [j.id, j] as const));
@@ -265,8 +283,19 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
   };
 }
 
-export async function analyser(d: DemandeAnalyse) {
-  return (await calculer(d)).reponse;
+/**
+ * Analyse ; les consultations de jeux sensibles sont TRACEES avant la remise (voir consultation.ts) : la couche de conflits et les
+ * points de croisement donnent des geometries de reseaux de tiers.
+ */
+export async function analyser(d: DemandeAnalyse, acteur?: Acteur) {
+  const a = await calculer(d);
+  if (acteur) {
+    const reseaux = [...a.jeuxParId.values()].filter((j) => j.role === "RESEAU_TIERS");
+    const axes = [...a.jeuxParId.values()].some((j) => j.role === "AXES_TRAVAUX");
+    // Pas d'axe autorise : aucune geometrie n'est rendue, rien a tracer.
+    if (axes) await tracerConsultation(acteur, reseaux.map((j) => ({ id: j.id, confidentialite: j.confidentialite, nbObjets: j.nbObjets })), { route: "analyse", bbox: null, zoom: null });
+  }
+  return a.reponse;
 }
 
 // ------------------------------------------------------------------------------------------------

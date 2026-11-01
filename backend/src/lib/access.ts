@@ -93,6 +93,8 @@ export const MODULE_PAR_ENTITE: Record<string, ModuleKey | null> = {
   JeuDonneesProjet: "projets-voirie",
   ConcessionnaireReseau: "projets-voirie",
   ExportProjetVoirie: "projets-voirie",
+  // Consultation d'un jeu sensible par la carte ou l'analyse : une ligne par compte, par jeu et par fenetre de 15 minutes, sans geometrie.
+  ConsultationJeuProjet: "projets-voirie",
   User: null,
   AppSetting: null,
 };

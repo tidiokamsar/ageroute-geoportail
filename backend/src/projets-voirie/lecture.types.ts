@@ -92,7 +92,8 @@ export type CodeErreurLecture =
   | "CRS_NON_SUPPORTE"
   | "GEOMETRIE_INVALIDE"
   | "HORS_GUINEE"
-  | "TROP_D_OBJETS";
+  | "TROP_D_OBJETS"
+  | "TROP_DE_SOMMETS";
 
 export class ErreurLecture extends Error {
   constructor(public readonly code: CodeErreurLecture, message: string) {
@@ -106,5 +107,17 @@ export class ErreurLecture extends Error {
 /** Aligne sur `client_max_body_size 25m` de nginx et sur `TAILLE_MAX_OCTETS` des imports. */
 export const TAILLE_MAX_OCTETS = 25 * 1024 * 1024;
 export const OBJETS_MAX = 50_000;
+/**
+ * Plafonds de SOMMETS (revue de securite, M2) : le cout d'un fichier pour la base depend des sommets, pas du nombre d'objets.
+ * 100 000 par objet : un cable de 100 km releve au metre. 2 000 000 par fichier : la limite de 25 Mo en GeoJSON compact
+ * (environ 12 octets par position). Reglables par l'environnement (voir config.ts) ; ces valeurs sont les defauts.
+ */
+export const SOMMETS_PAR_OBJET_MAX = 100_000;
+export const SOMMETS_PAR_FICHIER_MAX = 2_000_000;
+
+export interface LimitesLecture {
+  sommetsParObjet?: number;
+  sommetsParFichier?: number;
+}
 /** Emprise de la Guinee : longitude -15,2 a -7,5 ; latitude 7,1 a 12,8. */
 export const BBOX_GUINEE: Bbox = [-15.2, 7.1, -7.5, 12.8];

@@ -11,6 +11,7 @@ import { ErreurMetier } from "../projets-voirie/erreurs";
 import { ErreurLecture, TAILLE_MAX_OCTETS } from "../projets-voirie/lecture.noyau";
 import { analyser, exporterCsv } from "../projets-voirie/analyse.service";
 import { carte } from "../projets-voirie/carte.service";
+import { reserverReception } from "../projets-voirie/limiteurs";
 import { deposerJeu } from "../projets-voirie/import.service";
 import {
   creerConcessionnaire, creerProjet, decider, decoderCurseur, ficheProjet, listerConcessionnaires, listerJeux, listerProjets,
@@ -35,6 +36,31 @@ import {
 export const projetsVoirieV2Router = Router();
 
 projetsVoirieV2Router.use(requireAuth, requireModuleAccess("projets-voirie"));
+
+// ENTREES : identifiants et caracteres (revue de securite, m3). Un identifiant de l'URL qui n'est pas un UUID, ou un texte qui contient
+// un octet NUL (refuse par PostgreSQL : 500 sinon), est un 400 explicite avant tout acces a la base.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+projetsVoirieV2Router.param("id", (_req, res, next, valeur: string) => {
+  if (!UUID.test(valeur)) { res.status(400).json({ error: "Identifiant de projet invalide (UUID attendu)", code: "IDENTIFIANT_INVALIDE" }); return; }
+  next();
+});
+projetsVoirieV2Router.param("jeuId", (_req, res, next, valeur: string) => {
+  if (!UUID.test(valeur)) { res.status(400).json({ error: "Identifiant de jeu invalide (UUID attendu)", code: "IDENTIFIANT_INVALIDE" }); return; }
+  next();
+});
+function contientNul(v: unknown, profondeur = 0): boolean {
+  if (typeof v === "string") return v.includes("\u0000");
+  if (profondeur > 8 || !v || typeof v !== "object") return false;
+  return Object.entries(v).some(([k, x]) => k.includes("\u0000") || contientNul(x, profondeur + 1));
+}
+const refuserNul = (req: Request, res: Response, next: NextFunction): void => {
+  if (contientNul(req.query) || contientNul(req.body) || (req.file && req.file.originalname.includes("\u0000"))) {
+    res.status(400).json({ error: "Caractere nul interdit dans les parametres", code: "PARAMETRES_INVALIDES" });
+    return;
+  }
+  next();
+};
+projetsVoirieV2Router.use(refuserNul);
 projetsVoirieV2Router.use((_req: Request, res: Response, next: NextFunction) => {
   res.setHeader("Cache-Control", "no-store");
   res.setHeader("X-Content-Type-Options", "nosniff");
@@ -179,6 +205,19 @@ const upload = multer({
   limits: { fileSize: TAILLE_MAX_OCTETS, files: 1, fields: 20, fieldSize: 10_000, parts: 25 },
 } as multer.Options & { defParamCharset: string });
 
+/**
+ * Place de reception AVANT la lecture du corps (revue de securite, m4) : un fichier de 25 Mo est tenu en memoire pendant tout le
+ * televersement ; 4 receptions simultanees au plus, 2 par compte (503 SERVICE_OCCUPE au-dela).
+ */
+async function placeDeReception(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const liberer = await reserverReception(req.user!.id);
+    res.once("finish", liberer);
+    res.once("close", liberer);
+    next();
+  } catch (e) { traiter(res, next, e); }
+}
+
 function recevoir(req: Request, res: Response, next: NextFunction): void {
   upload.single("fichier")(req, res, (err: unknown) => {
     if (err) {
@@ -193,7 +232,7 @@ function recevoir(req: Request, res: Response, next: NextFunction): void {
 
 const champsDepot = z.object({
   role: z.enum(["AXES_TRAVAUX", "RESEAU_TIERS", "LIMITES_ROUTE", "AUTRE"]),
-  concessionnaireId: optionnel(z.string().trim().min(1).max(64)),
+  concessionnaireId: optionnel(z.string().regex(UUID, "UUID attendu")),
   typeReseau: optionnel(z.enum(TYPES_RESEAU)),
   dateDonnees: optionnel(jourIso),
   origineFichier: optionnel(z.string().trim().min(1).max(500)),
@@ -208,7 +247,7 @@ const champsDepot = z.object({
 
 const requeteDepot = z.object({ simuler: booleenRequete }).strict();
 
-projetsVoirieV2Router.post("/:id/jeux", ecriture, gardeProjet, recevoir, enveloppe(async (req, res) => {
+projetsVoirieV2Router.post("/:id/jeux", ecriture, gardeProjet, placeDeReception, recevoir, refuserNul, enveloppe(async (req, res) => {
   const q = requeteDepot.safeParse(req.query);
   if (!q.success) return refuser(res, q.error);
   const c = champsDepot.safeParse(req.body);
@@ -248,6 +287,15 @@ for (const [action, decision] of [["autoriser", "AUTORISE"], ["rejeter", "REJETE
 // Carte et analyse
 // ------------------------------------------------------------------------------------------------
 
+/** La quarantaine (jeux non autorises) n'est visible que des roles qui peuvent decider (revue de securite, m1). */
+function quarantaineAutorisee(req: Request, res: Response, demandee: boolean): boolean {
+  if (demandee && req.user!.role !== "ADMIN" && req.user!.role !== "GESTIONNAIRE") {
+    res.status(403).json({ error: "inclureNonAutorises est reserve aux comptes ADMIN et GESTIONNAIRE : la quarantaine n'est pas lisible par un lecteur", code: "QUARANTAINE_RESERVEE" });
+    return false;
+  }
+  return true;
+}
+
 const requeteCarte = z.object({
   jeux: optionnel(z.string().max(4000)),
   bbox: optionnel(z.string().max(200)),
@@ -272,12 +320,13 @@ projetsVoirieV2Router.get("/:id/carte", gardeProjet, enveloppe(async (req, res) 
   let jeuxIds: string[] | undefined;
   if (p.data.jeux !== undefined) {
     jeuxIds = p.data.jeux.split(",").map((x) => x.trim()).filter(Boolean);
-    if (jeuxIds.length === 0 || jeuxIds.length > 50 || jeuxIds.some((x) => x.length > ID_MAX)) {
+    if (jeuxIds.length === 0 || jeuxIds.length > 50 || jeuxIds.some((x) => !UUID.test(x))) {
       res.status(400).json({ error: "jeux invalide : 1 à 50 identifiants séparés par des virgules", code: "PARAMETRES_INVALIDES" });
       return;
     }
   }
-  res.json(await carte({ projetId: req.params.id, jeuxIds, bbox: bbox ?? undefined, zoom: p.data.zoom, inclureNonAutorises: p.data.inclureNonAutorises }));
+  if (!quarantaineAutorisee(req, res, p.data.inclureNonAutorises)) return;
+  res.json(await carte({ projetId: req.params.id, jeuxIds, bbox: bbox ?? undefined, zoom: p.data.zoom, inclureNonAutorises: p.data.inclureNonAutorises, acteur: acteurDe(req) }));
 }));
 
 const requeteAnalyse = z.object({
@@ -289,7 +338,8 @@ const requeteAnalyse = z.object({
 projetsVoirieV2Router.get("/:id/analyse", gardeProjet, enveloppe(async (req, res) => {
   const p = requeteAnalyse.safeParse(req.query);
   if (!p.success) return refuser(res, p.error);
-  res.json(await analyser({ projetId: req.params.id, ...p.data }));
+  if (!quarantaineAutorisee(req, res, p.data.inclureNonAutorises)) return;
+  res.json(await analyser({ projetId: req.params.id, ...p.data }, acteurDe(req)));
 }));
 
 projetsVoirieV2Router.get("/:id/analyse/export.csv", ecriture, gardeProjet, enveloppe(async (req, res) => {

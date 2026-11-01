@@ -18,7 +18,7 @@
 
 import { Collecteur, formesVides, type Brut, type FormesBrutes } from "./collecteur.noyau";
 import { ErreurLecture } from "./lecture.types";
-import type { Avertissement, ObjetLu, ResumeLecture } from "./lecture.types";
+import type { Avertissement, LimitesLecture, ObjetLu, ResumeLecture } from "./lecture.types";
 import { ErreurXml, lireXml, type NoeudXml } from "./xml.noyau";
 
 const IGNORES = new Set(["NetworkLink", "GroundOverlay", "ScreenOverlay", "PhotoOverlay", "Model"]);
@@ -159,7 +159,7 @@ function attributsDe(pm: NoeudXml, dossier: string[]): { nom: string | null; att
   return { nom, attributs: entrees };
 }
 
-export function lireKml(texte: string): { objets: ObjetLu[]; avertissements: Avertissement[]; resume: ResumeLecture } {
+export function lireKml(texte: string, limites?: LimitesLecture): { objets: ObjetLu[]; avertissements: Avertissement[]; resume: ResumeLecture } {
   let racine: NoeudXml;
   try {
     racine = lireXml(texte);
@@ -171,7 +171,7 @@ export function lireKml(texte: string): { objets: ObjetLu[]; avertissements: Ave
     throw new ErreurLecture("FORMAT_NON_SUPPORTE", `fichier XML non reconnu comme KML (element racine « ${racine.nom} ») : seuls les formats KML et GeoJSON sont pris en charge`);
   }
 
-  const col = new Collecteur();
+  const col = new Collecteur(limites);
   const visiter = (n: NoeudXml, dossier: string[]): void => {
     if (n.nom === "Placemark") {
       col.elementLu();
