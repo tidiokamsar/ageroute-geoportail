@@ -46,23 +46,23 @@ export interface Bandes {
   reseauIds: string[];
 }
 
-const axobj = (b: Bandes) => Prisma.sql`axobj AS (
+const axobj = (b: Bandes) => Prisma.sql`axobj AS MATERIALIZED (
   SELECT o."id" AS "id", COALESCE(o."nom", 'Axe ' || (o."ordre" + 1)::text) AS "axe", ST_Simplify(ST_Transform(o."geom", ${b.epsg}::int), ${TOLERANCE_AXE_M}::float8, true) AS "g"
     FROM "projets_voirie_objets" o
    WHERE o."jeuId" = ANY(${b.axesIds}::text[]) AND o."typeGeom" = 'LIGNE')`;
 
-const bandesAxe = (b: Bandes) => Prisma.sql`bandes_axe AS (
+const bandesAxe = (b: Bandes) => Prisma.sql`bandes_axe AS MATERIALIZED (
   SELECT a."id", a."axe", a."g",
          ST_Buffer(a."g", ${b.dc}::float8, ${QUART_DE_CERCLE}) AS "bc",
          ST_Buffer(a."g", ${b.de}::float8, ${QUART_DE_CERCLE}) AS "be"
     FROM axobj a)`;
 
-const bandesUnion = (b: Bandes) => Prisma.sql`axes_union AS (SELECT ST_UnaryUnion(ST_Collect("g")) AS "ax" FROM axobj),
-bandes AS (
+const bandesUnion = (b: Bandes) => Prisma.sql`axes_union AS MATERIALIZED (SELECT ST_UnaryUnion(ST_Collect("g")) AS "ax" FROM axobj),
+bandes AS MATERIALIZED (
   SELECT "ax", ST_Buffer("ax", ${b.dc}::float8, ${QUART_DE_CERCLE}) AS "bc", ST_Buffer("ax", ${b.de}::float8, ${QUART_DE_CERCLE}) AS "be"
     FROM axes_union WHERE "ax" IS NOT NULL)`;
 
-const reseau = (b: Bandes) => Prisma.sql`res AS (
+const reseau = (b: Bandes) => Prisma.sql`res AS MATERIALIZED (
   SELECT o."jeuId" AS "jeu", ST_Simplify(ST_Transform(ST_UnaryUnion(ST_Collect(o."geom")), ${b.epsg}::int), ${TOLERANCE_RESEAU_M}::float8, true) AS "g"
     FROM "projets_voirie_objets" o
    WHERE o."jeuId" = ANY(${b.reseauIds}::text[]) AND o."typeGeom" = 'LIGNE'
@@ -119,7 +119,7 @@ export async function mesurerParAxe(tx: Tx, b: Bandes): Promise<MesureAxeJeu[]> 
              ${LONGUEUR(Prisma.sql`ST_Intersection(r."g", a."bc")`)} AS "c",
              ${LONGUEUR(Prisma.sql`ST_Intersection(r."g", a."be")`)} AS "e",
              COALESCE(ST_NumGeometries(ST_CollectionExtract(ST_Intersection(r."g", a."g"), 1)), 0)::int AS "x"
-        FROM bandes_axe a JOIN res r ON ST_Intersects(r."g", a."be")
+        FROM bandes_axe a JOIN res r ON r."g" && a."be"
     ) m WHERE m."c" > 0 OR m."e" > 0 OR m."x" > 0`;
   return r.map((x) => ({ axeId: String(x.aid), axe: x.axe, jeu: x.jeu, chausseeM: Number(x.c), empriseM: Number(x.e), croisements: Number(x.x) }));
 }
@@ -137,22 +137,23 @@ export interface MesureAxeObjet {
 export async function mesurerParObjet(tx: Tx, b: Bandes, limite: number): Promise<MesureAxeObjet[]> {
   const r = await tx.$queryRaw<{ aid: bigint | string; axe: string; jeu: string; oid: bigint | string; nom: string | null; c: number; e: number; x: number }[]>`
     WITH ${axobj(b)},
-    morceaux AS (SELECT a."id" AS "aid", a."axe" AS "axe", ST_Subdivide(a."g", ${SOMMETS_PAR_MORCEAU}::int) AS "g" FROM axobj a),
-    obj AS (
+    morceaux AS MATERIALIZED (SELECT a."id" AS "aid", a."axe" AS "axe", ST_Subdivide(a."g", ${SOMMETS_PAR_MORCEAU}::int) AS "g" FROM axobj a),
+    obj AS MATERIALIZED (
       SELECT o."id" AS "oid", o."jeuId" AS "jeu", o."nom" AS "nom",
              ST_Simplify(ST_Transform(o."geom", ${b.epsg}::int), ${TOLERANCE_RESEAU_M}::float8, true) AS "og"
         FROM "projets_voirie_objets" o
        WHERE o."jeuId" = ANY(${b.reseauIds}::text[]) AND o."typeGeom" = 'LIGNE')
     SELECT * FROM (
       SELECT m."aid"::text AS "aid", m."axe" AS "axe", o."jeu" AS "jeu", o."oid"::text AS "oid", o."nom" AS "nom",
-             ${LONGUEUR(Prisma.sql`ST_Intersection(o."og", ST_Buffer(m."loc", ${b.dc}::float8, ${QUART_DE_CERCLE}))`)} AS "c",
+             CASE WHEN ST_DWithin(o."og", m."loc", ${b.dc}::float8)
+                  THEN ${LONGUEUR(Prisma.sql`ST_Intersection(o."og", ST_Buffer(m."loc", ${b.dc}::float8, ${QUART_DE_CERCLE}))`)} ELSE 0 END AS "c",
              ${LONGUEUR(Prisma.sql`ST_Intersection(o."og", ST_Buffer(m."loc", ${b.de}::float8, ${QUART_DE_CERCLE}))`)} AS "e",
              COALESCE(ST_NumGeometries(ST_CollectionExtract(ST_Intersection(o."og", m."loc"), 1)), 0)::int AS "x"
         FROM obj o
         CROSS JOIN LATERAL (
           SELECT p."aid", min(p."axe") AS "axe", ST_Collect(p."g") AS "loc"
             FROM morceaux p
-           WHERE p."g" && ST_Expand(o."og", ${b.de}::float8)
+           WHERE p."g" && ST_Expand(o."og", ${b.de}::float8) AND ST_DWithin(p."g", o."og", ${b.de}::float8)
            GROUP BY p."aid") m
     ) q WHERE q."c" > 0 OR q."e" > 0 OR q."x" > 0
     ORDER BY q."axe", q."e" DESC, q."oid"

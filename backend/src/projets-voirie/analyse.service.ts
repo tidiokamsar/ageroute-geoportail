@@ -102,25 +102,25 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
     const budget = new Budget(tx, delai, delaiVerrouMs(), trop);
     const calcule = axesIds.length > 0 && reseauIds.length > 0;
     if (calcule) {
-      const v = await budget.etape(() => depot.volumes(tx, axesIds, reseauIds));
+      const v = await budget.etape(() => depot.volumes(tx, axesIds, reseauIds), "volumes");
       if (v.sommetsAxes > SOMMETS_AXES_ANALYSE_MAX || v.sommetsReseau > SOMMETS_RESEAU_ANALYSE_MAX) {
         throw new ErreurMetier(422, "ANALYSE_TROP_VOLUMINEUSE",
           `Les jeux autorises portent trop de sommets pour une analyse (${Math.round(v.sommetsAxes)} pour les axes, maximum ${SOMMETS_AXES_ANALYSE_MAX} ; ${Math.round(v.sommetsReseau)} pour les reseaux, maximum ${SOMMETS_RESEAU_ANALYSE_MAX}) : simplifiez ou decoupez les fichiers.`,
           { sommetsAxes: Math.round(v.sommetsAxes), sommetsReseau: Math.round(v.sommetsReseau) });
       }
     }
-    const etendue = await budget.etape(() => depot.etendueLongitude(tx, axesIds.length ? axesIds : reseauIds));
+    const etendue = await budget.etape(() => depot.etendueLongitude(tx, axesIds.length ? axesIds : reseauIds), "etendue");
     const epsg = etendue ? epsgPourLongitude((etendue.ouest + etendue.est) / 2) : 32629;
     const b: depot.Bandes = { epsg, dc: chau / 2, de: empr / 2, axesIds, reseauIds };
-    const liste = axesIds.length ? await budget.etape(() => depot.listerAxes(tx, b)) : { axes: [], longueurFusionneeM: 0 };
+    const liste = axesIds.length ? await budget.etape(() => depot.listerAxes(tx, b), "axes") : { axes: [], longueurFusionneeM: 0 };
     return {
       epsg,
       liste,
-      parJeu: calcule ? await budget.etape(() => depot.mesurerParJeu(tx, b)) : [],
-      parAxe: calcule ? await budget.etape(() => depot.mesurerParAxe(tx, b)) : [],
-      parObjet: calcule ? await budget.etape(() => depot.mesurerParObjet(tx, b, LIGNES_OBJETS_MAX + 1)) : [],
-      points: calcule ? await budget.etape(() => depot.pointsDeCroisement(tx, b, CROISEMENTS_MAX)) : [],
-      zones: calcule ? await budget.etape(() => depot.zones(tx, b)) : { chaussee: null, emprise: null, hors: null },
+      parJeu: calcule ? await budget.etape(() => depot.mesurerParJeu(tx, b), "par jeu") : [],
+      parAxe: calcule ? await budget.etape(() => depot.mesurerParAxe(tx, b), "par axe") : [],
+      parObjet: calcule ? await budget.etape(() => depot.mesurerParObjet(tx, b, LIGNES_OBJETS_MAX + 1), "par objet") : [],
+      points: calcule ? await budget.etape(() => depot.pointsDeCroisement(tx, b, CROISEMENTS_MAX), "croisements") : [],
+      zones: calcule ? await budget.etape(() => depot.zones(tx, b), "zones") : { chaussee: null, emprise: null, hors: null },
     };
   }, { timeout: delai + 15_000, maxWait: 10_000 })));
 

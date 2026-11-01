@@ -27,11 +27,16 @@ export class Budget {
   constructor(private readonly tx: TxMinimale, totalMs: number, private readonly verrouMs: number, private readonly erreur: () => Error) {
     this.fin = Date.now() + totalMs;
   }
-  async etape<T>(travail: () => Promise<T>): Promise<T> {
+  async etape<T>(travail: () => Promise<T>, nom = "etape"): Promise<T> {
     const reste = this.fin - Date.now();
     if (reste < 200) throw this.erreur();
     await poserDelais(this.tx, reste, this.verrouMs);
-    return travail();
+    const t = performance.now();
+    try {
+      return await travail();
+    } finally {
+      if (process.env.PV_TRACE === "1") console.info(`[projets-voirie] ${nom} : ${Math.round(performance.now() - t)} ms`);
+    }
   }
 }
 

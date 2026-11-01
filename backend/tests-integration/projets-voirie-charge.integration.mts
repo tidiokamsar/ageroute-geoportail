@@ -100,9 +100,13 @@ async function main() {
   const actives = await pgActives();
   mesure("requetes PostGIS encore actives apres la reponse", 0, `-> ${actives}`);
   if (!MESURE_SEULE) {
-    verifier("analyse : 200 dans le delai (20 s) ou 503 ANALYSE_TROP_LONGUE ; jamais 500",
-      (an.status === 200 && dureeAnalyse < 25_000) || (an.status === 503 && an.body.code === "ANALYSE_TROP_LONGUE" && dureeAnalyse < 25_000), [an.status, an.body.code, dureeAnalyse]);
+    verifier("analyse : 200 dans le delai (20 s) ou 504 ANALYSE_TROP_LONGUE ; jamais 500",
+      (an.status === 200 && dureeAnalyse < 25_000) || (an.status === 504 && an.body.code === "ANALYSE_TROP_LONGUE" && dureeAnalyse < 25_000), [an.status, an.body.code, dureeAnalyse]);
     verifier("aucune requete PostGIS ne continue apres la reponse", actives === 0, actives);
+    const court = Number(process.env.PROJETS_VOIRIE_DELAI_ANALYSE_MS ?? 20000);
+    if (court <= 2000) {
+      verifier(`delai d'analyse reduit a ${court} ms : la base coupe la requete, reponse 504 ANALYSE_TROP_LONGUE en moins de 6 s`, an.status === 504 && an.body.code === "ANALYSE_TROP_LONGUE" && dureeAnalyse < 6000, [an.status, an.body.code, dureeAnalyse]);
+    }
   }
 
   // --- Carte ---
@@ -113,7 +117,7 @@ async function main() {
   const carteBbox = await request(app).get(`${BASE}/${PID}/carte?bbox=-10.2,9.19,-10.19,9.21&zoom=16`).set("Authorization", `Bearer ${TL}`);
   mesure("GET carte bbox 1 km, zoom 16", ms(tb), `-> ${carteBbox.status} objets ${carteBbox.body.jeux?.reduce((s: number, j: { nbFeatures: number }) => s + j.nbFeatures, 0) ?? "-"}`);
   if (!MESURE_SEULE) {
-    verifier("carte sans bbox : 200 plafonnee ou 503 CARTE_TROP_LONGUE, en moins de 15 s, jamais 500", (carteSans.status === 200 || carteSans.body.code === "CARTE_TROP_LONGUE") && ms(tc) < 15_000, [carteSans.status, carteSans.body.code]);
+    verifier("carte sans bbox : 200 plafonnee ou 504 CARTE_TROP_LONGUE, en moins de 15 s, jamais 500", (carteSans.status === 200 || carteSans.body.code === "CARTE_TROP_LONGUE") && ms(tc) < 15_000, [carteSans.status, carteSans.body.code]);
     verifier("carte avec bbox : 200", carteBbox.status === 200, carteBbox.status);
   }
 
@@ -141,7 +145,7 @@ try {
   console.error("ERREUR du banc :", e);
   process.exitCode = 1;
 } finally {
-  await banc.fermer();
+  if (process.env.PV_GARDER_CLONE !== "1") await banc.fermer();
   await prisma.$disconnect();
 }
 if (process.env.PV_CHARGE_SANS_VERIF !== "1") conclure();
