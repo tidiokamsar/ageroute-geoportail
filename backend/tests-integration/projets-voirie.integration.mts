@@ -205,7 +205,7 @@ async function main() {
   const fR1 = await geojson(R1_BASE);
   verifier("5. RESEAU_TIERS sans concessionnaire : 400 CONCESSIONNAIRE_REQUIS ; concessionnaire inconnu : 404 ; role AUTRE avec concessionnaire : 400",
     (await depot(PID, fR1, { role: "RESEAU_TIERS" }, "r1.geojson")).body.code === "CONCESSIONNAIRE_REQUIS"
-    && (await depot(PID, fR1, { role: "RESEAU_TIERS", concessionnaireId: "inexistant" }, "r1.geojson")).body.code === "CONCESSIONNAIRE_INTROUVABLE"
+    && (await depot(PID, fR1, { role: "RESEAU_TIERS", concessionnaireId: "00000000-0000-4000-8000-0000000000dd" }, "r1.geojson")).body.code === "CONCESSIONNAIRE_INTROUVABLE"
     && (await depot(PID, fR1, { role: "AUTRE", concessionnaireId: CONC1 }, "r1.geojson")).status === 400);
   verifier("5. nature incompatible avec le role : 400 NATURE_INCOMPATIBLE (AXE pour un reseau, CIRCUIT_LOGIQUE pour des axes)",
     (await depot(PID, fR1, { role: "RESEAU_TIERS", concessionnaireId: CONC1, natureObjets: "AXE" }, "r1.geojson")).body.code === "NATURE_INCOMPATIBLE"
@@ -443,13 +443,13 @@ async function main() {
   verifier("12. un compte regional cree dans sa region (201), pas dans une autre (403), pas sans region (403)", creeReg.status === 201 && horsRegion.status === 403 && sansRegion.status === 403, [creeReg.status, horsRegion.status, sansRegion.status]);
   const lecAutre = await get(`/${projR2.body.projet.id}`, T.reg1);
   const lecSans = await get(`/${projSans.body.projet.id}`, T.reg1);
-  const lecInconnu = await get(`/identifiant-inconnu`, T.reg1);
+  const lecInconnu = await get(`/00000000-0000-4000-8000-0000000000bb`, T.reg1);
   exemples["erreur_projet_introuvable"] = lecInconnu.body;
   verifier("12. hors perimetre, projet sans region et projet inconnu : la MEME reponse 404 PROJET_INTROUVABLE",
     [lecAutre, lecSans, lecInconnu].every((r) => r.status === 404 && r.body.code === "PROJET_INTROUVABLE") && JSON.stringify(lecAutre.body) === JSON.stringify(lecInconnu.body), [lecAutre.body, lecSans.body, lecInconnu.body]);
   verifier("12. ... sur toutes les routes du projet (jeux, carte, analyse, export, depot, autorisation) pour un compte regional hors perimetre",
     (await Promise.all([get(`/${projR2.body.projet.id}/jeux`, T.reg1), get(`/${projR2.body.projet.id}/carte`, T.reg1), get(`/${projR2.body.projet.id}/analyse`, T.reg1), get(`/${projR2.body.projet.id}/analyse/export.csv`, T.reg1),
-      envoyer("post", `/${projR2.body.projet.id}/jeux/x/autoriser`, { justification: JUSTIF }, T.reg1), depot(projR2.body.projet.id, fR2, { role: "AUTRE" }, "r.kml", false, T.reg1)])).every((r) => r.status === 404));
+      envoyer("post", `/${projR2.body.projet.id}/jeux/00000000-0000-4000-8000-0000000000cc/autoriser`, { justification: JUSTIF }, T.reg1), depot(projR2.body.projet.id, fR2, { role: "AUTRE" }, "r.kml", false, T.reg1)])).every((r) => r.status === 404));
   const listeReg = (await get("", T.reg1)).body.projets;
   verifier("12. la liste d'un compte regional ne contient que les projets de sa region (Kissidougou et le sien, pas celui de l'autre region ni celui sans region) ; un compte national voit tout",
     listeReg.length === 2 && listeReg.map((p: { code: string }) => p.code).sort().join() === "KISSI-VOIRIE-2026,MA-REGION" && (await get("", T.chef)).body.projets.length === 4);
@@ -489,6 +489,87 @@ async function main() {
     a("ProjetVoirie", "CREATE") === 4 && a("ProjetVoirie", "UPDATE") >= 3 && a("ProjetVoirie", "DELETE") === 1 && a("JeuDonneesProjet", "CREATE") === 8 && a("JeuDonneesProjet", "VALIDATE") === 5
     && a("JeuDonneesProjet", "REJECT") === 1 && a("JeuDonneesProjet", "DELETE") === 1 && a("ConcessionnaireReseau", "CREATE") === 2 && a("ExportProjetVoirie", "CREATE") === 1, audits);
   verifier("15. l'audit des jeux ne contient aucune geometrie (taille des valeurs apres < 4 ko)", (await sql<{ m: number }>(`SELECT max(length(after::text))::int m FROM audit_logs WHERE "entityType" = 'JeuDonneesProjet'`))[0].m < 4096);
+
+  // ---------------------------------------------------------------- 17. Durcissement (revue de securite) : M2, M4, m1, m3
+  const INCONNU = "00000000-0000-4000-8000-0000000000aa";
+  const mauvaisId = await Promise.all(["x".repeat(200), "p-r1", `${PID}%00`, "%00", "';DROP TABLE users;--"].map((id) => get(`/${id}`)));
+  verifier("17. m3 : un identifiant qui n'est pas un UUID (dont %00) donne 400 IDENTIFIANT_INVALIDE, jamais 500, pour tous les comptes",
+    mauvaisId.every((r) => r.status === 400 && r.body.code === "IDENTIFIANT_INVALIDE") && (await get(`/${PID}%00/analyse`, T.reg1)).status === 400
+    && (await envoyer("delete", `/${PID}/jeux/${PID}%00`)).status === 400, mauvaisId.map((r) => r.status));
+  verifier("17. m3 : un UUID valide mais inconnu reste un 404 PROJET_INTROUVABLE (identique pour un compte regional)", (await get(`/${INCONNU}`)).status === 404 && (await get(`/${INCONNU}`, T.reg1)).body.code === "PROJET_INTROUVABLE");
+  verifier("17. m3 : un octet NUL dans un texte (requete, corps JSON, champ multipart) donne 400, jamais 500",
+    (await get(`?q=a%00b`)).status === 400
+    && (await envoyer("post", "", { code: "NUL-1", nom: "a\u0000b" })).status === 400
+    && (await depot(PID, fR2, { role: "AUTRE", methode: "a\u0000b" }, "nul.kml")).status === 400);
+
+  const consultations = (compte: string) => sql<{ entite: string; apres: { route: string; nbObjets: number; bbox: number[] | null; zoom: number | null; confidentialite: string } }>(
+    `SELECT "entityId" AS entite, after AS apres FROM audit_logs WHERE "entityType" = 'ConsultationJeuProjet' AND "userId" = $1 ORDER BY "createdAt"`, compte);
+  const avantConsult = await compter(`SELECT count(*) n FROM audit_logs WHERE "entityType" = 'ConsultationJeuProjet'`);
+  await get(`/${PID}/carte?bbox=-10.2,9.1,-10.0,9.3&zoom=14`, T.lecteur);
+  const c1 = await consultations(lecteur.id);
+  const jeuxReseau = await sql<{ id: string }>(`SELECT id FROM projets_voirie_jeux WHERE role = 'RESEAU_TIERS' AND statut = 'AUTORISE'`);
+
+  // m1 : la quarantaine n'est pas lisible par un LECTEUR.
+  const quarLecteur = await Promise.all([get(`/${PID}/carte?inclureNonAutorises=true`, T.lecteur), get(`/${PID}/analyse?inclureNonAutorises=true`, T.lecteur)]);
+  verifier("17. m1 : inclureNonAutorises=true par un LECTEUR : 403 QUARANTAINE_RESERVEE (carte et analyse) ; sans l'option il lit",
+    quarLecteur.every((r) => r.status === 403 && r.body.code === "QUARANTAINE_RESERVEE") && (await get(`/${PID}/carte`, T.lecteur)).status === 200 && (await get(`/${PID}/analyse`, T.lecteur)).status === 200
+    && (await get(`/${PID}/carte?inclureNonAutorises=true`, T.chef)).status === 200 && (await get(`/${PID}/analyse?inclureNonAutorises=true`, T.admin)).status === 200);
+
+  // M4 : trace des consultations de jeux sensibles.
+  verifier("17. M4 : une consultation de la carte trace UNE ligne par jeu sensible (reseaux CONFIDENTIEL_CONCESSIONNAIRE), aucune pour les axes (RESTREINT_PROJET)",
+    c1.length === jeuxReseau.length && c1.every((l) => jeuxReseau.some((j) => j.id === l.entite) && l.apres.confidentialite === "CONFIDENTIEL_CONCESSIONNAIRE"), c1);
+  verifier("17. M4 : la ligne porte la route, le nombre d'objets, la bbox demandee et le zoom ; AUCUNE geometrie ni contenu",
+    c1.every((l) => l.apres.route === "carte" && l.apres.nbObjets >= 1 && JSON.stringify(l.apres.bbox) === JSON.stringify([-10.2, 9.1, -10, 9.3]) && l.apres.zoom === 14)
+    && !/coordinates|LineString|Marqueur|circuit/i.test(JSON.stringify(c1)), c1[0]);
+  await get(`/${PID}/carte?zoom=15`, T.lecteur);
+  await get(`/${PID}/analyse`, T.lecteur);
+  verifier("17. M4 : au plus une ligne par compte, par jeu et par fenetre de 15 minutes (carte puis analyse dans la fenetre : aucune ligne de plus)",
+    (await consultations(lecteur.id)).length === jeuxReseau.length);
+  await get(`/${PID}/carte`, T.chef);
+  const tracesChef = await consultations(chef.id);
+  verifier("17. M4 : un autre compte est trace a son tour pour chacun des jeux sensibles, et jamais deux fois le meme jeu dans la fenetre de 15 minutes",
+    jeuxReseau.every((j) => tracesChef.some((l) => l.entite === j.id))
+    && (await compter(`SELECT count(*) n FROM (SELECT "userId", "entityId" FROM audit_logs WHERE "entityType" = 'ConsultationJeuProjet' AND "createdAt" > ((now() AT TIME ZONE 'UTC') - interval '15 minutes') GROUP BY 1, 2 HAVING count(*) > 1) d`)) === 0
+    && (await compter(`SELECT count(*) n FROM audit_logs WHERE "entityType" = 'ConsultationJeuProjet'`)) > avantConsult);
+  // La fenetre est de 15 minutes : une trace vieille de 16 minutes ne protege plus.
+  await sql(`UPDATE audit_logs SET "createdAt" = "createdAt" - interval '16 minutes' WHERE "entityType" = 'ConsultationJeuProjet' AND "userId" = $1`, lecteur.id);
+  await get(`/${PID}/analyse`, T.lecteur);
+  verifier("17. M4 : apres la fenetre de 15 minutes, la consultation est tracee de nouveau (par l'analyse : zones et croisements)",
+    (await consultations(lecteur.id)).length === 2 * jeuxReseau.length && (await consultations(lecteur.id)).some((l) => l.apres.route === "analyse"));
+  const histoConsult = await request(app).get(`/api/audit?entityType=ConsultationJeuProjet&entityId=${jeuxReseau[0].id}`).set("Authorization", `Bearer ${T.chef}`);
+  verifier("17. M4 : l'historique des consultations est lisible avec le module, refuse sans lui", histoConsult.status === 200 && (await request(app).get(`/api/audit?entityType=ConsultationJeuProjet&entityId=${jeuxReseau[0].id}`).set("Authorization", `Bearer ${T.sans}`)).status === 403);
+  const carteSansBbox = (await get(`/${PID}/carte`, T.lecteur)).body;
+  const carteAvecBbox = (await get(`/${PID}/carte?bbox=-10.2,9.1,-10.0,9.3`, T.lecteur)).body;
+  verifier("17. M4 : la carte sans bbox est plafonnee a 5 000 objets, avec bbox a 20 000 (le plafond est annonce dans la reponse)", carteSansBbox.plafond === 5000 && carteAvecBbox.plafond === 20000, [carteSansBbox.plafond, carteAvecBbox.plafond]);
+
+  // M2 : delais cote base. Une requete volontairement lente (pg_sleep) est COUPEE par la base, et traduite en erreur typee.
+  const bd = await banc.imp("projets-voirie/bd");
+  const t0 = performance.now();
+  const lente = await bd.avecErreurDelai("ANALYSE_TROP_LONGUE", "trop long", () => prisma.$transaction(async (tx: { $queryRaw: (...a: unknown[]) => Promise<unknown> }) => {
+    await bd.poserDelais(tx, 1000, 5000);
+    await tx.$queryRaw`SELECT pg_sleep(8)`;
+  })).catch((e: { status?: number; code?: string }) => e);
+  const dureeLente = performance.now() - t0;
+  verifier("17. M2 : pg_sleep(8) sous statement_timeout de 1 s est coupe par la base en moins de 3 s et devient l'erreur typee 504 ANALYSE_TROP_LONGUE",
+    lente.status === 504 && lente.code === "ANALYSE_TROP_LONGUE" && dureeLente < 3000, [lente.status, lente.code, Math.round(dureeLente)]);
+  const actifs = await compter(`SELECT count(*) n FROM pg_stat_activity WHERE datname = current_database() AND state = 'active' AND query ILIKE '%pg_sleep%' AND pid <> pg_backend_pid()`);
+  verifier("17. M2 : aucune requete lente ne continue dans la base apres le delai", actifs === 0, actifs);
+  // lock_timeout : un verrou tenu par une autre transaction ne bloque pas un depot au-dela du delai de verrou.
+  const verrou = prisma.$transaction(async (tx: { $queryRaw: (...a: unknown[]) => Promise<unknown> }) => {
+    await tx.$queryRaw`SELECT id FROM projets_voirie WHERE id = ${PID} FOR UPDATE`;
+    const tl = performance.now();
+    const rep = await depot(PID, await geojson([{ nom: "Bloque", coords: [[0, 700], [10, 700]] }]), { role: "AUTRE" }, "bloque.geojson");
+    return { status: rep.status, code: rep.body.code, ms: performance.now() - tl };
+  }, { timeout: 30000 });
+  const vrep = await verrou;
+  verifier("17. M2 : un projet verrouille par une autre operation fait echouer le depot en moins de 8 s avec une erreur typee (503/504), pas un 500 ni une attente sans fin",
+    (vrep.status === 503 || vrep.status === 504) && vrep.ms < 8000, vrep);
+
+  // Plafond de sommets (valeur par defaut : 100 000 par objet).
+  const grosse = Array.from({ length: 100_001 }, (_, i) => [Math.round((-10.5 + i * 1e-6) * 1e7) / 1e7, 9.2]);
+  const refusSommets = await depot(PID, Buffer.from(JSON.stringify({ type: "LineString", coordinates: grosse })), { role: "AUTRE" }, "dense.geojson");
+  verifier("17. M2 : un objet de 100 001 sommets est refuse (422 TROP_DE_SOMMETS) et ne laisse aucun jeu", refusSommets.status === 422 && refusSommets.body.code === "TROP_DE_SOMMETS"
+    && (await compter(`SELECT count(*) n FROM projets_voirie_jeux WHERE "nomFichier" = 'dense.geojson'`)) === 0, [refusSommets.status, refusSommets.body]);
 
   // ---------------------------------------------------------------- 16. Aucune ecriture dans le referentiel officiel
   const etatFinal = await instantane();

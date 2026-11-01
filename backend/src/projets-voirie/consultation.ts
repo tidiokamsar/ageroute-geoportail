@@ -33,7 +33,7 @@ export async function tracerConsultation(acteur: Acteur, jeux: readonly JeuConsu
       const deja = await tx.$queryRaw<{ n: number }[]>`
         SELECT count(*)::int AS "n" FROM "audit_logs"
          WHERE "entityType" = 'ConsultationJeuProjet' AND "entityId" = ${j.id} AND "userId" = ${acteur.id}
-           AND "createdAt" > ((now() AT TIME ZONE 'UTC') - make_interval(mins => ${FENETRE_CONSULTATION_MIN}))`;
+           AND "createdAt" > ((now() AT TIME ZONE 'UTC') - make_interval(mins => ${FENETRE_CONSULTATION_MIN}::int))`;
       if (deja[0].n > 0) continue;
       await logAuditTransactionnelle(tx, {
         userId: acteur.id, action: "SECURITY_EVENT", entityType: "ConsultationJeuProjet", entityId: j.id,
