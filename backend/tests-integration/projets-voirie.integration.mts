@@ -515,6 +515,38 @@ async function main() {
     quarLecteur.every((r) => r.status === 403 && r.body.code === "QUARANTAINE_RESERVEE") && (await get(`/${PID}/carte`, T.lecteur)).status === 200 && (await get(`/${PID}/analyse`, T.lecteur)).status === 200
     && (await get(`/${PID}/carte?inclureNonAutorises=true`, T.chef)).status === 200 && (await get(`/${PID}/analyse?inclureNonAutorises=true`, T.admin)).status === 200);
 
+  // Jeux hors AUTORISE : un compte qui n'est ni ADMIN ni GESTIONNAIRE ne voit que les jeux AUTORISE (liste, fiche, compteurs).
+  if ((await compter(`SELECT count(*) n FROM projets_voirie_jeux WHERE "projetId" = $1 AND statut = 'CONTROLE'`, PID)) === 0) {
+    await depot(PID, await geojson([{ nom: "En-quarantaine", coords: [[0, 900], [10, 900]] }]), { role: "AUTRE" }, "quarantaine-lecteur.geojson");
+  }
+  const reelsParStatut: Record<string, number> = {};
+  for (const l of await sql<{ statut: string; n: string }>(`SELECT statut, count(*) n FROM projets_voirie_jeux WHERE "projetId" = $1 AND statut <> 'RETIRE' GROUP BY 1`, PID)) reelsParStatut[l.statut] = Number(l.n);
+  const horsAutorise = Object.keys(reelsParStatut).filter((s) => s !== "AUTORISE");
+  const dejaVuSerie = (corps: { jeux: { statut: string }[] }) => corps.jeux.map((j) => j.statut);
+  const jeuxLecteur = (await get(`/${PID}/jeux`, T.lecteur)).body, jeuxChef = (await get(`/${PID}/jeux`, T.chef)).body, jeuxAdmin = (await get(`/${PID}/jeux`, T.admin)).body;
+  verifier("17. jeux hors AUTORISE : GET /:id/jeux ne rend a un LECTEUR que les jeux AUTORISE ; un GESTIONNAIRE et un ADMIN les voient tous (sauf RETIRE)",
+    horsAutorise.length > 0 && dejaVuSerie(jeuxLecteur).length === (reelsParStatut["AUTORISE"] ?? 0) && dejaVuSerie(jeuxLecteur).every((s) => s === "AUTORISE")
+    && dejaVuSerie(jeuxChef).length === Object.values(reelsParStatut).reduce((a, b) => a + b, 0) && dejaVuSerie(jeuxAdmin).length === dejaVuSerie(jeuxChef).length
+    && horsAutorise.every((s) => dejaVuSerie(jeuxChef).includes(s)), { reelsParStatut, lecteur: dejaVuSerie(jeuxLecteur), chef: dejaVuSerie(jeuxChef) });
+  const idsHors = (await sql<{ id: string }>(`SELECT id FROM projets_voirie_jeux WHERE "projetId" = $1 AND statut NOT IN ('AUTORISE', 'RETIRE')`, PID)).map((l) => l.id);
+  const ficheLecteur = (await get(`/${PID}`, T.lecteur)).body.projet, ficheChef = (await get(`/${PID}`, T.chef)).body.projet;
+  verifier("17. jeux hors AUTORISE : GET /:id (champ jeux) filtre de la meme facon ; la bbox, calculee sur les jeux AUTORISE, ne change pas",
+    ficheLecteur.jeux.every((j: { statut: string }) => j.statut === "AUTORISE") && ficheLecteur.jeux.length === (reelsParStatut["AUTORISE"] ?? 0)
+    && ficheChef.jeux.length === dejaVuSerie(jeuxChef).length && JSON.stringify(ficheLecteur.bbox) === JSON.stringify(ficheChef.bbox));
+  const listeLecteur = (await get(`?q=${encodeURIComponent("Kissidougou")}`, T.lecteur)).body.projets.find((p: { id: string }) => p.id === PID);
+  const listeChef = (await get(`?q=${encodeURIComponent("Kissidougou")}`, T.chef)).body.projets.find((p: { id: string }) => p.id === PID);
+  verifier("17. jeux hors AUTORISE : les compteurs de GET / ne comptent, pour un LECTEUR, que les jeux AUTORISE ; un GESTIONNAIRE voit tous les statuts",
+    JSON.stringify(listeLecteur?.jeux) === JSON.stringify(reelsParStatut["AUTORISE"] ? { AUTORISE: reelsParStatut["AUTORISE"] } : {})
+    && JSON.stringify(listeChef?.jeux, Object.keys(listeChef?.jeux ?? {}).sort()) === JSON.stringify(reelsParStatut, Object.keys(reelsParStatut).sort()), { lecteur: listeLecteur?.jeux, chef: listeChef?.jeux, reelsParStatut });
+  verifier("17. jeux hors AUTORISE : remplaceId (identifiant d'une version non lisible) est masque a un LECTEUR, visible d'un GESTIONNAIRE",
+    jeuxLecteur.jeux.every((j: { remplaceId: string | null }) => j.remplaceId === null) && ficheLecteur.jeux.every((j: { remplaceId: string | null }) => j.remplaceId === null)
+    && jeuxChef.jeux.some((j: { remplaceId: string | null }) => j.remplaceId !== null));
+  const fuite = JSON.stringify([jeuxLecteur, ficheLecteur, listeLecteur]);
+  verifier("17. jeux hors AUTORISE : aucune trace d'un jeu en controle, rejete ou remplace (identifiant, nom de fichier) dans les reponses d'un LECTEUR",
+    idsHors.length > 0 && idsHors.every((id) => !fuite.includes(id)) && !/quarantaine-lecteur|CONTROLE|REJETE|REMPLACE/.test(fuite), { idsHors, trouve: idsHors.filter((id) => fuite.includes(id)), motif: fuite.match(/.{40}(quarantaine-lecteur|CONTROLE|REJETE|REMPLACE).{20}/)?.[0] });
+  verifier("17. jeux hors AUTORISE : un regional GESTIONNAIRE (perimetre R1) voit tous les statuts de son projet, un LECTEUR du meme projet pas",
+    (await get(`/${PID}/jeux`, T.reg1)).body.jeux.length === dejaVuSerie(jeuxChef).length);
+
   // M4 : trace des consultations de jeux sensibles.
   verifier("17. M4 : une consultation de la carte trace UNE ligne par jeu sensible (reseaux CONFIDENTIEL_CONCESSIONNAIRE), aucune pour les axes (RESTREINT_PROJET)",
     c1.length === jeuxReseau.length && c1.every((l) => jeuxReseau.some((j) => j.id === l.entite) && l.apres.confidentialite === "CONFIDENTIEL_CONCESSIONNAIRE"), c1);

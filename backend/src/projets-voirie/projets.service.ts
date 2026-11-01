@@ -16,6 +16,15 @@ import { delaiDepotMs, delaiVerrouMs } from "./config";
 import { INCLURE_JEU, vueJeu, vueProjet } from "./vues";
 
 export interface Acteur { id: string; role: string; ip?: string }
+
+/**
+ * Seuls ADMIN et GESTIONNAIRE (les roles qui decident) voient les jeux hors `AUTORISE` (en controle, rejetes, remplaces) dans les
+ * listes, la fiche et les compteurs ; tout autre compte ne voit que les jeux `AUTORISE`. Filtre applique cote serveur, dans la requete.
+ */
+export const voitTousLesJeux = (role: string): boolean => role === "ADMIN" || role === "GESTIONNAIRE";
+
+/** Filtre de statut des jeux lisibles : les retires ne sont jamais listes ; un lecteur ne lit que les autorises. */
+const statutsVisibles = (toutes: boolean): Prisma.JeuDonneesProjetWhereInput["statut"] => (toutes ? { not: "RETIRE" } : "AUTORISE");
 /** Regions visibles : `null` = pays entier (compte national). */
 export type Portee = readonly number[] | null;
 export type Tx = Prisma.TransactionClient;
@@ -73,7 +82,7 @@ export function decoderCurseur(s: string): { t: Date; i: string } | null {
   } catch { return null; }
 }
 
-export async function listerProjets(portee: Portee, f: { q?: string; limite: number; curseur?: { t: Date; i: string } }) {
+export async function listerProjets(portee: Portee, f: { q?: string; limite: number; curseur?: { t: Date; i: string }; tousLesJeux: boolean }) {
   const and: Prisma.ProjetVoirieWhereInput[] = [{ deletedAt: null }];
   if (portee !== null) and.push({ regionId: { in: [...portee] } });
   if (f.q) {
@@ -86,7 +95,7 @@ export async function listerProjets(portee: Portee, f: { q?: string; limite: num
   const lignes = await prisma.projetVoirie.findMany({ where: { AND: and }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: f.limite + 1 });
   const page = lignes.slice(0, f.limite);
   const comptes = page.length
-    ? await prisma.jeuDonneesProjet.groupBy({ by: ["projetId", "statut"], where: { projetId: { in: page.map((p) => p.id) }, statut: { not: "RETIRE" } }, _count: { _all: true } })
+    ? await prisma.jeuDonneesProjet.groupBy({ by: ["projetId", "statut"], where: { projetId: { in: page.map((p) => p.id) }, statut: statutsVisibles(f.tousLesJeux) }, _count: { _all: true } })
     : [];
   const dernier = page[page.length - 1];
   return {
@@ -123,14 +132,14 @@ function bboxDesJeux(jeux: { resume: unknown }[]): Bbox | null {
   return b;
 }
 
-export async function ficheProjet(id: string) {
+export async function ficheProjet(id: string, tousLesJeux: boolean) {
   const p = await projetOuErreur(prisma, id);
-  const jeux = await prisma.jeuDonneesProjet.findMany({ where: { projetId: id, statut: { not: "RETIRE" } }, include: INCLURE_JEU, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
+  const jeux = await prisma.jeuDonneesProjet.findMany({ where: { projetId: id, statut: statutsVisibles(tousLesJeux) }, include: INCLURE_JEU, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
   return {
     ...vueProjet(p),
     parametres: { largeurEmpriseM: Number(p.largeurEmpriseM), largeurChausseeM: Number(p.largeurChausseeM), statut: p.statutParametres },
     bbox: bboxDesJeux(jeux.filter((j) => j.statut === "AUTORISE")),
-    jeux: jeux.map((j) => vueJeu(j)),
+    jeux: jeux.map((j) => vueJeu(j, { sansHistorique: !tousLesJeux })),
   };
 }
 
@@ -206,10 +215,10 @@ export async function creerConcessionnaire(acteur: Acteur, d: { nom: string; typ
 // Jeux : lecture, retrait, autorisation, rejet
 // ------------------------------------------------------------------------------------------------
 
-export async function listerJeux(projetId: string) {
+export async function listerJeux(projetId: string, tousLesJeux: boolean) {
   await projetOuErreur(prisma, projetId);
-  const jeux = await prisma.jeuDonneesProjet.findMany({ where: { projetId, statut: { not: "RETIRE" } }, include: INCLURE_JEU, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
-  return { jeux: jeux.map((j) => vueJeu(j)) };
+  const jeux = await prisma.jeuDonneesProjet.findMany({ where: { projetId, statut: statutsVisibles(tousLesJeux) }, include: INCLURE_JEU, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
+  return { jeux: jeux.map((j) => vueJeu(j, { sansHistorique: !tousLesJeux })) };
 }
 
 /** Verrou du projet : serialise depots, decisions et retraits d'un meme projet (aucune course sur les index uniques partiels). */

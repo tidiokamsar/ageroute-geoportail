@@ -69,13 +69,13 @@ dépôt réel ──► CONTROLE ──autoriser──► AUTORISE ──nouvell
 |---|---|---|
 | `GET /` | lecture | liste des projets (filtre `q`, `limite`, `curseur`) avec compteurs de jeux par statut |
 | `POST /` | écriture | crée un projet (`code`, `nom`, `commune?`, `prefecture?`, `regionId?`, `description?`, `largeurEmpriseM?`, `largeurChausseeM?`) |
-| `GET /:id` | lecture | fiche du projet, jeux (sans géométrie), paramètres, emprise englobante (`bbox` WGS84, jeux autorisés) |
+| `GET /:id` | lecture | fiche du projet, jeux (sans géométrie, filtrés selon le rôle, voir 4.4), paramètres, emprise englobante (`bbox` WGS84, jeux autorisés) |
 | `PATCH /:id` | écriture | `nom`, `commune`, `prefecture`, `description`, largeurs (remet `statutParametres` à `THEORIQUE` sauf si `statutParametres: "VALIDE"` est envoyé par un `ADMIN`) |
 | `DELETE /:id` | `ADMIN` | retrait logique |
 | `GET /concessionnaires` | lecture | liste |
 | `POST /concessionnaires` | écriture | crée (`nom`, `typeReseau`, `contact?`) ; 409 `CONCESSIONNAIRE_DEJA_CONNU` |
 | `POST /:id/jeux` | écriture | multipart : `fichier` (+ champs `role`, `concessionnaireId`, `typeReseau`, `dateDonnees`, `origineFichier`, `confidentialite`, `natureObjets`, `classePrecision`, `precisionHorizontaleM`, `precisionVerticaleM`, `methode`, `dateConstat`). Avec `?simuler=true` : lit, valide et renvoie le résumé **sans rien écrire** (aucune ligne conservée, aucun audit). Réponse 201 (dépôt) ou 200 (simulation) : `{ simulation, jeu, resume, avertissements, delta, remplace }` (4.2) |
-| `GET /:id/jeux` | lecture | jeux du projet (sans géométrie), tous statuts sauf `RETIRE`, du plus récent au plus ancien |
+| `GET /:id/jeux` | lecture | jeux du projet (sans géométrie), du plus récent au plus ancien ; `ADMIN` et `GESTIONNAIRE` : tous statuts sauf `RETIRE` ; autre compte : `AUTORISE` seulement (voir 4.4) |
 | `DELETE /:id/jeux/:jeuId` | écriture | retrait logique (`statut: RETIRE`) |
 | `POST /:id/jeux/:jeuId/autoriser` | écriture | corps `{ justification }` (10 caractères au moins) ; `CONTROLE` (ou `RECU`) => `AUTORISE` ; le jeu remplacé passe en `REMPLACE` ; 409 `STATUT_INCOMPATIBLE` sinon |
 | `POST /:id/jeux/:jeuId/rejeter` | écriture | corps `{ justification }` ; `CONTROLE` (ou `RECU`) => `REJETE` |
@@ -127,6 +127,8 @@ Aucune transformation silencieuse. KML : WGS 84 par la norme KML 2.2. GeoJSON : 
 `GET /:id/carte` : réponse `{ projetId, zoom, bbox, plafond: 20000, tronque, jeux: [ … ] }`. Chaque entrée de `jeux` est une `FeatureCollection` portant `jeuId`, `role`, `concessionnaire` (`{ id, nom }` ou null), `typeReseau`, `statut`, `nonAutorise`, `version`, `confidentialite`, `natureObjets`, `classePrecision`, `nbFeatures`, `tronque`. Par défaut seulement les jeux `AUTORISE` ; avec `inclureNonAutorises=true`, les jeux `CONTROLE` s'ajoutent, marqués `nonAutorise: true`. Une `Feature` porte `properties: { objetId, jeuId, nom, typeGeom, longueurM, attributs }`. Simplification de la géométrie selon le zoom (sans effet à partir du zoom 17), plafond de **20 000 objets avec `bbox`, 5 000 sans `bbox`** (la réponse porte `plafond` ; sans `bbox`, la géométrie est simplifiée comme au zoom 12 si `zoom` n'est pas donné ; `tronque: true` au-delà, nombre exact dans `total`). Précisez la fenêtre visible pour obtenir davantage.
 
 **`inclureNonAutorises=true` est réservé aux comptes `ADMIN` et `GESTIONNAIRE`** (carte et analyse) : un lecteur qui le demande reçoit 403 `QUARANTAINE_RESERVEE` ; sans l'option, il lit les jeux autorisés.
+
+**Statuts visibles dans les listes** : `GET /` (compteurs `jeux`), `GET /:id` (champ `jeux`) et `GET /:id/jeux` filtrent côté serveur selon le rôle. `ADMIN` et `GESTIONNAIRE` voient tous les statuts sauf `RETIRE` ; tout autre compte ne voit que les jeux `AUTORISE` (les compteurs ne comptent que ce qui lui est visible, `remplaceId` lui est rendu à `null`). Même règle que `inclureNonAutorises`, pour que la quarantaine ne fuite par aucune route.
 
 ### 4.6 Lecture des géométries et traçabilité
 
