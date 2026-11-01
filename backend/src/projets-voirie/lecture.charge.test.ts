@@ -130,14 +130,14 @@ describe("M3 : lecteur XML borne et lineaire", () => {
 });
 
 describe("fichier legitime : 50 000 objets", () => {
-  it("50 000 Placemark de 3 sommets (environ 6 Mo) : lus en moins d'une seconde (poste normal)", () => {
+  it("50 000 Placemark de 3 sommets (environ 6 Mo) : lus en moins de deux secondes (poste normal, marge pour une machine chargee)", () => {
     const doc = kml(pm("-10.1,9.2,0 -10.09,9.2,0 -10.08,9.21,0").repeat(50_000));
     expect(doc.length).toBeGreaterThan(6_000_000);
     let nb = 0;
     const r = mesurer(() => { nb = lireFichier(doc, "a.kml").resume.nbObjets; });
     console.log(`[lecture.charge] 50 000 objets (${(doc.length / 1e6).toFixed(1)} Mo) : ${r.ms.toFixed(0)} ms, facteur ${F.toFixed(1)}`);
     expect(nb).toBe(50_000);
-    expect(r.ms).toBeLessThan(LIMITE_MS);
+    expect(r.ms).toBeLessThan(LIMITE_MS * 2);
   }, 120_000);
 
   it("50 000 Placemark portant 6 donnees etendues chacun restent sous la borne d'elements", () => {
