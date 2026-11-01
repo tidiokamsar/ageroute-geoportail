@@ -11,7 +11,7 @@ Cette version remplace celle du commit `0b902e7` : le commit `747ac38` ajoute au
 | Commit | `747ac3811581aa541abf9a2a6a9faf1d1b9f874b` (branche `lot/03-map-matching`) |
 | Archive | `bdri-747ac38.tar.gz`, produite par `git archive` (reproductible) |
 | SHA-256 de l'archive | `5429d9879a9ac2d6fda5c5eb090e38b9703b5b043521cef677774ae97fa5dfad` |
-| Serveur applicatif | celui vers lequel pointe `carte.ageroute.gov.gn` (résolution DNS du 27/10 : 102.211.199.131, alias SSH `gec`), répertoire `/opt/console-bdri` |
+| Serveur applicatif | celui vers lequel pointe `carte.ageroute.gov.gn` (résolution DNS du 27/10 : [IP masquée — voir la config SSH locale], alias SSH `gec`), répertoire `/opt/console-bdri` |
 | Migrations apportées | le script attend `ATTENDUES_EN_ATTENTE=2` (`20261027100000_medias_observation_analyse` et `20261027110000_composante_rci_valeurs`). Relevé en lecture seule le 27/10 : 82 migrations appliquées, dernière `20261026410000_correspondances_identifiants`, dernier déploiement le 24/10 à 13 h 03 (commit `6ed05e1`). Si le nombre trouvé diffère, le script s'arrête sans rien modifier |
 
 ## 2. Commandes
