@@ -6,7 +6,7 @@ vi.mock("./download", () => ({ downloadViaApi: h.download }));
 
 import {
   autoriserJeu, chargerAnalyse, chargerCarte, creerConcessionnaire, creerProjet, deposerJeu, exporterCsv, lireAnalyse, lireCarte, lireFicheProjet, lireJeu, lirePageProjets,
-  lireObjetCarte, lireReponseDepot, listerConcessionnaires, listerJeux, listerProjets, lireProjet, modifierProjet, rejeterJeu, retirerJeu, retirerProjet, urlExportCsv,
+  lireObjetCarte, lireReponseCarte, lireReponseDepot, listerConcessionnaires, listerJeux, listerProjets, lireProjet, modifierProjet, rejeterJeu, retirerJeu, retirerProjet, urlExportCsv,
 } from "./projetsVoirieApi";
 import { analyse, jeu, ligne, projetFiche } from "../components/projets-voirie/synthetique.testutil";
 
@@ -162,8 +162,9 @@ describe("carte et analyse", () => {
     h.get.mockResolvedValueOnce({ data: [{ jeuId: "j1", role: "RESEAU_TIERS", typeReseau: "TELECOM", features: [ligne("a", 0, 0, 1, 1), { pas: "une feature" }], tronque: true, nonAutorise: true }] });
     const c = await chargerCarte("p1", { jeux: ["j1", "j2"], bbox: [-10.1, 9.1, -10, 9.2], zoom: 15.4, inclureNonAutorises: true });
     expect(h.get).toHaveBeenCalledWith(`${BASE}/p1/carte`, { params: { jeux: "j1,j2", bbox: "-10.1,9.1,-10,9.2", zoom: 15, inclureNonAutorises: "true" }, signal: undefined });
-    expect(c[0]).toMatchObject({ jeuId: "j1", tronque: true, nonAutorise: true });
-    expect(c[0].features).toHaveLength(1);
+    expect(c.couches[0]).toMatchObject({ jeuId: "j1", tronque: true, nonAutorise: true });
+    expect(c.couches[0].features).toHaveLength(1);
+    expect(c.tronque).toBe(true);
   });
   it("sans option : pas de parametre superflu", async () => {
     h.get.mockResolvedValueOnce({ data: [] });
@@ -250,5 +251,46 @@ describe("export CSV d'agregats", () => {
 describe("fixtures", () => {
   it("un jeu de test est bien synthetique", () => {
     expect(jeu().concessionnaire?.nom).toMatch(/synthetique/i);
+  });
+});
+
+describe("enveloppes reelles de API.md (revue de securite)", () => {
+  it("liste : compteurs par statut dans `jeux`, curseurSuivant", () => {
+    const page = lirePageProjets({ projets: [{ id: "p1", code: "A-1", nom: "A", jeux: { CONTROLE: 1, AUTORISE: 2, REMPLACE: 4 } }], curseurSuivant: "c2" });
+    expect(page.suivant).toBe("c2");
+    expect(page.projets[0].jeuxParStatut).toEqual({ CONTROLE: 1, AUTORISE: 2, REMPLACE: 4 });
+    expect(page.projets[0].nbJeux).toBe(3);
+  });
+  it("fiche : { projet: { ..., parametres, bbox, jeux } } avec decision du jeu", () => {
+    const f = lireFicheProjet({ projet: {
+      id: "p1", code: "A-1", nom: "A", commune: "C", regionId: 1,
+      parametres: { largeurEmpriseM: "20.00", largeurChausseeM: "8.00", statut: "VALIDE", projection: null },
+      bbox: [-10.1, 9.1, -10, 9.2],
+      jeux: [{ id: "j1", role: "RESEAU_TIERS", statut: "AUTORISE", nonAutorise: false, natureObjets: "INCONNUE", classePrecision: null, confidentialite: "CONFIDENTIEL_CONCESSIONNAIRE",
+               decision: { par: { id: "u", nomComplet: "Sekou" }, le: "2026-10-28T21:30:46Z", justification: "Controle effectue avec le chef de projet" } }],
+    } });
+    expect(f).toMatchObject({ largeurEmpriseM: 20, largeurChausseeM: 8, statutParametres: "VALIDE", bbox: [-10.1, 9.1, -10, 9.2], nbJeux: 1 });
+    expect(f.jeux[0]).toMatchObject({ statut: "AUTORISE", classePrecision: "INCONNUE", justification: "Controle effectue avec le chef de projet" });
+  });
+  it("POST / et PATCH : { projet } sans jeux", () => {
+    expect(lireFicheProjet({ projet: { id: "p1", code: "A-1", nom: "A", largeurEmpriseM: 15, largeurChausseeM: 7 } }).jeux).toEqual([]);
+  });
+  it("carte : plafond et tronque de l'entete (5 000 sans emprise, 20 000 avec)", () => {
+    const r = lireReponseCarte({ projetId: "p1", zoom: null, bbox: null, plafond: 5000, tronque: true, jeux: [{ type: "FeatureCollection", jeuId: "j1", tronque: true, total: 9000, features: [] }] });
+    expect(r).toMatchObject({ plafond: 5000, tronque: true });
+    expect(r.couches[0].tronque).toBe(true);
+    expect(lireReponseCarte({ plafond: 20000, tronque: false, jeux: [] })).toMatchObject({ plafond: 20000, tronque: false });
+  });
+  it("analyse : les objets d'un axe portent objetId, qualification et croisements, sans jeuId", () => {
+    const brut = JSON.parse(JSON.stringify(analyse()));
+    brut.conflits.parAxe[0].objets = [{ objetId: "18", nom: "Fibre-Marqueur K", qualification: "CONFLIT_POTENTIEL", chausseeM: 7, empriseM: 10, croisements: 1 }];
+    const o = lireAnalyse(brut).conflits.parAxe[0].objets[0];
+    expect(o).toEqual({ jeuId: null, objetId: "18", nom: "Fibre-Marqueur K", qualification: "CONFLIT_POTENTIEL", chausseeM: 7, empriseM: 10, croisements: 1 });
+  });
+  it("analyse : le signal d'annulation est transmis a axios (largeurs changees = requete precedente annulee)", async () => {
+    h.get.mockResolvedValue({ data: analyse() });
+    const ctrl = new AbortController();
+    await chargerAnalyse("p1", { largeurEmpriseM: 20, largeurChausseeM: 8 }, false, ctrl.signal);
+    expect(h.get.mock.calls[0][1].signal).toBe(ctrl.signal);
   });
 });

@@ -242,3 +242,30 @@ describe("accessibilite (axe)", () => {
     expect(await violationsAccessibilite(container)).toEqual([]);
   }, 30_000);
 });
+
+describe("quarantaine reservee aux ADMIN et GESTIONNAIRE (403 QUARANTAINE_RESERVEE)", () => {
+  it("un lecteur n'a ni l'interrupteur, ni la section « a autoriser », ni le message de quarantaine", () => {
+    rendre({ peutEcrire: false, jeux: [JEU_AXES, JEU_TEL] });
+    expect(screen.queryByRole("checkbox", { name: /Afficher aussi les données non autorisées/ })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /Fichiers reçus, à autoriser/ })).toBeNull();
+    expect(screen.getByRole("group", { name: "Réseau de concessionnaire" })).toBeInTheDocument();
+  });
+  it("un gestionnaire les a", () => {
+    rendre({ peutEcrire: true });
+    expect(screen.getByRole("checkbox", { name: /Afficher aussi les données non autorisées/ })).toBeInTheDocument();
+  });
+});
+
+describe("attribut KML « description » contenant du HTML : toujours du texte", () => {
+  it("balises, script, iframe, lien javascript: et gestionnaires d'evenements s'affichent litteralement, rien n'est interprete", () => {
+    const description = '<p onclick="alert(1)">Fibre <b>FO</b> <a href="javascript:alert(2)">lien</a></p><iframe src="https://exemple.invalid"></iframe><script>window.__kml = 1</script><style>body{display:none}</style>';
+    const f = ligne("Placemark KML", 0, 0, 1, 1, { description, name: "<b>Nom</b>" });
+    const { container } = render(<FicheObjet objet={lireObjetCarte("jeu-tel", f)} jeu={JEU_TEL} onFermer={vi.fn()} />);
+    expect(screen.getByText(description)).toBeInTheDocument();
+    expect(screen.getByText("<b>Nom</b>")).toBeInTheDocument();
+    expect(container.querySelector("p[onclick], b, a, iframe, script, style")).toBeNull();
+    expect(container.querySelectorAll("[onclick], [href], [src]")).toHaveLength(0);
+    expect((window as unknown as { __kml?: number }).__kml).toBeUndefined();
+    expect(document.body.style.display).not.toBe("none");
+  });
+});

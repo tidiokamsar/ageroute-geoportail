@@ -49,6 +49,19 @@ describe("liste des projets", () => {
     expect(h.get).toHaveBeenCalledWith("/v2/projets-voirie", { params: { limite: 25 } });
   });
 
+  it("compteurs par statut du serveur : autorises pour tous, « a autoriser » pour les seuls gestionnaires", async () => {
+    h.get.mockResolvedValue({ data: { projets: [{ ...P1, nbJeux: undefined, jeux: { AUTORISE: 2, CONTROLE: 1, REMPLACE: 3 } }], curseurSuivant: null } });
+    const a = rendre();
+    const ligne = (await screen.findByRole("link", { name: /Voirie synthetique/ })).closest("tr")!;
+    expect(ligne).toHaveTextContent("2");
+    expect(ligne).toHaveTextContent("et 1 à autoriser");
+    a.unmount();
+    h.role = "LECTEUR";
+    rendre();
+    const ligneLecteur = (await screen.findByRole("link", { name: /Voirie synthetique/ })).closest("tr")!;
+    expect(ligneLecteur).not.toHaveTextContent("à autoriser");
+  });
+
   it("recherche : le filtre q est envoye (apres une pause), pas a chaque frappe", async () => {
     h.get.mockResolvedValue({ data: { projets: [P1], suivant: null } });
     rendre();

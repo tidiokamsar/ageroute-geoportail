@@ -171,7 +171,7 @@ describe("page projet : carte, panneau, onglets", () => {
   });
 
   it("serveur qui plafonne : bandeau « tronque » dit", async () => {
-    installer({ carte: [{ ...couche({ jeuId: "jeu-tel" }), tronque: true }] });
+    installer({ carte: { plafond: 20000, tronque: true, jeux: [{ ...couche({ jeuId: "jeu-tel" }), tronque: true }] } });
     rendre();
     expect(await screen.findByTestId("bandeau-tronque")).toHaveTextContent(/Affichage tronqué : le serveur plafonne le nombre d'objets par réponse \(20 000\)/);
   });
@@ -428,4 +428,100 @@ describe("accessibilite (axe)", () => {
     await screen.findByText(/Vous êtes hors ligne\./);
     expect(await violationsAccessibilite(c.container)).toEqual([]);
   }, 60_000);
+});
+
+describe("durcissement du serveur (revue de securite)", () => {
+  it("la carte envoie TOUJOURS l'emprise de la vue, et la reponse tronquee a 5 000 sans emprise est dite avec son plafond", async () => {
+    installer({ carte: { plafond: 5000, tronque: true, jeux: [{ ...couche({ jeuId: "jeu-tel" }), tronque: false }] } });
+    rendre();
+    expect(await screen.findByTestId("bandeau-tronque")).toHaveTextContent(/\(5 000\)/);
+    for (const p of appelsCarte()) expect(p.bbox).toMatch(/^-?\d+(\.\d+)?(,-?\d+(\.\d+)?){3}$/);
+    expect(appelsCarte().length).toBeGreaterThan(0);
+  });
+
+  it("un lecteur ne voit pas les jeux en quarantaine, n'a pas l'interrupteur, et ne demande jamais inclureNonAutorises", async () => {
+    h.role = "LECTEUR";
+    installer();
+    rendre();
+    await screen.findByRole("heading", { level: 1 });
+    await waitFor(() => expect(appelsCarte().length).toBeGreaterThan(0));
+    expect(screen.queryByTestId("bandeau-a-autoriser")).toBeNull();
+    await userEvent.click(screen.getByRole("tab", { name: "Couches" }));
+    expect(screen.queryByRole("checkbox", { name: /Afficher aussi les données non autorisées/ })).toBeNull();
+    expect(screen.queryByText(/Hydrocarbures synthetique/)).toBeNull();
+    for (const p of [...appelsCarte(), ...appelsAnalyse()]) expect(p.inclureNonAutorises).toBeUndefined();
+  });
+
+  it("403 QUARANTAINE_RESERVEE sur l'analyse : refus du geste dit en clair, pas « sans cle de module »", async () => {
+    installer({ analyse: { response: { status: 403, data: { error: "x", code: "QUARANTAINE_RESERVEE" } } } });
+    rendre();
+    const a = await screen.findByText(/action refusée/);
+    expect(a.closest("[role=alert]")).toHaveTextContent(/réservé aux administrateurs et aux gestionnaires/);
+    expect(a.closest("[role=alert]")).not.toHaveTextContent(/clé de module/);
+  });
+
+  it("400 IDENTIFIANT_INVALIDE (adresse modifiee) : message clair et lien de retour, jamais un ecran vide", async () => {
+    installer({ fiche: { response: { status: 400, data: { error: "Identifiant invalide", code: "IDENTIFIANT_INVALIDE" } } } });
+    rendre("/projets-voirie/p1");
+    const a = await screen.findByRole("alert");
+    expect(a).toHaveTextContent(/identifiant demandé n'est pas valide/);
+    expect(screen.getByRole("link", { name: /Projets de voirie/ })).toBeInTheDocument();
+  });
+
+  it.each([
+    ["ANALYSE_TROP_LONGUE", 504, /Réessayez, ou réduisez/],
+    ["ANALYSE_TROP_VOLUMINEUSE", 422, /trop volumineuse/],
+    ["SERVICE_OCCUPE", 503, /Réessayez dans un instant/],
+  ])("analyse refusee ou interrompue (%s) : message en clair, bouton Reessayer, la carte reste", async (code, status, motif) => {
+    installer({ analyse: { response: { status, data: { error: "x", code } } } });
+    rendre();
+    const a = await screen.findByRole("button", { name: "Réessayer : Analyse" });
+    expect(a.closest("[role=alert]")).toHaveTextContent(motif as RegExp);
+    expect(screen.getByTestId("carte")).toBeInTheDocument();
+  });
+
+  it("carte interrompue (504 CARTE_TROP_LONGUE) : invite a zoomer, bouton Reessayer", async () => {
+    installer({ carte: { response: { status: 504, data: { error: "x", code: "CARTE_TROP_LONGUE" } } } });
+    rendre();
+    const a = await screen.findByRole("button", { name: "Réessayer : Carte" });
+    expect(a.closest("[role=alert]")).toHaveTextContent(/zoomez pour réduire la zone/);
+  });
+
+  it("changer de largeurs ANNULE la requete d'analyse precedente (AbortController) et n'en lance qu'une par apercu, sans rechargement automatique", async () => {
+    const signaux: AbortSignal[] = [];
+    installer();
+    const impl = h.get.getMockImplementation()!;
+    h.get.mockImplementation(async (url: string, opts?: { params?: Record<string, unknown>; signal?: AbortSignal }) => {
+      if (url === `${BASE}/analyse` && opts?.params && "largeurEmpriseM" in opts.params) {
+        signaux.push(opts.signal as AbortSignal);
+        await new Promise((resolve) => setTimeout(resolve, 400));
+      }
+      return impl(url, opts);
+    });
+    rendre();
+    const form = await screen.findByRole("form", { name: "Largeurs d'emprise et de chaussée" });
+    await userEvent.clear(within(form).getByLabelText("Emprise (m)"));
+    await userEvent.type(within(form).getByLabelText("Emprise (m)"), "20");
+    await userEvent.click(within(form).getByRole("button", { name: /Prévisualiser/ }));
+    await waitFor(() => expect(signaux).toHaveLength(1));
+    await userEvent.clear(within(form).getByLabelText("Emprise (m)"));
+    await userEvent.type(within(form).getByLabelText("Emprise (m)"), "30");
+    await userEvent.click(within(form).getByRole("button", { name: /Prévisualiser/ }));
+    await waitFor(() => expect(signaux).toHaveLength(2));
+    await waitFor(() => expect(signaux[0].aborted).toBe(true));
+    expect(signaux[1].aborted).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    expect(signaux).toHaveLength(2);
+    expect(appelsAnalyse().filter((p) => p.largeurEmpriseM !== undefined)).toHaveLength(2);
+  });
+
+  it("pas de rafale : au chargement, une seule requete de projet, d'analyse et de carte ; rien ne se relance tout seul", async () => {
+    installer();
+    rendre();
+    await screen.findByText("Réseaux par type");
+    await new Promise((resolve) => setTimeout(resolve, 1200));
+    expect(h.get.mock.calls.filter((c) => c[0] === BASE)).toHaveLength(1);
+    expect(appelsAnalyse()).toHaveLength(1);
+    expect(appelsCarte()).toHaveLength(1);
+  });
 });
