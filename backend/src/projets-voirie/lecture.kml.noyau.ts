@@ -25,16 +25,57 @@ const IGNORES = new Set(["NetworkLink", "GroundOverlay", "ScreenOverlay", "Photo
 const CONTENEURS = new Set(["kml", "Document", "Folder"]);
 const PROFONDEUR_GEOMETRIE_MAX = 8;
 
-/** « lon,lat[,alt] » separes par des blancs. Tolere « lon, lat » (espace apres la virgule). */
+const estBlanc = (c: number) => c === 32 || c === 10 || c === 13 || c === 9;
+/** Un nombre de coordonnee n'a jamais plus de 40 caracteres ; au-dela le champ est illisible (NaN), sans le convertir. */
+const CHAMP_MAX = 40;
+
+/**
+ * « lon,lat[,alt] » separes par des blancs. Tolere « lon, lat » et « lon ,lat » (blancs autour d'une virgule).
+ *
+ * BALAYAGE LINEAIRE, SANS EXPRESSION REGULIERE (revue de securite, M1) : l'ancienne version remplacait par expression reguliere
+ * les blancs autour des virgules dans tout le contenu : quadratique sur une longue suite d'espaces (80 000 espaces : 8 a 29 s de fil bloque). Ici chaque caractere est lu une fois.
+ * Un champ vide (« 1,,2 ») ou illisible donne NaN, que le collecteur refuse.
+ */
 export function lireCoordonnees(texte: string): Brut[] {
-  const t = texte.replace(/\s*,\s*/g, ",").trim();
-  if (t === "") return [];
-  return t.split(/\s+/).map((tuple) => tuple.split(",").map((v) => (v === "" ? NaN : Number(v))));
+  const n = texte.length;
+  const tuples: Brut[] = [];
+  let i = 0;
+  for (;;) {
+    while (i < n && estBlanc(texte.charCodeAt(i))) i++;
+    if (i >= n) break;
+    const tuple: number[] = [];
+    for (;;) {
+      while (i < n && estBlanc(texte.charCodeAt(i))) i++;
+      const debut = i;
+      while (i < n) {
+        const c = texte.charCodeAt(i);
+        if (estBlanc(c) || c === 44) break;
+        i++;
+      }
+      tuple.push(i === debut || i - debut > CHAMP_MAX ? NaN : Number(texte.slice(debut, i)));
+      // Une virgule (eventuellement precedee de blancs) continue le tuple ; sinon le tuple est termine.
+      let j = i;
+      while (j < n && estBlanc(texte.charCodeAt(j))) j++;
+      if (j < n && texte.charCodeAt(j) === 44) { i = j + 1; continue; }
+      break;
+    }
+    tuples.push(tuple);
+  }
+  return tuples;
 }
 
-/** `gx:coord` : « lon lat alt » separes par des blancs. */
+/** `gx:coord` : « lon lat alt » separes par des blancs (meme balayage lineaire). */
 function lireCoordGx(texte: string): Brut {
-  return texte.trim().split(/\s+/).map(Number);
+  const n = texte.length;
+  const champs: number[] = [];
+  let i = 0;
+  while (i < n) {
+    while (i < n && estBlanc(texte.charCodeAt(i))) i++;
+    const debut = i;
+    while (i < n && !estBlanc(texte.charCodeAt(i))) i++;
+    if (i > debut) champs.push(i - debut > CHAMP_MAX ? NaN : Number(texte.slice(debut, i)));
+  }
+  return champs;
 }
 
 const enfant = (n: NoeudXml, nom: string) => n.enfants.find((e) => e.nom === nom);
@@ -88,19 +129,18 @@ function collecterGeometries(n: NoeudXml, formes: FormesBrutes, profondeur: numb
 
 /** Attributs d'un Placemark : champs de base puis donnees etendues (chaines). */
 function attributsDe(pm: NoeudXml, dossier: string[]): { nom: string | null; attributs: Record<string, unknown> } {
-  const entrees = new Map<string, unknown>();
+  const entrees: Record<string, unknown> = {};
   const nomNoeud = enfant(pm, "name");
   const nom = nomNoeud ? nomNoeud.texte.trim() || null : null;
   const description = enfant(pm, "description");
-  if (nom !== null) entrees.set("name", nom);
-  if (description && description.texte.trim() !== "") entrees.set("description", description.texte);
-  if (dossier.length) entrees.set("dossier", dossier.join(" / "));
-  const reserve = new Set(entrees.keys());
+  if (nom !== null) entrees.name = nom;
+  if (description && description.texte.trim() !== "") entrees.description = description.texte;
+  if (dossier.length) entrees.dossier = dossier.join(" / ");
   const poser = (cle: string, valeur: string) => {
     let k = cle;
-    // Une donnee etendue qui porte le nom d'un champ de base ne l'ecrase pas.
-    if (reserve.has(k) || entrees.has(k)) k = `${cle} (donnees etendues)`;
-    entrees.set(k, valeur);
+    // Une donnee etendue qui porte le nom d'un champ deja pose (ou `__proto__`) ne l'ecrase pas.
+    if (k === "__proto__" || Object.prototype.hasOwnProperty.call(entrees, k)) k = `${cle} (donnees etendues)`;
+    entrees[k] = valeur;
   };
   for (const ed of enfants(pm, "ExtendedData")) {
     for (const d of enfants(ed, "Data")) {
@@ -116,7 +156,7 @@ function attributsDe(pm: NoeudXml, dossier: string[]): { nom: string | null; att
       }
     }
   }
-  return { nom, attributs: Object.fromEntries(entrees) };
+  return { nom, attributs: entrees };
 }
 
 export function lireKml(texte: string): { objets: ObjetLu[]; avertissements: Avertissement[]; resume: ResumeLecture } {
