@@ -412,6 +412,32 @@ describe("quarantaine reservee aux roles qui decident (revue m1)", () => {
   });
 });
 
+describe("jeux hors AUTORISE : filtres cote serveur selon le role (liste, fiche, compteurs)", () => {
+  const cas = [["LECT", false], ["SANS", false], ["GEST", true], ["ADMIN", true], ["GEST_R1", true]] as const;
+
+  it.each(cas)("%s : listes, fiche et compteurs demandes avec tousLesJeux=%s", async (compte, attendu) => {
+    // SANS n'a pas la cle de module : 403 avant tout service, donc rien a verifier pour lui.
+    const ok = compte !== "SANS";
+    const statuts = [
+      (await avec(request(app).get(`${BASE}/${P_R1}/jeux`), compte)).status,
+      (await avec(request(app).get(`${BASE}/${P_R1}`), compte)).status,
+      (await avec(request(app).get(BASE), compte)).status,
+    ];
+    if (!ok) { expect(statuts).toEqual([403, 403, 403]); expect(w.appels).toEqual([]); return; }
+    expect(statuts).toEqual([200, 200, 200]);
+    expect(appelsDe("listerJeux")[0].args[1]).toBe(attendu);
+    expect(appelsDe("ficheProjet")[0].args[1]).toBe(attendu);
+    expect((appelsDe("listerProjets")[0].args[1] as { tousLesJeux: boolean }).tousLesJeux).toBe(attendu);
+  });
+
+  it("voitTousLesJeux : seuls ADMIN et GESTIONNAIRE", async () => {
+    const { voitTousLesJeux } = await import("../projets-voirie/projets.service");
+    expect(voitTousLesJeux("ADMIN")).toBe(true);
+    expect(voitTousLesJeux("GESTIONNAIRE")).toBe(true);
+    for (const r of ["LECTEUR", "INSPECTEUR", "", "admin"]) expect(voitTousLesJeux(r), r).toBe(false);
+  });
+});
+
 describe("delais et plafonds : erreurs typees (revue M2), jamais un 500", () => {
   it.each([
     ["ANALYSE_TROP_LONGUE", 504], ["CARTE_TROP_LONGUE", 504], ["DEPOT_TROP_LONG", 504], ["ANALYSE_TROP_VOLUMINEUSE", 422], ["PROJET_OCCUPE", 503],

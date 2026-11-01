@@ -36,7 +36,7 @@ export interface LigneJeu {
   decidePar?: { id: string; nomComplet: string } | null;
 }
 
-export function vueJeu(j: LigneJeu, options: { sansId?: boolean } = {}) {
+export function vueJeu(j: LigneJeu, options: { sansId?: boolean; sansHistorique?: boolean } = {}) {
   return {
     id: options.sansId ? null : j.id,
     projetId: j.projetId,
@@ -64,7 +64,8 @@ export function vueJeu(j: LigneJeu, options: { sansId?: boolean } = {}) {
     statut: j.statut,
     nonAutorise: j.statut === "CONTROLE" || j.statut === "RECU",
     version: j.version,
-    remplaceId: j.remplaceId,
+    // Un lecteur ne recoit pas l'identifiant d'une version qu'il ne peut pas lire (jeu remplace).
+    remplaceId: options.sansHistorique ? null : j.remplaceId,
     avertissements: j.avertissements,
     resume: j.resume,
     creePar: j.creePar ? { id: j.creePar.id, nomComplet: j.creePar.nomComplet } : null,

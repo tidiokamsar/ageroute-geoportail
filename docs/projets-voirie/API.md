@@ -18,7 +18,7 @@ Contrôle territorial : repose sur `perimetres_comptes` comme les autres routes 
 
 | Route | Rôle | Réponse |
 |---|---|---|
-| `GET /` | lecture | `{ projets: [ { ...projet, jeux: { CONTROLE: 1, AUTORISE: 2 } } ], curseurSuivant }` ; paramètres `q`, `limite` (1 à 100, défaut 25), `curseur` |
+| `GET /` | lecture | `{ projets: [ { ...projet, jeux: { CONTROLE: 1, AUTORISE: 2 } } ], curseurSuivant }` (les compteurs `jeux` ne comptent, pour un lecteur, que les jeux `AUTORISE`) ; paramètres `q`, `limite` (1 à 100, défaut 25), `curseur` |
 | `POST /` | écriture | 201 `{ projet }` |
 | `GET /:id` | lecture | `{ projet: { ...champs, parametres, bbox, jeux: [ jeu ] } }` ; `bbox` = union des emprises des jeux autorisés, nul sans jeu autorisé |
 | `PATCH /:id` | écriture | `{ projet }` |
@@ -26,7 +26,7 @@ Contrôle territorial : repose sur `perimetres_comptes` comme les autres routes 
 | `GET /concessionnaires` | lecture | `{ concessionnaires: [ { id, nom, typeReseau, contact, createdAt } ] }` triés par nom |
 | `POST /concessionnaires` | écriture | 201 `{ concessionnaire }` |
 | `POST /:id/jeux` | écriture | 201 (dépôt) ou 200 (`?simuler=true`) `{ simulation, jeu, resume, avertissements, delta, remplace }` |
-| `GET /:id/jeux` | lecture | `{ jeux: [ jeu ] }`, tous statuts sauf `RETIRE`, du plus récent au plus ancien |
+| `GET /:id/jeux` | lecture | `{ jeux: [ jeu ] }`, du plus récent au plus ancien : tous statuts sauf `RETIRE` pour `ADMIN` et `GESTIONNAIRE`, **seulement `AUTORISE` pour un lecteur** |
 | `DELETE /:id/jeux/:jeuId` | écriture | `{ jeu }` (statut `RETIRE`, les objets restent en base) |
 | `POST /:id/jeux/:jeuId/autoriser` | écriture | `{ jeu, remplaces: [ids] }` |
 | `POST /:id/jeux/:jeuId/rejeter` | écriture | `{ jeu, remplaces: [] }` |
@@ -245,9 +245,10 @@ Lire la géométrie d'un réseau de tiers (carte, couche de conflits et croiseme
 | m7 | Pas de CSP sur la page HTML de l'application (`frontend/nginx.conf`, `location = /index.html`), ancien et hors module. | À traiter par le lot frontend / infra, après test dans Teams. |
 | m8 | Les paramètres `bbox` et `jeux` apparaissent dans les journaux d'accès (morgan, nginx) ; les tuiles OSM et Esri révèlent la zone consultée. | Filtrer ces paramètres des journaux ; décision de fond sur les fonds de carte. |
 | m9 | `docs/reports/LOT-RC-00-RAPPORT.md` (hors module) nomme l'opérateur, le fournisseur du plan et des agrégats du pilote. | Relecture DSI avant toute publication hors équipe. |
-| (nouveau) | `GET /:id/jeux` liste les jeux en contrôle (métadonnées, sans géométrie) à tout lecteur du module. | Dire si la quarantaine doit aussi être masquée aux lecteurs dans cette liste. |
 
 ## Sécurité et audit
+
+- **Visibilité des statuts** : `ADMIN` et `GESTIONNAIRE` voient tous les jeux sauf `RETIRE` ; tout autre compte (lecteur) ne voit que les jeux `AUTORISE`, et le serveur filtre dans la requête (liste, fiche, compteurs de `GET /`). Les jeux en contrôle, rejetés ou remplacés n'apparaissent pas pour un lecteur ; `remplaceId` lui est rendu à `null` (l'identifiant d'une version qu'il ne peut pas lire). Décision prise le 01/11/2026 sur demande du coordinateur (ex-point « quarantaine visible des lecteurs dans la liste des jeux »).
 
 - Données RESTREINT par défaut, jamais dans l'API publique ni les tuiles (test statique `isolation.test.ts` + banc : aucune réponse publique ne contient les noms des objets).
 - Aucune écriture hors des tables du module et d'`audit_logs` (test statique + banc : comptes de toutes les tables avant et après).

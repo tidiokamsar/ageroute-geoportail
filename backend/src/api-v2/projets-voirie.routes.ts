@@ -15,7 +15,7 @@ import { reserverReception } from "../projets-voirie/limiteurs";
 import { deposerJeu } from "../projets-voirie/import.service";
 import {
   creerConcessionnaire, creerProjet, decider, decoderCurseur, ficheProjet, listerConcessionnaires, listerJeux, listerProjets,
-  modifierProjet, regionsDuProjet, retirerJeu, retirerProjet, type Acteur, type Portee,
+  modifierProjet, regionsDuProjet, retirerJeu, retirerProjet, voitTousLesJeux, type Acteur, type Portee,
 } from "../projets-voirie/projets.service";
 
 /**
@@ -133,7 +133,7 @@ projetsVoirieV2Router.get("/", enveloppe(async (req, res) => {
     curseur = decoderCurseur(p.data.curseur) ?? undefined;
     if (!curseur) { res.status(400).json({ error: "Curseur invalide : repartez de la première page", code: "CURSEUR_INVALIDE" }); return; }
   }
-  res.json(await listerProjets(await porteeDe(req), { q: p.data.q, limite: p.data.limite, curseur }));
+  res.json(await listerProjets(await porteeDe(req), { q: p.data.q, limite: p.data.limite, curseur, tousLesJeux: voitTousLesJeux(req.user!.role) }));
 }));
 
 const corpsProjet = z.object({
@@ -174,7 +174,7 @@ projetsVoirieV2Router.post("/concessionnaires", ecriture, enveloppe(async (req, 
   res.status(201).json({ concessionnaire: await creerConcessionnaire(acteurDe(req), p.data) });
 }));
 
-projetsVoirieV2Router.get("/:id", gardeProjet, enveloppe(async (req, res) => { res.json({ projet: await ficheProjet(req.params.id) }); }));
+projetsVoirieV2Router.get("/:id", gardeProjet, enveloppe(async (req, res) => { res.json({ projet: await ficheProjet(req.params.id, voitTousLesJeux(req.user!.role)) }); }));
 
 const corpsModif = z.object({
   nom: texte(200).optional(),
@@ -259,7 +259,7 @@ projetsVoirieV2Router.post("/:id/jeux", ecriture, gardeProjet, placeDeReception,
   res.status(r.simulation ? 200 : 201).json(r);
 }));
 
-projetsVoirieV2Router.get("/:id/jeux", gardeProjet, enveloppe(async (req, res) => { res.json(await listerJeux(req.params.id)); }));
+projetsVoirieV2Router.get("/:id/jeux", gardeProjet, enveloppe(async (req, res) => { res.json(await listerJeux(req.params.id, voitTousLesJeux(req.user!.role))); }));
 
 const ID_MAX = 64;
 const jeuIdValide = (req: Request, res: Response): boolean => {
@@ -289,7 +289,7 @@ for (const [action, decision] of [["autoriser", "AUTORISE"], ["rejeter", "REJETE
 
 /** La quarantaine (jeux non autorises) n'est visible que des roles qui peuvent decider (revue de securite, m1). */
 function quarantaineAutorisee(req: Request, res: Response, demandee: boolean): boolean {
-  if (demandee && req.user!.role !== "ADMIN" && req.user!.role !== "GESTIONNAIRE") {
+  if (demandee && !voitTousLesJeux(req.user!.role)) {
     res.status(403).json({ error: "inclureNonAutorises est reserve aux comptes ADMIN et GESTIONNAIRE : la quarantaine n'est pas lisible par un lecteur", code: "QUARANTAINE_RESERVEE" });
     return false;
   }
