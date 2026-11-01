@@ -1,0 +1,21 @@
+-- METHODE DE QUANTITE « EMPRISE_UTM » (paragraphe 7.1, scenario A5)
+--
+-- « Calculs metriques (longueurs, surfaces, distances, tampons) : projection en UTM 28N ou 29N selon
+-- la longitude. Jamais de calcul de longueur ou de surface en degres. » Les fonctions `epsg_utm` et
+-- `metre_utm` (migration 20261020010000) font ce calcul, mais aucune saisie de defaut ne s'en servait :
+-- un defaut lineaire ou surfacique n'avait que des mesures saisies (longueur, largeur).
+--
+-- CE QUE CETTE MIGRATION AJOUTE : une valeur a `MethodeQuantite`. Un defaut dont l'agent a releve le
+-- CONTOUR au GPS (`defauts.emprise`, colonne qui existe depuis la migration 20261007200000 et que rien
+-- n'ecrivait) tire sa quantite de la mesure de ce contour dans son fuseau UTM. La quantite doit dire
+-- qu'elle a ete mesuree sur un contour, et non saisie ni calculee par un rectangle : un chiffre qui
+-- servira a chiffrer un marche porte sa provenance.
+--
+-- La coherence « methode EMPRISE_UTM => une emprise existe » est posee par la migration suivante
+-- (20261024310000) : PostgreSQL interdit d'utiliser une valeur d'enumeration dans la transaction qui
+-- vient de l'ajouter.
+--
+-- NATURE : additive. Une valeur d'enumeration, aucune donnee touchee. La descente reconstruit le type
+-- et refuse si une ligne porte la valeur.
+
+ALTER TYPE "MethodeQuantite" ADD VALUE IF NOT EXISTS 'EMPRISE_UTM';

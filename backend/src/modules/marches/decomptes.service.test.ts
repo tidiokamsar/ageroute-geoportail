@@ -1,22 +1,39 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
-vi.mock("../../utils/audit", () => ({ logAudit: vi.fn() }));
+const tracesAudit = vi.hoisted(() => [] as Record<string, unknown>[]);
+vi.mock("../../utils/audit", () => ({
+  logAudit: vi.fn(),
+  // Depuis la migration a l'audit transactionnel (ADR 11), ces deux-la sont les chemins
+  // reels. Un mock qui ne les expose pas fait echouer le test sans dire pourquoi.
+  construireAudit: vi.fn((p: Record<string, unknown>) => ({ __audit: p })),
+  logAuditTransactionnelle: vi.fn(async (_tx: unknown, p: Record<string, unknown>) => {
+    tracesAudit.push(p);
+  }),
+}));
 
 const db = vi.hoisted(() => ({
   decompte: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn(), groupBy: vi.fn() },
   marche: { findFirst: vi.fn() },
+  // `$transaction` sert les DEUX formes : interactive quand l'audit a besoin de la ligne
+  // retournee, tableau quand il n'enregistre qu'un resume.
+  $transaction: vi.fn(async (arg: unknown) => {
+    if (typeof arg === "function") return (arg as (t: unknown) => Promise<unknown>)(db);
+    return Promise.all(arg as Promise<unknown>[]);
+  }),
 }));
 
 vi.mock("../../lib/prisma", () => ({ prisma: db }));
 
 import { decomptesService } from "./decomptes.service";
-import { logAudit } from "../../utils/audit";
+import { construireAudit } from "../../utils/audit";
+
 
 const DECOMPTE_ACTIF = { id: "d1", marcheId: "m1", numero: 1, statut: "PAYE", montantGnf: 1000n, deletedAt: null };
 
 describe("decomptesService — suppression logique (P1-01)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    tracesAudit.length = 0;
     db.marche.findFirst.mockResolvedValue({ id: "m1" });
   });
 
@@ -31,7 +48,11 @@ describe("decomptesService — suppression logique (P1-01)", () => {
       where: { id: "d1" },
       data: expect.objectContaining({ deletedAt: expect.any(Date) }),
     });
-    expect(logAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "DELETE", entityType: "Decompte", userId: "user-1" }));
+    // Un retrait n'audite qu'un resume : il part par la forme tableau, aux cotes de
+    // la mise a jour logique.
+    expect(construireAudit).toHaveBeenCalledWith(expect.objectContaining({
+      action: "DELETE", entityType: "Decompte", userId: "user-1",
+    }));
   });
 
   it("remove() refuse un décompte déjà retiré (404)", async () => {

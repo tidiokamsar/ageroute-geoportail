@@ -45,8 +45,12 @@ const db = vi.hoisted(() => {
     count: vi.fn(async () => 1),
   };
 
+  // Verrou de ligne du compte (D9, point 1) : sur une base simulee il ne bloque rien, on garde le texte SQL et l'ordre.
+  const verrous: string[] = [];
   const prisma = {
     state,
+    verrous,
+    $queryRaw: vi.fn(async (texte: TemplateStringsArray, ..._valeurs: unknown[]) => { verrous.push(texte.join("?").trim()); return []; }),
     refreshToken,
     user,
     $transaction: vi.fn(async (arg: unknown) =>
@@ -75,7 +79,22 @@ vi.mock("../../utils/jwt", async () => {
   return { ...real, ...jwt };
 });
 vi.mock("../../config/env", () => ({ env: { JWT_REFRESH_EXPIRES_IN: "7d", NODE_ENV: "development" } }));
-vi.mock("../../utils/audit", () => ({ logAudit: vi.fn() }));
+vi.mock("../../utils/audit", () => {
+  const logAudit = vi.fn();
+  // Les deux chemins transactionnels delegent au MEME espion. Les assertions existantes
+  // continuent ainsi d'observer exactement les memes parametres, et verifient donc le
+  // chemin reel — notamment celle qui exige qu'aucun jeton brut n'atteigne l'audit.
+  return {
+    logAudit,
+    construireAudit: vi.fn((p: Record<string, unknown>) => {
+      logAudit(p);
+      return { __audit: p };
+    }),
+    logAuditTransactionnelle: vi.fn(async (_tx: unknown, p: Record<string, unknown>) => {
+      logAudit(p);
+    }),
+  };
+});
 vi.mock("../../utils/password", () => ({ verifyPassword: vi.fn(async () => true), hashPassword: vi.fn(async () => "h") }));
 
 import { refresh, logout, logoutAll, revokeAllForUser, login } from "./auth.service";
@@ -100,6 +119,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   db.state.tokens.length = 0;
   db.state.users.length = 0;
+  db.verrous.length = 0;
 });
 
 afterEach(() => {
@@ -167,6 +187,26 @@ describe("P3-A — cycle refresh token", () => {
     await expect(refresh(brutGagnant)).rejects.toMatchObject({ status: 401 });
   });
 
+  it("TEST 9 bis (D9, point 1) : la rotation prend FOR SHARE sur la ligne du compte AVANT toute lecture du jeton", async () => {
+    const s = await sessionPour(USER_A);
+    db.verrous.length = 0;
+    db.$queryRaw.mockClear();
+    db.refreshToken.findUnique.mockClear();
+    await refresh(s.refreshToken);
+    expect(db.verrous).toEqual(["SELECT id FROM users WHERE id = ? FOR SHARE"]);
+    // Le verrou vise le compte DECLARE par la signature du jeton, et il precede la lecture du jeton stocke.
+    expect(db.$queryRaw.mock.calls[0][1]).toBe(USER_A.id);
+    expect(db.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(db.refreshToken.findUnique.mock.invocationCallOrder[0]);
+  });
+
+  it("TEST 9 ter (D9, point 1) : le verrou de rotation est pris meme quand la rotation echoue (jeton rejoue) : aucune sortie sans lui", async () => {
+    const s = await sessionPour(USER_A);
+    await refresh(s.refreshToken);
+    db.verrous.length = 0;
+    await expect(refresh(s.refreshToken)).rejects.toMatchObject({ status: 401 });
+    expect(db.verrous).toEqual(["SELECT id FROM users WHERE id = ? FOR SHARE"]);
+  });
+
   it("TEST 10 : token d'un utilisateur présenté contre la ligne d'un autre → 401 + famille révoquée", async () => {
     const s = await sessionPour(USER_A);
     // falsification : la ligne de A prétend désormais appartenir à B
@@ -211,6 +251,17 @@ describe("P3-A — cycle refresh token", () => {
     const evenement = (logAudit as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]).find((a) => a.action === "SECURITY_EVENT");
     expect(evenement).toBeDefined();
     expect(evenement!.after).toMatchObject({ evenement: "REFRESH_TOKENS_REVOKED", motif: "LOGOUT_ALL" });
+  });
+
+  it("TEST 14 bis (D9, point 1) : la revocation globale prend FOR UPDATE sur le compte EN PREMIER, avant la coupure des jetons", async () => {
+    await sessionPour(USER_A);
+    db.verrous.length = 0;
+    db.$queryRaw.mockClear();
+    db.refreshToken.updateMany.mockClear();
+    await logoutAll(USER_A.id);
+    expect(db.verrous).toEqual(["SELECT id FROM users WHERE id = ? FOR UPDATE"]);
+    expect(db.$queryRaw.mock.calls[0][1]).toBe(USER_A.id);
+    expect(db.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(db.refreshToken.updateMany.mock.invocationCallOrder[0]);
   });
 
   it("TEST 15 : changement de mot de passe → toutes les sessions révoquées (revokeAllForUser, motif PASSWORD_RESET)", async () => {

@@ -1,0 +1,28 @@
+{
+  "type": "FeatureCollection",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "EPSG:3857"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          -1522000,
+          1060000
+        ]
+      },
+      "properties": {
+        "systeme_source": "{{SOURCE}}",
+        "type_objet": "comptage",
+        "identifiant_source": "M-001",
+        "code_route": "RN1",
+        "date_source": "2026-10-01"
+      }
+    }
+  ]
+}

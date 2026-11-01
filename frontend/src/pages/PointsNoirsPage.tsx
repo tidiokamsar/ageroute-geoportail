@@ -100,6 +100,7 @@ export function PointsNoirsPage() {
 
   return (
     <EntityListPage<PointNoir>
+      exportTable="points_noirs"
       endpoint="points-noirs"
       title="Points Noirs"
       subtitle="Zones dangereuses et accidentogènes du réseau"

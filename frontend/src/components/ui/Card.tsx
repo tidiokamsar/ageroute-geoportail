@@ -1,6 +1,7 @@
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
+import { assombrirPour, estHex, surFond } from "@/lib/contraste"
 
 const Card = React.forwardRef<
   HTMLDivElement,
@@ -30,6 +31,11 @@ function KpiCard({
   icon?: React.ReactNode;
   accent?: string;
 }) {
+  // `accent` est choisi pour les aplats (barre, halo) ; en TEXTE sur blanc, l'or #f5a623 ou le gris
+  // #9ca3af mesuraient 2,0:1 et 2,5:1 (seuil 3:1 pour du grand texte). On assombrit pour la lecture,
+  // l'aplat garde la couleur d'origine. Voir docs/accessibilite/CONTRASTE.md.
+  const accentTexte = estHex(accent) ? assombrirPour(accent, "#ffffff", 4.5) : accent;
+  const accentIcone = estHex(accent) ? assombrirPour(accent, surFond(accent, 0.082, "#ffffff"), 4.5) : accent;
   return (
     <Card className="relative overflow-hidden p-4 transition-all duration-200 hover:shadow-md hover:-translate-y-0.5 border-gray-200/70 group cursor-default">
       {/* Gradient blob background */}
@@ -42,7 +48,7 @@ function KpiCard({
       <div className="flex items-start justify-between gap-2 pl-2">
         <div className="min-w-0">
           <p className="text-[11px] uppercase tracking-widest text-muted-foreground/70 truncate font-medium">{label}</p>
-          <p className="mt-1.5 text-2xl md:text-3xl font-black leading-tight" style={{ color: accent }}>
+          <p className="mt-1.5 text-2xl md:text-3xl font-black leading-tight" style={{ color: accentTexte }}>
             {value}
           </p>
           {sub && <p className="mt-1 text-xs text-muted-foreground">{sub}</p>}
@@ -50,7 +56,7 @@ function KpiCard({
         {icon && (
           <span
             className="shrink-0 flex items-center justify-center h-10 w-10 rounded-xl text-xl shadow-sm group-hover:scale-110 transition-transform duration-200"
-            style={{ backgroundColor: `${accent}15`, color: accent }}
+            style={{ backgroundColor: `${accent}15`, color: accentIcone }}
           >
             {icon}
           </span>

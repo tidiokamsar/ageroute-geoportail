@@ -9,6 +9,7 @@ import {
   listHandler, getHandler, listGeoHandler, createHandler, updateHandler, deleteHandler,
   exportHandler, importHandler, geolocateHandler,
 } from "./points-noirs.controller";
+import { territoireFiche } from "../../territoire/territoire.v1";
 
 export const pointsNoirsRouter = Router();
 pointsNoirsRouter.use(requireAuth);
@@ -20,5 +21,5 @@ pointsNoirsRouter.use(requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess(
 pointsNoirsRouter.get("/:id", getHandler);
 pointsNoirsRouter.post("/", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("points-noirs"), createHandler);
 pointsNoirsRouter.put("/:id", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("points-noirs"), updateHandler);
-pointsNoirsRouter.post("/:id/geolocate", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("points-noirs"), geolocateHandler);
+pointsNoirsRouter.post("/:id/geolocate", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("points-noirs"), territoireFiche("pointNoir"), geolocateHandler);
 pointsNoirsRouter.delete("/:id", requireRole("ADMIN", "GESTIONNAIRE"), requireModuleAccess("points-noirs"), deleteHandler);

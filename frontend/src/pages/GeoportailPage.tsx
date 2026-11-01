@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, GeoJSON, Tooltip, useMap, useMapEvents } from "react-leaflet";
+import { chargerChemin, cleChemin } from "../lib/cheminVilles";
+import { MapContainer, TileLayer, CircleMarker, Marker, Polyline, GeoJSON, Tooltip, ZoomControl, useMap, useMapEvents } from "react-leaflet";
+// Feuille de style de Leaflet servie par l'application elle-meme (precachee par le service worker) : plus de CDN tiers, la carte garde sa mise en forme hors ligne.
+import "leaflet/dist/leaflet.css";
 import type { Layer } from "leaflet";
 import type { Feature, Geometry } from "geojson";
 import MarkerClusterGroup from "react-leaflet-cluster";
 import {
-  Search, Ruler, Square, Navigation, Share2, Maximize, Minimize, ChevronDown,
+  Search, ChevronDown,
   ChevronLeft, ChevronRight,
   Route, Landmark, ShieldAlert, Construction, AlertTriangle, MapPinned, Layers as LayersIcon,
-  PenLine, Check, X, BarChart2, MapPin,
+  Check, X, BarChart2, MapPin, Clock,
 } from "lucide-react";
 import { api } from "../lib/api";
 import { useEntityMutations } from "../hooks/useEntity";
@@ -19,6 +22,9 @@ import { useAuth, canDelete, canWrite } from "../lib/auth";
 import { Checkbox } from "../components/ui/checkbox";
 import type { DashboardKpis, EtatPatrimoine, Region } from "../types";
 import { DetailPanel } from "./geoportail/DetailPanel";
+import { CurseurTemporel } from "./geoportail/CurseurTemporel";
+import { PortionsDateLayer, type EtatCouchePortions } from "./geoportail/PortionsDateLayer";
+import { aujourdhui, ecrireCurseur, lireCurseur, SANS_CURSEUR, type Chronologie, type EtatCurseur } from "../lib/curseur";
 import { MoveOuvrageLayer } from "./geoportail/MoveOuvrageLayer";
 import {
   FranchissementsLayer,
@@ -36,12 +42,18 @@ import {
   ZOOM_MINIMUM,
   type CategorieVoirie, legendeVoirie } from "./geoportail/VoirieLocaleLayer";
 import { RechercheVille } from "../components/RechercheVille";
-import { tronconDansFiltre, type FiltreVille } from "../lib/villes";
+import { ChangerEtatCorridor } from "../components/ChangerEtatCorridor";
+import { sommetDansFiltre, tronconDansFiltre, type FiltreVille } from "../lib/villes";
+import { COUCHES_PAR_DEFAUT, coucheVisible, garderLeFocus, lireFocus, PARAM_VUE, sansFocus, VUE_COMPLETE, type FocusKind } from "../lib/focus";
 import axios from "axios";
 import { MeasureLayer, type MeasureMode } from "./geoportail/MeasureLayer";
 import { DrawTronconLayer, type DrawHandle, type DrawPhase } from "./geoportail/DrawTronconLayer";
 import { DrawTronconForm } from "./geoportail/DrawTronconForm";
-import { ExportControl } from "./geoportail/ExportControl";
+import { BarreOutilsCarte } from "./geoportail/BarreOutilsCarte";
+import { libelleTroncon } from "../lib/libelleTroncon";
+import { LegendeEtat } from "./geoportail/LegendeEtat";
+import { echapDansAutreDialogue } from "./geoportail/echap";
+import { ecranEtroit, longueurDeclareeKm, styleTroncon } from "./geoportail/affichageTroncon";
 import { TOPONYMES } from "./geoportail/toponymes";
 import { ouvrageIcon, pointNoirIcon, posteIcon, chantierApproxIcon, TYPE_OUVRAGE_LABEL } from "./geoportail/symbols";
 import { TronconPicker } from "../components/TronconPicker";
@@ -164,12 +176,14 @@ function PanelSection({
   return (
     <div className="rounded-lg border border-gray-100 bg-white shadow-sm overflow-hidden">
       <button
+        type="button"
         onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
         className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-gray-50"
       >
         <span className="text-navy">{icon}</span>
         <span className="text-xs font-semibold uppercase tracking-wide text-gray-600 flex-1">{title}</span>
-        <ChevronDown className={`h-3.5 w-3.5 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
+        <ChevronDown aria-hidden="true" className={`h-3.5 w-3.5 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
       {open && <div className="px-3 pb-3 space-y-1.5 text-sm">{children}</div>}
     </div>
@@ -188,9 +202,24 @@ function LayerRow({ checked, onChange, label, bold }: { checked: boolean; onChan
 export function GeoportailPage() {
   const [params, setParams] = useSearchParams();
 
+  // Mode « un seul element » : l'URL en est la source de verite (voir lib/focus.ts). Arriver par un lien
+  // « Carte » ou choisir un resultat de recherche n'affiche QUE cet element, pas le reseau de la region.
+  const focus = useMemo(() => lireFocus(params), [params]);
+  const isoler = useCallback(
+    (kind: FocusKind, id: string) => {
+      const next = new URLSearchParams(params);
+      next.delete(PARAM_VUE);
+      next.set("select", kind);
+      next.set("id", id);
+      setParams(next, { replace: true });
+    },
+    [params, setParams],
+  );
+  const toutAfficher = useCallback(() => setParams(sansFocus(params), { replace: true }), [params, setParams]);
+
   const [layers, setLayers] = useState<Record<LayerKey, boolean>>(() => {
     const fromUrl = params.get("layers");
-    if (!fromUrl) return { troncons: true, chantiers: true, ouvrages: true, postes: true, pointsNoirs: true };
+    if (!fromUrl) return { ...COUCHES_PAR_DEFAUT };
     const active = new Set(fromUrl.split(","));
     return Object.fromEntries(LAYER_KEYS.map((k) => [k, active.has(k)])) as Record<LayerKey, boolean>;
   });
@@ -216,6 +245,9 @@ export function GeoportailPage() {
   );
   const [showAlertes, setShowAlertes] = useState(false);
   const [showToponymes, setShowToponymes] = useState(false);
+  // Contour du pays : un repere de fond, allume par defaut. Il vient des limites administratives de
+  // niveau 1 (source OCHA COD-AB), pas d'une frontiere officielle : la case le dit.
+  const [showContour, setShowContour] = useState(true);
   // D9 (validée) : affichage complet des franchissements OSM en propositions,
   // et repositionnement terrain des ouvrages en attendant la mission.
   const [showPontsOsm, setShowPontsOsm] = useState(false);
@@ -243,12 +275,25 @@ export function GeoportailPage() {
     [pontsOsm]
   );
   const [drawMode, setDrawMode] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Replie par defaut sous le breakpoint `md` : ouvert, le panneau (18 rem) ne laisse presque rien
+  // de la carte sur un telephone. Sur bureau, le comportement historique (ouvert) est inchange.
+  const [sidebarOpen, setSidebarOpen] = useState(() => !ecranEtroit());
   const [rechercheVilleOuverte, setRechercheVilleOuverte] = useState(false);
   // Voirie locale : couche de 262 656 objets, servie par emprise au-dela du zoom 12.
   // Par defaut, seules les voies carrossables — les 175 283 chemins et sentiers font
   // les deux tiers du volume pour l'usage le moins etabli.
   const [showVoirie, setShowVoirie] = useState(false);
+  // Curseur temporel : voir le reseau a une date. Lu depuis le lien (valide, jamais a moitie).
+  const [curseur, setCurseur] = useState<EtatCurseur>(
+    () => lireCurseur(params.toString()) ?? { ...SANS_CURSEUR, date: aujourdhui() },
+  );
+  const [couchePortions, setCouchePortions] = useState<EtatCouchePortions | null>(null);
+  const { data: chronologie, isLoading: chronologieEnCours, error: chronologieErreur } = useQuery({
+    queryKey: ["portions-chronologie"],
+    // Seulement quand le curseur est allume : la page ne paie rien tant qu'on ne s'en sert pas.
+    enabled: curseur.actif,
+    queryFn: async () => (await api.get<Chronologie>("/v2/portions/chronologie")).data,
+  });
   const [categoriesVoirie, setCategoriesVoirie] = useState<Set<CategorieVoirie>>(
     () => new Set<CategorieVoirie>(["VOIE_LOCALE", "RESIDENTIELLE", "ACCES"])
   );
@@ -345,6 +390,14 @@ export function GeoportailPage() {
 
   const exportRef = useRef<HTMLDivElement>(null);
 
+  const { data: contour } = useQuery({
+    queryKey: ["contour-pays"],
+    queryFn: async () => (await api.get<Feature<Geometry, { source: string; valideLe: string | null; avertissement: string }>>("/v2/geo/contour")).data,
+    // 404 si la base ne porte aucune limite : on n'insiste pas, et rien n'est invente a la place.
+    retry: false,
+    staleTime: 3_600_000,
+  });
+
   const { data: regions } = useQuery({
     queryKey: ["regions"],
     queryFn: async () => (await api.get<Region[]>("/regions")).data,
@@ -353,7 +406,9 @@ export function GeoportailPage() {
     queryKey: ["dashboard", "kpis"],
     queryFn: async () => (await api.get<DashboardKpis>("/dashboard/kpis")).data,
   });
-  const { data: troncons, isLoading } = useQuery({
+  // refetchTroncons : la carte se rafraichit apres un changement d'etat de corridor
+  // (couleur des troncons = etat, le changement doit se VOIR immediatement).
+  const { data: troncons, isLoading, refetch: refetchTroncons } = useQuery({
     queryKey: ["troncons", "geo"],
     queryFn: async () => (await api.get<TronconGeoFeature[]>("/troncons/geo")).data,
   });
@@ -412,8 +467,20 @@ export function GeoportailPage() {
       }
       setSelectedFeature({ kind: "chantier", data: c });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectKind, selectId, troncons, ouvrages, pointsNoirs, postes, chantiers]);
+
+  // Deux villes : la ROUTE entre elles (plus court chemin sur le reseau, cote serveur), pas la bande de 20 km autour de la droite
+  // (qui ramenait aussi les routes voisines). Tant que la route n'est pas calculee, ou si le referentiel est interrompu entre
+  // les deux villes, la bande reste affichee a titre APPROXIMATIF, dit comme tel, et aucune action de masse n'est proposee.
+  const cheminVille = useQuery({
+    queryKey: villeFiltre?.b ? cleChemin(villeFiltre.a, villeFiltre.b) : ["chemin-villes", "vide"],
+    queryFn: () => chargerChemin(villeFiltre!.a, villeFiltre!.b!),
+    enabled: Boolean(villeFiltre?.b),
+    retry: false,
+    staleTime: 60_000,
+  });
+  const idsChemin = useMemo(() => (cheminVille.data ? new Set(cheminVille.data.troncons.map((t) => t.id)) : null), [cheminVille.data]);
+  const routeExacte = Boolean(villeFiltre?.b && idsChemin);
 
   const filteredTroncons = useMemo(
     () =>
@@ -422,9 +489,9 @@ export function GeoportailPage() {
           (!regionFilter || t.region === regionFilter) &&
           (!etatFilter || t.etat === etatFilter) &&
           classeFilter[t.classe] !== false &&
-          (!villeFiltre || tronconDansFiltre(t.geometry, villeFiltre))
+          (!villeFiltre || (idsChemin && villeFiltre.b ? idsChemin.has(t.id) : tronconDansFiltre(t.geometry, villeFiltre)))
       ),
-    [troncons, regionFilter, etatFilter, classeFilter, villeFiltre]
+    [troncons, regionFilter, etatFilter, classeFilter, villeFiltre, idsChemin]
   );
 
   const alertTroncons = useMemo(
@@ -450,6 +517,76 @@ export function GeoportailPage() {
     () => (chantiers ?? []).filter((c) => chantierStatutFilter[c.statut] !== false),
     [chantiers, chantierStatutFilter]
   );
+
+  // Ce que la carte DESSINE. Le filtre par ville ne restreignait que les troncons : tous les actifs
+  // (ouvrages, postes, points noirs, chantiers) restaient affiches, ou qu'ils soient. Il s'applique
+  // maintenant a tous. En mode « un seul element », les filtres sont ignores (l'element demande
+  // s'affiche meme si un filtre l'aurait ecarte) et rien d'autre n'est dessine.
+  const dansLaVille = useCallback(
+    (lat: number, lon: number) => !villeFiltre || sommetDansFiltre(lat, lon, villeFiltre),
+    [villeFiltre],
+  );
+  const tronconsAffiches = useMemo(
+    () => garderLeFocus(focus ? (troncons ?? []) : filteredTroncons, focus, "troncon"),
+    [focus, troncons, filteredTroncons],
+  );
+  const chantiersAffiches = useMemo(
+    () =>
+      garderLeFocus(
+        focus
+          ? (chantiers ?? [])
+          : filteredChantiers.filter((c) =>
+              !villeFiltre ||
+              (c.lat != null && c.lon != null
+                ? dansLaVille(c.lat, c.lon)
+                : geoJsonToLatLngs(c.geometry ?? "").some(([la, lo]) => dansLaVille(la, lo))),
+            ),
+        focus,
+        "chantier",
+      ),
+    [focus, chantiers, filteredChantiers, villeFiltre, dansLaVille],
+  );
+  const ouvragesAffiches = useMemo(
+    () =>
+      garderLeFocus(
+        focus
+          ? (ouvrages ?? [])
+          : (ouvrages ?? []).filter(
+              (o) => (!regionFilter || o.region === regionFilter) && (!reprisSeulement || o.repris) && dansLaVille(o.lat, o.lon),
+            ),
+        focus,
+        "ouvrage",
+      ),
+    [focus, ouvrages, regionFilter, reprisSeulement, dansLaVille],
+  );
+  const postesAffiches = useMemo(
+    () =>
+      garderLeFocus(
+        focus ? (postes ?? []) : (postes ?? []).filter((p) => (!regionFilter || p.region === regionFilter) && dansLaVille(p.lat, p.lon)),
+        focus,
+        "poste",
+      ),
+    [focus, postes, regionFilter, dansLaVille],
+  );
+  const pointsNoirsAffiches = useMemo(
+    () =>
+      garderLeFocus(
+        focus
+          ? (pointsNoirs ?? [])
+          : (pointsNoirs ?? []).filter((p) => (!regionFilter || p.region === regionFilter) && dansLaVille(p.lat, p.lon)),
+        focus,
+        "pointNoir",
+      ),
+    [focus, pointsNoirs, regionFilter, dansLaVille],
+  );
+  const libelleFocus = useMemo(() => {
+    if (!focus) return "";
+    if (focus.kind === "troncon") { const t = (troncons ?? []).find((x) => x.id === focus.id); return t ? libelleTroncon(t.code, t.nom) : "tronçon"; }
+    if (focus.kind === "ouvrage") return (ouvrages ?? []).find((x) => x.id === focus.id)?.nom ?? "ouvrage";
+    if (focus.kind === "chantier") return (chantiers ?? []).find((x) => x.id === focus.id)?.intitule ?? "chantier";
+    if (focus.kind === "poste") return (postes ?? []).find((x) => x.id === focus.id)?.nom ?? "poste";
+    return (pointsNoirs ?? []).find((x) => x.id === focus.id)?.description ?? "point noir";
+  }, [focus, troncons, ouvrages, chantiers, postes, pointsNoirs]);
 
   // Recherche unifiee (tous types confondus) : un utilisateur cherchant "Kindia" ou un nom
   // d'ouvrage ne devrait pas avoir a deviner dans quel module chercher. Chaque resultat
@@ -502,9 +639,10 @@ export function GeoportailPage() {
       if (t.code.toLowerCase().includes(q) || t.nom.toLowerCase().includes(q)) {
         hits.push({
           key: `troncon-${t.id}`,
-          label: `${t.code} — ${t.nom}`,
+          label: libelleTroncon(t.code, t.nom),
           sub: "Tronçon",
           onSelect: () => {
+            isoler("troncon", t.id);
             const pts = geoJsonToLatLngs(t.geometry);
             if (pts.length) setFlyTarget(pts[Math.floor(pts.length / 2)]);
             setSelectedFeature({ kind: "troncon", data: t });
@@ -520,6 +658,7 @@ export function GeoportailPage() {
           label: o.nom,
           sub: `Ouvrage — ${o.type}`,
           onSelect: () => {
+            isoler("ouvrage", o.id);
             setFlyTarget([o.lat, o.lon]);
             setSelectedFeature({ kind: "ouvrage", data: o });
           },
@@ -534,6 +673,7 @@ export function GeoportailPage() {
           label: c.intitule,
           sub: "Chantier",
           onSelect: () => {
+            isoler("chantier", c.id);
             if (c.lat != null && c.lon != null) setFlyTarget([c.lat, c.lon]);
             else {
               const pts = geoJsonToLatLngs(c.geometry ?? "");
@@ -552,6 +692,7 @@ export function GeoportailPage() {
           label: p.description,
           sub: "Point noir",
           onSelect: () => {
+            isoler("pointNoir", p.id);
             setFlyTarget([p.lat, p.lon]);
             setSelectedFeature({ kind: "pointNoir", data: p });
           },
@@ -566,6 +707,7 @@ export function GeoportailPage() {
           label: p.nom,
           sub: `Poste — ${p.type}`,
           onSelect: () => {
+            isoler("poste", p.id);
             setFlyTarget([p.lat, p.lon]);
             setSelectedFeature({ kind: "poste", data: p });
           },
@@ -573,7 +715,7 @@ export function GeoportailPage() {
       }
     }
     return hits.slice(0, 10);
-  }, [troncons, ouvrages, chantiers, pointsNoirs, postes, search]);
+  }, [troncons, ouvrages, chantiers, pointsNoirs, postes, search, isoler]);
 
   /**
    * Complement serveur : les troncons que la carte ne transporte pas.
@@ -607,7 +749,7 @@ export function GeoportailPage() {
       .slice(0, 10 - searchResults.length)
       .map<SearchHit>((t) => ({
         key: `distant-${t.id}`,
-        label: `${t.code} — ${t.nom}`,
+        label: libelleTroncon(t.code, t.nom),
         sub: "Tronçon (hors carte)",
         // La geometrie n'est pas chargee : on ouvre la fiche, qui va la chercher.
         onSelect: () => { void ouvrirTronconPromu(t.id); },
@@ -619,10 +761,10 @@ export function GeoportailPage() {
   // le nombre d'elements SVG dessines par Leaflet reste le meme, mais on supprime le cout
   // de reconciliation React (diff de ~1700 composants) a chaque re-render (changement de
   // filtre, ouverture d'un modal, etc.) — sensible sur un reseau de cette taille.
-  const tronconsById = useMemo(() => new Map(filteredTroncons.map((t) => [t.id, t])), [filteredTroncons]);
+  const tronconsById = useMemo(() => new Map(tronconsAffiches.map((t) => [t.id, t])), [tronconsAffiches]);
   const tronconsFeatureCollection = useMemo(() => {
     const features: Feature<Geometry, { id: string }>[] = [];
-    for (const t of filteredTroncons) {
+    for (const t of tronconsAffiches) {
       try {
         features.push({ type: "Feature", geometry: JSON.parse(t.geometry), properties: { id: t.id } });
       } catch {
@@ -630,7 +772,7 @@ export function GeoportailPage() {
       }
     }
     return { type: "FeatureCollection" as const, features };
-  }, [filteredTroncons]);
+  }, [tronconsAffiches]);
 
   const repartitionParEtat = useMemo(() => {
     const totals = new Map<EtatPatrimoine, number>();
@@ -643,6 +785,21 @@ export function GeoportailPage() {
       .map(([etat, km]) => ({ etat, km, pct: total > 0 ? (km / total) * 100 : 0 }))
       .sort((a, b) => b.km - a.km);
   }, [troncons]);
+
+  const longueurDeclaree = useMemo(() => longueurDeclareeKm(troncons ?? []), [troncons]);
+
+  // Echap quitte le plein ecran, mais seulement quand aucune fiche n'est ouverte : la fiche
+  // consomme le premier Echap (elle se ferme, avec confirmation si une saisie est en cours),
+  // le suivant ramene la carte a sa taille normale.
+  useEffect(() => {
+    if (!fullscreen) return;
+    const surTouche = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || echapDansAutreDialogue(e) || selectedFeature) return;
+      setFullscreen(false);
+    };
+    window.addEventListener("keydown", surTouche);
+    return () => window.removeEventListener("keydown", surTouche);
+  }, [fullscreen, selectedFeature]);
 
   const toggleLayer = (key: LayerKey) => setLayers((l) => ({ ...l, [key]: !l[key] }));
   const bm = BASEMAPS[basemap];
@@ -657,15 +814,25 @@ export function GeoportailPage() {
     if (regionFilter) next.set("region", regionFilter);
     if (etatFilter) next.set("etat", etatFilter);
     next.set("bg", basemap);
+    // Un lien PARTAGE rouvre la vue complete (avec l'element ouvert) : il n'isole pas l'element.
+    next.set(PARAM_VUE, VUE_COMPLETE);
     next.set("lat", viewRef.current.center[0].toFixed(5));
     next.set("lng", viewRef.current.center[1].toFixed(5));
     next.set("zoom", String(viewRef.current.zoom));
-    return `${window.location.origin}${window.location.pathname}?${next.toString()}`;
+    // L'element ouvert fait partie de ce que l'on partage : la page sait deja le relire
+    // (`select` + `id`), le lien ne l'ecrivait pas.
+    if (selectedFeature && "id" in selectedFeature.data && typeof selectedFeature.data.id === "string") {
+      next.set("select", selectedFeature.kind);
+      next.set("id", selectedFeature.data.id);
+    }
+    // Le curseur fait partie de ce que l'on partage : la date vue (et l'axe systeme, les
+    // propositions) se retrouvent a l'ouverture du lien.
+    return `${window.location.origin}${window.location.pathname}?${ecrireCurseur(next.toString(), curseur)}`;
   }
 
   async function handleShare() {
     const url = buildShareUrl();
-    setParams(new URLSearchParams(url.split("?")[1]), { replace: true });
+    if (!focus) setParams(new URLSearchParams(url.split("?")[1]), { replace: true });
     try {
       await navigator.clipboard.writeText(url);
       setShareCopied(true);
@@ -708,13 +875,15 @@ export function GeoportailPage() {
           recherche se pose sur le panneau des couches. */}
       <div
         className={`pointer-events-none absolute top-3 right-3 z-20 flex items-start justify-between gap-4 transition-all duration-200 ${
-          sidebarOpen ? "left-[19rem]" : "left-[3.25rem]"
+          sidebarOpen ? "left-[19rem] max-md:left-[3.25rem]" : "left-[3.25rem]"
         }`}
       >
-      <div className="pointer-events-auto flex w-80 max-w-[46%] flex-col items-center gap-2">
+      <div className="pointer-events-auto flex w-80 min-w-[9rem] max-w-[46%] shrink flex-col items-center gap-2">
         <div className="relative w-full">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
           <input
+            type="search"
+            aria-label="Rechercher un tronçon, un ouvrage ou un chantier"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Rechercher (tronçon, ouvrage, chantier...)"
@@ -751,6 +920,16 @@ export function GeoportailPage() {
             <RechercheVille compact onAppliquer={setVilleFiltre} />
           </div>
         )}
+        {focus && (
+          <button
+            type="button"
+            onClick={toutAfficher}
+            className="flex items-center gap-1.5 self-start rounded-full bg-gold px-3 py-1 text-xs font-medium text-navy shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-navy/40"
+          >
+            Affichage limité à : {libelleFocus} — Afficher tout
+            <X className="h-3 w-3" />
+          </button>
+        )}
         {villeFiltre && (
           <button
             onClick={() => setVilleFiltre(null)}
@@ -758,8 +937,26 @@ export function GeoportailPage() {
           >
             <MapPin className="h-3 w-3" />
             {villeFiltre.a.nom}{villeFiltre.b ? ` ↔ ${villeFiltre.b.nom}` : " (20 km)"} — {filteredTroncons.length} tronçon(s)
+            {villeFiltre.b && (routeExacte ? " · route" : cheminVille.isLoading ? " · calcul…" : " · approximatif")}
             <X className="h-3 w-3" />
           </button>
+        )}
+        {villeFiltre && villeFiltre.b && !routeExacte && !cheminVille.isLoading && (
+          <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+            {cheminVille.error instanceof Error ? cheminVille.error.message : "Route non calculée."} Les tronçons affichés sont ceux proches de la droite entre les deux villes (approximatif) : le changement d'état en masse n'est pas proposé.
+          </p>
+        )}
+        {/* Le changement d'etat en masse n'est propose QUE pour la route exacte entre deux villes.
+            Pour une ville seule, les troncons affiches sont la bande de 20 km autour d'elle, routes
+            voisines comprises : y appliquer un etat reviendrait a modifier des routes qui n'ont
+            rien a voir avec la decision. */}
+        {villeFiltre?.b && routeExacte && canWrite(user?.role) && filteredTroncons.length > 0 && (
+          <ChangerEtatCorridor
+            ids={filteredTroncons.map((t) => t.id)}
+            etatsActuels={filteredTroncons.map((t) => t.etat)}
+            libelle={`${villeFiltre.a.nom} ↔ ${villeFiltre.b.nom}`}
+            onApplique={() => { void refetchTroncons(); }}
+          />
         )}
         {resultatsComplets.length > 0 && (
           <div className="w-full bg-white rounded-lg shadow-lg border border-gray-100 overflow-hidden">
@@ -780,79 +977,30 @@ export function GeoportailPage() {
         )}
       </div>
 
-      <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-1.5">
-        {canWrite(user?.role) && (
-          <button
-            onClick={() => {
-              if (drawMode) {
-                drawRef.current?.cancel();
-                setDrawMode(false);
-              } else {
-                setMeasureMode("off");
-                setItineraireOpen(false);
-                setDrawMode(true);
-              }
-            }}
-            className={`flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm shadow-md font-medium ${
-              drawMode
-                ? "border-red-400 bg-red-500 text-white hover:bg-red-600"
-                : "border-gray-200 bg-white hover:bg-gray-50 text-navy"
-            }`}
-          >
-            <PenLine className="h-3.5 w-3.5" />
-            {drawMode ? "Annuler" : "Créer tronçon"}
-          </button>
-        )}
-        {/* Outils de mesure groupés */}
-        <div className="flex rounded-lg border border-gray-200 bg-white shadow-md overflow-hidden text-sm">
-          <button
-            onClick={() => setMeasureMode(measureMode === "distance" ? "off" : "distance")}
-            title="Mesurer une distance"
-            className={`flex items-center gap-1.5 px-2.5 py-2 ${measureMode === "distance" ? "bg-navy text-white" : "hover:bg-gray-50"}`}
-          >
-            <Ruler className="h-3.5 w-3.5" /><span className="hidden sm:inline">Mesurer</span>
-          </button>
-          <button
-            onClick={() => setMeasureMode(measureMode === "area" ? "off" : "area")}
-            title="Mesurer une surface"
-            className={`flex items-center gap-1.5 px-2.5 py-2 border-l border-gray-200 ${measureMode === "area" ? "bg-navy text-white" : "hover:bg-gray-50"}`}
-          >
-            <Square className="h-3.5 w-3.5" /><span className="hidden sm:inline">Surface</span>
-          </button>
-          {measureMode !== "off" && (
-            <button onClick={clearMeasure} title="Effacer la mesure" className="px-2.5 py-2 border-l border-gray-200 hover:bg-gray-50 text-gray-500">
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-        {/* Autres outils */}
-        <div className="flex rounded-lg border border-gray-200 bg-white shadow-md overflow-hidden text-sm">
-          <button
-            onClick={() => setItineraireOpen((v) => !v)}
-            title="Estimer la distance à vol d'oiseau entre deux tronçons"
-            className={`flex items-center gap-1.5 px-2.5 py-2 ${itineraireOpen ? "bg-navy text-white" : "hover:bg-gray-50"}`}
-          >
-            <Navigation className="h-3.5 w-3.5" /><span className="hidden sm:inline">Distance A–B</span>
-          </button>
-          <button
-            onClick={handleShare}
-            title="Partager la vue"
-            className="flex items-center gap-1.5 px-2.5 py-2 border-l border-gray-200 hover:bg-gray-50"
-          >
-            <Share2 className="h-3.5 w-3.5" /><span className="hidden sm:inline">{shareCopied ? "Copié ✓" : "Partager"}</span>
-          </button>
-          <div className="border-l border-gray-200">
-            <ExportControl targetRef={exportRef} />
-          </div>
-          <button
-            onClick={() => setFullscreen((v) => !v)}
-            title={fullscreen ? "Quitter le plein écran" : "Plein écran"}
-            className="flex items-center justify-center px-2.5 py-2 border-l border-gray-200 hover:bg-gray-50"
-          >
-            {fullscreen ? <Minimize className="h-3.5 w-3.5" /> : <Maximize className="h-3.5 w-3.5" />}
-          </button>
-        </div>
-      </div>
+      <BarreOutilsCarte
+        peutEcrire={canWrite(user?.role)}
+        modeDessin={drawMode}
+        onBasculerDessin={() => {
+          if (drawMode) {
+            drawRef.current?.cancel();
+            setDrawMode(false);
+          } else {
+            setMeasureMode("off");
+            setItineraireOpen(false);
+            setDrawMode(true);
+          }
+        }}
+        modeMesure={measureMode}
+        onMesure={(mode) => setMeasureMode(measureMode === mode ? "off" : mode)}
+        onEffacerMesure={clearMeasure}
+        itineraireOuvert={itineraireOpen}
+        onBasculerItineraire={() => setItineraireOpen((v) => !v)}
+        onPartager={handleShare}
+        copie={shareCopied}
+        pleinEcran={fullscreen}
+        onBasculerPleinEcran={() => setFullscreen((v) => !v)}
+        cibleExport={exportRef}
+      />
       </div>
 
       {measureMode !== "off" && (
@@ -906,12 +1054,12 @@ export function GeoportailPage() {
         <div className="absolute z-20 top-16 right-3 w-72 bg-white rounded-lg shadow-lg border border-gray-100 p-3 text-sm space-y-2">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Estimation de distance</p>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Tronçon de départ</label>
-            <TronconPicker value={itinFromId} onChange={setItinFromId} />
+            <label htmlFor="geoportail-page-champ-1" className="block text-xs text-gray-500 mb-1">Tronçon de départ</label>
+            <TronconPicker id="geoportail-page-champ-1" value={itinFromId} onChange={setItinFromId} />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">Tronçon d'arrivée</label>
-            <TronconPicker value={itinToId} onChange={setItinToId} />
+            <label htmlFor="geoportail-page-champ-2" className="block text-xs text-gray-500 mb-1">Tronçon d'arrivée</label>
+            <TronconPicker id="geoportail-page-champ-2" value={itinToId} onChange={setItinToId} />
           </div>
           <button
             onClick={calculerItineraire}
@@ -945,14 +1093,18 @@ export function GeoportailPage() {
       {/* Panneau gauche collapsible */}
       <aside
         className={`relative z-10 bg-gray-50 border-r border-gray-100 text-sm flex flex-col flex-shrink-0 transition-all duration-200 ease-in-out ${
-          sidebarOpen ? "w-72" : "w-10"
+          // Sous `md`, le panneau ouvert se superpose a la carte (voir le contenu ci-dessous) au lieu de
+          // la comprimer : l'encombrement reste celui du bandeau replie (w-10).
+          sidebarOpen ? "w-72 max-md:w-10 max-md:z-30" : "w-10"
         }`}
       >
         {/* Bouton toggle */}
         <button
           onClick={() => setSidebarOpen((v) => !v)}
           title={sidebarOpen ? "Réduire le panneau" : "Afficher le panneau"}
-          className={`absolute top-3 z-10 flex items-center justify-center w-6 h-6 rounded-full bg-white border border-gray-200 shadow-sm hover:bg-gray-50 text-gray-500 transition-all ${
+          aria-label={sidebarOpen ? "Réduire le panneau des couches" : "Afficher le panneau des couches"}
+          aria-expanded={sidebarOpen}
+          className={`absolute top-3 z-10 max-md:z-40 flex items-center justify-center w-6 h-6 rounded-full bg-white border border-gray-200 shadow-sm hover:bg-gray-50 text-gray-500 transition-all ${
             sidebarOpen ? "right-2" : "left-1/2 -translate-x-1/2"
           }`}
         >
@@ -962,7 +1114,9 @@ export function GeoportailPage() {
         {/* Contenu (masqué quand replié) */}
         <div
           className={`flex-1 overflow-y-auto p-3 pt-10 space-y-3 transition-opacity duration-150 ${
-            sidebarOpen ? "opacity-100" : "opacity-0 pointer-events-none overflow-hidden"
+            sidebarOpen
+              ? "opacity-100 max-md:absolute max-md:left-0 max-md:top-0 max-md:z-30 max-md:h-full max-md:w-[min(18rem,85vw)] max-md:border-r max-md:border-gray-200 max-md:bg-gray-50 max-md:shadow-xl"
+              : "opacity-0 pointer-events-none overflow-hidden"
           }`}
         >
           {/* KPIs réseau */}
@@ -1004,9 +1158,26 @@ export function GeoportailPage() {
                     <span className="text-gray-400 shrink-0 w-7 text-right">{r.pct.toFixed(0)}%</span>
                   </div>
                 ))}
+                {longueurDeclaree > 0 && (
+                  <p className="pt-1 text-[11px] leading-snug text-gray-500">
+                    Dont {longueurDeclaree.toFixed(0)} km à l'état seulement déclaré, non constaté sur le terrain
+                    (tracés en pointillé).
+                  </p>
+                )}
               </div>
             </PanelSection>
           )}
+
+          <PanelSection icon={<Clock className="h-4 w-4" />} title="Temps" defaultOpen={curseur.actif}>
+            <CurseurTemporel
+              etat={curseur}
+              onChange={setCurseur}
+              chronologie={chronologie}
+              couche={curseur.actif ? couchePortions : null}
+              chargementChronologie={chronologieEnCours}
+              erreurChronologie={chronologieErreur ? "Chronologie indisponible." : null}
+            />
+          </PanelSection>
 
           <PanelSection icon={<Route className="h-4 w-4" />} title="Réseau routier">
             <LayerRow checked={layers.troncons} onChange={() => toggleLayer("troncons")} label="Tous les tronçons" bold />
@@ -1228,6 +1399,15 @@ export function GeoportailPage() {
           </PanelSection>
 
           <PanelSection icon={<MapPinned className="h-4 w-4" />} title="Repères" defaultOpen={false}>
+            <LayerRow checked={showContour} onChange={() => setShowContour((v) => !v)} label="Contour de la Guinée" />
+            {showContour && contour && (
+              <p className="text-[11px] text-gray-400 ml-6">
+                Repère de fond tiré des limites des 8 régions ({contour.properties.source}, valides au {contour.properties.valideLe ?? "date inconnue"}), simplifié. Ce n'est pas une frontière officielle.
+              </p>
+            )}
+            {showContour && !contour && (
+              <p className="text-[11px] text-gray-400 ml-6">Aucune limite administrative en base : le contour ne peut pas être tracé.</p>
+            )}
             <LayerRow checked={showToponymes} onChange={() => setShowToponymes((v) => !v)} label="Ponts, tunnels, parkings" />
           </PanelSection>
 
@@ -1259,6 +1439,8 @@ export function GeoportailPage() {
               {Object.entries(BASEMAPS).map(([key, b]) => (
                 <button
                   key={key}
+                  type="button"
+                  aria-pressed={basemap === key}
                   onClick={() => setBasemap(key as BasemapKey)}
                   className={`rounded-md border px-1.5 py-1.5 text-[11px] text-center leading-tight ${
                     basemap === key ? "border-navy bg-navy text-white" : "border-gray-200 hover:bg-gray-50 text-gray-600"
@@ -1270,17 +1452,7 @@ export function GeoportailPage() {
             </div>
           </PanelSection>
 
-          <div className="rounded-lg border border-gray-100 bg-white shadow-sm p-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">État de la chaussée</h3>
-            <div className="space-y-1">
-              {Object.entries(ETAT_LABELS).map(([etat, label]) => (
-                <div key={etat} className="flex items-center gap-2">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: ETAT_COLORS[etat as EtatPatrimoine] }} />
-                  <span className="text-gray-600">{label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          <LegendeEtat />
         </div>
 
         {/* Icônes visibles quand replié */}
@@ -1305,8 +1477,11 @@ export function GeoportailPage() {
           center={initialView.center}
           zoom={initialView.zoom}
           maxZoom={ZOOM_MAX}
+          zoomControl={false}
           style={{ height: "100%", width: "100%" }}
         >
+          {/* Le zoom est en bas a gauche : en haut a gauche, la recherche le recouvrait. */}
+          <ZoomControl position="bottomleft" />
           <TileLayer
             attribution={`${bm.attribution} · ${CREDIT_DONNEES}`}
             url={bm.url}
@@ -1314,6 +1489,14 @@ export function GeoportailPage() {
             maxZoom={ZOOM_MAX}
             maxNativeZoom={bm.maxNativeZoom}
           />
+          {showContour && contour && (
+            <GeoJSON
+              key="contour-pays"
+              data={contour}
+              interactive={false}
+              style={{ color: "#1a2942", weight: 2, opacity: 0.75, dashArray: "8 5", fill: false }}
+            />
+          )}
           {flyTarget && <FlyTo position={flyTarget} />}
           <ViewTracker onChange={handleViewChange} />
           <MeasureLayer
@@ -1338,20 +1521,34 @@ export function GeoportailPage() {
             />
           )}
 
-          {layers.troncons && (
+          {coucheVisible(focus, layers, "troncons") && (
             <GeoJSON
-              key={`troncons-${tronconsFeatureCollection.features.length}-${regionFilter}-${etatFilter}-${Object.values(classeFilter).join("")}-${villeFiltre ? `${villeFiltre.a.nom}-${villeFiltre.b?.nom ?? ""}` : ""}`}
+              key={`troncons-${focus ? `seul-${focus.id}` : "tous"}-${curseur.actif ? "ref" : "etat"}-${tronconsFeatureCollection.features.length}-${regionFilter}-${etatFilter}-${Object.values(classeFilter).join("")}-${villeFiltre ? `${villeFiltre.a.nom}-${villeFiltre.b?.nom ?? ""}-${routeExacte ? "route" : "bande"}` : ""}`}
               data={tronconsFeatureCollection}
               style={(feature) => {
                 const t = feature?.properties?.id ? tronconsById.get(feature.properties.id) : undefined;
-                return { color: t ? ETAT_COLORS[t.etat] ?? "#1a2942" : "#1a2942", weight: 4 };
+                // Trait pointille pour un etat seulement declare : voir affichageTroncon.ts.
+                return styleTroncon(t, curseur.actif);
               }}
               onEachFeature={(feature, layer: Layer) => {
                 const t = tronconsById.get(feature.properties?.id);
                 if (!t) return;
-                layer.bindTooltip(`${t.code} — ${t.nom}`, { sticky: true });
+                layer.bindTooltip(
+                  t.etatDeclare ? `${libelleTroncon(t.code, t.nom)} (état déclaré)` : libelleTroncon(t.code, t.nom),
+                  { sticky: true },
+                );
                 layer.on("click", () => setSelectedFeature({ kind: "troncon", data: t }));
               }}
+            />
+          )}
+
+          {/* Curseur temporel : les portions vraies a la date choisie, AU-DESSUS du trace de reference. */}
+          {curseur.actif && (
+            <PortionsDateLayer
+              date={curseur.date}
+              connu={curseur.connu}
+              inclureAValider={curseur.inclureAValider}
+              onChargement={setCouchePortions}
             />
           )}
 
@@ -1359,7 +1556,7 @@ export function GeoportailPage() {
               état, independante des couches de base (visible meme si "Tous les
               tronçons" est decoche) pour un reperage rapide des points a traiter
               en urgence — inspire du calque "Alertes" de l'observatoire de reference. */}
-          {showAlertes &&
+          {showAlertes && !focus &&
             alertTroncons.map((t) => {
               const positions = geoJsonToLatLngs(t.geometry);
               if (!positions.length) return null;
@@ -1370,13 +1567,13 @@ export function GeoportailPage() {
                   pathOptions={{ color: "#d946ef", weight: 6, opacity: 0.55, dashArray: "1 8" }}
                   eventHandlers={{ click: () => setSelectedFeature({ kind: "troncon", data: t }) }}
                 >
-                  <Tooltip sticky>⚠ {t.code} — {t.nom} ({ETAT_LABELS[t.etat]})</Tooltip>
+                  <Tooltip sticky>⚠ {libelleTroncon(t.code, t.nom)} ({ETAT_LABELS[t.etat]})</Tooltip>
                 </Polyline>
               );
             })}
 
-          {layers.chantiers &&
-            filteredChantiers
+          {coucheVisible(focus, layers, "chantiers") &&
+            chantiersAffiches
               .filter((c) => !c.approximate)
               .map((c) => {
                 const positions = geoJsonToLatLngs(c.geometry ?? "");
@@ -1397,7 +1594,7 @@ export function GeoportailPage() {
                 );
               })}
 
-          {showAlertes &&
+          {showAlertes && !focus &&
             alertOuvrages.map((o) => (
               <CircleMarker
                 key={`alert-${o.id}`}
@@ -1414,7 +1611,7 @@ export function GeoportailPage() {
               Rouge = aucun ouvrage BDRI a 250 m (a instruire), vert = correspondance. */}
           {/* Voirie locale AVANT les troncons : le reseau AGEROUTE doit rester
               au-dessus, c'est lui qu'on consulte. */}
-          {showVoirie && (
+          {showVoirie && !focus && (
             <VoirieLocaleLayer
               categories={categoriesVoirie}
               onChargement={setEtatVoirie}
@@ -1422,7 +1619,7 @@ export function GeoportailPage() {
             />
           )}
 
-          {showPontsOsm && pontsOsm && (
+          {showPontsOsm && !focus && pontsOsm && (
             <FranchissementsLayer
               key="ponts-osm-symboles"
               data={pontsOsm}
@@ -1439,8 +1636,8 @@ export function GeoportailPage() {
 
           {/* Marqueurs ponctuels regroupes (clustering) pour la lisibilite au dezoom */}
           <MarkerClusterGroup chunkedLoading maxClusterRadius={50}>
-            {layers.chantiers &&
-              filteredChantiers
+            {coucheVisible(focus, layers, "chantiers") &&
+              chantiersAffiches
                 .filter((c) => c.approximate && c.lat != null && c.lon != null)
                 .map((c) => (
                   <Marker
@@ -1455,7 +1652,7 @@ export function GeoportailPage() {
                   </Marker>
                 ))}
 
-            {showToponymes &&
+            {showToponymes && !focus &&
               TOPONYMES.map((t, i) => (
                 <CircleMarker
                   key={`topo-${i}`}
@@ -1468,10 +1665,8 @@ export function GeoportailPage() {
                 </CircleMarker>
               ))}
 
-            {layers.ouvrages &&
-              ouvrages
-                ?.filter((o) => !regionFilter || o.region === regionFilter)
-                .filter((o) => !reprisSeulement || o.repris)
+            {coucheVisible(focus, layers, "ouvrages") &&
+              ouvragesAffiches
                 .map((o) => (
                   <Marker
                     key={o.id}
@@ -1494,9 +1689,8 @@ export function GeoportailPage() {
                   </Marker>
                 ))}
 
-            {layers.postes &&
-              postes
-                ?.filter((p) => !regionFilter || p.region === regionFilter)
+            {coucheVisible(focus, layers, "postes") &&
+              postesAffiches
                 .map((p) => (
                   <Marker
                     key={p.id}
@@ -1508,9 +1702,8 @@ export function GeoportailPage() {
                   </Marker>
                 ))}
 
-            {layers.pointsNoirs &&
-              pointsNoirs
-                ?.filter((p) => !regionFilter || p.region === regionFilter)
+            {coucheVisible(focus, layers, "pointsNoirs") &&
+              pointsNoirsAffiches
                 .map((p) => (
                   <Marker
                     key={p.id}

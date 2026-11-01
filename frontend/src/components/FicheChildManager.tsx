@@ -47,6 +47,8 @@ export function FicheChildManager<T extends { id: string }>({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [geoError, setGeoError] = useState<string | null>(null);
   const [photosItem, setPhotosItem] = useState<T | null>(null);
+  // Saisie non enregistree : fermer le modal (Echap, clic hors zone, croix) demande confirmation.
+  const [formDirty, setFormDirty] = useState(false);
 
   const geolocate = useMutation({
     mutationFn: (id: string) => api.post(`/${endpoint}/${id}/geolocate`),
@@ -78,6 +80,7 @@ export function FicheChildManager<T extends { id: string }>({
       if (editing) await update.mutateAsync({ id: editing.id, payload });
       else await create.mutateAsync(payload);
       await qc.invalidateQueries({ queryKey: ["troncon", "fiche", tronconId] });
+      setFormDirty(false);
       setModalOpen(false);
       setEditing(null);
     } catch (err) {
@@ -138,8 +141,9 @@ export function FicheChildManager<T extends { id: string }>({
 
       <Modal
         open={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={() => { setFormDirty(false); setModalOpen(false); }}
         title={editing ? `Modifier — ${title}` : `Ajouter — ${title}`}
+        sale={() => formDirty}
       >
         <EntityForm
           fields={formFields}
@@ -148,6 +152,7 @@ export function FicheChildManager<T extends { id: string }>({
           submitting={create.isPending || update.isPending}
           serverError={error}
           serverFieldErrors={fieldErrors}
+          onDirtyChange={setFormDirty}
         />
       </Modal>
 

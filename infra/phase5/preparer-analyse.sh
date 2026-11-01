@@ -29,7 +29,8 @@ set -euo pipefail
 CONTENEUR="${CONTENEUR:-phase5-analyse}"
 BASE="verification"
 IMAGE_POSTGRES="${IMAGE_POSTGRES:-postgis/postgis:17-3.5}"
-SAUVEGARDES_DISTANTES="${SAUVEGARDES_DISTANTES:-agerdb@102.211.199.132:~/ageroute-depots/bdri-sauvegardes}"
+# Pas de valeur par defaut : ce depot est public, voir infra/backup/sauvegarde-bdri.sh.
+SAUVEGARDES_DISTANTES="${SAUVEGARDES_DISTANTES:?SAUVEGARDES_DISTANTES est requis : utilisateur@hote:/chemin}"
 CLE="${CLE:-$HOME/.bdri/cle-sauvegarde}"
 RESULTATS="$HOME/phase5-resultats"
 OSM_CLASSE="${1:-$HOME/osm-classe.tsv}"

@@ -356,7 +356,8 @@ export function VoirieLocaleLayer({
   }
 
   // Première vue : useMapEvents ne se déclenche qu'au mouvement.
-  useEffect(() => { majVue(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+  // Une seule fois, au montage : les mouvements suivants passent par useMapEvents.
+  useEffect(() => { majVue(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const listeCategories = useMemo(() => [...categories].sort().join(","), [categories]);
   const zoomSuffisant = (vue?.zoom ?? 0) >= ZOOM_MINIMUM;

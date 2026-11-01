@@ -1,6 +1,6 @@
 import { prisma } from "../../lib/prisma";
 import { encrypt, decrypt } from "../../lib/crypto";
-import { logAudit } from "../../utils/audit";
+import { construireAudit } from "../../utils/audit";
 import type { SmtpConfigInput } from "./settings.schema";
 
 const SMTP_KEY = "smtp";
@@ -54,13 +54,16 @@ export async function setSmtpConfig(input: SmtpConfigInput, userId: string) {
     passwordEncrypted,
   };
 
-  await prisma.appSetting.upsert({
-    where: { key: SMTP_KEY },
-    create: { key: SMTP_KEY, value: JSON.stringify(toStore), updatedBy: userId },
-    update: { value: JSON.stringify(toStore), updatedBy: userId },
-  });
-
-  await logAudit({ userId, action: "UPDATE", entityType: "AppSetting", entityId: SMTP_KEY, after: { host: input.host, port: input.port, user: input.user, from: input.from } });
+  // L'audit ne reprend QUE les champs publiables : `toStore` contient
+  // `passwordEncrypted`, et un journal n'a pas a conserver un secret, meme chiffre.
+  await prisma.$transaction([
+    prisma.appSetting.upsert({
+      where: { key: SMTP_KEY },
+      create: { key: SMTP_KEY, value: JSON.stringify(toStore), updatedBy: userId },
+      update: { value: JSON.stringify(toStore), updatedBy: userId },
+    }),
+    construireAudit({ userId, action: "UPDATE", entityType: "AppSetting", entityId: SMTP_KEY, after: { host: input.host, port: input.port, user: input.user, from: input.from } }),
+  ]);
 
   return getSmtpConfigForApi();
 }

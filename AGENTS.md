@@ -14,15 +14,31 @@ Docker + Traefik). Voir `README.md` pour la stack et l'installation.
 ## État du dépôt
 
 - Ce dépôt a été créé le **1er septembre 2026** à partir de la copie de
-  développement, qui est **en avance sur la production** : 21 routes applicatives
-  contre 13 déployées.
-- **Non déployées à ce jour** : sync hors-ligne + PWA (`lib/offlineSync.ts`,
-  `hooks/useOfflineSync.ts`, `public/sw.js`), API publique
-  (`backend/src/modules/public/`), et les pages Marchés, Ordres de travaux,
-  Décision, Sécurité, Administration, Rapport bailleur, Inspection terrain,
-  Embed carte.
-- Il n'existe **aucun historique Git antérieur** : le commit initial est un
-  instantané, pas une reconstruction de l'historique réel.
+  développement. Il n'existe **aucun historique Git antérieur** : le commit initial
+  est un instantané, pas une reconstruction de l'historique réel.
+- **Ce que l'on sait déployé** (la production n'est pas vérifiable depuis ce dépôt) :
+  - deux déploiements consignés dans `AUTONOMOUS_EXECUTION_TRACKER.md` (T-10) : le
+    21/10/2026 (commit `7411664`) et le 22/10/2026 à 11 h 46 (commit `0703c6a`, 72
+    migrations au total après lui) ;
+  - le relevé de production du 23/10/2026 donnait **79 migrations appliquées**
+    (tracker, T-41) ; le dépôt (`HEAD`) en porte 82 et le script
+    `infra/deployer-console.sh` a ensuite été réglé à zéro migration en attente
+    (commit `970e17b`, 23/10) : cela suppose que les trois dernières ont été
+    appliquées, mais **aucun document daté ne consigne ce déploiement**, ni son
+    commit ;
+  - `docker-compose.yml` dit que les pages Base documentaire, Inspection terrain et
+    Ordres de travaux sont en production ; `PROJECT_STATUS.md` (14/10) relevait déjà
+    la PWA (`/sw.js`) et l'API publique (`/api/public/carte/geo`) en production.
+- **Ce que l'on sait non déployé** (derniers constats de `TEST_EVIDENCE.md` du
+  25/10/2026 et de `docs/pilotage/`) : la route entre deux villes, l'APK servi
+  derrière l'authentification (exige de modifier `docker-compose.yml` et `nginx.conf`
+  sur le serveur), les phases SMART FIELD récentes (observation rapide, photo
+  d'observation, historique par section) et tout ce qui a été commité après le dernier
+  déploiement consigné. Cette liste n'est pas exhaustive.
+- **L'état exact de la production se vérifie au moment du déploiement**, jamais depuis
+  ce fichier : `infra/deployer-console.sh` relève les migrations appliquées, les
+  compteurs et l'état de santé avant tout geste. Ne rien déduire d'une ancienne
+  mention « déployé » ou « non déployé ».
 
 ## Règles impératives
 

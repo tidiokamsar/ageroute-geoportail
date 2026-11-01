@@ -25,7 +25,16 @@ DB_USER="${DB_USER:-bdri_app}"
 DB_NAME="${DB_NAME:-console_bdri}"
 VOLUME_UPLOADS="${VOLUME_UPLOADS:-console-bdri_bdri_uploads}"
 
-HOTE_DISTANT="${HOTE_DISTANT:-agerdb@102.211.199.132}"
+#
+# L'HOTE N'A PLUS DE VALEUR PAR DEFAUT, ET C'EST VOLONTAIRE
+#
+# Ce depot est PUBLIC. Une adresse de serveur de production en dur y est une information
+# d'infrastructure offerte, et la regle 1 d'AGENTS.md l'interdit explicitement. La variable
+# doit donc etre fournie par l'environnement ou l'appel.
+#
+# Le script echoue bruyamment si elle manque, plutot que de se replier en silence sur une
+# adresse : un repli silencieux enverrait une archive au mauvais endroit, ou nulle part.
+HOTE_DISTANT="${HOTE_DISTANT:?HOTE_DISTANT est requis : utilisateur@hote de la copie hors serveur}"
 REPERTOIRE_DISTANT="${REPERTOIRE_DISTANT:-~/ageroute-depots/bdri-sauvegardes/}"
 CLE_SSH="${CLE_SSH:-$HOME/.ssh/id_ed25519}"
 

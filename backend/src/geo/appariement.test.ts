@@ -26,7 +26,7 @@ import {
 
 const troncon = (p: Partial<Candidat> = {}): Candidat => ({
   tronconId: "t1", code: "RN1-001", nom: "RN1", classe: "RN",
-  distanceM: 4, fraction: 0.5, pkDebut: 10, pkFin: 20,
+  distanceM: 4, fraction: 0.5, longueurM: 1000, pkDebut: 10, pkFin: 20,
   ...p,
 });
 
@@ -120,6 +120,7 @@ describe("Le moteur sait ne pas conclure", () => {
     expect(choisi!.tronconId).toBe("t1");
     expect(choisi!.ambigu).toBe(false);
     expect(choisi!.pk).toBe(15);
+    expect(choisi!.abscisseM).toBe(500);
   });
 
   it("signale l'ambiguite meme quand il conclut", () => {

@@ -12,6 +12,11 @@ import {
 } from "lucide-react";
 import { api } from "../lib/api";
 import { Card } from "../components/ui/Card";
+import { assombrirPour, estHex } from "../lib/contraste";
+
+// Une couleur d'accent choisie pour un aplat (or #f5a623, cyan #0891b2) ne se lit pas en texte sur blanc
+// (2,0:1 et 3,7:1). Pour les chiffres on assombrit jusqu'a 4,5:1 ; l'aplat garde sa couleur.
+const texteLisible = (c: string) => (estHex(c) ? assombrirPour(c, "#ffffff", 4.5) : c);
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -35,9 +40,19 @@ interface DecisionData {
     traficMoyenJma: number | null;
     criticiteStrategique: number | null;
     coutRehabEstime: number | null;
-    /** Valeurs ESTIMÉES, à ne jamais présenter comme relevées. */
-    criticiteEstimee: number;
-    montantRehabEstimeMd: number;
+    /**
+     * Valeurs ESTIMÉES, à ne jamais présenter comme relevées.
+     * `null` quand le moteur de coût refuse (aucune ligne de barème, revêtement non renseigné,
+     * état BON ou NON_EVALUE) : « on ne sait pas » se lit, un chiffre plausible se croit.
+     * La criticité est toujours `null` : aucune source, ni en base ni par un moteur de risque.
+     */
+    criticiteEstimee: number | null;
+    montantRehabEstimeMd: number | null;
+    estimationCout?: {
+      ok: boolean; classePrecision: string | null; margePct: number | null; provisoire: boolean;
+      hypothesesManquantes: string[]; bareme: { code: string | null; typeIntervention: string } | null;
+      refus: { code: string; motif: string } | null;
+    };
     estimations: { criticite: string; cout: string };
     criteresReels: { etat: boolean; trafic: boolean; criticite: boolean; cout: boolean };
   }[];
@@ -96,10 +111,10 @@ function StatCard({ label, value, sub, color, icon: Icon }: {
       <div className="flex items-start justify-between gap-2">
         <div>
           <p className="text-[11px] font-medium uppercase tracking-widest text-gray-400">{label}</p>
-          <p className="mt-1 text-2xl font-black" style={{ color }}>{value}</p>
+          <p className="mt-1 text-2xl font-black" style={{ color: texteLisible(color) }}>{value}</p>
           {sub && <p className="mt-0.5 text-xs text-gray-400">{sub}</p>}
         </div>
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: `${color}15`, color }}>
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: `${color}15`, color: texteLisible(color) }}>
           <Icon className="h-4 w-4" />
         </span>
       </div>
@@ -307,7 +322,7 @@ function PriorisationTab({ data }: { data: DecisionData }) {
                   <span className="text-xs font-medium text-gray-700">{label}</span>
                   <p className="text-[10px] text-gray-400">{sub}</p>
                 </div>
-                <span className="text-sm font-black" style={{ color }}>{weights[key]}%</span>
+                <span className="text-sm font-black" style={{ color: texteLisible(color) }}>{weights[key]}%</span>
               </div>
               <input type="range" min={0} max={100} value={weights[key]}
                 onChange={(e) => setW(key)(Number(e.target.value))}
@@ -347,7 +362,7 @@ function PriorisationTab({ data }: { data: DecisionData }) {
               {scored.slice(0, 20).map((t, i) => (
                 <tr key={t.id} className={`hover:bg-blue-50/30 transition-colors ${i < 3 ? "border-l-2 border-l-red-400" : ""}`}>
                   <td className="px-3 py-2.5">
-                    <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${i === 0 ? "bg-red-600 text-white" : i === 1 ? "bg-orange-400 text-white" : i === 2 ? "bg-amber-400 text-white" : "bg-gray-100 text-gray-500"}`}>
+                    <span className={`inline-flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${i === 0 ? "bg-red-600 text-white" : i === 1 ? "bg-orange-700 text-white" : i === 2 ? "bg-amber-700 text-white" : "bg-gray-100 text-gray-500"}`}>
                       {i + 1}
                     </span>
                   </td>
@@ -361,10 +376,12 @@ function PriorisationTab({ data }: { data: DecisionData }) {
                   <td className="px-3 py-2.5 tabular-nums text-right">
                     {t.coutRehabEstime != null ? (
                       `${t.coutRehabEstime.toFixed(0)} Md GNF`
-                    ) : (
+                    ) : t.montantRehabEstimeMd != null ? (
                       <span className="text-amber-700" title={t.estimations.cout}>
-                        ~{t.montantRehabEstimeMd.toFixed(0)} <span className="text-[10px]">estimé</span>
+                        ~{t.montantRehabEstimeMd.toFixed(1)} <span className="text-[10px]">{t.estimationCout?.provisoire === false ? "estimé" : "estimé, provisoire"}</span>
                       </span>
+                    ) : (
+                      <span className="text-gray-400" title={t.estimations.cout}>non estimé</span>
                     )}
                   </td>
                   <td className="px-3 py-2.5">
@@ -408,7 +425,7 @@ function SimulateurTab({ data }: { data: DecisionData }) {
   // Le simulateur travaille sur le cout ESTIME, faute de cout reel : il est le seul
   // ecran ou un ordre de grandeur reste utile pour degrossir une enveloppe. Mais il
   // doit le dire — voir l'avertissement affiche en tete de l'onglet.
-  const maxCout = Math.max(...troncons.map((t) => t.montantRehabEstimeMd), 1);
+  const maxCout = Math.max(...troncons.map((t) => t.montantRehabEstimeMd ?? 0), 1);
   const total = 100;
 
   const scored = useMemo(() => {
@@ -416,11 +433,16 @@ function SimulateurTab({ data }: { data: DecisionData }) {
       .map((t) => {
         const sEtat = ETAT_SCORE[t.etat] ?? 0;
         const sTrafic = maxTrafic > 0 ? ((t.traficMoyenJma ?? 0) / maxTrafic) * 100 : 0;
-        // Criticite et cout sont ESTIMES ici, et l'onglet l'annonce. Le classement
-        // sert a ordonner une simulation, pas a fonder une decision.
-        const sStrat = t.criticiteEstimee;
-        const sCout = maxCout > 0 ? (t.montantRehabEstimeMd / maxCout) * 100 : 0;
-        const score = (sEtat * weights.etat + sTrafic * weights.trafic + sStrat * weights.strat + sCout * weights.cout) / total;
+        // La criticite n'a AUCUNE source (ni base, ni moteur de risque) : elle pese 0, et son
+        // poids est redistribue par le diviseur ci-dessous. Le cout est l'estimation du moteur
+        // sur les baremes de la base -- provisoire -- et un troncon sans estimation pese 0 ici
+        // mais ne peut pas etre finance plus bas.
+        const sStrat = t.criticiteEstimee ?? 0;
+        const sCout = t.montantRehabEstimeMd != null && maxCout > 0 ? (t.montantRehabEstimeMd / maxCout) * 100 : 0;
+        const poidsEffectif = total - (t.criticiteEstimee == null ? weights.strat : 0) - (t.montantRehabEstimeMd == null ? weights.cout : 0);
+        const score = poidsEffectif > 0
+          ? (sEtat * weights.etat + sTrafic * weights.trafic + sStrat * weights.strat + sCout * weights.cout) / poidsEffectif
+          : 0;
         return { ...t, score };
       })
       .sort((a, b) => b.score - a.score);
@@ -429,8 +451,11 @@ function SimulateurTab({ data }: { data: DecisionData }) {
   const simulation = useMemo(() => {
     let used = 0, km = 0, count = 0, kmCritiqueTraite = 0;
     const rows = scored.map((t) => {
-      const fits = t.montantRehabEstimeMd > 0 && used + t.montantRehabEstimeMd <= budget;
-      if (fits) { used += t.montantRehabEstimeMd; km += t.longueurKm; count++; if (t.etat === "CRITIQUE") kmCritiqueTraite += t.longueurKm; }
+      // Sans estimation, un troncon ne se finance pas dans la simulation : on ne sait pas ce
+      // qu'il coute, et l'inscrire a 0 le ferait passer pour gratuit.
+      const m = t.montantRehabEstimeMd;
+      const fits = m != null && m > 0 && used + m <= budget;
+      if (fits && m != null) { used += m; km += t.longueurKm; count++; if (t.etat === "CRITIQUE") kmCritiqueTraite += t.longueurKm; }
       return { ...t, fits, cumul: fits ? used : null };
     });
     const totalKmCritique = data.kpis.kmCritique + data.kpis.kmMauvais || 1;
@@ -495,7 +520,9 @@ function SimulateurTab({ data }: { data: DecisionData }) {
                   <td className="px-3 py-2 text-gray-600">{t.region}</td>
                   <td className="px-3 py-2"><EtatPill etat={t.etat} /></td>
                   <td className="px-3 py-2 tabular-nums">{t.longueurKm.toFixed(1)} km</td>
-                  <td className="px-3 py-2 tabular-nums text-right">{t.montantRehabEstimeMd.toFixed(0)}</td>
+                  <td className="px-3 py-2 tabular-nums text-right" title={t.estimations.cout}>
+                    {t.montantRehabEstimeMd != null ? t.montantRehabEstimeMd.toFixed(1) : <span className="text-gray-400">non estimé</span>}
+                  </td>
                   <td className="px-3 py-2 tabular-nums">{t.cumul != null ? `${t.cumul.toFixed(0)} Md` : "—"}</td>
                   <td className="px-3 py-2">
                     {t.fits ? (
@@ -720,11 +747,11 @@ export function DecisionPage() {
           <div className="ml-auto hidden md:flex items-center gap-6 text-right">
             <div>
               <p className="text-xl font-black">{data.kpis.pctCritique + data.kpis.pctMauvais}%</p>
-              <p className="text-[10px] text-white/50 uppercase tracking-wider">réseau dégradé</p>
+              <p className="text-[10px] text-white/60 uppercase tracking-wider">réseau dégradé</p>
             </div>
             <div>
               <p className="text-xl font-black">{data.kpis.chantiersEnRetard}</p>
-              <p className="text-[10px] text-white/50 uppercase tracking-wider">chantiers en retard</p>
+              <p className="text-[10px] text-white/60 uppercase tracking-wider">chantiers en retard</p>
             </div>
           </div>
         </div>

@@ -4,6 +4,10 @@ import { requireAuth } from "../../middleware/auth.middleware";
 import { requireModuleAccess } from "../../middleware/module-access.middleware";
 import { Prisma } from "@prisma/client";
 import { longueurReseau, WHERE_RESEAU_CLASSE } from "../../lib/reseau";
+import { estimerPourDecision } from "../../engines/decision.estimation";
+import type { LigneBareme } from "../../engines/cout.noyau";
+import { REGISTRE } from "../../tableau-de-bord/indicateurs.registre";
+import { evaluer } from "../../tableau-de-bord/tableau-de-bord.service";
 
 /**
  * Le reseau classe : tout sauf les troncons issus de la promotion de voirie.
@@ -33,48 +37,89 @@ dashboardRouter.get("/kpis", requireAuth, requireModuleAccess("dashboard"), asyn
   try {
     const notDeleted = { deletedAt: null };
 
+    // LES NOMBRES PARTAGES VIENNENT DU REGISTRE (A12). Chacun a son perimetre et sa requete de
+    // controle, rapprochees par le banc d'integration et par GET /api/v2/tableau-de-bord/controle :
+    // le chiffre affiche ici est celui qui est controle, pas une seconde implementation. Cette route
+    // reste NATIONALE (comportement v1 conserve) ; le filtrage par region est celui des routes v2.
+    const registre = await evaluer(prisma, REGISTRE, { regions: null, maintenant: new Date() }, {
+      codes: ["troncons_classes", "ouvrages_inventories", "points_noirs", "postes", "documents", "chantiers_en_cours",
+        "troncons_mauvais_critique", "ouvrages_mauvais_critique", "portions_validees", "portions_validees_km"],
+      // Cette route n'affiche pas « aucune donnee » : inutile d'interroger les tables sources.
+      sansSource: true,
+    });
+    const indicateur = (code: string): number => {
+      const i = registre.find((r) => r.code === code);
+      // Un indicateur en erreur fait echouer la route (500) : un zero fabrique serait lu comme un constat.
+      if (!i || i.statut !== "CALCULE" || typeof i.valeur !== "number") throw new Error(`Indicateur ${code} non calculable`);
+      return i.valeur;
+    };
+
     const [
-      tronconsCount,
-      ouvragesCount,
-      pointsNoirsCount,
-      postesCount,
-      documentsCount,
-      chantiersEnCours,
       tronconsParEtat,
       ouvragesParEtat,
       chantiersParStatut,
       longueurTotale,
-      alertesTroncons,
-      alertesOuvrages,
       reseau,
       voirieRattacheeCount,
       franchissementsRepisCount,
+      qualiteParStatut,
     ] = await Promise.all([
       // Le RESEAU CLASSE, pas le registre entier. La promotion de la voirie a porte
       // `troncons` a 261 386 lignes ; compter le tout ferait annoncer 185 264 km de
       // reseau routier, c'est-a-dire les sentiers d'OpenStreetMap. Le reseau classe
       // de Guinee fait environ 21 000 km. La voirie rattachee est comptee a part,
       // plus bas, et dite explicitement.
-      prisma.troncon.count({ where: { ...notDeleted, ...RESEAU_REFERENCE } }),
-      prisma.ouvrage.count({ where: { ...notDeleted, ...INVENTAIRE_REFERENCE } }),
-      prisma.pointNoir.count({ where: notDeleted }),
-      prisma.poste.count({ where: notDeleted }),
-      prisma.document.count({ where: notDeleted }),
-      prisma.chantier.count({ where: { ...notDeleted, statut: "EN_COURS" } }),
       prisma.troncon.groupBy({ by: ["etat"], where: { ...notDeleted, ...RESEAU_REFERENCE }, _count: { _all: true } }),
       prisma.ouvrage.groupBy({ by: ["etat"], where: { ...notDeleted, ...INVENTAIRE_REFERENCE }, _count: { _all: true } }),
       prisma.chantier.groupBy({ by: ["statut"], where: notDeleted, _count: { _all: true } }),
       prisma.troncon.aggregate({ where: { ...notDeleted, ...RESEAU_REFERENCE }, _sum: { longueurKm: true } }),
-      prisma.troncon.count({ where: { ...notDeleted, ...RESEAU_REFERENCE, etat: { in: ["MAUVAIS", "CRITIQUE"] } } }),
-      prisma.ouvrage.count({ where: { ...notDeleted, ...INVENTAIRE_REFERENCE, etat: { in: ["MAUVAIS", "CRITIQUE"] } } }),
       longueurReseau("reference"),
       // Compte a part : ces troncons sont au registre et doivent se voir, mais ils ne
       // sont pas le reseau classe et ne peuvent pas se fondre dans ses indicateurs.
       prisma.troncon.count({ where: { ...notDeleted, sourceReference: { startsWith: "voirie_locale:" } } }),
       prisma.ouvrage.count({ where: { ...notDeleted, sourceReference: { startsWith: "ouvrage_osm:" } } }),
+      // CE QUE L'ON SAIT REELLEMENT des valeurs : observe, importe non verifie, derive, en
+      // conflit, inconnu. C'est la reponse a « ces chiffres sont-ils constates ? ».
+      prisma.valeurQualite.groupBy({ by: ["statut"], _count: { _all: true } }),
     ]);
 
+    const tronconsCount = indicateur("troncons_classes");
+    const ouvragesCount = indicateur("ouvrages_inventories");
+    const pointsNoirsCount = indicateur("points_noirs");
+    const postesCount = indicateur("postes");
+    const documentsCount = indicateur("documents");
+    const chantiersEnCours = indicateur("chantiers_en_cours");
+    const alertesTroncons = indicateur("troncons_mauvais_critique");
+    const alertesOuvrages = indicateur("ouvrages_mauvais_critique");
+    // PORTIONS HOMOGENES VALIDEES : la verite de l'etat (arbitrage D6). Le tableau de bord les
+    // ignorait, et annoncait donc un etat du reseau fonde sur des valeurs d'import. Le meme
+    // predicat que la contrainte d'exclusion : VALIDE, non remplacee, non supprimee.
+    const portionsValidees = indicateur("portions_validees");
+    const kmPortionsValidees = [{ km: indicateur("portions_validees_km") }];
+
     res.json({
+      // LE PERIMETRE, DIT D'ABORD. Chaque indicateur de cette reponse porte sur le reseau classe
+      // SAISI, pas sur le reseau national annonce par les TDR de la BDR (environ 45 300 km) :
+      // la base en porte 48 %. Un tableau de bord qui tairait ce denominateur ferait passer une
+      // couverture partielle pour un etat du pays (paragraphe 7.12, decision D-06).
+      perimetre: {
+        code: "RESEAU_CLASSE_SAISI",
+        libelle: "Réseau classé saisi",
+        avertissement: "Les indicateurs portent sur le réseau classé saisi dans la base, pas sur le réseau national annoncé par les TDR de la BDR. La voirie rattachée est comptée à part.",
+      },
+      portions: {
+        validees: portionsValidees,
+        kmValides: Math.round(Number(kmPortionsValidees[0]?.km ?? 0) * 10) / 10,
+        // Ce que les portions disent du reseau : zero portion, zero kilometre d'etat CONSTATE.
+        // Le reste des indicateurs d'etat vient de `troncons.etat`, une valeur d'IMPORT.
+        avertissement: portionsValidees === 0
+          ? "Aucune portion validée : les états affichés sont des valeurs d'import, pas des constats de terrain."
+          : null,
+      },
+      qualite: {
+        parStatut: qualiteParStatut.map((q) => ({ statut: q.statut, total: q._count._all })),
+        total: qualiteParStatut.reduce((s, q) => s + q._count._all, 0),
+      },
       tronconsCount,
       ouvragesCount,
       pointsNoirsCount,
@@ -232,12 +277,12 @@ dashboardRouter.get("/decision", requireAuth, requireModuleAccess("decision"), a
     const notDeleted = { deletedAt: null };
     const now = new Date();
 
-    const [longueurAgg, etatsRaw, tronconsRaw, chantiersRaw, parBailleurRaw, budgetRow] = await Promise.all([
+    const [longueurAgg, etatsRaw, tronconsRaw, chantiersRaw, parBailleurRaw, budgetRow, baremesRaw] = await Promise.all([
       prisma.troncon.aggregate({ where: { ...notDeleted, ...RESEAU_REFERENCE }, _sum: { longueurKm: true } }),
       prisma.troncon.groupBy({ by: ["etat"], where: notDeleted, _sum: { longueurKm: true }, _count: { _all: true } }),
       prisma.troncon.findMany({
         where: { ...notDeleted, etat: { in: ["MAUVAIS", "CRITIQUE"] } },
-        select: { id: true, code: true, nom: true, classe: true, etat: true, longueurKm: true, traficMoyenJma: true, region: { select: { nom: true } } },
+        select: { id: true, code: true, nom: true, classe: true, etat: true, revetement: true, longueurKm: true, traficMoyenJma: true, region: { select: { nom: true } } },
         orderBy: [{ etat: "desc" }, { longueurKm: "desc" }],
         take: 100,
       }),
@@ -256,51 +301,42 @@ dashboardRouter.get("/decision", requireAuth, requireModuleAccess("decision"), a
       prisma.$queryRaw<{ montant: string; nb: bigint }[]>`
         SELECT COALESCE(SUM("montantGnf"),0)::text AS montant, count(*) AS nb
         FROM chantiers WHERE "deletedAt" IS NULL`,
+      // Les baremes de la BASE, et eux seuls, servent a estimer. Voir engines/decision.estimation.ts.
+      prisma.baremeIntervention.findMany({ where: { actif: true } }),
     ]);
+
+    const baremes: LigneBareme[] = baremesRaw.map((b) => ({
+      id: b.id, code: b.code, familleRevetement: b.familleRevetement, etatDepart: b.etatDepart,
+      typeIntervention: b.typeIntervention, coutKmGnf: b.coutKmGnf, uniteCout: b.uniteCout, devise: b.devise,
+      anneeReference: b.anneeReference, largeurChausseeM: b.largeurChausseeM === null ? null : Number(b.largeurChausseeM),
+      approuveLe: b.approuveLe, actif: b.actif,
+    }));
 
     const longueur = longueurAgg._sum.longueurKm ?? 0;
     const etatMap = Object.fromEntries(etatsRaw.map((e) => [e.etat, { km: e._sum.longueurKm ?? 0, nb: e._count._all }]));
     const kmOf = (e: string) => etatMap[e]?.km ?? 0;
     const pct = (e: string) => longueur > 0 ? parseFloat(((kmOf(e) / longueur) * 100).toFixed(1)) : 0;
 
-    // Baremes d'ESTIMATION, et rien d'autre (T8).
-    //
-    // Ces deux tables produisent des valeurs plausibles la ou la base est vide : le
-    // cout de rehabilitation et la criticite strategique sont a 0 sur les 1 690
-    // troncons. Elles etaient auparavant servies sous les noms `strategicScore` et
-    // `montantRehabEstimeMd`, sans rien qui les distingue d'une donnee relevee, puis
-    // ponderees dans le score au meme titre que l'etat reellement constate.
-    //
-    // Elles restent utiles — un ordre de grandeur vaut mieux que rien pour degrossir —
-    // mais elles portent desormais le suffixe `Estime` et un drapeau explicite. Le
-    // client doit pouvoir dire a l'utilisateur d'ou vient chaque chiffre.
-    const COUT_REHAB_ESTIME_M_PAR_KM: Record<string, number> = { CRITIQUE: 800, MAUVAIS: 500, MOYEN: 150, BON: 0, NON_EVALUE: 200 };
-    const CRITICITE_ESTIMEE_PAR_CLASSE: Record<string, number> = { RN: 90, RR: 70, RU: 50, PISTE: 30 };
-
+    // PLUS AUCUN BAREME CODE EN DUR. Cette route portait deux tarifs inventes -- 800/500/150
+    // millions GNF par km selon l'etat, et une criticite de 90/70/50/30 selon la classe -- qui
+    // contredisaient les neuf baremes de la base (3,5 milliards/km pour une reconstruction
+    // bitume). Le moteur de cout les remplace, et il REFUSE quand aucune ligne ne couvre le cas :
+    // le montant est alors nul, avec son motif, au lieu d'un chiffre plausible. Voir
+    // engines/decision.estimation.ts.
     const tronconsPrio = tronconsRaw.map((t) => ({
       id: t.id, code: t.code, nom: t.nom,
       region: t.region?.nom ?? "—",
-      etat: t.etat, classe: t.classe,
+      etat: t.etat, classe: t.classe, revetement: t.revetement,
       longueurKm: t.longueurKm ?? 0,
       // Valeurs REELLES : null quand elles manquent, jamais 0. Un 0 se lirait comme
       // « aucun trafic », alors qu'il signifie « aucun comptage ».
       traficMoyenJma: t.traficMoyenJma,
       criticiteStrategique: null as number | null,
       coutRehabEstime: null as number | null,
-      // Valeurs ESTIMEES, clairement nommees comme telles.
-      criticiteEstimee: CRITICITE_ESTIMEE_PAR_CLASSE[t.classe] ?? 50,
-      montantRehabEstimeMd: ((t.longueurKm ?? 0) * (COUT_REHAB_ESTIME_M_PAR_KM[t.etat] ?? 200)) / 1000,
-      estimations: {
-        criticite: "déduite de la classe de route, non renseignée en base",
-        cout: "longueur × tarif au km selon l'état, non renseigné en base",
-      },
-      // Ce que le client doit savoir pour ne pas presenter un classement comme fonde.
-      criteresReels: {
-        etat: t.etat !== "NON_EVALUE",
-        trafic: t.traficMoyenJma != null,
-        criticite: false,
-        cout: false,
-      },
+      ...estimerPourDecision(
+        { etat: t.etat, revetement: t.revetement, longueurKm: t.longueurKm, traficMoyenJma: t.traficMoyenJma },
+        baremes,
+      ),
     }));
 
     const chantiersDecision = chantiersRaw.map((c) => {

@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 
 /**
@@ -165,6 +166,33 @@ function clausePerimetre(p: PerimetreReseau): string {
   // n'est pas de la voirie locale, il n'a simplement rien a faire au registre national.
   if (p === "voirie") return `AND "sourceReference" LIKE 'voirie_locale:%'`;
   return `AND ${clauseSqlReseauClasse()}`;
+}
+
+/**
+ * Le MEME predicat, en fragment SQL compose plutot qu'en chaine.
+ *
+ * POURQUOI LES DEUX FORMES COEXISTENT
+ *
+ * Le paragraphe 7.1 du mandat v2.1 exige des requetes spatiales en SQL parametre, « jamais
+ * de concatenation de chaines ». La forme chaine ci-dessus alimente `$queryRawUnsafe` dans
+ * `longueurReseau`, ou elle n'interpole AUCUNE valeur d'appelant : seuls trois litteraux
+ * choisis dans un ensemble ferme. Elle n'est donc pas injectable, mais elle reste une
+ * concatenation, et tout nouvel appelant doit utiliser le fragment.
+ *
+ * `Prisma.sql` compose sans concatener : les valeurs y deviennent des parametres lies, et
+ * la structure reste figee dans le code. Un appelant qui doit filtrer par region passe donc
+ * son `regionId` en parametre, pas dans le texte de la requete.
+ *
+ * Un seul endroit definit le predicat, dans les deux formes. L'en-tete de
+ * `PREFIXES_HORS_RESEAU_CLASSE` dit pourquoi : ce predicat a deja vecu en cinq exemplaires.
+ */
+export function fragmentPerimetre(p: PerimetreReseau, colonne = 'tr."sourceReference"'): Prisma.Sql {
+  const col = Prisma.raw(colonne);
+  if (p === "tout") return Prisma.empty;
+  if (p === "voirie") return Prisma.sql`AND ${col} LIKE 'voirie_locale:%'`;
+  // Le IS NULL n'est pas decoratif : NULL NOT LIKE '...' vaut NULL, donc faux, et les
+  // 1 691 troncons anterieurs — qui n'ont pas de sourceReference — disparaitraient tous.
+  return Prisma.sql`AND (${col} IS NULL OR NOT (${col} LIKE 'voirie_locale:%' OR ${col} LIKE 'hors_territoire:%'))`;
 }
 
 export async function longueurReseau(perimetre: PerimetreReseau = "reference"): Promise<LongueurReseau> {

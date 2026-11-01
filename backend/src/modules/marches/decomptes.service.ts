@@ -1,6 +1,6 @@
 import { prisma } from "../../lib/prisma";
 import { ApiError } from "../../middleware/error.middleware";
-import { logAudit } from "../../utils/audit";
+import { construireAudit, logAuditTransactionnelle } from "../../utils/audit";
 
 async function ensureMarcheExists(marcheId: string) {
   const marche = await prisma.marche.findFirst({ where: { id: marcheId, deletedAt: null } });
@@ -17,19 +17,33 @@ async function create(marcheId: string, data: {
   datePaiement?: Date; statut: string; observations?: string;
 }, userId: string) {
   await ensureMarcheExists(marcheId);
-  const created = await prisma.decompte.create({
-    data: {
-      marcheId,
-      numero: data.numero,
-      type: data.type as "AVANCE" | "DECOMPTE" | "RETENUE_GARANTIE" | "SOLDE",
-      montantGnf: BigInt(Math.round(data.montantGnf)),
-      dateEmission: data.dateEmission,
-      datePaiement: data.datePaiement,
-      statut: data.statut as "EMIS" | "PAYE" | "REJETE",
-      observations: data.observations,
-    },
+  /**
+   * Un decompte est une donnee FINANCIERE : son audit ne doit pas pouvoir manquer.
+   *
+   * Et il manquait vraisemblablement. `after: created` contient `montantGnf`, un BigInt,
+   * et `JSON.stringify` leve dessus. Comme `logAudit` est fail-soft, l'echec etait avale :
+   * le decompte s'ecrivait, sa trace non, et seul le compteur de `/api/health` montait.
+   * `normaliserPourJson` ferme ce cas — sans quoi passer en transaction aurait transforme
+   * un audit perdu en ecriture financiere cassee.
+   */
+  const created = await prisma.$transaction(async (tx) => {
+    const ligne = await tx.decompte.create({
+      data: {
+        marcheId,
+        numero: data.numero,
+        type: data.type as "AVANCE" | "DECOMPTE" | "RETENUE_GARANTIE" | "SOLDE",
+        montantGnf: BigInt(Math.round(data.montantGnf)),
+        dateEmission: data.dateEmission,
+        datePaiement: data.datePaiement,
+        statut: data.statut as "EMIS" | "PAYE" | "REJETE",
+        observations: data.observations,
+      },
+    });
+    await logAuditTransactionnelle(tx, {
+      userId, action: "CREATE", entityType: "Decompte", entityId: ligne.id, after: ligne,
+    });
+    return ligne;
   });
-  await logAudit({ userId, action: "CREATE", entityType: "Decompte", entityId: created.id, after: created });
   return created;
 }
 
@@ -45,8 +59,13 @@ async function update(id: string, data: Partial<{
   const payload: Record<string, unknown> = { ...data };
   if (data.montantGnf !== undefined) payload.montantGnf = BigInt(Math.round(data.montantGnf));
 
-  const updated = await prisma.decompte.update({ where: { id }, data: payload });
-  await logAudit({ userId, action: "UPDATE", entityType: "Decompte", entityId: id, before, after: updated });
+  const updated = await prisma.$transaction(async (tx) => {
+    const ligne = await tx.decompte.update({ where: { id }, data: payload });
+    await logAuditTransactionnelle(tx, {
+      userId, action: "UPDATE", entityType: "Decompte", entityId: id, before, after: ligne,
+    });
+    return ligne;
+  });
   return updated;
 }
 
@@ -55,8 +74,10 @@ async function remove(id: string, userId: string) {
   if (!before) throw new ApiError(404, "Décompte introuvable");
   // Suppression logique uniquement : un décompte est une donnée financière
   // d'archive (paiements, retenues) — jamais de DELETE physique.
-  await prisma.decompte.update({ where: { id }, data: { deletedAt: new Date() } });
-  await logAudit({ userId, action: "DELETE", entityType: "Decompte", entityId: id, before });
+  await prisma.$transaction([
+    prisma.decompte.update({ where: { id }, data: { deletedAt: new Date() } }),
+    construireAudit({ userId, action: "DELETE", entityType: "Decompte", entityId: id, before }),
+  ]);
 }
 
 // Agrégat décaissé (statut PAYE) par marché — utilisé pour enrichir la liste/detail des marchés.

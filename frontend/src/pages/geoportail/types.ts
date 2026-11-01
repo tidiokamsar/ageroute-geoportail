@@ -31,6 +31,13 @@ export interface TronconGeoFeature {
   pkDebut?: number | null;
   pkFin?: number | null;
   traficMoyenJma?: number | null;
+  /**
+   * Vrai si l'etat est seulement DECLARE : la table `valeurs_qualite` porte la mention
+   * explicite IMPORTED_UNVERIFIED pour ce troncon (troncons.service.ts, `listGeo`). Ce n'est
+   * pas un releve de terrain. Faux ou absent ne veut PAS dire « constate » : l'absence de
+   * ligne ne dit rien, et la carte ne lui fait donc rien dire de plus qu'un etat sans mention.
+   */
+  etatDeclare?: boolean;
   geometry: string; // GeoJSON (string brut renvoye par ST_AsGeoJSON)
 }
 

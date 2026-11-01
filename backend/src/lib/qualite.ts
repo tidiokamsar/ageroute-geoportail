@@ -163,7 +163,26 @@ export interface EcritureQualite {
  * connaissance par champ, sinon deux statuts contradictoires cohabiteraient et
  * l'interface devrait choisir.
  */
-export async function enregistrerQualite(e: EcritureQualite): Promise<void> {
+/**
+ * Construit l'ecriture de qualite SANS l'executer, pour la forme tableau de
+ * `$transaction`.
+ *
+ * POURQUOI
+ *
+ * Une inspection propage l'etat au troncon ou a l'ouvrage, ecrit sa trace d'audit, et
+ * enregistre la ligne de qualite qui dit d'ou vient cette valeur. Les deux premieres sont
+ * desormais atomiques ; la troisieme partait apres, hors transaction.
+ *
+ * L'ecart restant etait petit mais reel : un echec apres le commit laissait un etat trace
+ * SANS sa ligne de provenance. La base affirmait alors « etat BON » sans pouvoir dire
+ * qu'il venait d'un releve de terrain date et attribue — exactement l'asymetrie que le
+ * modele de qualite existe pour supprimer, et exactement celle qui avait ete constatee le
+ * 04/09/2026 sur « 2e Boulevard ».
+ *
+ * Meme motif que `construireSaisies` pour la provenance et `construireAudit` pour le
+ * journal : on prepare, l'appelant joint a sa transaction.
+ */
+export function construireQualite(e: EcritureQualite) {
   const donnees = {
     statut: e.statut,
     source: e.source ?? null,
@@ -174,7 +193,7 @@ export async function enregistrerQualite(e: EcritureQualite): Promise<void> {
     note: e.note ?? null,
   };
 
-  await prisma.valeurQualite.upsert({
+  return prisma.valeurQualite.upsert({
     where: {
       entityType_entityId_champ: {
         entityType: e.entityType,
@@ -185,6 +204,15 @@ export async function enregistrerQualite(e: EcritureQualite): Promise<void> {
     create: { entityType: e.entityType, entityId: e.entityId, champ: e.champ, ...donnees },
     update: donnees,
   });
+}
+
+/**
+ * Ecrit immediatement. Passe par le constructeur ci-dessus pour qu'il n'existe qu'UNE
+ * definition de la forme de cette ecriture : deux copies divergeraient, et la divergence
+ * serait invisible puisque les deux continueraient de passer.
+ */
+export async function enregistrerQualite(e: EcritureQualite): Promise<void> {
+  await construireQualite(e);
 }
 
 export interface RepartitionChamp {

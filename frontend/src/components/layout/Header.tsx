@@ -1,15 +1,21 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ShieldCheck } from "lucide-react";
+import { KeyRound, ShieldCheck } from "lucide-react";
 import { useAuth } from "../../lib/auth";
 import { Badge } from "../ui/Badge";
 import { Button } from "../ui/Button";
 import { GlobalSearch } from "./GlobalSearch";
 import { SyncStatusBadge } from "./SyncStatusBadge";
-import { useConfirm } from "../../hooks/useConfirm";
+import { useSessionLocaleOptionnelle } from "../../session/useSessionLocale";
+import { DialogueDeconnexion } from "../session/DialogueDeconnexion";
+import { PanneauSessionLocale } from "../session/PanneauSessionLocale";
 
 export function Header({ title, onMenuClick }: { title: string; onMenuClick?: () => void }) {
   const { user, logout, logoutAll } = useAuth();
-  const { confirm } = useConfirm();
+  // La deconnexion passe par un dialogue qui dit ce qui reste sur le telephone (rien n est efface). Hors fournisseur
+  // de session locale (composant isole), le comportement d avant est conserve.
+  const sessionLocale = useSessionLocaleOptionnelle();
+  const [dialogue, setDialogue] = useState<"DECO" | "TOUS" | "PANNEAU" | null>(null);
 
   return (
     <header className="no-print h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 md:px-6 gap-2 md:gap-4">
@@ -35,6 +41,17 @@ export function Header({ title, onMenuClick }: { title: string; onMenuClick?: ()
       {user && (
         <div className="flex items-center gap-2 md:gap-3 shrink-0">
           <SyncStatusBadge />
+          {sessionLocale && (
+            <button
+              type="button"
+              onClick={() => setDialogue("PANNEAU")}
+              title="Session locale : verrou, code PIN, données du téléphone"
+              aria-label="Session locale"
+              className="p-2 text-gray-600 hover:text-navy hover:bg-gray-100 rounded-md transition-colors"
+            >
+              <KeyRound className="h-4 w-4" />
+            </button>
+          )}
           <Link to="/securite" title="Sécurité du compte" className="p-2 text-gray-400 hover:text-navy hover:bg-gray-100 rounded-md transition-colors">
             <ShieldCheck className="h-4 w-4" />
           </Link>
@@ -44,21 +61,22 @@ export function Header({ title, onMenuClick }: { title: string; onMenuClick?: ()
             variant="ghost"
             className="px-2 md:px-4 hidden lg:inline-flex"
             title="Déconnecter toutes les sessions, tous appareils"
-            onClick={async () => {
-              const ok = await confirm(
-                "Toutes vos sessions seront révoquées, y compris sur les autres navigateurs. Vous devrez vous reconnecter partout.",
-                { title: "Déconnecter tous les appareils ?", danger: true }
-              );
-              if (ok) await logoutAll();
-            }}
+            onClick={() => (sessionLocale ? setDialogue("TOUS") : void logoutAll())}
           >
             Tous appareils
           </Button>
-          <Button variant="ghost" className="px-2 md:px-4" onClick={() => logout()}>
+          <Button variant="ghost" className="px-2 md:px-4" onClick={() => (sessionLocale ? setDialogue("DECO") : void logout())}>
             <span className="hidden sm:inline">Déconnexion</span>
             <span className="sm:hidden">Quitter</span>
           </Button>
         </div>
+      )}
+      {sessionLocale && (
+        <>
+          <DialogueDeconnexion ouvert={dialogue === "DECO"} surFermer={() => setDialogue(null)} />
+          <DialogueDeconnexion ouvert={dialogue === "TOUS"} surFermer={() => setDialogue(null)} tous />
+          <PanneauSessionLocale ouvert={dialogue === "PANNEAU"} surFermer={() => setDialogue(null)} />
+        </>
       )}
     </header>
   );

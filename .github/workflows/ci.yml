@@ -1,12 +1,44 @@
-# CI minimale : a chaque push/PR, compiler et tester ce que le deploiement
-# manuel ne verifie pas aujourd'hui. Pas de job de deploy (regle AGENTS.md :
-# aucune mise en production depuis ce depot sans validation humaine).
+# CI : a chaque push sur une branche de travail et a chaque PR, compiler et tester ce que le
+# deploiement manuel ne verifie pas.
+#
+# Pas de job de deploy. Deux regles le veulent : AGENTS.md (« ne pas deployer depuis ce depot
+# sans validation humaine ») et le garde-fou 2.1 du mandat v2.1 (« aucune operation sur la
+# production : pas de migration, pas d'ecriture, pas de deploiement »).
+#
+# POURQUOI LES DECLENCHEURS ONT CHANGE LE 14/10/2026
+#
+# La version precedente ne se declenchait que sur `push: branches: [main]` et sur les PR. Or
+# le garde-fou 2.5 du mandat v2.1 impose une BRANCHE PAR LOT (`lot/NN-nom-court`) et interdit
+# tout commit direct sur `main`. Conséquence : un push sur `lot/01-socle` ne declenchait
+# RIEN, et la CI ne tournait donc jamais avant l'ouverture d'une PR.
+#
+# Le defaut n'etait pas l'absence de CI — elle existait — mais le fait qu'elle ne pouvait plus
+# s'executer sous la nouvelle discipline de branches. Les motifs ci-dessous couvrent les
+# branches reellement utilisees dans ce depot.
+#
+# LINT : leve le 20/10/2026 (B-29), eslint et sa configuration plate sont des dependances du
+# frontend ; le job frontend le lance.
+#
+# BANCS SQL : depuis le 22/10/2026, le job « descentes » garde sa base de reference (chaine de
+# migrations complete) et y lance tous les `backend/prisma/tests/*.test.sql`. Les bancs de
+# performance (`*.bench.sql`) restent manuels : sans seuil, ils ne jugent rien.
+#
+# AUCUNE EXECUTION REELLE A CE JOUR : le compte GitHub est verrouille pour facturation, aucun job
+# n'a jamais tourne. Chaque commande a ete executee en local (TEST_EVIDENCE.md).
+
 name: CI
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - 'lot/**'
+      - 'deploy/**'
+      - 'phase*'
+      - 'audit/**'
+      - ageroute-road-socle
   pull_request:
+  workflow_dispatch:
 
 jobs:
   backend:
@@ -24,11 +56,12 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - run: npm ci
       - run: npm run prisma:generate
+      # `build` lance `tsc -p tsconfig.json`, donc le typage est verifie ici.
       - run: npm run build
       - run: npm test
 
   frontend:
-    name: Frontend (tsc + vitest + vite build)
+    name: Frontend (lint + tsc + vitest + vite build)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -41,5 +74,78 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      # Lint (B-29 leve le 20/10) : echoue sur toute ERREUR, dont les regles d'accessibilite
+      # jsx-a11y. Les avertissements (exhaustive-deps) restent signales sans faire echouer.
+      - run: npm run lint
       - run: npm test
+      # `build` lance `tsc --noEmit && vite build` : typage puis construction reelle.
       - run: npm run build
+
+  migrations:
+    name: Migrations (coherence des dossiers)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Un dossier de migration sans `migration.sql` casse `prisma migrate deploy` en
+      # production, et rien ne le signalait avant la livraison. Le controle est local au
+      # depot : il ne touche aucune base, conformement au garde-fou 2.1.
+      - name: Chaque dossier de migration porte un migration.sql
+        run: |
+          manquants=0
+          for d in backend/prisma/migrations/*/; do
+            if [ ! -f "${d}migration.sql" ]; then
+              echo "::error::${d} n'a pas de migration.sql"
+              manquants=$((manquants + 1))
+            fi
+          done
+          echo "Dossiers de migration : $(ls -d backend/prisma/migrations/*/ | wc -l)"
+          if [ "$manquants" -gt 0 ]; then
+            echo "$manquants dossier(s) incomplet(s)"
+            exit 1
+          fi
+      - name: Aucun secret evident dans les migrations ni les exemples d'environnement
+        run: |
+          # Le garde-fou 2.3 interdit tout secret dans le depot. Ce controle est grossier et
+          # ne remplace pas une revue, mais il attrape la faute la plus courante : une vraie
+          # valeur laissee dans un .env.example ou une chaine de connexion dans une migration.
+          if grep -rInE '(password|passwd|secret|token)\s*=\s*["'"'"']?[A-Za-z0-9+/._-]{12,}' \
+               backend/prisma/migrations backend/.env.example 2>/dev/null \
+             | grep -viE 'changeme|example|placeholder|xxx|<[^>]+>'; then
+            echo "::error::valeur ressemblant a un secret"
+            exit 1
+          fi
+          echo "Aucune valeur suspecte."
+
+  descentes:
+    name: Descentes (banc aller-retour sur base jetable)
+    runs-on: ubuntu-latest
+    # Une base PostGIS JETABLE, creee et detruite avec le job : aucune base reelle n'est touchee,
+    # conformement au garde-fou 2.1. Pas de mot de passe (`trust`) : rien a mettre dans le depot.
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_USER: bdri_dev
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bdri_dev"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: bdri_dev
+    steps:
+      - uses: actions/checkout@v4
+      # Pour chaque migration : la descente rend le schema d'avant, la migration se reapplique a
+      # l'identique, les gardes refusent puis passent avec l'autorisation explicite. Echoue si une
+      # migration est ajoutee SANS descente verifiee. Voir backend/prisma/descentes/README.md.
+      - name: Banc des descentes
+        run: bash backend/prisma/descentes/verifier.sh --strict --garder
+      # La base de reference laissee par --garder porte toute la chaine : les bancs SQL s'y
+      # executent, chacun dans une transaction annulee.
+      - name: Bancs SQL
+        run: bash infra/ci/bancs-sql.sh

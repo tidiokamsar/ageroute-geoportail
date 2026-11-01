@@ -1,0 +1,37 @@
+-- INDEX GiST PLANAIRE SUR troncons.geom (A15 : rattachement < 300 ms p95 ; A20 : deviation < 2 s)
+--
+-- LE CONSTAT DU 23/10/2026 (banc backend/tests-integration/perf, reseau synthetique de 261 387
+-- troncons, EXPLAIN ANALYZE dans docs/performance/MESURES-A15-A20.md)
+--
+-- Sur une base rejouee depuis les migrations, `troncons.geom` n'a qu'un index GiST, sur l'EXPRESSION
+-- `(geom::geography)` (20260901170000). Or trois requetes critiques interrogent la colonne
+-- PLANAIRE, que cet index ne sert pas :
+--
+--   geo/appariement.ts   `t.geom && ST_GeomFromText(...)` et `ORDER BY t.geom <-> point LIMIT 5`
+--   geo/trace.service.ts `t.geom && ST_MakeEnvelope(...)` puis `ORDER BY t.geom <-> point` (LATERAL)
+--   geo/graphe.depot.ts  `t.geom && ST_MakeEnvelope(...)` (chargement du graphe de deviation)
+--
+-- Sans index planaire, la recherche de proximite sur le reseau complet (`reseau = "tout"`) trie les
+-- 261 387 troncons a chaque point : parcours sequentiel parallele, 761 ms en EXPLAIN ANALYZE
+-- (1,9 ms avec l'index), et un p95 de 1,2 s en HTTP sous charge. Le reseau CLASSE (1 772 troncons
+-- dans le jeu de mesure) n'est pas touche : il passe par l'index partiel
+-- `troncons_reseau_reference_idx`, et c'est pourquoi la mesure de 19 ms de la migration
+-- 20261007140000 ne voyait pas le probleme.
+--
+-- POURQUOI UN SECOND INDEX ET NON LE REMPLACEMENT DU PREMIER
+--
+-- Deux formes d'interrogation coexistent et aucune ne sert l'autre :
+--   (geom::geography)  <- ST_DWithin(geom::geography, ..., rayon_m)  (contexte terrain, ouvrages)
+--   (geom)             <- `&&` et `<->`                                (appariement, trace, graphe)
+-- La migration 20261020020000 l'a deja etabli pour la forme geographique ; celle-ci pose l'autre.
+--
+-- NATURE : additive, un seul index (11 Mo pour 261 387 lignes). A la creation, verrou en ECRITURE sur
+-- `troncons` (lectures libres) le temps de la construction : 4 s pour 261 387 lignes sur le poste
+-- de mesure, charge par d'autres processus.
+-- `IF NOT EXISTS` porte sur le NOM : si la production portait deja un index planaire equivalent
+-- sous un autre nom, il y aurait doublon -- a verifier avant deploiement (`\di+ troncons*`).
+--
+-- REVERSIBILITE : voir backend/prisma/descentes/20261023200000_index_troncons_geom_planaire.sql
+-- (DROP INDEX, aucune donnee perdue).
+
+CREATE INDEX IF NOT EXISTS "troncons_geom_gist" ON "troncons" USING GIST ("geom");

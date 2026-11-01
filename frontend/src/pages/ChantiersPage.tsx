@@ -149,6 +149,7 @@ export function ChantiersPage() {
 
   return (
     <EntityListPage<Chantier>
+      exportTable="chantiers"
       endpoint="chantiers"
       title="Chantiers"
       subtitle="Suivi des travaux routiers"

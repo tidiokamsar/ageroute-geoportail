@@ -71,16 +71,16 @@ function SmtpTab() {
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Hôte SMTP</label>
-            <Input value={host} onChange={(e) => setHost(e.target.value)} placeholder="smtp.gmail.com" />
+            <label htmlFor="administration-page-champ-1" className="block text-xs font-medium text-gray-600 mb-1">Hôte SMTP</label>
+            <Input id="administration-page-champ-1" value={host} onChange={(e) => setHost(e.target.value)} placeholder="smtp.gmail.com" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Port</label>
-            <Input type="number" value={port} onChange={(e) => setPort(Number(e.target.value))} placeholder="587" />
+            <label htmlFor="administration-page-champ-2" className="block text-xs font-medium text-gray-600 mb-1">Port</label>
+            <Input id="administration-page-champ-2" type="number" value={port} onChange={(e) => setPort(Number(e.target.value))} placeholder="587" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Utilisateur</label>
-            <Input value={user} onChange={(e) => setUser(e.target.value)} placeholder="notifications@ageroute.gov.gn" />
+            <label htmlFor="administration-page-champ-3" className="block text-xs font-medium text-gray-600 mb-1">Utilisateur</label>
+            <Input id="administration-page-champ-3" value={user} onChange={(e) => setUser(e.target.value)} placeholder="notifications@ageroute.gov.gn" />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -94,8 +94,8 @@ function SmtpTab() {
             />
           </div>
           <div className="md:col-span-2">
-            <label className="block text-xs font-medium text-gray-600 mb-1">Adresse d'expédition</label>
-            <Input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="BDRI AGEROUTE <no-reply@ageroute.gov.gn>" />
+            <label htmlFor="administration-page-champ-4" className="block text-xs font-medium text-gray-600 mb-1">Adresse d'expédition</label>
+            <Input id="administration-page-champ-4" value={from} onChange={(e) => setFrom(e.target.value)} placeholder="BDRI AGEROUTE <no-reply@ageroute.gov.gn>" />
           </div>
           <label className="flex items-center gap-2 md:col-span-2 text-sm text-gray-600">
             <input type="checkbox" checked={secure} onChange={(e) => setSecure(e.target.checked)} className="rounded border-gray-300 text-navy focus:ring-navy/30" />
@@ -164,6 +164,10 @@ function BailleursTab() {
   function openEdit(b: Bailleur) { setEditing(b); setNom(b.nom); setType(b.type); setError(null); setModalOpen(true); }
   function closeModal() { setModalOpen(false); setEditing(null); }
 
+  // Saisie differente de ce qui est enregistre (ou du formulaire vierge a l'ajout) : fermer
+  // demande alors confirmation.
+  const sale = () => (editing ? nom !== editing.nom || type !== editing.type : nom !== "" || type !== "autre");
+
   const TYPE_LABEL: Record<string, string> = { etat: "État", multilateral: "Multilatéral", bilateral: "Bilatéral", autre: "Autre" };
 
   return (
@@ -198,16 +202,16 @@ function BailleursTab() {
         </div>
       )}
 
-      <Modal open={modalOpen} onClose={closeModal} title={editing ? `Modifier — ${editing.nom}` : "Nouveau bailleur"}>
+      <Modal open={modalOpen} onClose={closeModal} title={editing ? `Modifier — ${editing.nom}` : "Nouveau bailleur"} sale={sale}>
         <div className="space-y-3">
           {error && <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{error}</div>}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Nom</label>
-            <Input value={nom} onChange={(e) => setNom(e.target.value)} />
+            <label htmlFor="administration-page-champ-5" className="block text-xs font-medium text-gray-600 mb-1">Nom</label>
+            <Input id="administration-page-champ-5" value={nom} onChange={(e) => setNom(e.target.value)} />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
-            <select value={type} onChange={(e) => setType(e.target.value)} className="w-full rounded-md border border-gray-200 px-3 py-1.5 text-sm">
+            <label htmlFor="administration-page-champ-6" className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+            <select id="administration-page-champ-6" value={type} onChange={(e) => setType(e.target.value)} className="w-full rounded-md border border-gray-200 px-3 py-1.5 text-sm">
               <option value="etat">État</option>
               <option value="multilateral">Multilatéral</option>
               <option value="bilateral">Bilatéral</option>

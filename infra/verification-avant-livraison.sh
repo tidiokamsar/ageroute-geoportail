@@ -141,13 +141,21 @@ verifier_nginx() {
         ok "nginx : syntaxe valide"
     elif echo "$sortie" | grep -q "host not found in upstream"; then
         ok "nginx : syntaxe valide (resolution du backend attendue hors reseau Compose)"
-    elif echo "$sortie" | grep -qE "failed to resolve reference|Unable to find image|Cannot connect to the Docker daemon|dial tcp"; then
+    elif echo "$sortie" | grep -qE "failed to resolve reference|Unable to find image|Cannot connect to the Docker daemon|dial tcp|failed to connect to the docker API|error during connect|docker daemon is not running|The system cannot find the file specified|Le fichier .* introuvable"; then
         # Ne pas confondre « je ne peux pas verifier » et « c'est invalide ».
         # Rencontre le 01/09/2026 : Docker present mais sans acces au registre, et le
         # script refusait la livraison pour un motif d'ENVIRONNEMENT. Un garde-fou qui
         # crie au loup apprend a le contourner — le meme raisonnement que pour le test
         # instable trouve le meme jour.
-        ignore "nginx : image indisponible, syntaxe non verifiee"
+        #
+        # Rencontre a nouveau le 13/10/2026, et pour la meme raison de fond : la liste
+        # ci-dessus avait ete ecrite d'apres les messages de Docker sous Linux. Docker
+        # DESKTOP sous Windows dit autre chose quand son moteur est arrete —
+        # « failed to connect to the docker API at npipe://... » — et la verification
+        # avant livraison a donc repondu « NE PAS LIVRER » alors que la configuration
+        # n'avait pas ete lue. Le binaire `docker` existe sans que le DEMON reponde :
+        # `command -v docker` ne suffit pas a le savoir.
+        ignore "nginx : Docker injoignable, syntaxe non verifiee"
     else
         echec "nginx : configuration refusee"
         echo "$sortie" | grep -E "emerg|error" | head -3 | sed 's/^/        /'

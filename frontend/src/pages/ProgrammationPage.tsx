@@ -11,6 +11,7 @@ import { Card, KpiCard } from "../components/ui/Card";
 import { Button } from "../components/ui/Button";
 import { DataTable } from "../components/DataTable";
 import { printReport } from "../lib/print";
+import { PrevisionsBudgetaires } from "./PrevisionsBudgetaires";
 import type { ProgrammationData, PaginatedResult } from "../types";
 
 interface ProgrammationLigne {
@@ -350,6 +351,9 @@ export function ProgrammationPage() {
             </ResponsiveContainer>
           </Card>
         </div>
+
+        {/* Prévisions saisies : ce qui est programmé, avant les chantiers */}
+        <PrevisionsBudgetaires />
 
         {/* Référentiel : détail ligne par ligne des marchés */}
         <Card className="no-print">

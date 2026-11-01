@@ -6,7 +6,15 @@ import { setPointGeom, getPointLatLon, deriveGeomFromTroncon } from "../../lib/g
 import { ApiError } from "../../middleware/error.middleware";
 import { posteCreateSchema } from "./postes.schema";
 
-const base = createCrudService(prisma.poste, "Poste", { region: true, troncon: true });
+/**
+ * Migre a l'audit transactionnel (ADR 11). La mutation et sa trace reussissent ou sont
+ * annulees ensemble.
+ */
+const base = createCrudService(prisma.poste, "Poste", {
+  include: { region: true, troncon: true },
+  delegueTransactionnel: (tx) => (tx as typeof prisma).poste,
+  controleTerritorial: true,
+});
 
 function extractLatLon(data: { lat?: number; lon?: number } & Record<string, unknown>) {
   const { lat, lon, ...rest } = data;
@@ -33,12 +41,14 @@ async function update(id: string, data: { lat?: number; lon?: number } & Record<
   return updated;
 }
 
-async function geolocateFromTroncon(id: string) {
+async function geolocateFromTroncon(id: string, userId: string, ipAddress?: string) {
   const item = (await base.getById(id)) as { tronconId?: string | null; pk?: number | null };
   if (!item.tronconId || item.pk == null) {
     throw new ApiError(400, "Ce poste doit avoir un tronçon rattaché et un PK pour être géolocalisé automatiquement.");
   }
-  const ok = await deriveGeomFromTroncon("postes", id, item.tronconId, item.pk);
+  const ok = await deriveGeomFromTroncon("postes", id, item.tronconId, item.pk, {
+    userId, entityType: "Poste", ipAddress,
+  });
   if (!ok) throw new ApiError(400, "Géolocalisation impossible : tracé du tronçon indisponible.");
   return getPointLatLon("postes", id);
 }

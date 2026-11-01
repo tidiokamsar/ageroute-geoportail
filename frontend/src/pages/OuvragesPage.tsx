@@ -172,6 +172,7 @@ export function OuvragesPage() {
 
   return (
     <EntityListPage<Ouvrage>
+      exportTable="ouvrages"
       endpoint="ouvrages"
       title="Ouvrages d'art"
       subtitle="Ponts, dalots, buses et ouvrages hydrauliques"

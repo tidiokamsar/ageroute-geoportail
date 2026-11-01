@@ -2,6 +2,13 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import express from "express";
 import request from "supertest";
 
+// Controle territorial (A10) : compte NATIONAL ici, le sujet de ce fichier est ailleurs. Le
+// controle lui-meme est eprouve par territoire/*.test.ts et api-v2/perimetres.routes.test.ts.
+vi.mock("../../territoire/territoire.service", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  perimetreDe: async () => ({ national: true }),
+}));
+
 /**
  * Propositions de localisation : une proposition n'est jamais une localisation.
  *
@@ -188,6 +195,32 @@ describe("Rejet d'une proposition", () => {
     etat.proposition = proposition({ statut: "REJECTED" });
     const r = await request(app()).post("/api/propositions-localisation/p1/rejeter").send({});
     expect(r.status).toBe(409);
+    expect(etat.audits).toHaveLength(0);
+  });
+
+  it("trace le rejet dans le journal d'audit, avec son auteur, le motif et l'état d'avant", async () => {
+    // Regle 3 d'AGENTS.md : l'approbation etait auditee, pas le rejet.
+    await request(app())
+      .post("/api/propositions-localisation/p1/rejeter")
+      .send({ motif: "PK illisibles" });
+
+    expect(etat.audits).toHaveLength(1);
+    const { data } = etat.audits[0] as { data: Record<string, unknown> };
+    expect(data).toMatchObject({
+      userId: "u1", action: "UPDATE", entityType: "Chantier", entityId: "c1",
+      before: { propositionId: "p1", statutProposition: "PROPOSED" },
+      after: { statutProposition: "REJECTED", motifRejet: "PK illisibles", methode: "INTITULE_ROUTE_PK" },
+    });
+  });
+
+  it("annule le rejet si l'audit ne peut pas être écrit (une seule transaction)", async () => {
+    const { prisma } = await import("../../lib/prisma");
+    (prisma.$transaction as unknown as { mockImplementationOnce: (f: () => Promise<never>) => void })
+      .mockImplementationOnce(async () => { throw new Error("audit indisponible"); });
+
+    const r = await request(app()).post("/api/propositions-localisation/p1/rejeter").send({});
+    expect(r.status).toBe(500);
+    expect(prisma.$transaction).toHaveBeenCalled();
   });
 });
 

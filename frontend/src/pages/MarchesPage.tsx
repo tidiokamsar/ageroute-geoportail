@@ -185,8 +185,8 @@ function AvancementModal({ marche, onClose }: { marche: Marche; onClose: () => v
         <div className="rounded-lg border border-gray-200 p-3 space-y-3">
           <p className="text-xs font-medium text-gray-500">Saisir / mettre à jour un mois</p>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Période</label>
-            <input
+            <label htmlFor="marches-page-champ-3" className="block text-xs font-medium text-gray-600 mb-1">Période</label>
+            <input id="marches-page-champ-3"
               type="month"
               value={periode}
               onChange={(e) => setPeriode(e.target.value)}
@@ -319,12 +319,12 @@ function DecaissementsModal({ marche, onClose }: { marche: Marche; onClose: () =
           <p className="text-xs font-medium text-gray-500">Nouveau décompte</p>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">N° décompte</label>
-              <Input type="number" min={1} value={numero} onChange={(e) => setNumero(Number(e.target.value))} />
+              <label htmlFor="marches-page-champ-1" className="block text-xs font-medium text-gray-600 mb-1">N° décompte</label>
+              <Input id="marches-page-champ-1" type="number" min={1} value={numero} onChange={(e) => setNumero(Number(e.target.value))} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
-              <select
+              <label htmlFor="marches-page-champ-4" className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+              <select id="marches-page-champ-4"
                 value={type}
                 onChange={(e) => setType(e.target.value as DecompteType)}
                 className="w-full rounded-md border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy/20"
@@ -335,12 +335,12 @@ function DecaissementsModal({ marche, onClose }: { marche: Marche; onClose: () =
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Montant (GNF)</label>
-              <Input type="number" min={0} value={montant} onChange={(e) => setMontant(Number(e.target.value))} />
+              <label htmlFor="marches-page-champ-2" className="block text-xs font-medium text-gray-600 mb-1">Montant (GNF)</label>
+              <Input id="marches-page-champ-2" type="number" min={0} value={montant} onChange={(e) => setMontant(Number(e.target.value))} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Statut</label>
-              <select
+              <label htmlFor="marches-page-champ-5" className="block text-xs font-medium text-gray-600 mb-1">Statut</label>
+              <select id="marches-page-champ-5"
                 value={statut}
                 onChange={(e) => setStatut(e.target.value as DecompteStatut)}
                 className="w-full rounded-md border border-gray-200 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy/20"
@@ -352,8 +352,8 @@ function DecaissementsModal({ marche, onClose }: { marche: Marche; onClose: () =
             </div>
             {statut === "PAYE" && (
               <div className="col-span-2">
-                <label className="block text-xs font-medium text-gray-600 mb-1">Date de paiement</label>
-                <input
+                <label htmlFor="marches-page-champ-6" className="block text-xs font-medium text-gray-600 mb-1">Date de paiement</label>
+                <input id="marches-page-champ-6"
                   type="date"
                   value={datePaiement}
                   onChange={(e) => setDatePaiement(e.target.value)}

@@ -1,0 +1,13 @@
+systeme_source;type_objet;identifiant_source;code_route;debut_m;fin_m;geometrie;date_source;note
+{{SOURCE}};comptage;HTML-001;RN1;;;;2026-10-01;"<script>window.__piege = 1</script><img src=x onerror=""window.__piege = 2"">"
+{{SOURCE}};inconnu;"<img src=x onerror=window.__piege=3>";RN1;;;;;mauvais type
+{{SOURCE}};comptage;"=HYPERLINK(""http://x"",""a"")";RN1;;;;2026-10-01;premiere
+{{SOURCE}};comptage;"=HYPERLINK(""http://x"",""a"")";RN1;;;;2026-10-01;doublon
+{{SOURCE}};comptage;"+cmd|' /C calc'!A0";RN1;;;;2026-10-01;premiere
+{{SOURCE}};comptage;"+cmd|' /C calc'!A0";RN1;;;;2026-10-01;doublon
+{{SOURCE}};comptage;"-2+3+cmd";RN1;;;;2026-10-01;premiere
+{{SOURCE}};comptage;"-2+3+cmd";RN1;;;;2026-10-01;doublon
+{{SOURCE}};comptage;"@SUM(A1)";RN1;;;;2026-10-01;premiere
+{{SOURCE}};comptage;"@SUM(A1)";RN1;;;;2026-10-01;doublon
+{{SOURCE}};comptage;"=1+1";RN1;;;;2026-10-01;premiere
+{{SOURCE}};comptage;"=1+1";RN1;;;;2026-10-01;doublon

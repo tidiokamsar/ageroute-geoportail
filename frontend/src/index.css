@@ -30,13 +30,18 @@ body {
     --secondary: #22344e;
     --secondary-foreground: #ffffff;
     --muted: #eef1f4;
-    --muted-foreground: #6b7280;
+    /* #6b7280 mesurait 4,26:1 sur --muted et 4,46:1 sur --background : sous 4,5:1. */
+    --muted-foreground: #5b6472;
     --accent: #f5a623;
     --accent-foreground: #1a2942;
     --destructive: #dc2626;
     --border: #e5e7eb;
-    --input: #d1d5db;
-    --ring: #f5a623;
+    /* Bordure de champ de saisie. #d1d5db mesurait 1,47:1 sur blanc : sous les 3:1 de WCAG 1.4.11
+       (limite d'un composant d'interface). #7b828e : 3,87:1 sur blanc, 3,57:1 sur --background. */
+    --input: #7b828e;
+    /* Anneau de focus. L'or #f5a623 mesurait 2,03:1 sur blanc : invisible sur fond clair. Le navy
+       tient 14,6:1 ; sur les surfaces navy (barre laterale), --sidebar-ring (or) prend le relais. */
+    --ring: #1a2942;
     --chart-1: #1a2942;
     --chart-2: #f5a623;
     --chart-3: #16a34a;
@@ -95,4 +100,28 @@ body.printing-fiche [role="dialog"] button {
     width: 100% !important;
     padding: 0 !important;
   }
+}
+
+/* Contraste des composants (WCAG 1.4.11) et focus visible (2.4.7).
+   Les champs des pages posent leur bordure en classes Tailwind brutes (border-gray-200/300,
+   1,2:1 a 1,5:1 sur blanc) au lieu de passer par <Input>. Plutot que reecrire des centaines de
+   champs, on corrige la couleur ICI : seuls les champs dont la bordure de base est un de ces gris
+   changent (plus ceux qui ont `border` sans couleur, donc la couleur par defaut --border #e5e7eb), donc les etats erreur (border-red-*), transparents et le focus (focus:border-navy) restent
+   a la main de la page. Mesure et chiffres : docs/accessibilite/CONTRASTE.md. */
+:is(input, select, textarea)[class~="border-gray-200"],
+:is(input, select, textarea)[class~="border-gray-300"],
+:is(input, select, textarea)[class~="border-slate-200"],
+:is(input, select, textarea)[class~="border"]:not([class*="border-"]) {
+  border-color: var(--input);
+}
+
+/* Focus clavier visible partout. Le code compte 52 usages de `outline-none` et 44 anneaux navy a 20 ou 30 %
+   (environ 1,4:1) : le focus y est quasi invisible.
+   `!important` est voulu : il doit l'emporter sur ces utilitaires. */
+:is(a[href], button, input, select, textarea, summary, [role="button"], [role="tab"], [role="menuitem"], [role="combobox"], [role="option"], [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid var(--ring) !important;
+  outline-offset: 2px !important;
+}
+aside :is(a[href], button, input, select, textarea, [role="button"], [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline-color: var(--sidebar-ring) !important;
 }

@@ -1,9 +1,9 @@
 import { useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { useEntityList, useEntityMutations } from "../hooks/useEntity";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../lib/api";
-import { Pencil, KeyRound, PowerOff, Power, Search, Users, ShieldCheck } from "lucide-react";
+import { Pencil, KeyRound, PowerOff, Power, Search, Users, ShieldCheck, UserCog } from "lucide-react";
 import { DataTable } from "../components/DataTable";
 import { EntityForm, type FieldConfig } from "../components/EntityForm";
 import { Modal } from "../components/ui/Modal";
@@ -34,7 +34,7 @@ const CREATE_FIELDS: FieldConfig[] = [
 
 // ── Modal : accès par module ────────────────────────────────────────────────────
 
-function ModuleAccessModal({ user, onClose }: { user: User; onClose: () => void }) {
+export function ModuleAccessModal({ user, onClose }: { user: User; onClose: () => void }) {
   const qc = useQueryClient();
   const [selected, setSelected] = useState<Set<string>>(new Set(user.modulesAutorises ?? []));
   const restricted = (user.modulesAutorises?.length ?? 0) > 0;
@@ -46,19 +46,30 @@ function ModuleAccessModal({ user, onClose }: { user: User; onClose: () => void 
     onError: (err) => toast.error(parseApiError(err).message),
   });
 
+  // Modifie par rapport a l'etat enregistre : la restriction ou la liste de modules a change.
+  const sale = () => {
+    const initiaux = new Set(user.modulesAutorises ?? []);
+    if (enabled !== restricted) return true;
+    if (!enabled) return false;
+    return selected.size !== initiaux.size || [...selected].some((k) => !initiaux.has(k));
+  };
+
   function toggle(key: string) {
-    setSelected((prev) => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
+    setSelected((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n; });
   }
 
   return (
-    <Modal open onClose={onClose} title={`Accès aux modules — ${user.nomComplet}`}>
+    <Modal open onClose={onClose} title={`Accès aux modules — ${user.nomComplet}`} sale={sale}>
       <div className="space-y-3">
         <label className="flex items-center gap-2 text-sm text-gray-700">
           <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="rounded border-gray-300 text-navy focus:ring-navy/30" />
           Restreindre l'accès à des modules spécifiques
         </label>
-        <p className="text-xs text-gray-400">
-          Décoché : l'utilisateur voit tout ce que son rôle ({user.role}) autorise déjà, sans restriction supplémentaire.
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">
+          <strong>Décoché : l'utilisateur perd l'accès à tous les modules.</strong> Une liste
+          vide ne vaut pas « aucune restriction » — elle vaut « aucun module ». Son rôle
+          ({user.role}) continue de limiter ce qu'il peut faire, mais il ne pourra plus rien
+          ouvrir. Seul un administrateur échappe à cette règle.
         </p>
         {enabled && (
           <div className="grid grid-cols-2 gap-1.5 rounded-lg border border-gray-200 p-3 max-h-72 overflow-y-auto">
@@ -83,6 +94,110 @@ function ModuleAccessModal({ user, onClose }: { user: User; onClose: () => void 
   );
 }
 
+// ── Modal : profils metier ─────────────────────────────────────────────────────
+
+interface ProfilMetier {
+  code: string;
+  libelle: string;
+  usages: string;
+  role: string;
+  modules: string[];
+  aArbitrer?: string;
+}
+
+/**
+ * Appliquer un profil du paragraphe 5 du cahier des charges.
+ *
+ * CE QUE CE MODAL DOIT RENDRE VISIBLE
+ *
+ * Un profil n'est pas une etiquette : il REMPLACE le role et la liste des modules du
+ * compte. Un administrateur qui l'applique sans voir ce qu'il remplace decouvrirait le
+ * resultat sur un compte en service.
+ *
+ * Et cinq des onze correspondances ne sont pas arbitrees. Les presenter comme etablies
+ * ferait prendre des deductions pour des decisions d'AGEROUTE : l'avertissement du
+ * serveur est donc affiche tel quel, a cote du profil concerne.
+ */
+export function ProfilModal({ user, onClose }: { user: User; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [choisi, setChoisi] = useState<string | null>(null);
+
+  const { data: profils, isLoading } = useQuery<ProfilMetier[]>({
+    queryKey: ["users", "profils"],
+    queryFn: () => api.get("/users/profils").then((r) => r.data),
+  });
+
+  const appliquer = useMutation({
+    mutationFn: (code: string) => api.post(`/users/${user.id}/profil`, { profil: code }),
+    onSuccess: () => {
+      toast.success("Profil appliqué");
+      qc.invalidateQueries({ queryKey: ["users"] });
+      onClose();
+    },
+    onError: (err) => toast.error(parseApiError(err).message),
+  });
+
+  const profil = profils?.find((p) => p.code === choisi) ?? null;
+
+  return (
+    <Modal open onClose={onClose} title={`Profil métier — ${user.nomComplet}`} sale={() => choisi !== null}>
+      <div className="space-y-3">
+        <p className="text-xs text-gray-500">
+          Les onze profils du cahier des charges. Appliquer un profil <strong>remplace</strong>{" "}
+          le rôle et les modules de ce compte.
+        </p>
+
+        {isLoading && <p className="text-sm text-gray-400">Chargement…</p>}
+
+        <div className="rounded-lg border border-gray-200 divide-y divide-gray-100 max-h-72 overflow-y-auto">
+          {profils?.map((p) => (
+            <label key={p.code} className="flex gap-2 items-start px-3 py-2 cursor-pointer hover:bg-gray-50">
+              <input
+                type="radio"
+                name="profil"
+                checked={choisi === p.code}
+                onChange={() => setChoisi(p.code)}
+                className="mt-1 border-gray-300 text-navy focus:ring-navy/30"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm text-gray-800">{p.libelle}</span>
+                <span className="block text-xs text-gray-500">{p.usages}</span>
+                {p.aArbitrer && (
+                  <span className="mt-1 inline-block text-xs text-amber-700">
+                    À arbitrer : {p.aArbitrer}
+                  </span>
+                )}
+              </span>
+            </label>
+          ))}
+        </div>
+
+        {profil && (
+          <div className="rounded-lg bg-gray-50 border border-gray-200 px-3 py-2 text-xs text-gray-700 space-y-1">
+            <p>
+              Rôle : <strong>{user.role}</strong> → <strong>{profil.role}</strong>
+            </p>
+            <p>
+              Modules :{" "}
+              {profil.modules.length === 0
+                ? "aucun — un administrateur n'est pas restreint par module"
+                : `${profil.modules.length} (${profil.modules.join(", ")})`}
+            </p>
+          </div>
+        )}
+
+        <Button
+          onClick={() => choisi && appliquer.mutate(choisi)}
+          disabled={!choisi || appliquer.isPending}
+          className="w-full"
+        >
+          {appliquer.isPending ? "Application…" : "Appliquer ce profil"}
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
 const EDIT_FIELDS: FieldConfig[] = [
   { name: "nomComplet", label: "Nom complet", type: "text", required: true },
   { name: "role", label: "Rôle", type: "select", options: ROLE_OPTIONS, required: true },
@@ -98,10 +213,14 @@ export function UsersPage() {
   const [editing, setEditing] = useState<User | null>(null);
   const [resetTarget, setResetTarget] = useState<User | null>(null);
   const [accessTarget, setAccessTarget] = useState<User | null>(null);
+  const [profilTarget, setProfilTarget] = useState<User | null>(null);
   const [newPassword, setNewPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string[]>>({});
   const [viewingUser, setViewingUser] = useState<User | null>(null);
+  // Saisie non enregistree dans le formulaire d'ajout / modification : la fermeture du
+  // modal (Echap, clic hors zone, croix) demande confirmation au lieu de la perdre.
+  const [formDirty, setFormDirty] = useState(false);
 
   const { confirm, dialog: confirmDialog } = useConfirm();
   const { data, isLoading } = useEntityList<User>("users", { page, pageSize: 20, search, sortBy, sortDir });
@@ -118,6 +237,7 @@ export function UsersPage() {
     try {
       if (editing) await update.mutateAsync({ id: editing.id, payload: values });
       else await create.mutateAsync(values);
+      setFormDirty(false);
       setModalOpen(false);
       setEditing(null);
     } catch (err) {
@@ -203,6 +323,13 @@ export function UsersPage() {
           onClick={() => setAccessTarget(u)}
         >
           <ShieldCheck className="h-3.5 w-3.5" />
+        </button>
+        <button
+          title="Appliquer un profil métier"
+          className="h-7 w-7 flex items-center justify-center rounded-md text-gray-400 hover:text-navy hover:bg-navy/5 transition-colors"
+          onClick={() => setProfilTarget(u)}
+        >
+          <UserCog className="h-3.5 w-3.5" />
         </button>
         <button
           title={u.actif ? "Désactiver" : "Réactiver"}
@@ -337,11 +464,13 @@ export function UsersPage() {
       <Modal
         open={modalOpen}
         onClose={() => {
+          setFormDirty(false);
           setModalOpen(false);
           setError(null);
           setFieldErrors({});
         }}
         title={editing ? `Modifier — ${editing.nomComplet}` : "Ajouter un utilisateur"}
+        sale={() => formDirty}
       >
         <EntityForm
           fields={editing ? EDIT_FIELDS : CREATE_FIELDS}
@@ -350,15 +479,21 @@ export function UsersPage() {
           submitting={create.isPending || update.isPending}
           serverError={error}
           serverFieldErrors={fieldErrors}
+          onDirtyChange={setFormDirty}
         />
       </Modal>
 
-      <Modal open={!!resetTarget} onClose={() => setResetTarget(null)} title={`Réinitialiser le mot de passe — ${resetTarget?.nomComplet ?? ""}`}>
+      <Modal
+        open={!!resetTarget}
+        onClose={() => { setResetTarget(null); setNewPassword(""); }}
+        title={`Réinitialiser le mot de passe — ${resetTarget?.nomComplet ?? ""}`}
+        sale={() => newPassword !== ""}
+      >
         {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
         <div className="space-y-3">
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Nouveau mot de passe (min. 8 caractères)</label>
-            <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
+            <label htmlFor="users-page-champ-1" className="block text-xs font-medium text-gray-600 mb-1">Nouveau mot de passe (min. 8 caractères)</label>
+            <Input id="users-page-champ-1" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} />
           </div>
           <Button onClick={handleResetPassword} disabled={resetPassword.isPending || newPassword.length < 8} className="w-full">
             {resetPassword.isPending ? "Enregistrement..." : "Réinitialiser"}
@@ -366,6 +501,7 @@ export function UsersPage() {
         </div>
       </Modal>
       {accessTarget && <ModuleAccessModal user={accessTarget} onClose={() => setAccessTarget(null)} />}
+      {profilTarget && <ProfilModal user={profilTarget} onClose={() => setProfilTarget(null)} />}
 
       {confirmDialog}
     </div>

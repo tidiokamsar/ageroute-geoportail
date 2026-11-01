@@ -4,6 +4,7 @@ import { evaluerCriteres, calculerScore } from "../../lib/priorisation";
 import { requireAuth } from "../../middleware/auth.middleware";
 import { requireRole } from "../../middleware/rbac.middleware";
 import { requireModuleAccess } from "../../middleware/module-access.middleware";
+import { simulateurBudgetSchema } from "./marches.schema";
 import { computeAlertesContractuelles } from "./alertes.service";
 import { sendAlertesEmail } from "../../jobs/alertes-contractuelles";
 import {
@@ -160,15 +161,15 @@ marchesRouter.get("/priorisation/scores", requireAuth, requireModuleAccess("deci
 
 marchesRouter.post("/simulateur/budget", requireAuth, requireModuleAccess("programmation"), async (req, res, next) => {
   try {
+    const parsed = simulateurBudgetSchema.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return res.status(400).json({ message: "Requête invalide", errors: parsed.error.flatten() });
+    }
     const {
       enveloppe_md_gnf = 2000,
       ponderation = { etat: 35, trafic: 25, strategique: 20, cout: 20 },
       filtres = {},
-    } = req.body as {
-      enveloppe_md_gnf?: number;
-      ponderation?: { etat?: number; trafic?: number; strategique?: number; cout?: number };
-      filtres?: { region?: string; classe?: string };
-    };
+    } = parsed.data;
 
     const { etat = 35, trafic = 25, strategique = 20, cout = 20 } = ponderation;
 

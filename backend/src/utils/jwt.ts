@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import jwt, { type SignOptions } from "jsonwebtoken";
 import { env } from "../config/env";
 import type { Role } from "@prisma/client";
@@ -19,8 +20,12 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
 }
 
 export function signRefreshToken(userId: string): string {
+  // `jwtid` unique : sans lui, deux signatures du meme compte dans la meme seconde (deux connexions,
+  // ou un rafraichissement juste apres une connexion) donnent la meme chaine, donc la meme empreinte
+  // `tokenHash` (unique en base) et un 409 sans raison. Aucun code ne compare deux jetons entre eux.
   return jwt.sign({ sub: userId }, env.JWT_REFRESH_SECRET, {
     expiresIn: env.JWT_REFRESH_EXPIRES_IN as SignOptions["expiresIn"],
+    jwtid: randomUUID(),
   });
 }
 
