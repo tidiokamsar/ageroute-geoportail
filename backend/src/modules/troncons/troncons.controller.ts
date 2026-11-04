@@ -15,7 +15,17 @@ const filtresTroncons = z.object({
 function paramsListe(req: Request) {
   const q = parseListQuery(req);
   const f = filtresTroncons.parse({ revetement: req.query.revetement, pk: req.query.pk, geometrie: req.query.geometrie });
+  // Corridor entre deux villes : le client envoie corridor[latA]=..&corridor[lonA]=..&corridor[latB]=..&corridor[lonB]=..
+  // (bracket notation d'axios). Les 4 nombres sont exigés ensemble — un corridor à moitié défini est refusé, pas deviné.
+  const cLatA = Number(Array.isArray(req.query["corridor[latA]"]) ? req.query["corridor[latA]"][0] : req.query["corridor[latA]"]);
+  const cLonA = Number(Array.isArray(req.query["corridor[lonA]"]) ? req.query["corridor[lonA]"][0] : req.query["corridor[lonA]"]);
+  const cLatB = Number(Array.isArray(req.query["corridor[latB]"]) ? req.query["corridor[latB]"][0] : req.query["corridor[latB]"]);
+  const cLonB = Number(Array.isArray(req.query["corridor[lonB]"]) ? req.query["corridor[lonB]"][0] : req.query["corridor[lonB]"]);
+  const corridor = [cLatA, cLonA, cLatB, cLonB].every((n) => Number.isFinite(n))
+    ? { latA: cLatA, lonA: cLonA, latB: cLatB, lonB: cLonB }
+    : undefined;
   return {
+    corridor,
     page: q.page, pageSize: q.pageSize, sortBy: q.sortBy, sortDir: q.sortDir,
     search: q.search, region: q.region, etat: q.etat, archived: q.archived, classe: q.type, ...f,
     // Le reseau classe par defaut. `?perimetre=tout` reste ouvert a l'appelant qui

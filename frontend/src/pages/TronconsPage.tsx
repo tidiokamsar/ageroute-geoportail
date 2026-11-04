@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, Route, RotateCcw } from "lucide-react";
 import { EntityListPage, FilterSelect } from "./EntityListPage";
 import { TronconFicheModal } from "../components/TronconFicheModal";
+import { RechercheVille } from "../components/RechercheVille";
 import { RouteEntreVilles } from "../components/RouteEntreVilles";
 import { SyntheseReferentiel } from "../components/SyntheseReferentiel";
 import { EtatBadge } from "../components/ui/Badge";
@@ -131,8 +132,22 @@ export function TronconsPage() {
   const filtre = (k: (typeof FILTRES)[number]) => params.get(k) ?? "";
   const changer = (k: (typeof FILTRES)[number]) => (v: string) =>
     setParams((p) => { const n = new URLSearchParams(p); if (v) n.set(k, v); else n.delete(k); return n; }, { replace: true });
-  const filtresActifs = FILTRES.some((k) => params.get(k));
-  const reinitialiser = () => setParams((p) => { const n = new URLSearchParams(p); FILTRES.forEach((k) => n.delete(k)); return n; }, { replace: true });
+  const filtresActifs = FILTRES.some((k) => params.get(k)) || params.get("latA") !== null;
+  const corridorFiltre = params.get("latA") && params.get("lonA") && params.get("latB") && params.get("lonB")
+    ? { latA: params.get("latA")!, lonA: params.get("lonA")!, latB: params.get("latB")!, lonB: params.get("lonB")! }
+    : null;
+  const appliquerCorridor = (f: { a: { lat: number; lon: number }; b?: { lat: number; lon: number } } | null) =>
+    setParams((p) => {
+      const n = new URLSearchParams(p);
+      ["latA", "lonA", "latB", "lonB", "villeA", "villeB"].forEach((k) => n.delete(k));
+      if (f) {
+        n.set("latA", String(f.a.lat)); n.set("lonA", String(f.a.lon));
+        n.set("villeA", "1");
+        if (f.b) { n.set("latB", String(f.b.lat)); n.set("lonB", String(f.b.lon)); n.set("villeB", "1"); }
+      }
+      return n;
+    }, { replace: true });
+  const reinitialiser = () => setParams((p) => { const n = new URLSearchParams(p); FILTRES.forEach((k) => n.delete(k)); ["latA", "lonA", "latB", "lonB", "villeA", "villeB"].forEach((k) => n.delete(k)); return n; }, { replace: true });
   const [ficheId, setFicheId] = useState<string | null>(null);
   const [pageRows, setPageRows] = useState<Troncon[]>([]);
 
@@ -239,7 +254,13 @@ export function TronconsPage() {
       importSimulation
       exportTable="troncons"
       auditEntityType="Troncon"
-      extraParams={Object.fromEntries(FILTRES.map((k) => [k, filtre(k) || undefined]))}
+      extraParams={{
+        ...Object.fromEntries(FILTRES.map((k) => [k, filtre(k) || undefined])),
+        ...(corridorFiltre
+          ? { "corridor[latA]": corridorFiltre.latA, "corridor[lonA]": corridorFiltre.lonA,
+              "corridor[latB]": corridorFiltre.latB, "corridor[lonB]": corridorFiltre.lonB }
+          : {}),
+      }}
       onRowsLoaded={setPageRows}
       aboveList={
         <div className="space-y-3">
@@ -252,6 +273,17 @@ export function TronconsPage() {
       }
       filters={
         <>
+          <div className="flex items-center gap-2">
+            {/* Corridor entre deux villes (besoin du 23/10, decide pilote RN1 le 03/11) :
+                « de Sangaredi a Telemele » liste TOUS les troncons de la route entre les
+                deux — le filtre vit dans l'URL comme les autres, donc partageable. */}
+            <RechercheVille compact onAppliquer={appliquerCorridor} />
+            {corridorFiltre && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-navy px-2.5 py-1 text-xs font-medium text-white">
+                {params.get("villeB") ? "Corridor 2 villes" : "Autour d'une ville"} — 20 km
+              </span>
+            )}
+          </div>
           <FilterSelect label="Région" value={filtre("region")} onChange={changer("region")}>
             <option value="">Toutes les régions</option>
             {(regions ?? []).map((r) => <option key={r.id} value={r.nom}>{r.nom}</option>)}
