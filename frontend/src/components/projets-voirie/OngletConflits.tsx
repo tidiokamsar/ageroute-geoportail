@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Geometry } from "geojson";
 import { useAuth } from "../../lib/auth";
+import { FicheConflit } from "./FicheConflit";
 import { ListeConflits } from "./ListeConflits";
 import type { Concessionnaire, ProjetFiche } from "../../lib/projetsVoirieApi";
 import type { ConflitResume } from "../../lib/projetsVoirieConflitsApi";
-import { useListeConflits } from "../../lib/projetsVoirieConflitsHooks";
+import {
+  useAjouterPreuve, useAttribuer, useChangerStatut, useDecider, useFicheConflit, useListeConflits, useProposerDecision,
+} from "../../lib/projetsVoirieConflitsHooks";
 import { BANDEAU_GARDE_FOUS, FILTRES_VIDES, type FiltresConflits } from "../../lib/projetsVoirieConflits";
 import { useValeurDifferee } from "../../lib/projetsVoirieHooks";
 
@@ -48,22 +51,58 @@ export function OngletConflits(p: PropsOngletConflits) {
   const ignores = liste.data?.pages.reduce((s, pg) => s + pg.ignores, 0) ?? 0;
   const selectionResume = conflits.find((c) => c.id === conflitId) ?? null;
 
-  // Surbrillance sur la carte : la geometrie du conflit ouvert, seulement quand l'onglet est visible.
+  const fiche = useFicheConflit(p.projet.id, conflitId);
+  const attribuer = useAttribuer(p.projet.id, conflitId ?? "");
+  const statut = useChangerStatut(p.projet.id, conflitId ?? "");
+  const preuve = useAjouterPreuve(p.projet.id, conflitId ?? "");
+  const proposer = useProposerDecision(p.projet.id, conflitId ?? "");
+  const decider = useDecider(p.projet.id, conflitId ?? "");
+
+  const racine = useRef<HTMLDivElement>(null);
+  const refTitre = useRef<HTMLHeadingElement>(null);
+  const dernierOuvert = useRef<string | null>(null);
+
+  // Surbrillance sur la carte : la geometrie du conflit ouvert (la fiche d'abord, la liste sinon), seulement quand l'onglet est visible.
+  const geometrie = (fiche.data && fiche.data.id === conflitId ? fiche.data.geom : null) ?? selectionResume?.geom ?? null;
   useEffect(() => {
-    if (p.actif && selectionResume?.geom) p.onSurbrillance({ cle: selectionResume.id, geometrie: selectionResume.geom });
+    if (p.actif && conflitId && geometrie) p.onSurbrillance({ cle: conflitId, geometrie });
     else p.onSurbrillance(null);
-  }, [p.actif, selectionResume]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [p.actif, conflitId, geometrie]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => p.onSurbrillance(null), []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function ouvrir(c: ConflitResume) { setConflitId(c.id); }
+  // Ouvrir un dossier : le titre de la fiche prend le focus (lecteur d'ecran et clavier).
+  useEffect(() => { if (conflitId && !fiche.isPending) refTitre.current?.focus(); }, [conflitId, fiche.isPending]);
+
+  function ouvrir(c: ConflitResume) { dernierOuvert.current = c.id; setConflitId(c.id); }
+  function retour() {
+    const id = conflitId;
+    setConflitId(null);
+    // Le focus revient au bouton du dossier qu'on vient de quitter.
+    setTimeout(() => racine.current?.querySelector<HTMLElement>(`button[data-conflit-id="${id}"]`)?.focus(), 0);
+  }
 
   return (
-    <div className="space-y-3">
+    <div ref={racine} className="space-y-3">
       <BandeauGardeFous />
+      {conflitId && (
+        <FicheConflit
+          ref={refTitre} requete={fiche} onRetour={retour} role={p.role} userId={user?.id} nomUtilisateur={user?.nomComplet}
+          peutEcrire={p.peutEcrire} estAdmin={p.estAdmin} enLigne={p.enLigne}
+          actions={{
+            attribuer: (c) => attribuer.mutateAsync(c),
+            changerStatut: (c) => statut.mutateAsync(c),
+            ajouterPreuve: (c) => preuve.mutateAsync(c),
+            proposerDecision: (c) => proposer.mutateAsync(c),
+            decider: (decisionId, verdict, corps) => decider.mutateAsync({ decisionId, verdict, corps }),
+          }}
+        />
+      )}
+      <div hidden={conflitId !== null}>
       <ListeConflits
         requete={liste} filtres={filtres} onFiltres={setFiltres} conflits={conflits} compteurs={premiere?.compteurs ?? null} ignores={ignores}
-        selectionId={conflitId} onOuvrir={ouvrir} concessionnaires={p.concessionnaires} userId={user?.id} nomUtilisateur={user?.nomComplet}
+        selectionId={conflitId ?? dernierOuvert.current} onOuvrir={ouvrir} concessionnaires={p.concessionnaires} userId={user?.id} nomUtilisateur={user?.nomComplet}
       />
+      </div>
     </div>
   );
 }
