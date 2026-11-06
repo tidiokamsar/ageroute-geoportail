@@ -7,7 +7,7 @@ import { TYPES_CONFLIT, type ClassePrecision, type Mesure, type TypeConflit } fr
 const M: Mesure = { longueurChausseeM: 7, longueurEmpriseM: 7, distanceMinM: 0, nbCroisements: 1, longueurPieceM: 7 };
 const brut = (s: Partial<CandidatBrut> = {}): CandidatBrut => ({
   type: "INTERSECTION_CHAUSSEE", axe: "Axe A", jeuReseauId: "j1", objetId: "10", concessionnaireId: "c1", nomObjet: "Fibre-Marqueur P", empreinteObjet: "e".repeat(40),
-  classePrecision: "B", mesure: M, lon: -10.0908815, lat: 9.1805913, geomHex: "00", ...s,
+  classePrecision: "B", mesure: M, cellule: cellule(-10.0908815, 9.1805913), geomHex: "00", ...s,
 });
 
 describe("classification initiale", () => {
@@ -86,6 +86,10 @@ describe("cle stable", () => {
     expect(cellule(-10.0908815, 9.1805913)).toEqual(cellule(-10.0908900, 9.1805950));
     expect(cellule(-10.0908815, 9.1805913)).not.toEqual(cellule(-10.0900000, 9.1805913));
     expect(cellule(-10.0908815, 9.1805913, 0.1)).toEqual([-101, 92]);
+    // Definition unique, reproduite a l'identique par la base : floor(x / pas + 0.5), y compris sur les demi-valeurs et les negatifs.
+    expect(cellule(0.25, 0.75, 0.5)).toEqual([1, 2]);
+    expect(cellule(-0.25, -0.75, 0.5)).toEqual([0, -1]);
+    for (const [x, y] of [[-10.0908815, 9.1805913], [-13.25, 11.5], [0.5, -0.5]]) expect(cellule(x, y)).toEqual([Math.floor(x / 0.0002 + 0.5), Math.floor(y / 0.0002 + 0.5)]);
   });
 });
 
@@ -105,14 +109,14 @@ describe("mesure : arrondi et empreinte", () => {
 
 describe("candidats : cles uniques et ordre indifferent", () => {
   it("la classification vient de la classe de precision du candidat", () => {
-    const [a, b] = finaliserCandidats("p1", [brut({ classePrecision: "B" }), brut({ classePrecision: null, nomObjet: "Autre", lon: -10.08, lat: 9.2 })]);
+    const [a, b] = finaliserCandidats("p1", [brut({ classePrecision: "B" }), brut({ classePrecision: null, nomObjet: "Autre", cellule: cellule(-10.08, 9.2) })]);
     const parNom = [a, b].sort((x, y) => (x.classePrecision ?? "z").localeCompare(y.classePrecision ?? "z"));
     expect(parNom[0].classification.statut).toBe("POTENTIEL");
     expect(parNom[1].classification.statut).toBe("A_INVESTIGUER");
   });
 
   it("le resultat est trie par cle et ne depend pas de l'ordre de lecture", () => {
-    const l = [brut({ lon: -10.09 }), brut({ lon: -10.08 }), brut({ type: "TRAVERSEE" }), brut({ axe: "Axe B" })];
+    const l = [brut({ cellule: cellule(-10.09, 9.18) }), brut({ cellule: cellule(-10.08, 9.18) }), brut({ type: "TRAVERSEE" }), brut({ axe: "Axe B" })];
     const a = finaliserCandidats("p1", l).map((c) => c.cle);
     const b = finaliserCandidats("p1", [...l].reverse()).map((c) => c.cle);
     expect(a).toEqual(b);

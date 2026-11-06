@@ -12,6 +12,7 @@ import { ErreurLecture, TAILLE_MAX_OCTETS } from "../projets-voirie/lecture.noya
 import { analyser, exporterCsv } from "../projets-voirie/analyse.service";
 import { carte } from "../projets-voirie/carte.service";
 import { reserverReception } from "../projets-voirie/limiteurs";
+import { monterRoutesConflits } from "./projets-voirie.conflits.routes";
 import { deposerJeu } from "../projets-voirie/import.service";
 import {
   creerConcessionnaire, creerProjet, decider, decoderCurseur, ficheProjet, listerConcessionnaires, listerJeux, listerProjets,
@@ -351,3 +352,9 @@ projetsVoirieV2Router.get("/:id/analyse/export.csv", ecriture, gardeProjet, enve
   res.setHeader("X-Lignes-Exportees", String(r.nbLignes));
   res.send(r.csv);
 }));
+
+// ------------------------------------------------------------------------------------------------
+// Dossiers de conflit (lot RC-3) : regles, analyses persistees, conflits. Memes gardes, meme ordre (voir projets-voirie.conflits.routes.ts).
+// ------------------------------------------------------------------------------------------------
+
+monterRoutesConflits(projetsVoirieV2Router, { ecriture, administrateur, gardeProjet, acteurDe, enveloppe, refuser, UUID });

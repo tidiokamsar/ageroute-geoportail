@@ -29,12 +29,12 @@ import { Prisma, type PrismaClient } from "@prisma/client";
 export type Tx = Pick<PrismaClient, "$queryRaw">;
 
 /** Segments par quart de cercle du tampon : 8 (ecart maximal de 0,5 % du rayon). */
-const QUART_DE_CERCLE = "quad_segs=8";
+export const QUART_DE_CERCLE = "quad_segs=8";
 /** Tolerances de simplification, en metres (repere UTM). */
 export const TOLERANCE_AXE_M = 0.1;
 export const TOLERANCE_RESEAU_M = 0.05;
 /** Morceaux d'axe de 64 sommets au plus pour le calcul par objet. */
-const SOMMETS_PAR_MORCEAU = 64;
+export const SOMMETS_PAR_MORCEAU = 64;
 
 export interface Bandes {
   epsg: number;
@@ -46,7 +46,7 @@ export interface Bandes {
   reseauIds: string[];
 }
 
-const axobj = (b: Bandes) => Prisma.sql`axobj AS MATERIALIZED (
+export const axobj = (b: Bandes) => Prisma.sql`axobj AS MATERIALIZED (
   SELECT o."id" AS "id", COALESCE(o."nom", 'Axe ' || (o."ordre" + 1)::text) AS "axe", ST_Simplify(ST_Transform(o."geom", ${b.epsg}::int), ${TOLERANCE_AXE_M}::float8, true) AS "g"
     FROM "projets_voirie_objets" o
    WHERE o."jeuId" = ANY(${b.axesIds}::text[]) AND o."typeGeom" = 'LIGNE')`;
@@ -69,7 +69,7 @@ const reseau = (b: Bandes) => Prisma.sql`res AS MATERIALIZED (
    GROUP BY o."jeuId")`;
 
 /** Longueur, en metres, des seules parties lineaires de `x` (UTM), mesuree sur la geographie. */
-const LONGUEUR = (x: Prisma.Sql) => Prisma.sql`COALESCE(ST_Length(ST_Transform(ST_CollectionExtract(${x}, 2), 4326)::geography), 0)`;
+export const LONGUEUR = (x: Prisma.Sql) => Prisma.sql`COALESCE(ST_Length(ST_Transform(ST_CollectionExtract(${x}, 2), 4326)::geography), 0)`;
 
 /** Etendue (longitudes) des objets des jeux donnes ; null sans objet. */
 export async function etendueLongitude(tx: Tx, jeuxIds: string[]): Promise<{ ouest: number; est: number } | null> {

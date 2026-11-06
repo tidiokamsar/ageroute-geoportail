@@ -314,9 +314,20 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
     "POST /api/v2/projets-voirie/:id/jeux/:jeuId/rejeter": ["ADMIN", "GESTIONNAIRE"],
     // Export CSV de l'analyse (agregats, sans geometrie) : une lecture, mais reservee aux roles d'ecriture et auditee.
     "GET /api/v2/projets-voirie/:id/analyse/export.csv": ["ADMIN", "GESTIONNAIRE"],
+    // Dossiers de conflit (lot RC-3). L'approbation d'une regle est reservee a l'ADMIN ; les transitions reservees a l'ADMIN le sont dans le service (403 ROLE_INSUFFISANT).
+    "POST /api/v2/projets-voirie/:id/regles": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/regles/:regleId/approuver": ["ADMIN"],
+    "POST /api/v2/projets-voirie/:id/analyses": ["ADMIN", "GESTIONNAIRE"],
+    "GET /api/v2/projets-voirie/:id/conflits/export.csv": ["ADMIN", "GESTIONNAIRE"],
+    "PATCH /api/v2/projets-voirie/:id/conflits/:cid": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/conflits/:cid/statut": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/conflits/:cid/preuves": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/conflits/:cid/decisions": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/conflits/:cid/decisions/:did/approuver": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/conflits/:cid/decisions/:did/refuser": ["ADMIN", "GESTIONNAIRE"],
   };
 
-  it("expose exactement les 15 routes du contrat, ni plus (aucun export de geometrie), ni moins", () => {
+  it("expose exactement les 15 routes du socle et les 16 des dossiers de conflit, ni plus (aucun export de geometrie, aucune route d'ordre ou de deplacement), ni moins", () => {
     expect(pv.map(cle).sort()).toEqual([
       "DELETE /api/v2/projets-voirie/:id", "DELETE /api/v2/projets-voirie/:id/jeux/:jeuId",
       "GET /api/v2/projets-voirie", "GET /api/v2/projets-voirie/:id", "GET /api/v2/projets-voirie/:id/analyse",
@@ -324,7 +335,17 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
       "GET /api/v2/projets-voirie/concessionnaires", "PATCH /api/v2/projets-voirie/:id",
       "POST /api/v2/projets-voirie", "POST /api/v2/projets-voirie/:id/jeux", "POST /api/v2/projets-voirie/:id/jeux/:jeuId/autoriser",
       "POST /api/v2/projets-voirie/:id/jeux/:jeuId/rejeter", "POST /api/v2/projets-voirie/concessionnaires",
+      // Dossiers de conflit (lot RC-3, contrat CONTRAT-CONFLITS.md, section 6)
+      "GET /api/v2/projets-voirie/:id/regles", "POST /api/v2/projets-voirie/:id/regles", "POST /api/v2/projets-voirie/:id/regles/:regleId/approuver",
+      "POST /api/v2/projets-voirie/:id/analyses", "GET /api/v2/projets-voirie/:id/analyses", "GET /api/v2/projets-voirie/:id/analyses/:aid",
+      "GET /api/v2/projets-voirie/:id/analyses/:aid/comparaison",
+      "GET /api/v2/projets-voirie/:id/conflits", "GET /api/v2/projets-voirie/:id/conflits/export.csv", "GET /api/v2/projets-voirie/:id/conflits/:cid",
+      "PATCH /api/v2/projets-voirie/:id/conflits/:cid", "POST /api/v2/projets-voirie/:id/conflits/:cid/statut", "POST /api/v2/projets-voirie/:id/conflits/:cid/preuves",
+      "POST /api/v2/projets-voirie/:id/conflits/:cid/decisions", "POST /api/v2/projets-voirie/:id/conflits/:cid/decisions/:did/approuver",
+      "POST /api/v2/projets-voirie/:id/conflits/:cid/decisions/:did/refuser",
     ].sort());
+    // Aucune route ne cree d'ordre, de deplacement ni de decision automatique.
+    expect(pv.filter((l) => /ordre|deplac|ordonn/i.test(l.chemin))).toEqual([]);
   });
 
   it("toute route exige un compte connecte ET le module `projets-voirie`", () => {

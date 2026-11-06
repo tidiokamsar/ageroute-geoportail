@@ -95,6 +95,11 @@ export const MODULE_PAR_ENTITE: Record<string, ModuleKey | null> = {
   ExportProjetVoirie: "projets-voirie",
   // Consultation d'un jeu sensible par la carte ou l'analyse : une ligne par compte, par jeu et par fenetre de 15 minutes, sans geometrie.
   ConsultationJeuProjet: "projets-voirie",
+  // Dossiers de conflit (lot RC-3) : analyses persistees, regles, dossiers (statuts, decisions, preuves) et leur export CSV. Aucune geometrie dans l'audit.
+  AnalyseConflitProjet: "projets-voirie",
+  RegleConflit: "projets-voirie",
+  ConflitProjet: "projets-voirie",
+  ExportConflitsProjetVoirie: "projets-voirie",
   User: null,
   AppSetting: null,
 };

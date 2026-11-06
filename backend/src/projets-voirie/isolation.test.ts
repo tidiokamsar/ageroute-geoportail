@@ -15,6 +15,7 @@ import { join, relative, sep } from "node:path";
 const SRC = join(__dirname, "..");
 const MODULE = join(SRC, "projets-voirie");
 const ROUTES = join(SRC, "api-v2", "projets-voirie.routes.ts");
+const ROUTES_CONFLITS = join(SRC, "api-v2", "projets-voirie.conflits.routes.ts");
 
 function sources(dossier: string): string[] {
   const sortie: string[] = [];
@@ -27,10 +28,17 @@ function sources(dossier: string): string[] {
 }
 const lire = (p: string) => readFileSync(p, "utf8");
 
-const TABLES_DU_MODULE = ["projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau", "audit_logs"];
-const DELEGUES_DU_MODULE = ["projetVoirie", "jeuDonneesProjet", "objetProjet", "concessionnaireReseau", "auditLog"];
+const TABLES_DU_MODULE = [
+  "projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau", "audit_logs",
+  // Dossiers de conflit (lot RC-3). `troncons` n'y figure PAS : le referentiel n'est lu que pour `tronconsProches`.
+  "regles_conflit_projet", "analyses_conflit_projet", "conflits_projet", "conflits_projet_historique", "conflits_projet_preuves", "conflits_projet_decisions",
+];
+const DELEGUES_DU_MODULE = [
+  "projetVoirie", "jeuDonneesProjet", "objetProjet", "concessionnaireReseau", "auditLog",
+  "regleConflit", "analyseConflitProjet", "conflitProjet", "conflitHistorique", "conflitPreuve", "decisionConflit",
+];
 
-const fichiersDuModule = [...sources(MODULE), ROUTES];
+const fichiersDuModule = [...sources(MODULE), ROUTES, ROUTES_CONFLITS];
 
 describe("le module n'ecrit que dans ses propres tables", () => {
   it("le module contient du code a verifier (garde contre une lecture qui ne trouve rien)", () => {
@@ -88,6 +96,7 @@ describe("rien d'autre dans le code ne lit les donnees du module (jamais d'API p
     // Montage du routeur.
     join("api-v2", "index.ts"),
     join("api-v2", "projets-voirie.routes.ts"),
+    join("api-v2", "projets-voirie.conflits.routes.ts"),
     // Cle de module.
     join("lib", "modules.ts"),
   ]);

@@ -56,9 +56,13 @@ export function classerInitial(e: EntreeClassification): Classification {
 // Cle stable
 // ------------------------------------------------------------------------------------------------
 
-/** Cellule de localisation : coordonnees arrondies au pas (environ 22 m), independantes de la projection de calcul. */
+/**
+ * Cellule de localisation : coordonnees arrondies au pas (environ 22 m), independantes de la projection de calcul. DEFINITION UNIQUE :
+ * `floor(x / pas + 0.5)`, que la base reproduit a l'identique (`floor(x / pas + 0.5)` en double precision) pour reunir en un seul dossier les
+ * parties d'un meme objet qui tombent dans la meme cellule.
+ */
 export function cellule(lon: number, lat: number, pas = PAS_CELLULE_DEG): [number, number] {
-  return [Math.round(lon / pas), Math.round(lat / pas)];
+  return [Math.floor(lon / pas + 0.5), Math.floor(lat / pas + 0.5)];
 }
 
 /** Nom normalise : espaces de bord retires, espaces internes reduits, casse ignoree. */
@@ -126,9 +130,8 @@ export interface CandidatBrut {
   empreinteObjet: string | null;
   classePrecision: ClassePrecision;
   mesure: Mesure;
-  /** Point representatif (milieu de la partie en conflit), WGS 84. */
-  lon: number;
-  lat: number;
+  /** Cellule de localisation du milieu de la partie en conflit (voir `cellule`). */
+  cellule: readonly [number, number];
   /** Geometrie du conflit, EWKB hexadecimal en WGS 84. */
   geomHex: string;
 }
@@ -147,7 +150,7 @@ export interface ConflitCalcule extends CandidatBrut {
  */
 export function finaliserCandidats(projetId: string, bruts: readonly CandidatBrut[], options: { verticalRequis?: boolean } = {}): ConflitCalcule[] {
   const cleDe = (b: CandidatBrut, avecEmpreinte: boolean) => cleConflit({
-    projetId, axe: b.axe, type: b.type, cellule: cellule(b.lon, b.lat),
+    projetId, axe: b.axe, type: b.type, cellule: b.cellule,
     reseau: cleReseau(b.concessionnaireId, b.nomObjet, b.empreinteObjet) + (avecEmpreinte ? `|g:${b.empreinteObjet ?? ""}` : ""),
   });
   const groupes = new Map<string, CandidatBrut[]>();
