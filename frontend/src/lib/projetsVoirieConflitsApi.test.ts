@@ -8,7 +8,7 @@ vi.mock("./download", () => ({ downloadViaApi: h.download }));
 
 import {
   acquitterReexamen, ajouterPreuve, approuverDecision, approuverRegle, attribuerConflit, changerStatutConflit, comparerAnalyses, creerRegle, exporterConflitsCsv, lancerAnalyseConflits,
-  lireAnalyseConflit, lireComparaison, lireConflit, lireConflitResume, lireDetailAnalyse, lireFicheConflit, lireGeom, lireListeRegles, lirePageAnalyses, lirePageConflits,
+  lireAnalyseConflit, lireAvertissements, lireComparaison, lireCorpsErreurBlob, lireConflit, lireConflitResume, lireDetailAnalyse, lireFicheConflit, lireGeom, lireListeRegles, lirePageAnalyses, lirePageConflits,
   lirePersonne, lireRegle, lireTransitions, listerAnalyses, listerConflits, listerRegles, proposerDecision, refuserDecision, transitionsAffichees, urlExportConflits,
 } from "./projetsVoirieConflitsApi";
 import { FILTRES_VIDES } from "./projetsVoirieConflits";
@@ -368,5 +368,101 @@ describe("contre-epreuve : un conflit infirme reste un conflit lu comme tel", ()
   it("le statut INFIRME n'est pas confondu avec l'absence de conflit", () => {
     expect(lireConflitResume(brut(serveurConflit(conflit({ statut: "INFIRME" }))))?.statut).toBe("INFIRME");
     expect(lireConflitResume(brut(serveurConflit(CONFLIT_INVESTIGUER)))?.statut).toBe("A_INVESTIGUER");
+  });
+});
+
+describe("avertissements du serveur", () => {
+  it("la fiche lit les `avertissements` du serveur tels quels ; absents, vides ou mal formes : null (l'ecran se replie sur ses textes de secours)", () => {
+    const j = brut(serveurFiche(fiche({ avertissements: ["Avertissement du serveur A", "Avertissement du serveur B"] })));
+    expect(lireFicheConflit(j).avertissements).toEqual(["Avertissement du serveur A", "Avertissement du serveur B"]);
+    const sans = brut(serveurFiche(fiche({ avertissements: null }))) as Record<string, unknown>;
+    expect("avertissements" in sans).toBe(false);
+    expect(lireFicheConflit(sans).avertissements).toBeNull();
+    expect(lireAvertissements([])).toBeNull();
+    expect(lireAvertissements("texte")).toBeNull();
+    expect(lireAvertissements([1, null, "  ", { a: 1 }])).toBeNull();
+    expect(lireAvertissements(["  garde  ", 3, ""])).toEqual(["garde"]);
+  });
+});
+
+describe("tolerance aux champs masques par le serveur (lecteur, jeu non autorise)", () => {
+  /** Une vue de liste dont le serveur a retire objet, mesure et concessionnaire, avec le drapeau de masquage. */
+  const masque = () => ({
+    ...(brut(serveurConflit(conflit())) as Record<string, unknown>), objet: null, mesure: null, concessionnaire: null, typeReseau: null, jeuReseauId: null, bbox: null, geometrieMasquee: true,
+  });
+
+  it("liste : objet, mesure, concessionnaire nuls ou absents ne plantent pas et ne deviennent ni zero ni « aucun »", () => {
+    for (const v of [masque(), (() => { const m: Record<string, unknown> = masque(); delete m.objet; delete m.mesure; delete m.concessionnaire; delete m.typeReseau; return m; })()]) {
+      const c = lireConflitResume(v);
+      expect(c).not.toBeNull();
+      expect(c?.objet).toBeNull();
+      expect(c?.concessionnaire).toBeNull();
+      expect(c?.mesure).toEqual({ longueurChausseeM: null, longueurEmpriseM: null, distanceMinM: null, nbCroisements: null, longueurPieceM: null });
+      expect(c?.geometrieMasquee).toBe(true);
+      expect(c?.bbox).toBeNull();
+    }
+  });
+  it("mesure partielle ou non numerique : chaque champ est lu a part, le reste reste null", () => {
+    const c = lireConflitResume({ ...masque(), mesure: { longueurChausseeM: "12,5", distanceMinM: "abc", nbCroisements: null } });
+    expect(c?.mesure).toEqual({ longueurChausseeM: 12.5, longueurEmpriseM: null, distanceMinM: null, nbCroisements: null, longueurPieceM: null });
+  });
+  it("fiche : tronconsProches, sources, decisions, regle, largeurs, analyses absents ou nuls : listes vides et null, aucune exception", () => {
+    const f = lireFicheConflit({ conflit: masque(), sources: null, regle: null, largeurs: null, analyses: null, tronconsProches: null, historique: null, preuves: null, decisions: null });
+    expect(f.tronconsProches).toEqual([]);
+    expect(f.sources).toEqual([]);
+    expect(f.decisions).toEqual([]);
+    expect(f.preuves).toEqual([]);
+    expect(f.historique).toEqual([]);
+    expect(f.regle).toBeNull();
+    expect(f.largeurs).toBeNull();
+    expect(f.transitions).toBeNull();
+    expect(f.avertissements).toBeNull();
+    expect(f.geometrieMasquee).toBe(true);
+    expect(f.geom).toBeNull();
+  });
+  it("liste : une page dont des conflits ont disparu (jeu non autorise) reste valide ; compteurs et total sont ceux du serveur", () => {
+    const p = lirePageConflits({ conflits: [], compteurs: { POTENTIEL: 0 }, total: 0, curseurSuivant: null });
+    expect(p.conflits).toEqual([]);
+    expect(p.ignores).toBe(0);
+    expect(p.compteurs).toEqual({ POTENTIEL: 0 });
+  });
+  it("analyses : jeux et regles absents ou nuls (masques pour un lecteur) : listes vides, aucune exception", () => {
+    const a = lireAnalyseConflit({ analyse: { id: "an-1", numero: 1, statut: "TERMINEE", jeux: null, regles: null, resume: {} } });
+    expect(a?.jeux).toEqual([]);
+    expect(a?.regles).toEqual([]);
+    const b = lireAnalyseConflit({ analyse: { id: "an-2", numero: 2, statut: "TERMINEE", resume: {} } });
+    expect(b?.jeux).toEqual([]);
+  });
+  it("comparaison : moins de conflits detailles que de cles (certains masques) : nb du serveur conserve, detail partiel", () => {
+    const c = lireComparaison(brut(serveurComparaison({ apparus: { nb: 3, cles: ["a", "b", "c"], conflits: [{ cle: "a", id: "cf-9", type: "PROXIMITE", axe: "Axe B", statut: "A_INVESTIGUER", aReexaminer: false }], detailsTronques: false } })));
+    expect(c.apparus.nb).toBe(3);
+    expect(c.apparus.conflits).toHaveLength(1);
+  });
+});
+
+describe("export CSV : corps d'erreur type relu", () => {
+  const erreurBlob = (status: number, texte: string) => Object.assign(new Error(String(status)), { response: { status, data: new Blob([texte], { type: "application/json" }) } });
+
+  it("le corps JSON (Blob) d'une erreur est relu et remis en objet : classerErreurConflit voit le code", async () => {
+    h.download.mockRejectedValueOnce(erreurBlob(403, JSON.stringify({ error: "Rôle insuffisant", code: "ROLE_INSUFFISANT" })));
+    const e = await exporterConflitsCsv("p1", "V").catch((x: unknown) => x);
+    const { classerErreurConflit } = await import("./projetsVoirieConflits");
+    expect(classerErreurConflit(e)).toMatchObject({ code: "ROLE_INSUFFISANT", status: 403, genre: "droit" });
+  });
+  it("corps non JSON ou sans reponse : l'erreur est rendue telle quelle (aucune exception supplementaire)", async () => {
+    const html = erreurBlob(502, "<html>502</html>");
+    expect(await lireCorpsErreurBlob(html)).toBe(html);
+    expect((html as unknown as { response: { data: unknown } }).response.data).toBeInstanceOf(Blob);
+    const reseau = new Error("Network Error");
+    expect(await lireCorpsErreurBlob(reseau)).toBe(reseau);
+    expect(await lireCorpsErreurBlob(null)).toBeNull();
+    const objet = Object.assign(new Error("x"), { response: { status: 400, data: { error: "deja objet", code: "CHAMPS_INVALIDES" } } });
+    expect(await lireCorpsErreurBlob(objet)).toBe(objet);
+    expect((objet.response.data as { code: string }).code).toBe("CHAMPS_INVALIDES");
+  });
+  it("un tableau JSON n'est pas un corps d'erreur type : laisse en Blob", async () => {
+    const e = erreurBlob(400, "[1,2]");
+    await lireCorpsErreurBlob(e);
+    expect((e as unknown as { response: { data: unknown } }).response.data).toBeInstanceOf(Blob);
   });
 });

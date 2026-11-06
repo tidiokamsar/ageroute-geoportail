@@ -66,6 +66,13 @@ export const TRANSITIONS_POTENTIEL: TransitionPossible[] = [
   transition("CONFIRME", { preuveRequise: true }), transition("INFIRME"), transition("A_INVESTIGUER"),
 ];
 
+/** Les avertissements que le backend du lot joint a toute fiche. */
+export const AVERTISSEMENTS_SERVEUR = [
+  "Un conflit est un signal de vérification : aucun déplacement n'est décidé ni ordonné par le système.",
+  "Conflit vertical non évalué : profondeur et altitude absentes.",
+  "L'absence de conflit détecté ne prouve pas l'absence de réseau.",
+] as const;
+
 export function fiche(over: Partial<ConflitFiche> = {}): ConflitFiche {
   return {
     ...conflit(),
@@ -82,6 +89,7 @@ export function fiche(over: Partial<ConflitFiche> = {}): ConflitFiche {
     preuves: [preuve()],
     decisions: [],
     transitions: TRANSITIONS_POTENTIEL,
+    avertissements: [...AVERTISSEMENTS_SERVEUR],
     ...over,
   };
 }
@@ -175,11 +183,7 @@ export function serveurFiche(f: ConflitFiche) {
     preuves: f.preuves.map((p) => ({ id: p.id, type: p.type, texte: p.texte, reference: p.reference, auteur: pers(p.auteur), createdAt: p.createdAt })),
     decisions: f.decisions.map(serveurDecision),
     ...(f.transitions ? { transitionsPossibles: f.transitions.map((t) => ({ vers: t.vers, justificationRequise: true, preuveRequise: t.preuveRequise, decisionRequise: t.decisionRequise, cloture: t.cloture, bloquee: t.bloquee })) } : {}),
-    avertissements: [
-      "Un conflit est un signal de vérification : aucun déplacement n'est décidé ni ordonné par le système.",
-      "Conflit vertical non évalué : profondeur et altitude absentes.",
-      "L'absence de conflit détecté ne prouve pas l'absence de réseau.",
-    ],
+    ...(f.avertissements ? { avertissements: f.avertissements } : {}),
   };
 }
 
@@ -233,3 +237,18 @@ export function serveurComparaison(over: Record<string, unknown> = {}) {
 
 /** JSON « brut » : un objet quelconque passe par JSON (supprime les `undefined`, comme le fil). */
 export const brut = <T,>(v: T): unknown => JSON.parse(JSON.stringify(v));
+
+/**
+ * jsdom n'implemente pas `Blob.prototype.text` (les navigateurs, si) : on l'ajoute pour les tests, avec FileReader, qui reste interdit dans le code du module
+ * (preuve statique de ProjetsVoirie.nonStockage.test.tsx) mais pas ici.
+ */
+if (typeof Blob !== "undefined" && typeof Blob.prototype.text !== "function") {
+  Blob.prototype.text = function text(this: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result ?? ""));
+      r.onerror = () => reject(r.error);
+      r.readAsText(this);
+    });
+  };
+}
