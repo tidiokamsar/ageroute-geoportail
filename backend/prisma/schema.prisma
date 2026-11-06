@@ -372,6 +372,14 @@ model User {
   projetsVoirieCrees              ProjetVoirie[]             @relation("ProjetVoirieCreateur")
   jeuxProjetCrees                 JeuDonneesProjet[]         @relation("JeuProjetCreateur")
   jeuxProjetDecides               JeuDonneesProjet[]         @relation("JeuProjetDecideur")
+  reglesConflitCreees             RegleConflit[]             @relation("RegleConflitCreateur")
+  reglesConflitApprouvees         RegleConflit[]             @relation("RegleConflitApprobateur")
+  analysesConflitDeclenchees      AnalyseConflitProjet[]     @relation("AnalyseConflitDeclencheur")
+  conflitsProjetResponsable       ConflitProjet[]            @relation("ConflitResponsable")
+  conflitsHistoriqueActeur        ConflitHistorique[]        @relation("ConflitHistoriqueActeur")
+  conflitsPreuvesAuteur           ConflitPreuve[]            @relation("ConflitPreuveAuteur")
+  decisionsConflitProposees       DecisionConflit[]          @relation("DecisionConflitProposeur")
+  decisionsConflitTranchees       DecisionConflit[]          @relation("DecisionConflitDecideur")
   propositionsTeledetectionTransitions PropositionTeledetectionTransition[] @relation("PtTransitionAuteur")
   propositionsTeledetectionPreuves PropositionTeledetectionPreuve[] @relation("PtPreuveAjoutee")
   programmesBudgetairesCrees      ProgrammeBudgetaire[]      @relation("ProgrammationAuteur")
@@ -4302,6 +4310,10 @@ model ProjetVoirie {
 
   jeux JeuDonneesProjet[]
 
+  reglesConflit   RegleConflit[]
+  analysesConflit AnalyseConflitProjet[]
+  conflits        ConflitProjet[]
+
   @@index([regionId])
   @@index([deletedAt])
   @@map("projets_voirie")
@@ -4317,7 +4329,8 @@ model ConcessionnaireReseau {
   updatedAt  DateTime        @default(now()) @updatedAt
   deletedAt  DateTime?
 
-  jeux JeuDonneesProjet[]
+  jeux      JeuDonneesProjet[]
+  conflits  ConflitProjet[]
 
   @@map("concessionnaires_reseau")
 }
@@ -4366,7 +4379,8 @@ model JeuDonneesProjet {
   createdAt              DateTime               @default(now())
   deletedAt              DateTime?
 
-  objets ObjetProjet[]
+  objets   ObjetProjet[]
+  conflits ConflitProjet[]
 
   @@index([projetId, statut])
   @@index([concessionnaireId])
@@ -4379,6 +4393,7 @@ model ObjetProjet {
   id        BigInt           @id @default(autoincrement())
   jeuId     String
   jeu       JeuDonneesProjet @relation(fields: [jeuId], references: [id], onDelete: Restrict)
+  conflits  ConflitProjet[]
   nom       String?
   typeGeom  TypeGeomObjet
   geom      Unsupported("geometry(Geometry, 4326)")
@@ -4390,4 +4405,259 @@ model ObjetProjet {
 
   @@index([jeuId, ordre])
   @@map("projets_voirie_objets")
+}
+
+
+// ===================== DOSSIERS DE CONFLIT DES PROJETS DE VOIRIE (lot RC-3) =====================
+// Contrat : docs/projets-voirie/CONTRAT-CONFLITS.md. Migration 20261031100000_conflits_projets_voirie (additive, avec descente).
+// Un conflit est un SIGNAL DE VERIFICATION, jamais un ordre : aucun modele ne porte d'ordre, de deplacement ni de decision automatique.
+// Hors schema.prisma (non representable, voir docs/securite/DERIVE-SCHEMA.md) : la clause `NULLS NOT DISTINCT` de l'index unique des regles, l'index
+// GiST de `conflits_projet.geom`, les declencheurs (suppression logique, ajout seul, regle immuable, recalcul sans effet sur les verdicts) et
+// les contraintes CHECK. `ConflitProjet.geom` est `Unsupported` : les conflits s'ecrivent en SQL brut parametre.
+
+enum TypeConflit {
+  INTERSECTION_CHAUSSEE
+  INTERSECTION_EMPRISE
+  PROXIMITE
+  TRAVERSEE
+  COUVERTURE_INSUFFISANTE
+  DIVERGENCE_SOURCES
+}
+
+enum StatutConflit {
+  A_INVESTIGUER
+  POTENTIEL
+  CONFIRME
+  INFIRME
+  TRAITEMENT_DECIDE
+  CLOTURE
+}
+
+enum RisqueConflit {
+  FAIBLE
+  MOYEN
+  ELEVE
+  INCONNU
+}
+
+enum MotifReexamenConflit {
+  NON_RETROUVE
+  MESURE_MODIFIEE
+  NOUVELLE_VERSION_DONNEES
+}
+
+enum StatutRegleConflit {
+  BROUILLON
+  APPROUVEE
+  RETIREE
+}
+
+enum StatutAnalyseConflit {
+  TERMINEE
+  ECHEC
+}
+
+enum ActionHistoriqueConflit {
+  CREATION
+  RETROUVE
+  MESURE_MODIFIEE
+  STATUT
+  ATTRIBUTION
+  PREUVE
+  DECISION_PROPOSEE
+  DECISION_APPROUVEE
+  DECISION_REFUSEE
+  REEXAMEN
+}
+
+enum TypePreuveConflit {
+  NOTE
+  REFERENCE_DOCUMENT
+  CONTACT_CONCESSIONNAIRE
+  RELEVE_TERRAIN
+}
+
+enum OptionDecisionConflit {
+  PROTEGER
+  ADAPTER_PROJET
+  DEPLACER_RESEAU
+  SANS_INTERVENTION
+  A_ETUDIER
+}
+
+enum StatutDecisionConflit {
+  PROPOSEE
+  APPROUVEE
+  REFUSEE
+  ANNULEE
+}
+
+/// Regle de detection VERSIONNEE. Une regle approuvee est immuable (declencheur) : on cree une nouvelle version.
+/// La regle par defaut `RC-2D-0.1` (version 0, tolerance 0, aucun seuil invente) est creee par la migration, sans auteur.
+model RegleConflit {
+  id                    String             @id @default(uuid())
+  projetId              String?
+  projet                ProjetVoirie?      @relation(fields: [projetId], references: [id], onDelete: Restrict)
+  famille               TypeReseauTiers?
+  code                  String
+  version               Int
+  toleranceProximiteM   Decimal            @default(0) @db.Decimal(8, 2)
+  margeIncertitude      Decimal            @default(1) @db.Decimal(6, 2)
+  statut                StatutRegleConflit @default(BROUILLON)
+  justification         String
+  creeParId             String?
+  creePar               User?              @relation("RegleConflitCreateur", fields: [creeParId], references: [id], onDelete: Restrict)
+  approuveParId         String?
+  approuvePar           User?              @relation("RegleConflitApprobateur", fields: [approuveParId], references: [id], onDelete: Restrict)
+  approuveLe            DateTime?
+  motifApprobation      String?
+  derogationApprobation String?
+  createdAt             DateTime           @default(now())
+
+  /// La base porte cet index en `NULLS NOT DISTINCT` (PostgreSQL 15+) : projet et famille nuls comptent comme des valeurs.
+  @@unique([projetId, famille, code, version], map: "regles_conflit_projet_version_key")
+  @@index([projetId, statut])
+  @@map("regles_conflit_projet")
+}
+
+/// Analyse PERSISTEE, reproductible et immuable. `instantane` : { cle du conflit : empreinte de sa mesure } pour comparer deux analyses.
+model AnalyseConflitProjet {
+  id                String               @id @default(uuid())
+  projetId          String
+  projet            ProjetVoirie         @relation(fields: [projetId], references: [id], onDelete: Restrict)
+  numero            Int
+  statut            StatutAnalyseConflit
+  largeurEmpriseM   Decimal              @db.Decimal(6, 2)
+  largeurChausseeM  Decimal              @db.Decimal(6, 2)
+  regles            Json                 @default("[]")
+  jeux              Json                 @default("[]")
+  versionAlgorithme String
+  resume            Json                 @default("{}")
+  instantane        Json                 @default("{}")
+  declencheParId    String
+  declenchePar      User                 @relation("AnalyseConflitDeclencheur", fields: [declencheParId], references: [id], onDelete: Restrict)
+  duree             Int                  @default(0)
+  createdAt         DateTime             @default(now())
+
+  conflitsPremiere ConflitProjet[]      @relation("ConflitPremiereAnalyse")
+  conflitsDerniere ConflitProjet[]      @relation("ConflitDerniereAnalyse")
+  historique       ConflitHistorique[]
+
+  @@unique([projetId, numero])
+  @@index([declencheParId])
+  @@map("analyses_conflit_projet")
+}
+
+/// Dossier de conflit. `cle` : empreinte SHA-256 stable (projet, axe, objet reseau, type, cellule de localisation arrondie).
+/// Jamais supprime. Un recalcul ne change jamais statut, risque, responsable, echeance ni action proposee (declencheur).
+model ConflitProjet {
+  id                String                 @id @default(uuid())
+  projetId          String
+  projet            ProjetVoirie           @relation(fields: [projetId], references: [id], onDelete: Restrict)
+  cle               String
+  type              TypeConflit
+  axe               String
+  jeuReseauId       String?
+  jeuReseau         JeuDonneesProjet?      @relation(fields: [jeuReseauId], references: [id], onDelete: Restrict)
+  objetId           BigInt?
+  objet             ObjetProjet?           @relation(fields: [objetId], references: [id], onDelete: Restrict)
+  concessionnaireId String?
+  concessionnaire   ConcessionnaireReseau? @relation(fields: [concessionnaireId], references: [id], onDelete: Restrict)
+  mesure            Json                   @default("{}")
+  geom              Unsupported("geometry(Geometry, 4326)")
+  statut            StatutConflit
+  risque            RisqueConflit?
+  responsableId     String?
+  responsable       User?                  @relation("ConflitResponsable", fields: [responsableId], references: [id], onDelete: Restrict)
+  echeance          DateTime?              @db.Date
+  actionProposee    String?
+  classePrecision   ClassePrecision?
+  verticalEvalue    Boolean                @default(false)
+  premiereAnalyseId String
+  premiereAnalyse   AnalyseConflitProjet   @relation("ConflitPremiereAnalyse", fields: [premiereAnalyseId], references: [id], onDelete: Restrict)
+  derniereAnalyseId String
+  derniereAnalyse   AnalyseConflitProjet   @relation("ConflitDerniereAnalyse", fields: [derniereAnalyseId], references: [id], onDelete: Restrict)
+  aReexaminer       Boolean                @default(false)
+  motifReexamen     MotifReexamenConflit?
+  tronconsProches   Json                   @default("[]")
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @default(now()) @updatedAt
+
+  historique ConflitHistorique[]
+  preuves    ConflitPreuve[]
+  decisions  DecisionConflit[]
+
+  @@unique([projetId, cle])
+  @@index([projetId, statut])
+  @@index([projetId, type])
+  @@index([responsableId])
+  @@index([jeuReseauId])
+  @@index([premiereAnalyseId])
+  @@index([derniereAnalyseId])
+  @@map("conflits_projet")
+}
+
+/// Historique d'un conflit : AJOUT SEUL (declencheur). `acteurId` nul pour un calcul (alors `analyseId` est renseigne).
+model ConflitHistorique {
+  id            String                  @id @default(uuid())
+  conflitId     String
+  conflit       ConflitProjet           @relation(fields: [conflitId], references: [id], onDelete: Restrict)
+  action        ActionHistoriqueConflit
+  ancienStatut  StatutConflit?
+  nouveauStatut StatutConflit?
+  justification String?
+  acteurId      String?
+  acteur        User?                   @relation("ConflitHistoriqueActeur", fields: [acteurId], references: [id], onDelete: Restrict)
+  analyseId     String?
+  analyse       AnalyseConflitProjet?   @relation(fields: [analyseId], references: [id], onDelete: Restrict)
+  donnees       Json                    @default("{}")
+  createdAt     DateTime                @default(now())
+
+  @@index([conflitId, createdAt])
+  @@index([analyseId])
+  @@map("conflits_projet_historique")
+}
+
+/// Preuve rattachee a un conflit : AJOUT SEUL. `reference` : texte libre (numero de courrier, nom de plan), aucun fichier dans ce lot.
+model ConflitPreuve {
+  id        String            @id @default(uuid())
+  conflitId String
+  conflit   ConflitProjet     @relation(fields: [conflitId], references: [id], onDelete: Restrict)
+  type      TypePreuveConflit
+  texte     String
+  reference String?
+  auteurId  String
+  auteur    User              @relation("ConflitPreuveAuteur", fields: [auteurId], references: [id], onDelete: Restrict)
+  createdAt DateTime          @default(now())
+
+  @@index([conflitId])
+  @@map("conflits_projet_preuves")
+}
+
+/// Decision proposee puis approuvee ou refusee. Couts estime et reel DISTINCTS, saisis, jamais calcules. `approuveParId` : la personne qui a tranche.
+/// Une decision tranchee ne change plus (declencheur) ; trancher sa propre proposition exige une derogation motivee (contrainte).
+model DecisionConflit {
+  id                   String                @id @default(uuid())
+  conflitId            String
+  conflit              ConflitProjet         @relation(fields: [conflitId], references: [id], onDelete: Restrict)
+  option               OptionDecisionConflit
+  justification        String
+  contraintes          String?
+  coutEstime           Decimal?              @db.Decimal(18, 2)
+  deviseCout           String?
+  coutReel             Decimal?              @db.Decimal(18, 2)
+  dateDebutPrevue      DateTime?             @db.Date
+  dateFinPrevue        DateTime?             @db.Date
+  statut               StatutDecisionConflit @default(PROPOSEE)
+  proposeParId         String
+  proposePar           User                  @relation("DecisionConflitProposeur", fields: [proposeParId], references: [id], onDelete: Restrict)
+  approuveParId        String?
+  approuvePar          User?                 @relation("DecisionConflitDecideur", fields: [approuveParId], references: [id], onDelete: Restrict)
+  approuveLe           DateTime?
+  motifDecision        String?
+  derogationSeparation String?
+  createdAt            DateTime              @default(now())
+
+  @@index([conflitId, statut])
+  @@map("conflits_projet_decisions")
 }
