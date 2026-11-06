@@ -7,6 +7,7 @@ import { EtatChargement, EtatErreur } from "./EtatsPv";
 import { BadgeEcheanceDepassee, BadgeReexamen, BadgeRisque, BadgeStatutConflit, BadgeStatutDecision, BadgeTypeConflit } from "./BadgesConflit";
 import { DialogueApprobation, DialogueAttribution, DialogueDecision, DialoguePreuve, DialogueTransition } from "./ActionsConflit";
 import { texteValeur } from "./FicheObjet";
+import { useRestitutionFocus } from "./focusDialogue";
 import type {
   ConflitFiche, CorpsApprobation, CorpsAttribution, CorpsDecision, CorpsPreuve, CorpsStatut, DecisionConflit, TransitionPossible,
 } from "../../lib/projetsVoirieConflitsApi";
@@ -73,7 +74,9 @@ function Montant({ valeur, devise }: { valeur: number | null; devise: string | n
 
 export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(function FicheConflit(p, refTitre) {
   const [dialogue, setDialogue] = useState<Dialogue | null>(null);
-  const fermer = () => setDialogue(null);
+  const { memoriser, restituer } = useRestitutionFocus("pv-titre-fiche-conflit");
+  const fermer = () => { setDialogue(null); restituer(); };
+  const ouvrirDialogue = (d: Dialogue) => { memoriser(); setDialogue(d); };
   const f = p.requete.data;
 
   const retour = (
@@ -185,7 +188,7 @@ export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(fu
           <Ligne libelle="Concessionnaire">{f.concessionnaire ? (f.concessionnaire.nom ?? "sans nom") : "aucun (zone sans jeu réseau)"}</Ligne>
         </dl>
         {p.peutEcrire && !clos && (
-          <Button type="button" variant="outline" size="sm" className="min-h-[44px] xl:min-h-8" disabled={!p.enLigne} onClick={() => setDialogue({ genre: "attribution" })}>
+          <Button type="button" variant="outline" size="sm" className="min-h-[44px] xl:min-h-8" disabled={!p.enLigne} onClick={() => ouvrirDialogue({ genre: "attribution" })}>
             <UserCog aria-hidden="true" /> Attribuer ou modifier
           </Button>
         )}
@@ -204,7 +207,7 @@ export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(fu
             <ul className="flex flex-wrap gap-2">
               {transitions.map((t) => (
                 <li key={t.vers}>
-                  <Button type="button" variant="outline" className="min-h-[44px] xl:min-h-9" disabled={!p.enLigne} onClick={() => setDialogue({ genre: "transition", transition: t })}>
+                  <Button type="button" variant="outline" className="min-h-[44px] xl:min-h-9" disabled={!p.enLigne} onClick={() => ouvrirDialogue({ genre: "transition", transition: t })}>
                     {libelleTransition(f.statut, t.vers)}
                   </Button>
                 </li>
@@ -227,7 +230,7 @@ export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(fu
           </ol>
         )}
         {p.peutEcrire && !clos && (
-          <Button type="button" variant="outline" size="sm" className="min-h-[44px] xl:min-h-8" disabled={!p.enLigne} onClick={() => setDialogue({ genre: "preuve" })}>
+          <Button type="button" variant="outline" size="sm" className="min-h-[44px] xl:min-h-8" disabled={!p.enLigne} onClick={() => ouvrirDialogue({ genre: "preuve" })}>
             <FilePlus2 aria-hidden="true" /> Ajouter une preuve
           </Button>
         )}
@@ -254,8 +257,8 @@ export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(fu
                 </dl>
                 {p.peutEcrire && d.statut === "PROPOSEE" && (
                   <div className="flex flex-wrap gap-2">
-                    <Button type="button" size="sm" className="min-h-[44px] xl:min-h-8" disabled={!p.enLigne} aria-label={`Approuver la décision : ${LIBELLE_OPTION_DECISION[d.option]}`} onClick={() => setDialogue({ genre: "approbation", decision: d, verdict: "approuver" })}>Approuver</Button>
-                    <Button type="button" size="sm" variant="outline" className="min-h-[44px] xl:min-h-8" disabled={!p.enLigne} aria-label={`Refuser la décision : ${LIBELLE_OPTION_DECISION[d.option]}`} onClick={() => setDialogue({ genre: "approbation", decision: d, verdict: "refuser" })}>Refuser</Button>
+                    <Button type="button" size="sm" className="min-h-[44px] xl:min-h-8" disabled={!p.enLigne} aria-label={`Approuver la décision : ${LIBELLE_OPTION_DECISION[d.option]}`} onClick={() => ouvrirDialogue({ genre: "approbation", decision: d, verdict: "approuver" })}>Approuver</Button>
+                    <Button type="button" size="sm" variant="outline" className="min-h-[44px] xl:min-h-8" disabled={!p.enLigne} aria-label={`Refuser la décision : ${LIBELLE_OPTION_DECISION[d.option]}`} onClick={() => ouvrirDialogue({ genre: "approbation", decision: d, verdict: "refuser" })}>Refuser</Button>
                   </div>
                 )}
               </li>
@@ -263,7 +266,7 @@ export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(fu
           </ol>
         )}
         {peutProposer && (
-          <Button type="button" variant="outline" size="sm" className="min-h-[44px] xl:min-h-8" disabled={!p.enLigne} onClick={() => setDialogue({ genre: "decision" })}>
+          <Button type="button" variant="outline" size="sm" className="min-h-[44px] xl:min-h-8" disabled={!p.enLigne} onClick={() => ouvrirDialogue({ genre: "decision" })}>
             <Gavel aria-hidden="true" /> Proposer une décision
           </Button>
         )}

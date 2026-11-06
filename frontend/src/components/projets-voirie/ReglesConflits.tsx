@@ -4,6 +4,7 @@ import { Button } from "../ui/Button";
 import { EtatChargement, EtatErreur, EtatVide } from "./EtatsPv";
 import { BadgeStatutRegle } from "./BadgesConflit";
 import { DialogueApprobationRegle, DialogueRegle } from "./ActionsConflit";
+import { useRestitutionFocus } from "./focusDialogue";
 import type { RegleConflit } from "../../lib/projetsVoirieConflitsApi";
 import { useApprouverRegle, useCreerRegle, useRegles } from "../../lib/projetsVoirieConflitsHooks";
 import { LIBELLE_REGLE_GENERALE, classerErreurConflit, formaterDateHeure } from "../../lib/projetsVoirieConflits";
@@ -31,6 +32,7 @@ export function ReglesConflits({ projetId, peutEcrire, estAdmin, userId, enLigne
   const approuver = useApprouverRegle(projetId);
   const [creation, setCreation] = useState(false);
   const [aApprouver, setAApprouver] = useState<RegleConflit | null>(null);
+  const { memoriser, restituer } = useRestitutionFocus("pv-titre-regles");
 
   const groupes = useMemo(() => {
     const m = new Map<Cle, RegleConflit[]>();
@@ -48,9 +50,9 @@ export function ReglesConflits({ projetId, peutEcrire, estAdmin, userId, enLigne
   return (
     <section aria-labelledby="pv-titre-regles" className="space-y-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <h3 id="pv-titre-regles" className="text-sm font-semibold text-navy">Règles de conflit</h3>
+        <h3 id="pv-titre-regles" tabIndex={-1} className="text-sm font-semibold text-navy focus:outline-none">Règles de conflit</h3>
         {peutEcrire && (
-          <Button type="button" variant="outline" className="min-h-[44px] xl:min-h-9" disabled={!enLigne} onClick={() => setCreation(true)}>
+          <Button type="button" variant="outline" className="min-h-[44px] xl:min-h-9" disabled={!enLigne} onClick={() => { memoriser(); setCreation(true); }}>
             <FilePlus2 aria-hidden="true" /> Créer un brouillon de règle
           </Button>
         )}
@@ -92,7 +94,7 @@ export function ReglesConflits({ projetId, peutEcrire, estAdmin, userId, enLigne
                   </p>
                   {r.statut === "APPROUVEE" && <p className="text-[11px] text-gray-700">Immuable : pour la changer, créez une nouvelle version.</p>}
                   {estAdmin && r.statut === "BROUILLON" && (
-                    <Button type="button" size="sm" className="min-h-[44px] xl:min-h-8" disabled={!enLigne} aria-label={`Approuver la règle ${r.code}, version ${r.version}`} onClick={() => setAApprouver(r)}>
+                    <Button type="button" size="sm" className="min-h-[44px] xl:min-h-8" disabled={!enLigne} aria-label={`Approuver la règle ${r.code}, version ${r.version}`} onClick={() => { memoriser(); setAApprouver(r); }}>
                       Approuver
                     </Button>
                   )}
@@ -107,10 +109,10 @@ export function ReglesConflits({ projetId, peutEcrire, estAdmin, userId, enLigne
         <p role="note" className="text-xs text-gray-700">Les brouillons attendent l&apos;approbation d&apos;un administrateur.</p>
       )}
 
-      {creation && <DialogueRegle enLigne={enLigne} onFermer={() => setCreation(false)} onValider={(c) => creer.mutateAsync(c)} />}
+      {creation && <DialogueRegle enLigne={enLigne} onFermer={() => { setCreation(false); restituer(); }} onValider={(c) => creer.mutateAsync(c)} />}
       {aApprouver && (
         <DialogueApprobationRegle
-          regle={aApprouver} userId={userId} enLigne={enLigne} onFermer={() => setAApprouver(null)}
+          regle={aApprouver} userId={userId} enLigne={enLigne} onFermer={() => { setAApprouver(null); restituer(); }}
           onValider={(corps) => approuver.mutateAsync({ regleId: aApprouver.id, corps })}
         />
       )}
