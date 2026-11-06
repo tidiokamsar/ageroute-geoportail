@@ -11,7 +11,7 @@ vi.mock("../lib/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 vi.mock("../lib/download", () => ({ downloadViaApi: vi.fn().mockResolvedValue(undefined) }));
 
 import { reinitialiserCarte } from "../components/projets-voirie/carteDouble.testutil";
-import { brut, conflit, decision, fiche, pageConflits, preuve } from "../components/projets-voirie/conflitsSynthetiques.testutil";
+import { brut, conflit, decision, fiche, pageConflits, preuve, serveurPage, transition } from "../components/projets-voirie/conflitsSynthetiques.testutil";
 import { BASE, erreurHttp, rendrePage, reponseApi, type SurchargesApi } from "../components/projets-voirie/conflitsPage.testutil";
 import type { ConflitFiche } from "../lib/projetsVoirieConflitsApi";
 import { RAPPEL_SEPARATION, libelleTransition, type StatutConflit } from "../lib/projetsVoirieConflits";
@@ -32,7 +32,7 @@ const appelsFiche = () => h.get.mock.calls.filter((c) => c[0] === `${BASE}/confl
 /** Ouvre la fiche de `cf-1` avec la fiche donnee, sous le role donne. */
 async function ouvrir(f: ConflitFiche, role = "GESTIONNAIRE", userId = "u-gest") {
   h.role = role; h.userId = userId;
-  installer({ fiches: { "cf-1": f }, liste: brut(pageConflits([conflit({ statut: f.statut })])) });
+  installer({ fiches: { "cf-1": f }, liste: brut(serveurPage(pageConflits([conflit({ statut: f.statut })]))) });
   rendrePage();
   await userEvent.click(await screen.findByRole("tab", { name: "Conflits" }));
   await screen.findByRole("list", { name: "Liste des conflits" });
@@ -51,7 +51,7 @@ beforeEach(() => {
 });
 afterEach(() => { Object.defineProperty(window.navigator, "onLine", { configurable: true, value: true }); });
 
-const T = (vers: StatutConflit, derogationPossible = false) => ({ vers, derogationPossible, exigences: [] });
+const T = (vers: StatutConflit, over: Parameters<typeof transition>[1] = {}) => transition(vers, over);
 
 describe("transitions de statut : chaque transition valide du contrat", () => {
   const cas: Array<[StatutConflit, StatutConflit, string]> = [
@@ -67,7 +67,7 @@ describe("transitions de statut : chaque transition valide du contrat", () => {
     ["INFIRME", "A_INVESTIGUER", "GESTIONNAIRE"],
   ];
   it.each(cas)("%s vers %s (%s) : bouton, justification de 10 caracteres, POST { vers, justification }", async (de, vers, role) => {
-    const f = await ouvrir(fiche({ statut: de, transitions: [T(vers)], preuves: [preuve()], decisions: de === "CONFIRME" || de === "TRAITEMENT_DECIDE" ? [decision({ statut: "APPROUVEE", option: "PROTEGER" })] : [] }), role);
+    const f = await ouvrir(fiche({ statut: de, transitions: [T(vers, { preuveRequise: de === "POTENTIEL" && vers === "CONFIRME", decisionRequise: de === "CONFIRME" && vers === "TRAITEMENT_DECIDE" })], preuves: [preuve()], decisions: de === "CONFIRME" || de === "TRAITEMENT_DECIDE" ? [decision({ statut: "APPROUVEE", option: "PROTEGER" })] : [] }), role);
     await userEvent.click(within(f).getByRole("button", { name: libelleTransition(de, vers) }));
     const d = await dialogue();
     const envoyer = within(d).getByRole("button", { name: "Enregistrer la transition" });
@@ -92,6 +92,31 @@ describe("transitions de statut : chaque transition valide du contrat", () => {
     expect(within(sec).queryByText(/à titre indicatif/)).toBeNull();
   });
 
+  it("transition BLOQUEE pour l'instant (preuve manquante) : bouton inactif, raison dite en clair, aucune requete ; une decision manquante de meme", async () => {
+    const f = await ouvrir(fiche({ statut: "POTENTIEL", preuves: [], transitions: [T("CONFIRME", { preuveRequise: true, bloquee: "PREUVE_REQUISE" }), T("INFIRME")] }));
+    const b = within(f).getByRole("button", { name: "Confirmer ce conflit" });
+    expect(b).toBeDisabled();
+    expect(b).toHaveAccessibleDescription(/Impossible pour l'instant : au moins une preuve est requise/);
+    expect(within(f).getByTestId("transition-bloquee-CONFIRME")).toHaveTextContent("Ajoutez une preuve ci-dessous.");
+    expect(within(f).getByRole("button", { name: "Infirmer ce conflit" })).toBeEnabled();
+    expect(h.post).not.toHaveBeenCalled();
+  });
+  it("transition bloquee faute de decision approuvee", async () => {
+    const f = await ouvrir(fiche({ statut: "CONFIRME", decisions: [decision()], transitions: [T("TRAITEMENT_DECIDE", { decisionRequise: true, bloquee: "DECISION_REQUISE" })] }));
+    expect(within(f).getByRole("button", { name: "Marquer le traitement décidé" })).toBeDisabled();
+    expect(within(f).getByTestId("transition-bloquee-TRAITEMENT_DECIDE")).toHaveTextContent("une décision approuvée est requise");
+  });
+  it("la preuve ajoutee debloque la transition (la fiche est relue : le serveur redonne la liste)", async () => {
+    const f = await ouvrir(fiche({ statut: "POTENTIEL", preuves: [], transitions: [T("CONFIRME", { preuveRequise: true, bloquee: "PREUVE_REQUISE" })] }));
+    expect(within(f).getByRole("button", { name: "Confirmer ce conflit" })).toBeDisabled();
+    h.get.mockImplementation(async (url: string, opts?: { params?: Record<string, unknown> }) => reponseApi(url, opts?.params, { fiches: { "cf-1": fiche({ statut: "POTENTIEL", preuves: [preuve()], transitions: [T("CONFIRME", { preuveRequise: true })] }), } , liste: brut(serveurPage(pageConflits([conflit()]))) }));
+    await userEvent.click(within(f).getByRole("button", { name: /Ajouter une preuve/ }));
+    const d = await dialogue();
+    await saisir(d, "Texte de la preuve", "Note de terrain");
+    await userEvent.click(within(d).getByRole("button", { name: "Ajouter la preuve" }));
+    await waitFor(() => expect(within(f).getByRole("button", { name: "Confirmer ce conflit" })).toBeEnabled());
+  });
+
   it("le serveur n'en donne aucune : « aucune transition », jamais la table du contrat", async () => {
     const f = await ouvrir(fiche({ statut: "POTENTIEL", transitions: [] }));
     expect(within(f).getByTestId("aucune-transition")).toHaveTextContent("Aucune transition n'est possible pour votre compte dans cet état.");
@@ -114,7 +139,7 @@ describe("transitions de statut : chaque transition valide du contrat", () => {
   });
 
   it("la transition est un acte humain consigne : le dialogue le dit et n'ordonne aucun deplacement", async () => {
-    const f = await ouvrir(fiche({ transitions: [T("CONFIRME")] }));
+    const f = await ouvrir(fiche({ transitions: [T("CONFIRME", { preuveRequise: true })] }));
     await userEvent.click(within(f).getByRole("button", { name: "Confirmer ce conflit" }));
     const d = await dialogue();
     expect(d).toHaveTextContent("acte humain, consigné dans l'historique");
@@ -159,14 +184,15 @@ describe("refus du serveur : messages clairs, le dialogue reste ouvert avec la s
   }
 
   it("409 TRANSITION_INTERDITE", async () => {
-    const { alerte } = await transitionRefusee(fiche({ transitions: [T("CONFIRME")] }), "CONFIRME", "POTENTIEL", erreurHttp(409, "TRANSITION_INTERDITE"));
+    const { alerte } = await transitionRefusee(fiche({ transitions: [T("CONFIRME", { preuveRequise: true })] }), "CONFIRME", "POTENTIEL", erreurHttp(409, "TRANSITION_INTERDITE"));
     expect(alerte).toHaveAttribute("data-code", "TRANSITION_INTERDITE");
     expect(alerte).toHaveTextContent("Cette transition n'est pas permise depuis le statut actuel");
     expect(alerte).toHaveTextContent("Rien n'a été modifié");
   });
 
   it("409 PREUVE_REQUISE : l'avertissement precede l'envoi (aucune preuve), le refus du serveur est affiche en clair", async () => {
-    const racine = await ouvrir(fiche({ statut: "POTENTIEL", preuves: [], transitions: [T("CONFIRME")] }));
+    // Etat « perime » : le serveur proposait la transition comme faisable, puis a refuse (une preuve a pu etre ecartee entre-temps).
+    const racine = await ouvrir(fiche({ statut: "POTENTIEL", preuves: [], transitions: [T("CONFIRME", { preuveRequise: true })] }));
     h.post.mockRejectedValueOnce(erreurHttp(409, "PREUVE_REQUISE"));
     await userEvent.click(within(racine).getByRole("button", { name: "Confirmer ce conflit" }));
     const d = await dialogue();
@@ -177,13 +203,13 @@ describe("refus du serveur : messages clairs, le dialogue reste ouvert avec la s
   });
 
   it("avec une preuve au dossier, le dialogue de confirmation la compte", async () => {
-    const racine = await ouvrir(fiche({ statut: "POTENTIEL", preuves: [preuve()], transitions: [T("CONFIRME")] }));
+    const racine = await ouvrir(fiche({ statut: "POTENTIEL", preuves: [preuve()], transitions: [T("CONFIRME", { preuveRequise: true })] }));
     await userEvent.click(within(racine).getByRole("button", { name: "Confirmer ce conflit" }));
     expect(await dialogue()).toHaveTextContent("1 preuve(s) au dossier");
   });
 
   it("409 DECISION_REQUISE (CONFIRME vers TRAITEMENT_DECIDE sans decision approuvee)", async () => {
-    const racine = await ouvrir(fiche({ statut: "CONFIRME", decisions: [decision()], transitions: [T("TRAITEMENT_DECIDE")] }));
+    const racine = await ouvrir(fiche({ statut: "CONFIRME", decisions: [decision()], transitions: [T("TRAITEMENT_DECIDE", { decisionRequise: true })] }));
     h.post.mockRejectedValueOnce(erreurHttp(409, "DECISION_REQUISE"));
     await userEvent.click(within(racine).getByRole("button", { name: "Marquer le traitement décidé" }));
     const d = await dialogue();
@@ -199,7 +225,7 @@ describe("refus du serveur : messages clairs, le dialogue reste ouvert avec la s
   });
 
   it("409 SEPARATION_DES_TACHES a la cloture : un ADMIN voit alors le champ de derogation", async () => {
-    const f = fiche({ statut: "TRAITEMENT_DECIDE", decisions: [decision({ statut: "APPROUVEE" })], transitions: [T("CLOTURE", true)] });
+    const f = fiche({ statut: "TRAITEMENT_DECIDE", decisions: [decision({ statut: "APPROUVEE" })], transitions: [T("CLOTURE")] });
     const racine = await ouvrir(f, "ADMIN", "u-adm");
     h.post.mockRejectedValueOnce(erreurHttp(409, "SEPARATION_DES_TACHES"));
     await userEvent.click(within(racine).getByRole("button", { name: "Clore le dossier" }));
@@ -215,7 +241,7 @@ describe("refus du serveur : messages clairs, le dialogue reste ouvert avec la s
   });
 
   it("un gestionnaire ne voit JAMAIS le champ de derogation, meme apres SEPARATION_DES_TACHES", async () => {
-    const { d } = await transitionRefusee(fiche({ transitions: [T("CONFIRME")] }), "CONFIRME", "POTENTIEL", erreurHttp(409, "SEPARATION_DES_TACHES"));
+    const { d } = await transitionRefusee(fiche({ transitions: [T("CONFIRME", { preuveRequise: true })] }), "CONFIRME", "POTENTIEL", erreurHttp(409, "SEPARATION_DES_TACHES"));
     expect(within(d).queryByLabelText(/Dérogation/)).toBeNull();
   });
 
@@ -226,12 +252,12 @@ describe("refus du serveur : messages clairs, le dialogue reste ouvert avec la s
 
   it("503 PROJET_OCCUPE et 504 sur une ecriture : expliques", async () => {
     const a = await transitionRefusee(fiche({ transitions: [T("INFIRME")] }), "INFIRME", "POTENTIEL", erreurHttp(503, "PROJET_OCCUPE"));
-    expect(a.alerte).toHaveTextContent("Ce projet est occupé");
+    expect(a.alerte).toHaveTextContent("Ce projet ou ce dossier est occupé");
   });
 });
 
 describe("cloture apres une decision de deplacement : le recolement reste a valider", () => {
-  it("case obligatoire ; la mention est ajoutee a la justification envoyee", async () => {
+  it("case obligatoire ; le champ explicite `recolementAValider` part avec la justification telle quelle", async () => {
     const f = fiche({ statut: "TRAITEMENT_DECIDE", decisions: [decision({ option: "DEPLACER_RESEAU", statut: "APPROUVEE" })], transitions: [T("CLOTURE")] });
     const racine = await ouvrir(f, "ADMIN", "u-adm");
     await userEvent.click(within(racine).getByRole("button", { name: "Clore le dossier" }));
@@ -242,7 +268,8 @@ describe("cloture apres une decision de deplacement : le recolement reste a vali
     await userEvent.click(within(d).getByRole("checkbox", { name: /le récolement reste à valider/ }));
     expect(envoyer).toBeEnabled();
     await userEvent.click(envoyer);
-    await waitFor(() => expect(h.post).toHaveBeenCalledWith(`${BASE}/conflits/cf-1/statut`, { vers: "CLOTURE", justification: "Récolement à valider (non géré dans cet outil) : Réseau déplacé, contrôle fait" }));
+    // Champ explicite du backend (`recolementAValider`), justification non alteree.
+    await waitFor(() => expect(h.post).toHaveBeenCalledWith(`${BASE}/conflits/cf-1/statut`, { vers: "CLOTURE", justification: "Réseau déplacé, contrôle fait", recolementAValider: true }));
   });
 
   it("autre option : pas de case de recolement", async () => {
@@ -252,6 +279,34 @@ describe("cloture apres une decision de deplacement : le recolement reste a vali
     const d = await dialogue();
     expect(within(d).queryByRole("checkbox")).toBeNull();
     expect(d).toHaveTextContent("réservée aux administrateurs");
+    await saisir(d, /Motif de la clôture/, "Traitement terminé et contrôlé");
+    await userEvent.click(within(d).getByRole("button", { name: "Enregistrer la transition" }));
+    await waitFor(() => expect(h.post).toHaveBeenCalledWith(`${BASE}/conflits/cf-1/statut`, { vers: "CLOTURE", justification: "Traitement terminé et contrôlé" }));
+    expect(h.post.mock.calls.at(-1)![1]).not.toHaveProperty("recolementAValider");
+  });
+
+  it("422 MENTION_RECOLEMENT_REQUISE (garde du serveur) : message en clair", async () => {
+    const f = fiche({ statut: "TRAITEMENT_DECIDE", decisions: [decision({ option: "PROTEGER", statut: "APPROUVEE" })], transitions: [T("CLOTURE")] });
+    const racine = await ouvrir(f, "ADMIN", "u-adm");
+    h.post.mockRejectedValueOnce(erreurHttp(422, "MENTION_RECOLEMENT_REQUISE"));
+    await userEvent.click(within(racine).getByRole("button", { name: "Clore le dossier" }));
+    const d = await dialogue();
+    await saisir(d, /Motif de la clôture/, "Clôture après contrôle");
+    await userEvent.click(within(d).getByRole("button", { name: "Enregistrer la transition" }));
+    expect(await within(d).findByRole("alert")).toHaveTextContent("confirmez que le récolement reste à valider");
+  });
+
+  it("403 ROLE_INSUFFISANT (gestionnaire qui tente une transition reservee aux administrateurs) : message du lot, pas celui des largeurs", async () => {
+    const f = fiche({ statut: "TRAITEMENT_DECIDE", decisions: [decision({ statut: "APPROUVEE" })], transitions: [T("CLOTURE")] });
+    const racine = await ouvrir(f, "ADMIN", "u-adm");
+    h.post.mockRejectedValueOnce(erreurHttp(403, "ROLE_INSUFFISANT"));
+    await userEvent.click(within(racine).getByRole("button", { name: "Clore le dossier" }));
+    const d = await dialogue();
+    await saisir(d, /Motif de la clôture/, "Clôture après contrôle");
+    await userEvent.click(within(d).getByRole("button", { name: "Enregistrer la transition" }));
+    const a = await within(d).findByRole("alert");
+    expect(a).toHaveTextContent("clore un dossier et approuver une règle sont réservés aux administrateurs");
+    expect(a).not.toHaveTextContent("largeurs");
   });
 
   it("la cloture montre un champ de derogation facultatif a l'ADMIN, jamais a un gestionnaire", async () => {
@@ -305,6 +360,26 @@ describe("attribution : responsable, echeance, risque, action proposee", () => {
     await waitFor(() => expect(h.patch).toHaveBeenCalledWith(`${BASE}/conflits/cf-1`, { responsableId: "u-autre", risque: "INCONNU" }));
   });
 
+  it("effacer le risque : null explicite (le backend l'accepte)", async () => {
+    const f = await ouvrir(fiche());
+    await userEvent.click(within(f).getByRole("button", { name: /Attribuer ou modifier/ }));
+    const d = await dialogue();
+    await userEvent.selectOptions(within(d).getByLabelText("Risque"), "aucun");
+    await userEvent.click(within(d).getByRole("button", { name: "Enregistrer l'attribution" }));
+    await waitFor(() => expect(h.patch).toHaveBeenCalledWith(`${BASE}/conflits/cf-1`, { risque: null }));
+  });
+
+  it("400 RESPONSABLE_INCONNU : message en clair", async () => {
+    const f = await ouvrir(fiche());
+    await userEvent.click(within(f).getByRole("button", { name: /Attribuer ou modifier/ }));
+    const d = await dialogue();
+    h.patch.mockRejectedValueOnce(erreurHttp(400, "RESPONSABLE_INCONNU"));
+    await userEvent.selectOptions(within(d).getByLabelText("Responsable"), "autre");
+    await userEvent.type(within(d).getByLabelText("Identifiant du compte responsable"), "u-fantome");
+    await userEvent.click(within(d).getByRole("button", { name: "Enregistrer l'attribution" }));
+    expect(await within(d).findByRole("alert")).toHaveTextContent("n'existe pas ou n'est pas actif");
+  });
+
   it("refus du serveur : message en clair, dialogue ouvert", async () => {
     const f = await ouvrir(fiche());
     await userEvent.click(within(f).getByRole("button", { name: /Attribuer ou modifier/ }));
@@ -323,6 +398,41 @@ function fireDate(el: HTMLElement, valeur: string) {
   setter.call(input, valeur);
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
+
+describe("acquittement d'un re-examen (aReexaminer: false)", () => {
+  const aReexaminer = (over = {}) => fiche({ statut: "CONFIRME", transitions: [], aReexaminer: true, motifReexamen: "NON_RETROUVE", ...over });
+
+  it("un dossier a reexaminer propose « Marquer comme reexamine » : justification de 10 caracteres, PATCH { aReexaminer: false, justification }", async () => {
+    const f = await ouvrir(aReexaminer());
+    await userEvent.click(within(f).getByRole("button", { name: "Marquer comme réexaminé" }));
+    const d = await dialogue();
+    expect(d).toHaveTextContent("Cela ne change ni le statut ni aucun autre verdict du dossier");
+    const envoyer = within(d).getByRole("button", { name: "Marquer comme réexaminé" });
+    expect(envoyer).toBeDisabled();
+    await saisir(d, /Justification/, "Revu avec le concessionnaire");
+    await userEvent.click(envoyer);
+    await waitFor(() => expect(h.patch).toHaveBeenCalledWith(`${BASE}/conflits/cf-1`, { aReexaminer: false, justification: "Revu avec le concessionnaire" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+  it("refus 422 JUSTIFICATION_REQUISE : message du lot", async () => {
+    const f = await ouvrir(aReexaminer());
+    await userEvent.click(within(f).getByRole("button", { name: "Marquer comme réexaminé" }));
+    const d = await dialogue();
+    h.patch.mockRejectedValueOnce(erreurHttp(422, "JUSTIFICATION_REQUISE"));
+    await saisir(d, /Justification/, "Revu avec le concessionnaire");
+    await userEvent.click(within(d).getByRole("button", { name: "Marquer comme réexaminé" }));
+    expect(await within(d).findByRole("alert")).toHaveTextContent("justification d'au moins 10 caractères");
+  });
+  it("pas de bouton pour un dossier qui n'est pas a reexaminer, ni pour un lecteur", async () => {
+    const a = await ouvrir(fiche());
+    expect(within(a).queryByRole("button", { name: "Marquer comme réexaminé" })).toBeNull();
+  });
+  it("lecteur : le dossier a reexaminer est signale mais aucun bouton d'acquittement", async () => {
+    const f = await ouvrir(aReexaminer(), "LECTEUR", "u-lect");
+    expect(within(f).getByText(/Une nouvelle analyse ne l'a pas retrouvé/)).toBeInTheDocument();
+    expect(within(f).queryByRole("button", { name: "Marquer comme réexaminé" })).toBeNull();
+  });
+});
 
 describe("preuve", () => {
   it("type, texte, reference : POST ; texte vide refuse ; aucun fichier", async () => {
@@ -423,6 +533,70 @@ describe("proposition de decision : couts estime et reel distincts, jamais calcu
     expect(within(d).getByRole("button", { name: "Proposer la décision" })).toBeDisabled();
   });
 
+  it("devise : trois lettres majuscules (saisie mise en majuscules, limitee a 3), exigee des qu'un cout est saisi", async () => {
+    const d = await ouvrirProposition();
+    await userEvent.selectOptions(within(d).getByLabelText("Option"), "PROTEGER");
+    await saisir(d, /Justification/, "Protection mécanique du fourreau");
+    await saisir(d, "Coût estimé", "100");
+    const devise = within(d).getByLabelText(/Devise des coûts/) as HTMLInputElement;
+    await userEvent.type(devise, "gnfx");
+    expect(devise.value).toBe("GNF");
+    expect(within(d).getByRole("button", { name: "Proposer la décision" })).toBeEnabled();
+    await userEvent.clear(devise);
+    await userEvent.type(devise, "gn");
+    expect(within(d).getByRole("status", { name: "Points à corriger" })).toHaveTextContent("trois lettres majuscules");
+    expect(within(d).getByRole("button", { name: "Proposer la décision" })).toBeDisabled();
+  });
+
+  it("deplacer un reseau exige un planning complet ; sans responsable sur le dossier, la proposition est refusee d'emblee avec la marche a suivre", async () => {
+    const d = await ouvrirProposition();
+    await userEvent.selectOptions(within(d).getByLabelText("Option"), "DEPLACER_RESEAU");
+    await saisir(d, /Justification/, "Le réseau est sous la future chaussée");
+    expect(within(d).getByRole("status", { name: "Points à corriger" })).toHaveTextContent("planning complet");
+    expect(within(d).getByRole("button", { name: "Proposer la décision" })).toBeDisabled();
+    fireDate(within(d).getByLabelText("Début prévu"), "2027-01-10");
+    expect(within(d).getByRole("button", { name: "Proposer la décision" })).toBeDisabled();
+    fireDate(within(d).getByLabelText("Fin prévue"), "2027-01-20");
+    expect(within(d).getByRole("button", { name: "Proposer la décision" })).toBeEnabled();
+    await userEvent.click(within(d).getByRole("button", { name: "Proposer la décision" }));
+    await waitFor(() => expect(h.post).toHaveBeenCalledWith(`${BASE}/conflits/cf-1/decisions`, { option: "DEPLACER_RESEAU", justification: "Le réseau est sous la future chaussée", dateDebutPrevue: "2027-01-10", dateFinPrevue: "2027-01-20" }));
+  });
+
+  it("deplacer un reseau sur un dossier SANS responsable : bouton inactif, on dit d'attribuer d'abord", async () => {
+    const f = await ouvrir(fiche({ statut: "CONFIRME", transitions: [], decisions: [], responsable: null }));
+    await userEvent.click(within(f).getByRole("button", { name: /Proposer une décision/ }));
+    const d = await dialogue();
+    await userEvent.selectOptions(within(d).getByLabelText("Option"), "DEPLACER_RESEAU");
+    await saisir(d, /Justification/, "Le réseau est sous la future chaussée");
+    fireDate(within(d).getByLabelText("Début prévu"), "2027-01-10");
+    fireDate(within(d).getByLabelText("Fin prévue"), "2027-01-20");
+    expect(within(d).getByRole("status", { name: "Points à corriger" })).toHaveTextContent("Désignez d'abord un responsable sur le dossier");
+    expect(within(d).getByRole("button", { name: "Proposer la décision" })).toBeDisabled();
+  });
+
+  it("422 RESPONSABLE_REQUIS et PLANNING_REQUIS (gardes du serveur) : messages en clair", async () => {
+    const d = await ouvrirProposition();
+    h.post.mockRejectedValueOnce(erreurHttp(422, "PLANNING_REQUIS"));
+    await userEvent.selectOptions(within(d).getByLabelText("Option"), "PROTEGER");
+    await saisir(d, /Justification/, "Protection mécanique");
+    await userEvent.click(within(d).getByRole("button", { name: "Proposer la décision" }));
+    expect(await within(d).findByRole("alert")).toHaveTextContent("Le planning est incomplet ou incohérent");
+    h.post.mockRejectedValueOnce(erreurHttp(422, "RESPONSABLE_REQUIS"));
+    await userEvent.click(within(d).getByRole("button", { name: "Proposer la décision" }));
+    await waitFor(() => expect(within(d).getByRole("alert")).toHaveTextContent("responsable doit être désigné"));
+  });
+
+  it("409 STATUT_INCOMPATIBLE : le dossier n'est plus confirme, message du lot (pas celui des jeux)", async () => {
+    const d = await ouvrirProposition();
+    h.post.mockRejectedValueOnce(erreurHttp(409, "STATUT_INCOMPATIBLE"));
+    await userEvent.selectOptions(within(d).getByLabelText("Option"), "PROTEGER");
+    await saisir(d, /Justification/, "Protection mécanique");
+    await userEvent.click(within(d).getByRole("button", { name: "Proposer la décision" }));
+    const a = await within(d).findByRole("alert");
+    expect(a).toHaveTextContent("une décision ne se propose et ne se tranche que pour un conflit confirmé");
+    expect(a).not.toHaveTextContent("Ce jeu");
+  });
+
   it("« Deplacer le reseau » : une PROPOSITION, avertissement de separation des taches et de recolement", async () => {
     const d = await ouvrirProposition();
     const sel = within(d).getByLabelText("Option") as HTMLSelectElement;
@@ -431,6 +605,7 @@ describe("proposition de decision : couts estime et reel distincts, jamais calcu
     ]);
     await userEvent.selectOptions(sel, "DEPLACER_RESEAU");
     expect(d).toHaveTextContent("Proposer le déplacement d'un réseau n'ordonne rien");
+    expect(d).toHaveTextContent("Il exige un responsable désigné sur le dossier et un planning complet");
     expect(d).toHaveTextContent("le récolement restera à valider hors de cet outil");
     expect(d).toHaveTextContent("n'ordonne et n'exécute rien");
   });
@@ -494,7 +669,7 @@ describe("approbation et refus d'une decision : separation des taches, derogatio
 
   it("ADMIN qui approuve SA proposition de deplacement : champ de derogation, motif obligatoire, envoye", async () => {
     const d = await ouvrirApprobation("ADMIN", "u-gest");
-    expect(d).toHaveTextContent("seule une dérogation motivée d'un administrateur permet de l'approuver vous-même");
+    expect(d).toHaveTextContent("Vous avez proposé cette décision de déplacement de réseau : seule une dérogation motivée d'un administrateur permet de l'approuver vous-même");
     const envoyer = within(d).getByRole("button", { name: "Approuver la décision" });
     await saisir(d, /Motif/, "Approuvé en comité technique");
     expect(envoyer).toBeDisabled();
@@ -502,6 +677,29 @@ describe("approbation et refus d'une decision : separation des taches, derogatio
     expect(envoyer).toBeEnabled();
     await userEvent.click(envoyer);
     await waitFor(() => expect(h.post).toHaveBeenCalledWith(`${BASE}/conflits/cf-1/decisions/d1/approuver`, { motif: "Approuvé en comité technique", derogation: "Un seul compte habilité" }));
+  });
+
+  it("ADMIN qui approuve SA proposition (autre option que le deplacement) : la derogation est exigee aussi", async () => {
+    const d = await ouvrirApprobation("ADMIN", "u-gest", proposee({ option: "PROTEGER" }));
+    expect(d).toHaveTextContent("Vous avez proposé cette décision : seule une dérogation motivée d'un administrateur permet de l'approuver vous-même.");
+    await saisir(d, /Motif/, "Approuvé en comité technique");
+    const envoyer = within(d).getByRole("button", { name: "Approuver la décision" });
+    expect(envoyer).toBeDisabled();
+    await saisir(d, /Dérogation à la séparation des tâches/, "Un seul compte habilité");
+    expect(envoyer).toBeEnabled();
+  });
+
+  it("409 DECISION_DEJA_TRANCHEE : message en clair", async () => {
+    const d = await ouvrirApprobation("GESTIONNAIRE", "u-autre");
+    h.post.mockRejectedValueOnce(erreurHttp(409, "DECISION_DEJA_TRANCHEE"));
+    await saisir(d, /Motif/, "Approuvé en comité technique");
+    await userEvent.click(within(d).getByRole("button", { name: "Approuver la décision" }));
+    expect(await within(d).findByRole("alert")).toHaveTextContent("vient d'être tranchée");
+  });
+
+  it("on ne tranche une decision que pour un conflit CONFIRME : dossier decide, aucun bouton Approuver ou Refuser", async () => {
+    const f = await ouvrir(fiche({ statut: "TRAITEMENT_DECIDE", transitions: [], decisions: [proposee()] }), "ADMIN", "u-adm");
+    expect(within(f).queryByRole("button", { name: /Approuver la décision|Refuser la décision/ })).toBeNull();
   });
 
   it("ADMIN qui approuve la proposition d'un autre : pas de derogation d'emblee ; elle apparait si le serveur oppose la separation", async () => {
@@ -577,7 +775,7 @@ describe("aucune action « deplacer », « ordonner » ou « executer »", () =>
 
 describe("hors ligne : les ecritures sont desactivees", () => {
   it("transition, attribution, preuve : boutons inactifs hors ligne", async () => {
-    const f = await ouvrir(fiche({ transitions: [T("CONFIRME")] }));
+    const f = await ouvrir(fiche({ transitions: [T("CONFIRME", { preuveRequise: true })] }));
     Object.defineProperty(window.navigator, "onLine", { configurable: true, value: false });
     window.dispatchEvent(new Event("offline"));
     await waitFor(() => expect(within(f).getByRole("button", { name: "Confirmer ce conflit" })).toBeDisabled());

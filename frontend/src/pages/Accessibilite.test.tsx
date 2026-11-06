@@ -38,7 +38,10 @@ import { MainCourantePage } from "./MainCourantePage";
 import { ProjetsVoirieListePage } from "./ProjetsVoirieListePage";
 import { ProjetVoirieDetailPage } from "./ProjetVoirieDetailPage";
 import { analyse as analyseProjet, projetFiche, projetResume } from "../components/projets-voirie/synthetique.testutil";
-import { ANALYSE_1, REGLES, analyseConflit, brut as brutConflit, decision as decisionConflit, fiche as ficheConflit, pageConflits, preuve as preuveConflit } from "../components/projets-voirie/conflitsSynthetiques.testutil";
+import {
+  ANALYSE_1, REGLES, analyseConflit, brut as brutConflit, decision as decisionConflit, fiche as ficheConflit, pageConflits, preuve as preuveConflit, serveurComparaison, serveurDetailAnalyse,
+  serveurFiche, serveurLancement, serveurListeAnalyses, serveurPage, serveurRegles, transition as transitionConflit,
+} from "../components/projets-voirie/conflitsSynthetiques.testutil";
 import { DefautsRegistrePage } from "./DefautsRegistrePage";
 import { MissionsPage } from "./MissionsPage";
 import { PortionsGestionPage } from "./PortionsGestionPage";
@@ -208,12 +211,12 @@ beforeEach(() => {
     "/v2/projets-voirie/p1/carte": [],
     "/v2/projets-voirie/concessionnaires": [{ id: "c1", nom: "Operateur synthetique A", typeReseau: "TELECOM" }],
     // Dossiers de conflit (lot RC-3) : reponses SYNTHETIQUES.
-    "/v2/projets-voirie/p1/conflits": brutConflit(pageConflits()),
-    "/v2/projets-voirie/p1/conflits/cf-1": brutConflit(ficheConflit({ statut: "CONFIRME", decisions: [decisionConflit(), decisionConflit({ id: "d2", option: "DEPLACER_RESEAU", statut: "APPROUVEE", coutEstime: null, coutReel: 0, approuvePar: { id: "u-adm", nom: "Fatou Admin" }, approuveLe: "2026-11-05T10:00:00Z", motifDecision: "Approuvé en comité", derogationSeparation: "Seul compte habilité" })], preuves: [preuveConflit()], transitions: [{ vers: "TRAITEMENT_DECIDE", derogationPossible: false, exigences: [] }] })),
-    "/v2/projets-voirie/p1/analyses": { analyses: [brutConflit(analyseConflit()), brutConflit(ANALYSE_1)] },
-    "/v2/projets-voirie/p1/analyses/an-2": brutConflit(analyseConflit()),
-    "/v2/projets-voirie/p1/analyses/an-2/comparaison": { apparus: { nb: 1, cles: ["cle-bbbb"] }, disparus: { nb: 1, cles: ["cle-dddd"] }, modifies: { nb: 0, cles: [] }, identiques: { nb: 2, cles: [] } },
-    "/v2/projets-voirie/p1/regles": { regles: REGLES.map((r) => brutConflit(r)) },
+    "/v2/projets-voirie/p1/conflits": brutConflit(serveurPage(pageConflits())),
+    "/v2/projets-voirie/p1/conflits/cf-1": brutConflit(serveurFiche(ficheConflit({ statut: "CONFIRME", decisions: [decisionConflit(), decisionConflit({ id: "d2", option: "DEPLACER_RESEAU", statut: "APPROUVEE", coutEstime: null, coutReel: 0, approuvePar: { id: "u-adm", nom: "Fatou Admin" }, approuveLe: "2026-11-05T10:00:00Z", motifDecision: "Approuvé en comité", derogationSeparation: "Seul compte habilité" })], preuves: [preuveConflit()], transitions: [transitionConflit("TRAITEMENT_DECIDE", { decisionRequise: true })] }))),
+    "/v2/projets-voirie/p1/analyses": brutConflit(serveurListeAnalyses([analyseConflit(), ANALYSE_1])),
+    "/v2/projets-voirie/p1/analyses/an-2": brutConflit(serveurDetailAnalyse(analyseConflit())),
+    "/v2/projets-voirie/p1/analyses/an-2/comparaison": brutConflit(serveurComparaison()),
+    "/v2/projets-voirie/p1/regles": brutConflit(serveurRegles(REGLES)),
   };
   h.role = "GESTIONNAIRE";
 });
@@ -587,7 +590,7 @@ describe("Accessibilite du module Projets de voirie : etats cles", () => {
 
   it("page projet : dialogues d'un conflit (transition, attribution, preuve, decision, approbation)", async () => {
     h.role = "ADMIN";
-    h.get["/v2/projets-voirie/p1/conflits/cf-1"] = brutConflit(ficheConflit({ statut: "CONFIRME", decisions: [decisionConflit({ proposePar: { id: "u", nom: "Moi" } })], preuves: [preuveConflit()], transitions: [{ vers: "TRAITEMENT_DECIDE", derogationPossible: true, exigences: [] }] }));
+    h.get["/v2/projets-voirie/p1/conflits/cf-1"] = brutConflit(serveurFiche(ficheConflit({ statut: "CONFIRME", decisions: [decisionConflit({ proposePar: { id: "u", nom: "Moi" } })], preuves: [preuveConflit()], transitions: [transitionConflit("TRAITEMENT_DECIDE", { decisionRequise: true })] })));
     const { container } = await ouvrirConflits();
     const f = await ouvrirDossier();
     const corps = container.ownerDocument.body;
@@ -630,7 +633,7 @@ describe("Accessibilite du module Projets de voirie : etats cles", () => {
 
   it("page projet : analyse terminee, puis erreur 503 PROJET_OCCUPE", async () => {
     const { container } = await ouvrirConflits();
-    vi.mocked(api.post).mockResolvedValueOnce({ data: { analyse: brutConflit(analyseConflit()) } } as never);
+    vi.mocked(api.post).mockResolvedValueOnce({ data: brutConflit(serveurLancement(analyseConflit())) } as never);
     await userEvent.click(screen.getByRole("button", { name: "Lancer une analyse" }));
     await screen.findByTestId("analyse-terminee", undefined, { timeout: 10_000 });
     expect(await violationsAccessibilite(container)).toEqual([]);

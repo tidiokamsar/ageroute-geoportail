@@ -11,7 +11,9 @@ vi.mock("../lib/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 vi.mock("../lib/download", () => ({ downloadViaApi: vi.fn().mockResolvedValue(undefined) }));
 
 import { reinitialiserCarte } from "../components/projets-voirie/carteDouble.testutil";
-import { ANALYSE_1, REGLES, analyseConflit, brut, regle } from "../components/projets-voirie/conflitsSynthetiques.testutil";
+import {
+  ANALYSE_1, REGLES, analyseConflit, brut, regle, serveurComparaison, serveurLancement, serveurListeAnalyses, serveurRegle, serveurRegles,
+} from "../components/projets-voirie/conflitsSynthetiques.testutil";
 import { BASE, erreurHttp, rendrePage, reponseApi, type SurchargesApi } from "../components/projets-voirie/conflitsPage.testutil";
 import { downloadViaApi } from "../lib/download";
 
@@ -51,7 +53,7 @@ afterEach(() => { Object.defineProperty(window.navigator, "onLine", { configurab
 describe("lancer une analyse", () => {
   it.each(["ADMIN", "GESTIONNAIRE"])("%s : le bouton existe, le POST part avec un corps vide (aucune largeur, aucune regle choisie par l'interface)", async (role) => {
     await ouvrir(role, "u1");
-    h.post.mockResolvedValueOnce({ data: { analyse: brut(analyseConflit()) } });
+    h.post.mockResolvedValueOnce({ data: brut(serveurLancement(analyseConflit())) });
     await userEvent.click(screen.getByRole("button", { name: "Lancer une analyse" }));
     await waitFor(() => expect(h.post).toHaveBeenCalledWith(`${BASE}/analyses`, {}));
   });
@@ -68,7 +70,7 @@ describe("lancer une analyse", () => {
     expect(screen.getByRole("button", { name: "Analyse en cours…" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Analyse en cours…" })).toHaveAttribute("aria-busy", "true");
     expect(h.post).toHaveBeenCalledTimes(1);
-    fin({ data: { analyse: brut(analyseConflit()), resume: brut(analyseConflit().resume) } });
+    fin({ data: brut(serveurLancement(analyseConflit())) });
     const ok = await screen.findByTestId("analyse-terminee");
     expect(ok).toHaveTextContent("Analyse n° 2 terminée.");
     expect(ok).toHaveTextContent("4 conflit(s) · 1 nouveau(x) · 2 retrouvé(s) · 1 non retrouvé(s), marqués « à réexaminer » (ni fermés ni supprimés)");
@@ -79,7 +81,7 @@ describe("lancer une analyse", () => {
   });
 
   it.each([
-    [503, "PROJET_OCCUPE", /Ce projet est occupé/, true],
+    [503, "PROJET_OCCUPE", /Ce projet ou ce dossier est occupé/, true],
     [503, "SERVICE_OCCUPE", /Le serveur traite déjà d'autres demandes/, true],
     [503, undefined, /momentanément indisponible ou occupé \(503\)/, true],
     [504, "ANALYSE_TROP_LONGUE", /Le calcul de l'analyse a dépassé le délai autorisé/, true],
@@ -98,7 +100,7 @@ describe("lancer une analyse", () => {
 
   it("503 PROJET_OCCUPE puis reussite : « Reessayer » relance, l'erreur disparait", async () => {
     await ouvrir();
-    h.post.mockRejectedValueOnce(erreurHttp(503, "PROJET_OCCUPE")).mockResolvedValueOnce({ data: { analyse: brut(analyseConflit()) } });
+    h.post.mockRejectedValueOnce(erreurHttp(503, "PROJET_OCCUPE")).mockResolvedValueOnce({ data: brut(serveurLancement(analyseConflit())) });
     await userEvent.click(screen.getByRole("button", { name: "Lancer une analyse" }));
     await userEvent.click(await screen.findByRole("button", { name: "Réessayer l'analyse" }));
     await screen.findByTestId("analyse-terminee");
@@ -115,7 +117,7 @@ describe("lancer une analyse", () => {
 
   it("analyse enregistree en echec : dite comme telle, conflits intacts", async () => {
     await ouvrir();
-    h.post.mockResolvedValueOnce({ data: { analyse: brut(analyseConflit({ statut: "ECHEC" })) } });
+    h.post.mockResolvedValueOnce({ data: brut(serveurLancement(analyseConflit({ statut: "ECHEC" }))) });
     await userEvent.click(screen.getByRole("button", { name: "Lancer une analyse" }));
     expect(await screen.findByTestId("analyse-echec")).toHaveTextContent("L'analyse a échoué");
     expect(screen.queryByTestId("analyse-terminee")).toBeNull();
@@ -131,7 +133,8 @@ describe("lancer une analyse", () => {
 
   it("le resume n'invente aucun chiffre : une valeur absente n'est pas affichee", async () => {
     await ouvrir();
-    h.post.mockResolvedValueOnce({ data: { analyse: brut(analyseConflit({ resume: { total: null, parType: {}, parStatut: {}, nouveaux: null, retrouves: null, disparus: null } })) } });
+    // Reponse minimale : ni totaux, ni compteurs. Rien n'est devine.
+    h.post.mockResolvedValueOnce({ data: { analyse: { id: "an-9", numero: 9, statut: "TERMINEE", resume: {} } } });
     await userEvent.click(screen.getByRole("button", { name: "Lancer une analyse" }));
     const ok = await screen.findByTestId("analyse-terminee");
     expect(ok.textContent).toContain("Résultat enregistré");
@@ -149,10 +152,12 @@ describe("historique des analyses", () => {
     expect(within(a).getByText("Terminée")).toBeInTheDocument();
     expect(a).toHaveTextContent("04/11/2026 08:00 UTC · Moussa Gestionnaire · durée 1,8 s");
     expect(a).toHaveTextContent("Largeurs : chaussée 7 m, emprise 15 m · algorithme 2D-UTM-1");
-    expect(a).toHaveTextContent("4 conflit(s) · 1 nouveau(x) · 2 retrouvé(s) · 1 non retrouvé(s)");
+    expect(a).toHaveTextContent("4 conflit(s) trouvé(s) · 1 nouveau(x) · 2 retrouvé(s) · 1 non retrouvé(s)");
+    expect(a).toHaveTextContent("1 modifié(s) · 1 identique(s) · 2 marqué(s) à réexaminer");
+    expect(a).toHaveTextContent("1 axe(s) ne sont couverts par aucun jeu de réseau autorisé : zone à investiguer, jamais une absence de réseau.");
     expect(a).toHaveTextContent("Par type : Intersection avec la chaussée 2, Proximité à vérifier 2.");
     expect(b).toHaveTextContent("Analyse n° 1");
-    expect(b).toHaveTextContent("3 conflit(s) · 3 nouveau(x) · 0 retrouvé(s) · 0 non retrouvé(s)");
+    expect(b).toHaveTextContent("3 conflit(s) trouvé(s) · 3 nouveau(x) · 0 retrouvé(s) · 0 non retrouvé(s)");
   });
 
   it("detail a la demande : regles (code, version) et jeux (version, empreinte) de l'analyse ; reproductibilite rappelee", async () => {
@@ -164,23 +169,40 @@ describe("historique des analyses", () => {
     await waitFor(() => expect(appels(`${BASE}/analyses/an-2`)).toBe(1));
     const li = within(l).getAllByRole("listitem")[0];
     expect(await within(li).findByText(/RC-2D-0.1, version 0, toutes familles/)).toBeInTheDocument();
-    expect(li).toHaveTextContent("Réseau de concessionnaire, version 2, AUTORISE");
+    expect(li).toHaveTextContent("reseau-synthetique.kml, version 2 · Réseau de concessionnaire · AUTORISE");
     expect(li).toHaveTextContent("empreinte SHA-256 : abababababababab…");
+    expect(li).toHaveTextContent("Limites de cette analyse");
+    expect(li).toHaveTextContent("Seuls les réseaux linéaires sont évalués.");
     expect(li).toHaveTextContent("redonne les mêmes conflits");
   });
 
   it("analyse en echec : signalee, conflits intacts", async () => {
-    await ouvrir("GESTIONNAIRE", "u", { analyses: { analyses: [brut(analyseConflit({ statut: "ECHEC" }))] } });
+    await ouvrir("GESTIONNAIRE", "u", { analyses: brut(serveurListeAnalyses([analyseConflit({ statut: "ECHEC", erreur: { code: "ANALYSE_TROP_VOLUMINEUSE", message: "trop de sommets" } })])) });
     await versSection("Analyses");
-    expect(await screen.findByText(/Cette analyse a échoué/)).toBeInTheDocument();
+    const note = await screen.findByText(/Cette analyse a échoué/);
+    expect(note).toHaveTextContent("Cause : trop de sommets (ANALYSE_TROP_VOLUMINEUSE)");
     expect(screen.getByText("En échec")).toBeInTheDocument();
+    // Aucun chiffre n'est presente pour une analyse en echec (pas de « 0 conflit »).
+    expect(note.closest("li")!.textContent).not.toMatch(/conflit\(s\) trouvé/);
   });
 
   it("vide, erreur 504, erreur 403 : expliques", async () => {
-    await ouvrir("GESTIONNAIRE", "u", { analyses: { analyses: [] } });
+    await ouvrir("GESTIONNAIRE", "u", { analyses: brut(serveurListeAnalyses([])) });
     await versSection("Analyses");
     expect(await screen.findByText("Aucune analyse lancée")).toBeInTheDocument();
-    expect(screen.getByText("Il faut au moins deux analyses pour les comparer.")).toBeInTheDocument();
+    expect(screen.getByText("Il faut au moins deux analyses terminées pour les comparer.")).toBeInTheDocument();
+  });
+
+  it("pagination : « Charger les analyses plus anciennes » envoie le curseur et ajoute la page", async () => {
+    await ouvrir("GESTIONNAIRE", "u", { analyses: brut(serveurListeAnalyses([analyseConflit()], "n2")) });
+    await versSection("Analyses");
+    await screen.findByRole("list", { name: "Analyses" });
+    h.get.mockImplementation(async (url: string, opts?: { params?: Record<string, unknown> }) => (url === `${BASE}/analyses` && opts?.params?.curseur === "n2"
+      ? { data: brut(serveurListeAnalyses([ANALYSE_1], null)) } : reponseApi(url, opts?.params)));
+    await userEvent.click(screen.getByRole("button", { name: "Charger les analyses plus anciennes" }));
+    await waitFor(() => expect(h.get).toHaveBeenCalledWith(`${BASE}/analyses`, { params: { curseur: "n2" }, signal: expect.anything() }));
+    await waitFor(() => expect(within(screen.getByRole("list", { name: "Analyses" })).getAllByRole("listitem")).toHaveLength(2));
+    expect(screen.queryByRole("button", { name: "Charger les analyses plus anciennes" })).toBeNull();
   });
 
   it.each([[504, undefined, /délai autorisé \(504\)/], [403, undefined, /clé de module/]] as const)("historique en erreur %i", async (status, code, motif) => {
@@ -192,7 +214,7 @@ describe("historique des analyses", () => {
 });
 
 describe("comparaison de deux analyses", () => {
-  const brutes = { analyses: [brut(analyseConflit()), brut(ANALYSE_1)] };
+  const brutes = brut(serveurListeAnalyses([analyseConflit(), ANALYSE_1]));
 
   async function ouvrirComparaison(over: SurchargesApi = {}) {
     await ouvrir("GESTIONNAIRE", "u-gest", { analyses: brutes, ...over });
@@ -201,7 +223,7 @@ describe("comparaison de deux analyses", () => {
   }
 
   it("par defaut la plus recente est comparee a la precedente : GET analyses/an-2/comparaison?avec=an-1 ; apparus, disparus, modifies, identiques", async () => {
-    await ouvrirComparaison({ comparaison: { apparus: { nb: 1, cles: ["cle-bbbb"] }, disparus: { nb: 1, cles: ["cle-dddd"] }, modifies: { nb: 0, cles: [] }, identiques: { nb: 2, cles: [] } } });
+    await ouvrirComparaison();
     await userEvent.click(screen.getByRole("button", { name: "Comparer" }));
     const r = await screen.findByTestId("resultat-comparaison");
     expect(h.get).toHaveBeenCalledWith(`${BASE}/analyses/an-2/comparaison`, { params: { avec: "an-1" }, signal: expect.anything() });
@@ -213,16 +235,41 @@ describe("comparaison de deux analyses", () => {
     // Un conflit « disparu » n'est PAS resolu : l'ecran le dit.
     expect(r).toHaveTextContent("Ils ne sont ni fermés ni supprimés : ils restent en base, marqués « à réexaminer », leur verdict humain est conservé.");
     expect(r).toHaveTextContent("Présents dans l'analyse n° 2, absents de l'analyse n° 1 : nouveaux dossiers.");
+    // Le serveur joint l'axe, le type et le statut de chaque dossier : on les montre, sans autre requete.
+    expect(within(r).getByRole("button", { name: /Axe B/ })).toHaveTextContent("À investiguer");
+    expect(within(r).getByRole("button", { name: /Axe D/ })).toHaveTextContent("Couverture insuffisante");
   });
 
-  it("les cles connues de la liste chargee sont montrees par axe et type, et ouvrent le dossier ; les autres par empreinte", async () => {
-    await ouvrirComparaison({ comparaison: { apparus: { nb: 2, cles: ["cle-bbbb", "cle-inconnue-1234567890"] }, disparus: { nb: 0, cles: [] }, modifies: { nb: 0, cles: [] }, identiques: { nb: 0, cles: [] } } });
+  it("un dossier de la comparaison s'ouvre d'un clic (vue Dossiers, fiche du dossier)", async () => {
+    await ouvrirComparaison();
     await userEvent.click(screen.getByRole("button", { name: "Comparer" }));
     const r = await screen.findByTestId("resultat-comparaison");
-    expect(r).toHaveTextContent("Empreinte …1234567890 (dossier hors de la liste chargée)");
-    await userEvent.click(within(r).getByRole("button", { name: /Axe B.*Ouvrir le dossier|Ouvrir le dossier/ }));
+    await userEvent.click(within(r).getByRole("button", { name: /Axe B/ }));
     const f = await screen.findByTestId("fiche-conflit");
     expect(f).toHaveAttribute("data-conflit-id", "cf-2");
+  });
+
+  it("detail tronque par le serveur : le nombre reste celui du serveur, les dossiers sans detail sont comptes", async () => {
+    await ouvrirComparaison({ comparaison: brut(serveurComparaison({ apparus: { nb: 1500, cles: [], conflits: [{ cle: "k", id: "cf-2", type: "PROXIMITE", axe: "Axe B", statut: "A_INVESTIGUER", aReexaminer: false }], detailsTronques: true } })) });
+    await userEvent.click(screen.getByRole("button", { name: "Comparer" }));
+    const r = await screen.findByTestId("resultat-comparaison");
+    expect(screen.getByTestId("cmp-apparus")).toHaveTextContent("1 500");
+    expect(r).toHaveTextContent("1 499 autre(s) sans détail (le serveur limite le détail).");
+  });
+
+  it("une analyse en echec n'est jamais proposee a la comparaison (409 ANALYSE_NON_COMPARABLE evite)", async () => {
+    await ouvrir("GESTIONNAIRE", "u", { analyses: brut(serveurListeAnalyses([analyseConflit({ id: "an-3", numero: 3, statut: "ECHEC", erreur: { code: "ANALYSE_TROP_LONGUE", message: "délai" } }), analyseConflit(), ANALYSE_1])) });
+    await versSection("Analyses");
+    await screen.findByRole("list", { name: "Analyses" });
+    const sel = screen.getByLabelText("Analyse à comparer") as HTMLSelectElement;
+    expect([...sel.options].map((o) => o.value)).toEqual(["an-2", "an-1"]);
+    expect(screen.getByText("En échec")).toBeInTheDocument();
+  });
+
+  it("409 ANALYSE_NON_COMPARABLE (course) : message en clair", async () => {
+    await ouvrirComparaison({ comparaison: erreurHttp(409, "ANALYSE_NON_COMPARABLE") });
+    await userEvent.click(screen.getByRole("button", { name: "Comparer" }));
+    expect(await screen.findByText(/Une analyse en échec n'a pas de résultat à comparer/)).toBeInTheDocument();
   });
 
   it("inverser les choix compare toujours la plus recente a la plus ancienne", async () => {
@@ -248,19 +295,19 @@ describe("comparaison de deux analyses", () => {
     expect(await screen.findByText(/délai autorisé \(504\)/)).toBeInTheDocument();
   });
   it("comparaison illisible : reponse inattendue, jamais « aucune difference »", async () => {
-    await ouvrirComparaison({ comparaison: { apparus: 1 } });
+    await ouvrirComparaison({ comparaison: { apparus: { nb: 1, cles: [] } } });
     await userEvent.click(screen.getByRole("button", { name: "Comparer" }));
     expect(await screen.findByText(/Réponse inattendue du serveur/)).toBeInTheDocument();
     expect(screen.queryByTestId("resultat-comparaison")).toBeNull();
   });
   it("une seule analyse : pas de comparaison possible", async () => {
-    await ouvrir("GESTIONNAIRE", "u", { analyses: { analyses: [brut(ANALYSE_1)] } });
+    await ouvrir("GESTIONNAIRE", "u", { analyses: brut(serveurListeAnalyses([ANALYSE_1])) });
     await versSection("Analyses");
-    expect(await screen.findByText("Il faut au moins deux analyses pour les comparer.")).toBeInTheDocument();
+    expect(await screen.findByText("Il faut au moins deux analyses terminées pour les comparer.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Comparer" })).toBeNull();
   });
-  it("le serveur ne donne que des nombres : on affiche les nombres et on dit que la liste manque", async () => {
-    await ouvrirComparaison({ comparaison: { apparus: 3, disparus: 0, modifies: 0, identiques: 5 } });
+  it("une categorie sans cles ni dossiers detailles : le nombre est affiche et on dit que la liste manque", async () => {
+    await ouvrirComparaison({ comparaison: brut(serveurComparaison({ apparus: { nb: 3, cles: [], conflits: [], detailsTronques: true } })) });
     await userEvent.click(screen.getByRole("button", { name: "Comparer" }));
     const r = await screen.findByTestId("resultat-comparaison");
     expect(r).toHaveTextContent("3 conflit(s) ; le serveur n'en donne pas la liste.");
@@ -289,7 +336,20 @@ describe("regles de conflit", () => {
     expect(v1).toHaveTextContent("RC-TELversion 1Approuvée");
     expect(v1).toHaveTextContent("approuvée par Fatou Admin, 01/11/2026 08:00 UTC");
     expect(v1).toHaveTextContent("Créée par Moussa Gestionnaire");
+    expect(v1).toHaveTextContent("Motif d'approbation : Validée avec la direction");
+    expect(generale).toHaveTextContent("Créée par le système (règle par défaut du socle)");
+    expect(generale).toHaveTextContent("règle générale");
+    expect(v1).toHaveTextContent("règle du projet");
     expect(v2.querySelector("[data-statut-regle=BROUILLON]")).not.toBeNull();
+  });
+
+  it("regle EFFECTIVE de chaque famille (donnee par le serveur) : la version approuvee la plus recente, sinon la generale", async () => {
+    await ouvrirRegles();
+    const sec = screen.getByRole("heading", { name: /Règle appliquée aujourd'hui à chaque famille/ }).closest("section")!;
+    expect(within(sec).getAllByRole("listitem")).toHaveLength(6);
+    expect(sec.querySelector("[data-famille=TELECOM]")).toHaveTextContent("Télécom : RC-TEL, version 1 (règle du projet) · tolérance 2 m · marge ×1,5");
+    expect(sec.querySelector("[data-famille=EAU_POTABLE]")).toHaveTextContent("Eau potable : RC-2D-0.1, version 0 (règle générale) · tolérance 0 m · marge ×1");
+    expect(sec).toHaveTextContent("La prochaine analyse l'utilisera");
   });
 
   it("gestionnaire : peut creer un brouillon, ne peut PAS approuver", async () => {
@@ -360,7 +420,7 @@ describe("regles de conflit", () => {
   });
 
   it("l'auteur du brouillon (ADMIN) : derogation obligatoire et envoyee", async () => {
-    const regles = { regles: [brut(regle({ id: "rg-9", projetId: "p1", famille: "TELECOM", code: "RC-X", version: 1, statut: "BROUILLON", creePar: { id: "u-adm", nom: "Fatou Admin" } }))] };
+    const regles = brut(serveurRegles([regle({ id: "rg-9", projetId: "p1", portee: "PROJET", famille: "TELECOM", code: "RC-X", version: 1, statut: "BROUILLON", systeme: false, creePar: { id: "u-adm", nom: "Fatou Admin" } })]));
     await ouvrirRegles("ADMIN", "u-adm", { regles });
     await userEvent.click(screen.getByRole("button", { name: "Approuver la règle RC-X, version 1" }));
     const d = await screen.findByRole("dialog");
@@ -396,7 +456,7 @@ describe("regles de conflit", () => {
   });
 
   it("vide, erreur 403, element illisible : expliques", async () => {
-    await ouvrir("GESTIONNAIRE", "u", { regles: { regles: [] } });
+    await ouvrir("GESTIONNAIRE", "u", { regles: { regles: [], effectives: [] } });
     await versSection("Règles");
     expect(await screen.findByText("Aucune règle listée par le serveur")).toBeInTheDocument();
   });
@@ -406,7 +466,7 @@ describe("regles de conflit", () => {
     expect(await screen.findByText(/clé de module/)).toBeInTheDocument();
   });
   it("regle d'un statut inconnu : ignoree et signalee", async () => {
-    await ouvrir("GESTIONNAIRE", "u", { regles: { regles: [brut(REGLES[0]), { id: "x", code: "Z", statut: "ACTIVE" }] } });
+    await ouvrir("GESTIONNAIRE", "u", { regles: brut({ ...serveurRegles([REGLES[0]]), regles: [serveurRegle(REGLES[0]), { id: "x", code: "Z", statut: "ACTIVE" }] }) });
     await versSection("Règles");
     expect(await screen.findByRole("alert")).toHaveTextContent("1 règle(s) de la réponse du serveur n'ont pas pu être lues");
   });

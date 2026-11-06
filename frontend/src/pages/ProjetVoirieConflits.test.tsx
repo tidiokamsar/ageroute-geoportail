@@ -13,7 +13,7 @@ vi.mock("../lib/download", () => ({ downloadViaApi: vi.fn().mockResolvedValue(un
 import { mapDouble, reinitialiserCarte } from "../components/projets-voirie/carteDouble.testutil";
 import { O, S } from "../components/projets-voirie/synthetique.testutil";
 import {
-  CONFLIT_INVESTIGUER, COMPTEURS, brut, conflit, decision, fiche, histo, pageConflits, preuve,
+  CONFLIT_INVESTIGUER, COMPTEURS, brut, conflit, decision, fiche, histo, pageConflits, preuve, serveurConflit, serveurPage,
 } from "../components/projets-voirie/conflitsSynthetiques.testutil";
 import { BASE, erreurHttp, ficheDe, rendrePage, reponseApi, type SurchargesApi } from "../components/projets-voirie/conflitsPage.testutil";
 import { BANDEAU_GARDE_FOUS } from "../lib/projetsVoirieConflits";
@@ -150,7 +150,7 @@ describe("liste : contenu, badges texte + forme, compteurs", () => {
   });
 
   it("sans compteurs dans la reponse : aucun nombre n'est invente", async () => {
-    await ouvrirListe({ liste: brut(pageConflits(undefined, { compteurs: null })) });
+    await ouvrirListe({ liste: brut(serveurPage(pageConflits(undefined, { compteurs: null }))) });
     const g = screen.getByRole("group", { name: /Filtrer par statut/ });
     expect(within(g).getByRole("button", { name: "Tous" })).toBeInTheDocument();
     expect(within(g).getByRole("button", { name: "Confirmé" })).toBeInTheDocument();
@@ -158,7 +158,7 @@ describe("liste : contenu, badges texte + forme, compteurs", () => {
   });
 
   it("un element illisible du serveur n'est pas rendu mais signale", async () => {
-    await ouvrirListe({ liste: { conflits: [brut(conflit()), { id: "x", type: "INCONNU", statut: "INCONNU" }], compteurs: null } });
+    await ouvrirListe({ liste: { conflits: [brut(serveurConflit(conflit())), { id: "x", type: "INCONNU", statut: "INCONNU" }], compteurs: null } });
     expect(screen.getAllByRole("listitem").filter((i) => i.querySelector("[data-conflit-id]"))).toHaveLength(1);
     expect(screen.getByRole("alert")).toHaveTextContent("1 élément(s) de la réponse du serveur n'ont pas pu être lus");
   });
@@ -191,7 +191,7 @@ describe("liste : filtres, recherche, tri, curseur", () => {
     await userEvent.selectOptions(screen.getByLabelText("Type de conflit"), "PROXIMITE");
     await userEvent.selectOptions(screen.getByLabelText("Concessionnaire"), "c1");
     await userEvent.selectOptions(screen.getByLabelText("Responsable"), "u-gest");
-    await userEvent.type(screen.getByLabelText("Axe (nom)"), "Axe B");
+    await userEvent.type(screen.getByLabelText(/^Axe \(nom/), "Axe B");
     await userEvent.click(screen.getByLabelText(/À réexaminer/));
     await userEvent.click(screen.getByLabelText("Échéance dépassée"));
     await waitFor(() => expect(appelsListe().at(-1)).toEqual({ type: "PROXIMITE", concessionnaireId: "c1", responsableId: "u-gest", axe: "Axe B", aReexaminer: "true", echeanceDepassee: "true" }));
@@ -199,7 +199,7 @@ describe("liste : filtres, recherche, tri, curseur", () => {
     await userEvent.click(screen.getByRole("button", { name: /Réinitialiser les filtres/ }));
     expect(screen.queryByRole("button", { name: /Réinitialiser les filtres/ })).toBeNull();
     expect((screen.getByLabelText("Type de conflit") as HTMLSelectElement).value).toBe("");
-    expect((screen.getByLabelText("Axe (nom)") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText(/^Axe \(nom/) as HTMLInputElement).value).toBe("");
     expect(screen.getByLabelText("Échéance dépassée")).not.toBeChecked();
   });
 
@@ -229,8 +229,8 @@ describe("liste : filtres, recherche, tri, curseur", () => {
 
   it("curseur : « Charger les conflits suivants » envoie `curseur` et ajoute la page", async () => {
     const liste = (p?: Record<string, unknown>) => (p?.curseur === "c2"
-      ? brut(pageConflits([CONFLIT_INVESTIGUER], { suivant: null }))
-      : brut(pageConflits([conflit()], { suivant: "c2" })));
+      ? brut(serveurPage(pageConflits([CONFLIT_INVESTIGUER], { suivant: null })))
+      : brut(serveurPage(pageConflits([conflit()], { suivant: "c2" }))));
     await ouvrirListe({ liste });
     expect(screen.getByTestId("etat-liste-conflits")).toHaveTextContent("d'autres restent à charger");
     await userEvent.click(screen.getByRole("button", { name: "Charger les conflits suivants" }));
@@ -249,8 +249,25 @@ describe("liste : etats vide, chargement, erreurs expliquees", () => {
     expect(zone).toHaveTextContent("l'absence de conflit détecté ne prouve pas l'absence de réseau");
   });
 
+  it("objet du fichier concerne : montre dans la liste et dans la fiche", async () => {
+    await ouvrirListe();
+    expect(bouton("cf-1").closest("li")).toHaveTextContent("Objet : Fibre FO-01");
+    await userEvent.click(bouton("cf-1"));
+    const f = await screen.findByTestId("fiche-conflit");
+    expect(within(f).getByRole("heading", { name: "Mesure" }).closest("section")).toHaveTextContent("Objet du fichierFibre FO-01");
+    expect(within(f).getByRole("heading", { name: "Mesure" }).closest("section")).toHaveTextContent("Partie de réseau concernée145 m");
+  });
+
+  it("largeurs utilisees par la derniere analyse, algorithme et portee de la regle", async () => {
+    const f = await ouvrirFiche();
+    const regle = within(f).getByRole("heading", { name: "Règle appliquée" }).closest("section")!;
+    expect(regle).toHaveTextContent("Largeurs utiliséeschaussée 7 m, emprise 15 m");
+    expect(regle).toHaveTextContent("Algorithme2D-UTM-1");
+    expect(regle).toHaveTextContent("(règle générale)");
+  });
+
   it("vide avec filtre : message different, on propose de reinitialiser", async () => {
-    await ouvrirOnglet({ liste: (p?: Record<string, unknown>) => (p?.statut ? { conflits: [], compteurs: COMPTEURS } : brut(pageConflits())) });
+    await ouvrirOnglet({ liste: (p?: Record<string, unknown>) => (p?.statut ? { conflits: [], compteurs: COMPTEURS } : brut(serveurPage(pageConflits()))) });
     await screen.findByRole("list", { name: "Liste des conflits" });
     await userEvent.click(screen.getByRole("button", { name: "Clos (0)" }));
     await screen.findByText("Aucun conflit ne correspond à ces filtres");
@@ -269,7 +286,7 @@ describe("liste : etats vide, chargement, erreurs expliquees", () => {
   it.each([
     [403, undefined, "permission", /clé de module/],
     [404, "PROJET_INTROUVABLE", "introuvable", /introuvable/],
-    [503, "PROJET_OCCUPE", "erreur", /projet est occupé/],
+    [503, "PROJET_OCCUPE", "erreur", /Ce projet ou ce dossier est occupé/],
     [503, undefined, "erreur", /momentanément indisponible ou occupé \(503\)/],
     [504, undefined, "erreur", /délai autorisé \(504\)/],
     [504, "ANALYSE_TROP_LONGUE", "erreur", /dépassé le délai/],
@@ -377,9 +394,26 @@ describe("fiche d'un conflit", () => {
   });
 
   it("geometrie non fournie : la fiche le dit, aucun zoom", async () => {
-    const f = await ouvrirFiche("cf-1", { fiches: { "cf-1": fiche({ geom: null }) }, liste: brut(pageConflits([conflit({ geom: null })])) });
+    const f = await ouvrirFiche("cf-1", { fiches: { "cf-1": fiche({ geom: null }) } });
     expect(within(f).getByText(/La géométrie de ce conflit n'est pas fournie/)).toBeInTheDocument();
     expect(screen.queryByTestId("legende-dossier")).toBeNull();
+  });
+
+  it("geometrie masquee par le serveur (jeu de reseau non lisible pour ce compte) : dite, aucun zoom, aucune surbrillance", async () => {
+    const f = await ouvrirFiche("cf-1", { fiches: { "cf-1": fiche({ geom: null, geometrieMasquee: true }) } });
+    expect(within(f).getByText(/masquée pour votre compte/)).toBeInTheDocument();
+    expect(screen.queryByTestId("legende-dossier")).toBeNull();
+    expect(bouton("cf-1").closest("li")).not.toHaveTextContent("Géométrie masquée");
+  });
+
+  it("liste : un conflit dont la geometrie est masquee le dit", async () => {
+    await ouvrirListe({ liste: brut(serveurPage(pageConflits([conflit({ geometrieMasquee: true })]))) });
+    expect(bouton("cf-1").closest("li")).toHaveTextContent("Géométrie masquée pour votre compte");
+  });
+
+  it("l'ecart d'echeance vient du serveur quand il le dit : echeance passee mais echeanceDepassee faux = pas de badge", async () => {
+    await ouvrirListe({ liste: brut(serveurPage(pageConflits([conflit({ echeance: "2020-01-01", echeanceDepassee: false })]))) });
+    expect(within(bouton("cf-1").closest("li")!).queryByText("Échéance dépassée")).toBeNull();
   });
 
   it("fiche en erreur 404 : message explique, retour possible, bandeau conserve", async () => {
@@ -437,9 +471,23 @@ describe("carte : zoom et surbrillance du conflit ouvert", () => {
     await waitFor(() => expect(mapDouble.fitBounds).toHaveBeenLastCalledWith([[S, O], [S, O]], { padding: [48, 48], maxZoom: 19 }));
   });
 
-  it("la geometrie de la liste sert tant que la fiche charge ; la fiche prend le relais", async () => {
+  it("la geometrie vient de la FICHE (la liste ne la porte pas) : tant qu'elle charge, rien n'est dessine", async () => {
     await ouvrirFiche("cf-3", { fiches: { "cf-3": ficheDe("cf-3", { geom: { type: "Point", coordinates: [O + 0.001, S + 0.001] } }) } });
     await waitFor(() => expect(mapDouble.fitBounds).toHaveBeenLastCalledWith([[S + 0.001, O + 0.001], [S + 0.001, O + 0.001]], { padding: [48, 48], maxZoom: 19 }));
+  });
+
+  it("fiche lente : aucune surbrillance ni zoom avant sa reponse", async () => {
+    h.get.mockImplementation(async (url: string, opts?: { params?: Record<string, unknown> }) => {
+      if (url === `${BASE}/conflits/cf-1`) return new Promise(() => undefined);
+      return reponseApi(url, opts?.params);
+    });
+    rendrePage();
+    await userEvent.click(await screen.findByRole("tab", { name: "Conflits" }));
+    await screen.findByRole("list", { name: "Liste des conflits" });
+    await userEvent.click(bouton("cf-1"));
+    expect(await screen.findByText("Chargement du dossier…")).toBeInTheDocument();
+    expect(screen.queryByTestId("legende-dossier")).toBeNull();
+    expect(screen.queryAllByTestId("couche-passive").filter((e) => (e.getAttribute("data-style") ?? "").includes("#7f1d1d"))).toHaveLength(0);
   });
 });
 
