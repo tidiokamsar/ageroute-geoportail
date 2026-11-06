@@ -5,7 +5,7 @@ import { Button } from "../ui/Button";
 import { useAuth } from "../../lib/auth";
 import { AnalysesConflits } from "./AnalysesConflits";
 import { FicheConflit } from "./FicheConflit";
-import { ListeConflits } from "./ListeConflits";
+import { CLASSES_BASCULE_ACTIF, CLASSES_BASCULE_INACTIF, ListeConflits } from "./ListeConflits";
 import { ReglesConflits } from "./ReglesConflits";
 import type { Concessionnaire, ProjetFiche } from "../../lib/projetsVoirieApi";
 import { exporterConflitsCsv, type ConflitResume } from "../../lib/projetsVoirieConflitsApi";
@@ -166,7 +166,7 @@ export function OngletConflits(p: PropsOngletConflits) {
         {VUES.map((v) => (
           <button
             key={v.id} type="button" aria-pressed={vue === v.id} data-vue={v.id} onClick={() => setVue(v.id)}
-            className={`min-h-[44px] rounded border px-3 text-xs font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-navy xl:min-h-8 ${vue === v.id ? "border-2 border-navy bg-navy text-white" : "border-gray-400 bg-white text-gray-900 hover:bg-gray-100"}`}
+            className={`min-h-[44px] rounded border px-3 text-xs font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-navy xl:min-h-8 ${vue === v.id ? CLASSES_BASCULE_ACTIF : CLASSES_BASCULE_INACTIF}`}
           >
             {v.libelle}
           </button>

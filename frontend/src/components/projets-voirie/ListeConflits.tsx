@@ -22,6 +22,10 @@ import { formaterDate, formaterMetres, formaterNombre } from "../../lib/projetsV
  * « Aucun conflit » ne signifie jamais « aucun reseau » : le bandeau permanent de l'onglet le rappelle.
  */
 
+/** Boutons a bascule (statut, section) : l'etat actif et l'etat inactif sont deux chaines distinctes, chacune avec son texte et son fond. */
+export const CLASSES_BASCULE_ACTIF = "border-2 border-navy bg-navy text-white";
+export const CLASSES_BASCULE_INACTIF = "border-gray-400 bg-white text-gray-900 hover:bg-gray-100";
+
 export type RequeteConflits = UseInfiniteQueryResult<InfiniteData<PageConflits>, unknown>;
 
 export interface PropsListeConflits {
@@ -112,7 +116,7 @@ export function ListeConflits(p: PropsListeConflits) {
       <div role="group" aria-label="Filtrer par statut (compteurs selon vos autres filtres)" className="flex flex-wrap gap-1">
         <button
           type="button" aria-pressed={f.statut === ""} onClick={() => maj({ statut: "" })}
-          className={`min-h-[44px] rounded border px-2 text-xs font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-navy xl:min-h-8 ${f.statut === "" ? "border-2 border-navy bg-navy text-white" : "border-gray-400 bg-white text-gray-900 hover:bg-gray-100"}`}
+          className={`min-h-[44px] rounded border px-2 text-xs font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-navy xl:min-h-8 ${f.statut === "" ? CLASSES_BASCULE_ACTIF : CLASSES_BASCULE_INACTIF}`}
         >
           Tous{total !== null ? ` (${formaterNombre(total, 0)})` : ""}
         </button>
@@ -122,7 +126,7 @@ export function ListeConflits(p: PropsListeConflits) {
           return (
             <button
               key={s} type="button" aria-pressed={on} onClick={() => maj({ statut: on ? "" : s })} data-statut-filtre={s}
-              className={`min-h-[44px] rounded border px-2 text-xs font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-navy xl:min-h-8 ${on ? "border-2 border-navy bg-navy text-white" : "border-gray-400 bg-white text-gray-900 hover:bg-gray-100"}`}
+              className={`min-h-[44px] rounded border px-2 text-xs font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-navy xl:min-h-8 ${on ? CLASSES_BASCULE_ACTIF : CLASSES_BASCULE_INACTIF}`}
             >
               {STYLE_STATUT_CONFLIT[s].libelle}{typeof n === "number" ? ` (${formaterNombre(n, 0)})` : ""}
             </button>
