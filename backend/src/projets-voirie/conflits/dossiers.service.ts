@@ -58,7 +58,8 @@ export function geometrieVisible(role: string, statutJeu: string | null): boolea
   return voitTousLesJeux(role) || statutJeu === "AUTORISE";
 }
 
-export function vueConflit(c: LigneConflit, role: string, bbox: number[] | null) {
+/** `bbox` : boite englobante (nulle si non lisible) ; `undefined` pour une reponse d'ecriture, qui ne la porte pas (relire la fiche). */
+export function vueConflit(c: LigneConflit, role: string, bbox?: number[] | null) {
   const visible = geometrieVisible(role, c.jeuReseau?.statut ?? null);
   const depassee = c.echeance !== null && c.echeance < aujourdhui() && !STATUTS_FERMES.includes(c.statut as StatutConflit);
   return {
@@ -71,7 +72,7 @@ export function vueConflit(c: LigneConflit, role: string, bbox: number[] | null)
     jeuReseauId: visible ? c.jeuReseauId : null,
     objet: c.objet ? { id: String(c.objet.id), nom: c.objet.nom } : null,
     mesure: c.mesure, premiereAnalyseId: c.premiereAnalyseId, derniereAnalyseId: c.derniereAnalyseId,
-    bbox: visible ? bbox : null, geometrieMasquee: !visible,
+    ...(bbox === undefined ? {} : { bbox: visible ? bbox : null }), geometrieMasquee: !visible,
     createdAt: c.createdAt, updatedAt: c.updatedAt,
   };
 }
@@ -260,7 +261,7 @@ async function sousVerrou<T>(projetId: string, cid: string, travail: (tx: Prisma
 
 async function conflitCourt(tx: Prisma.TransactionClient, cid: string, role: string) {
   const c = await tx.conflitProjet.findUniqueOrThrow({ where: { id: cid }, include: INCLURE_LISTE });
-  return vueConflit(c, role, null);
+  return vueConflit(c, role);
 }
 
 // ------------------------------------------------------------------------------------------------
