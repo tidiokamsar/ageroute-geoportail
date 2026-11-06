@@ -143,7 +143,7 @@ export function ListeConflits(p: PropsListeConflits) {
           {avances ? <ChevronDown aria-hidden="true" className="h-4 w-4" /> : <ChevronRight aria-hidden="true" className="h-4 w-4" />}
           Filtres avancés{actifs > 0 ? ` (${actifs} actif${actifs > 1 ? "s" : ""})` : ""}
         </button>
-        <div id="pv-filtres-avances" hidden={!avances} className="mt-1 grid gap-2 rounded border border-gray-200 bg-white p-2">
+        <div id="pv-filtres-avances" hidden={!avances} className={avances ? "mt-1 grid gap-2 rounded border border-gray-200 bg-white p-2" : "hidden"}>
           <div>
             <label htmlFor={idType} className="block text-xs font-medium text-gray-800">Type de conflit</label>
             <Select id={idType} value={f.type} onChange={(e) => maj({ type: e.target.value as FiltresConflits["type"] })} className="border-gray-300">

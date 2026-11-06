@@ -4,14 +4,14 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../ui/dia
 import { Input, Select } from "../ui/Input";
 import { BadgeStatutConflit } from "./BadgesConflit";
 import type {
-  ConflitFiche, CorpsApprobation, CorpsAttribution, CorpsDecision, CorpsPreuve, CorpsStatut, DecisionConflit, TransitionPossible,
+  ConflitFiche, CorpsApprobation, CorpsAttribution, CorpsDecision, CorpsPreuve, CorpsRegle, CorpsStatut, DecisionConflit, RegleConflit, TransitionPossible,
 } from "../../lib/projetsVoirieConflitsApi";
 import {
-  AVERTISSEMENT_COUTS, JUSTIFICATION_MIN, LIBELLE_OPTION_DECISION, LIBELLE_RISQUE, LIBELLE_TYPE_PREUVE, MENTION_RECOLEMENT, OPTIONS_DECISION, RAPPEL_SEPARATION, RISQUES_CONFLIT,
-  TYPES_PREUVE, classerErreurConflit, erreursDecision, exigencesTransition, justificationValide, lireMontant, libelleTransition,
-  type OptionDecision, type RisqueConflit, type SaisieDecision, type TypePreuve,
+  AVERTISSEMENT_COUTS, JUSTIFICATION_MIN, LIBELLE_OPTION_DECISION, LIBELLE_REGLE_GENERALE, LIBELLE_RISQUE, LIBELLE_TYPE_PREUVE, MENTION_RECOLEMENT, OPTIONS_DECISION, RAPPEL_SEPARATION, RISQUES_CONFLIT,
+  TYPES_PREUVE, classerErreurConflit, erreursDecision, erreursRegle, exigencesTransition, justificationValide, lireMontant, libelleTransition,
+  type OptionDecision, type RisqueConflit, type SaisieDecision, type SaisieRegle, type TypePreuve,
 } from "../../lib/projetsVoirieConflits";
-import type { ErreurPv } from "../../lib/projetsVoirie";
+import { STYLE_RESEAU, TYPES_RESEAU, formaterMetres, type ErreurPv, type TypeReseau } from "../../lib/projetsVoirie";
 
 /**
  * Formulaires d'action d'un dossier de conflit : transition de statut, attribution, preuve, proposition de decision, approbation ou refus.
@@ -378,6 +378,100 @@ export function DialogueApprobation({ decision, verdict, userId, estAdmin, enLig
         <Compteur id={`${id}-mn`} texte={motif} />
       </div>
       {derogationVisible && <ChampDerogation valeur={derogation} onChange={setDerogation} obligatoire={derogationExigee} />}
+    </Cadre>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Regles : creation d'un brouillon, approbation (ADMIN)
+// ---------------------------------------------------------------------------------------------------
+
+export function DialogueRegle({ enLigne, onFermer, onValider }: { enLigne: boolean; onFermer: () => void; onValider: (c: CorpsRegle) => Promise<unknown> }) {
+  const id = useId();
+  const [s, setS] = useState<SaisieRegle>({ famille: "", code: "", toleranceProximiteM: "", margeIncertitude: "1", justification: "" });
+  const { enCours, erreur, envoyer } = useEnvoi(onFermer);
+  const maj = (p: Partial<SaisieRegle>) => setS((x) => ({ ...x, ...p }));
+  const erreurs = erreursRegle(s);
+
+  function valider() {
+    const corps: CorpsRegle = {
+      code: s.code.trim(), toleranceProximiteM: lireMontant(s.toleranceProximiteM) as number, margeIncertitude: lireMontant(s.margeIncertitude) as number, justification: s.justification.trim(),
+      ...(s.famille ? { famille: s.famille } : {}),
+    };
+    void envoyer(() => onValider(corps));
+  }
+
+  return (
+    <Cadre
+      titre="Créer un brouillon de règle"
+      description={<>
+        <p>Un brouillon n&apos;agit sur aucune analyse. Une fois approuvée par un administrateur, une règle est immuable : pour la changer, on crée une nouvelle version. Une règle approuvée est prise en compte par les analyses lancées ensuite.</p>
+        <p>Aucune tolérance n&apos;est proposée : elle se décide avec le concessionnaire et se justifie.</p>
+      </>}
+      enCours={enCours} erreur={erreur} peutValider={erreurs.length === 0} libelleValider="Créer le brouillon" libelleEnCours="Enregistrement…" onFermer={onFermer} onValider={valider} enLigne={enLigne}
+    >
+      <div>
+        <label htmlFor={`${id}-f`} className="block text-sm font-medium text-gray-900">Famille de réseau</label>
+        <Select id={`${id}-f`} value={s.famille} onChange={(e) => maj({ famille: e.target.value as TypeReseau | "" })} disabled={enCours} className="border-gray-300">
+          <option value="">{LIBELLE_REGLE_GENERALE}</option>
+          {TYPES_RESEAU.map((t) => <option key={t} value={t}>{STYLE_RESEAU[t].libelle}</option>)}
+        </Select>
+      </div>
+      <div>
+        <label htmlFor={`${id}-c`} className="block text-sm font-medium text-gray-900">Code de la règle</label>
+        <Input id={`${id}-c`} value={s.code} onChange={(e) => maj({ code: e.target.value })} autoComplete="off" maxLength={64} disabled={enCours} className="border-gray-300" />
+        <p className="text-xs text-gray-700">Un même code porte plusieurs versions : la version suivante est attribuée par le serveur.</p>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label htmlFor={`${id}-t`} className="block text-sm font-medium text-gray-900">Tolérance de proximité (m)</label>
+          <Input id={`${id}-t`} inputMode="decimal" value={s.toleranceProximiteM} onChange={(e) => maj({ toleranceProximiteM: e.target.value })} autoComplete="off" disabled={enCours} className="border-gray-300" />
+        </div>
+        <div>
+          <label htmlFor={`${id}-m`} className="block text-sm font-medium text-gray-900">Marge d&apos;incertitude (facteur)</label>
+          <Input id={`${id}-m`} inputMode="decimal" value={s.margeIncertitude} onChange={(e) => maj({ margeIncertitude: e.target.value })} autoComplete="off" disabled={enCours} className="border-gray-300" />
+        </div>
+      </div>
+      <p className="text-xs text-gray-700">La tolérance est la bande à vérifier au-delà de l&apos;emprise ; la marge multiplie la précision déclarée du jeu pour élargir la zone à vérifier (1 : sans élargissement).</p>
+      <div>
+        <label htmlFor={`${id}-j`} className="block text-sm font-medium text-gray-900">Justification ({JUSTIFICATION_MIN} caractères minimum)</label>
+        <textarea id={`${id}-j`} value={s.justification} onChange={(e) => maj({ justification: e.target.value })} rows={3} maxLength={2000} disabled={enCours} aria-describedby={`${id}-jn`} className={CHAMP} />
+        <Compteur id={`${id}-jn`} texte={s.justification} />
+      </div>
+      {erreurs.length > 0 && (s.code !== "" || s.toleranceProximiteM !== "" || s.justification !== "") && (
+        <ul role="status" aria-label="Points à corriger" className="list-disc space-y-0.5 pl-5 text-xs text-gray-800">{erreurs.map((e) => <li key={e}>{e}</li>)}</ul>
+      )}
+    </Cadre>
+  );
+}
+
+export function DialogueApprobationRegle({ regle, userId, enLigne, onFermer, onValider }: {
+  regle: RegleConflit; userId: string | undefined; enLigne: boolean; onFermer: () => void; onValider: (c: { justification: string; derogation?: string }) => Promise<unknown>;
+}) {
+  const id = useId();
+  const [justification, setJustification] = useState("");
+  const [derogation, setDerogation] = useState("");
+  const { enCours, erreur, envoyer } = useEnvoi(onFermer);
+  const auteur = !!userId && regle.creePar?.id === userId;
+  const derogationVisible = auteur || erreur?.code === "SEPARATION_DES_TACHES";
+  const peutValider = justificationValide(justification) && derogationOk(derogation) && (!auteur || derogation.trim() !== "");
+  return (
+    <Cadre
+      titre={`Approuver la règle ${regle.code}, version ${regle.version}`}
+      description={<>
+        <p>Approuvée, une règle devient immuable : on ne la modifie plus, on crée une nouvelle version. Les analyses lancées ensuite la prennent en compte.</p>
+        <p>Tolérance de proximité {formaterMetres(regle.toleranceProximiteM)}, marge d&apos;incertitude {regle.margeIncertitude ?? "non fournie"}.</p>
+        <p role="note" className="rounded border border-gray-300 bg-gray-50 p-2 text-xs text-gray-800">L&apos;auteur d&apos;une règle ne peut pas l&apos;approuver sans dérogation d&apos;un administrateur, motivée et tracée.{auteur ? " Vous êtes l'auteur de ce brouillon." : ""}</p>
+      </>}
+      enCours={enCours} erreur={erreur} peutValider={peutValider} libelleValider="Approuver la règle" libelleEnCours="Enregistrement…" onFermer={onFermer} enLigne={enLigne}
+      onValider={() => void envoyer(() => onValider({ justification: justification.trim(), ...(derogationVisible && derogation.trim() ? { derogation: derogation.trim() } : {}) }))}
+    >
+      <div>
+        <label htmlFor={`${id}-j`} className="block text-sm font-medium text-gray-900">Justification ({JUSTIFICATION_MIN} caractères minimum)</label>
+        <textarea id={`${id}-j`} value={justification} onChange={(e) => setJustification(e.target.value)} rows={3} maxLength={2000} disabled={enCours} aria-describedby={`${id}-jn`} className={CHAMP} />
+        <Compteur id={`${id}-jn`} texte={justification} />
+      </div>
+      {derogationVisible && <ChampDerogation valeur={derogation} onChange={setDerogation} obligatoire={auteur} />}
     </Cadre>
   );
 }
