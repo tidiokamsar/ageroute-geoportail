@@ -51,7 +51,23 @@ export const TRANSITIONS: readonly DefinitionTransition[] = [
 export const transitionDe = (de: StatutConflit, vers: StatutConflit): DefinitionTransition | undefined =>
   TRANSITIONS.find((x) => x.de === de && x.vers === vers);
 
-export interface DecisionApprouvee { id: string; option: OptionDecision; proposeParId: string }
+export interface DecisionApprouvee {
+  id: string; option: OptionDecision; proposeParId: string;
+  /** Date de l'approbation (toujours renseignee par la base pour une decision approuvee). */
+  approuveLe?: Date | null;
+}
+
+/**
+ * Decisions approuvees EN VIGUEUR : approuvees APRES le dernier passage du dossier a CONFIRME (revue RC-3, m3). Une approbation qui date
+ * d'une confirmation anterieure (le dossier a ete infirme puis rouvert depuis) ne vaut plus : le dossier a ete requalifie, la decision doit
+ * etre reprise. Sans date de reference (aucun passage a CONFIRME connu), toutes comptent ; avec une date de reference, une decision dont la
+ * date d'approbation est inconnue ne compte pas (prudence).
+ */
+export function decisionsEnVigueur(decisions: readonly DecisionApprouvee[], dernierPassageConfirmeLe: Date | null | undefined): DecisionApprouvee[] {
+  if (!dernierPassageConfirmeLe) return [...decisions];
+  const ref = dernierPassageConfirmeLe.getTime();
+  return decisions.filter((d) => d.approuveLe !== undefined && d.approuveLe !== null && d.approuveLe.getTime() >= ref);
+}
 
 export interface EntreeTransition {
   de: StatutConflit;
@@ -61,6 +77,8 @@ export interface EntreeTransition {
   justification: string | undefined;
   nbPreuves: number;
   decisionsApprouvees: readonly DecisionApprouvee[];
+  /** Date du dernier passage du dossier a CONFIRME (ligne d'historique) : une approbation anterieure est perimee (voir `decisionsEnVigueur`). */
+  dernierPassageConfirmeLe?: Date | null;
   /** Cloture : l'utilisateur a explicitement indique que le recolement du reseau deplace reste a valider. */
   recolementAValider?: boolean;
   /** Cloture : qui a place le dossier en TRAITEMENT_DECIDE (la « proposition » de cloture). */
@@ -93,13 +111,16 @@ export function evaluerTransition(e: EntreeTransition): VerdictTransition {
   if (tr.preuveRequise && e.nbPreuves < 1) {
     return refus(409, "PREUVE_REQUISE", "Au moins une preuve doit être enregistrée avant de confirmer un conflit.");
   }
-  if (tr.decisionRequise && e.decisionsApprouvees.length < 1) {
-    return refus(409, "DECISION_REQUISE", "Une décision approuvée est requise avant de passer le conflit en traitement décidé.");
+  const enVigueur = decisionsEnVigueur(e.decisionsApprouvees, e.dernierPassageConfirmeLe);
+  if (tr.decisionRequise && enVigueur.length < 1) {
+    return refus(409, "DECISION_REQUISE", e.decisionsApprouvees.length > 0
+      ? "Les décisions approuvées datent d'une confirmation antérieure du conflit : une décision doit être approuvée depuis la dernière confirmation."
+      : "Une décision approuvée est requise avant de passer le conflit en traitement décidé.");
   }
   let derogation: string | null = null;
   let recolementMentionne = false;
   if (tr.cloture) {
-    if (e.decisionsApprouvees.some((d) => d.option === "DEPLACER_RESEAU")) {
+    if (enVigueur.some((d) => d.option === "DEPLACER_RESEAU")) {
       if (e.recolementAValider !== true) {
         return refus(422, "MENTION_RECOLEMENT_REQUISE", "Le déplacement d'un réseau est décidé : indiquez explicitement que le récolement reste à valider (il n'est pas géré dans ce lot).");
       }
@@ -195,6 +216,47 @@ export function verifierTranchage(e: { statutDecision: string; motif: string | u
   const motif = texte(e.motif);
   if (motif.length < JUSTIFICATION_MIN) return refus(422, "JUSTIFICATION_REQUISE", `Un motif de ${JUSTIFICATION_MIN} caractères au moins est requis.`);
   return { ok: true, motif };
+}
+
+// ------------------------------------------------------------------------------------------------
+// Modification du dossier (attribution) : dossier clos, responsable d'un deplacement de reseau (revue RC-3, m4)
+// ------------------------------------------------------------------------------------------------
+
+export interface EntreeModification {
+  statut: StatutConflit;
+  /** Vrai si le PATCH touche au responsable, a l'echeance, au risque ou a l'action proposee (hors acquittement du re-examen). */
+  modifieChampsHumains: boolean;
+  /** Vrai si le PATCH retire le responsable (`responsableId: null`) alors qu'il y en avait un. */
+  retireLeResponsable: boolean;
+  /** Vrai si une decision DEPLACER_RESEAU du dossier est PROPOSEE ou APPROUVEE. */
+  deplacementPropose: boolean;
+}
+
+/**
+ * - un dossier CLOTURE ne se modifie plus (409 STATUT_INCOMPATIBLE), sauf l'acquittement d'un re-examen ;
+ * - AT-09 : tant qu'une decision de deplacement de reseau est proposee ou approuvee, le dossier garde un responsable (422 RESPONSABLE_REQUIS).
+ *   Le controle de la proposition (`verifierPropositionDecision`) ne suffisait pas : le responsable pouvait etre efface apres coup.
+ */
+export function verifierModificationDossier(e: EntreeModification): { ok: true } | Refus {
+  if (e.statut === "CLOTURE" && e.modifieChampsHumains) {
+    return refus(409, "STATUT_INCOMPATIBLE", "Ce dossier est clôturé : ni le responsable, ni l'échéance, ni le risque, ni l'action proposée ne se modifient plus.");
+  }
+  if (e.retireLeResponsable && e.deplacementPropose) {
+    return refus(422, "RESPONSABLE_REQUIS", "Une décision de déplacement de réseau est proposée ou approuvée sur ce dossier : un responsable doit rester désigné (vous pouvez en désigner un autre).");
+  }
+  return { ok: true };
+}
+
+/**
+ * Un responsable est un compte ACTIF qui a la cle du module `projets-voirie` (un ADMIN l'a toujours, comme pour `requireModuleAccess`).
+ * Le perimetre territorial n'est pas controle (decision documentee, section 9.19 du contrat).
+ */
+export function verifierResponsable(e: { actif: boolean; role: string; modulesAutorises: readonly string[] }): { ok: true } | Refus {
+  if (!e.actif) return refus(422, "RESPONSABLE_NON_HABILITE", "Le responsable désigné n'est pas un compte actif.");
+  if (e.role !== "ADMIN" && !e.modulesAutorises.includes("projets-voirie")) {
+    return refus(422, "RESPONSABLE_NON_HABILITE", "Le responsable désigné n'a pas accès au module Projets de voirie et réseaux.");
+  }
+  return { ok: true };
 }
 
 // ------------------------------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Prisma } from "@prisma/client";
 import { Budget, avecErreurDelai, estDelaiDepasse } from "./bd";
-import { delaiAnalyseMs, delaiCarteMs, delaiDepotMs, delaiVerrouMs, sommetsParFichierMax, sommetsParObjetMax } from "./config";
+import { analyseIntervalleMinS, delaiAnalyseMs, delaiCarteMs, delaiDepotMs, delaiVerrouMs, sommetsParFichierMax, sommetsParObjetMax } from "./config";
 import { ErreurMetier } from "./erreurs";
 import { ErreurLecture, lireFichier } from "./lecture.noyau";
 import { RECEPTIONS_PAR_COMPTE_MAX, etatReceptions, reserverReception } from "./limiteurs";
@@ -32,6 +32,26 @@ describe("reglages par variable d'environnement : bornes et defauts", () => {
       expect(delaiAnalyseMs(), v).toBe(20_000);
       vi.stubEnv("PROJETS_VOIRIE_SOMMETS_PAR_FICHIER", v);
       expect(sommetsParFichierMax(), v).toBe(2_000_000);
+    }
+  });
+});
+
+describe("cadence minimale des analyses persistees (revue RC-3, m8) : PROJETS_VOIRIE_ANALYSE_INTERVALLE_S", () => {
+  it("defaut : une analyse terminee par minute et par projet", () => {
+    expect(analyseIntervalleMinS()).toBe(60);
+  });
+
+  it("une valeur valide est prise en compte, y compris 0 (reglage des bancs) et la borne haute", () => {
+    for (const [v, attendu] of [["0", 0], ["1", 1], ["300", 300], ["3600", 3600]] as const) {
+      vi.stubEnv("PROJETS_VOIRIE_ANALYSE_INTERVALLE_S", v);
+      expect(analyseIntervalleMinS(), v).toBe(attendu);
+    }
+  });
+
+  it("une valeur negative, decimale, illisible, vide ou au-dela de 3 600 s redonne le defaut", () => {
+    for (const v of ["-1", "1.5", "abc", "", " ", "3601", "999999", "NaN", "Infinity"]) {
+      vi.stubEnv("PROJETS_VOIRIE_ANALYSE_INTERVALLE_S", v);
+      expect(analyseIntervalleMinS(), v).toBe(60);
     }
   });
 });
