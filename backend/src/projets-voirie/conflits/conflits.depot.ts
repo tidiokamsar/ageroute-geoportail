@@ -112,7 +112,8 @@ export async function candidatsLineaires(tx: TxLecture, b: Bandes, jeuxTol: read
         CROSS JOIN LATERAL (SELECT CASE WHEN GeometryType(p."pg") = 'LINESTRING' THEN ST_LineInterpolatePoint(p."pg", 0.5) ELSE ST_PointOnSurface(p."pg") END AS "r") r),
     groupes AS (
       SELECT m."type" AS "type", m."axe" AS "axe", m."jeu" AS "jeu", m."ob" AS "ob", m."nom" AS "nom", m."emp" AS "emp", m."cx" AS "cx", m."cy" AS "cy",
-             ST_Collect(m."pg" ORDER BY ST_X(m."rep"), ST_Y(m."rep")) AS "pg", sum(m."len") AS "len", min(m."dmin") AS "dmin", sum(m."nx")::int AS "nx",
+             CASE WHEN count(*) = 1 THEN (array_agg(m."pg" ORDER BY ST_X(m."rep"), ST_Y(m."rep")))[1]
+                  ELSE ST_Collect(m."pg" ORDER BY ST_X(m."rep"), ST_Y(m."rep")) END AS "pg", sum(m."len") AS "len", min(m."dmin") AS "dmin", sum(m."nx")::int AS "nx",
              (array_agg(m."rep" ORDER BY ST_X(m."rep"), ST_Y(m."rep")))[1] AS "rep"
         FROM mesures m
        WHERE m."type" = 'TRAVERSEE' OR m."len" >= ${LONGUEUR_MIN_PIECE_M}::float8

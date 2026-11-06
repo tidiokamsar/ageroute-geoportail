@@ -8,7 +8,8 @@
 //        P    perpendiculaire a l'axe A en x=150 (40 m, croise l'axe une fois)
 //        K    a 5 m du carrefour, parallele a l'axe A, de x=195 a 205 (croise l'axe B une fois)
 //   reseau 2 (classe inconnue) : W a 2 m de l'axe A, de l'autre cote (60 m)
-//   reseau 3 (classe A) : Z loin de tout axe (a 100 m au sud de l'axe A, y = -100) : aucun conflit
+//   reseau 3 (classe A) : Z1 et Z2 loin de tout axe (a 100 m au sud et a 10 m a l'ouest de l'axe A) : aucun conflit ; son emprise englobante
+//        couvre l'axe A seulement : l'axe B n'est couvert par aucun jeu (couverture insuffisante)
 export const O = { x: 380000, y: 1015000 };
 
 export type Ligne = { nom: string; coords: [number, number][]; props?: Record<string, unknown> };
@@ -25,9 +26,15 @@ export const R1_BASE: Ligne[] = [
   { nom: "Fibre-Marqueur L2 ter", coords: [[80, 2], [20, 2]], props: { circuit: "C5" } },
   { nom: "Fibre-Marqueur P", coords: [[150, -20], [150, 20]], props: { circuit: "C6" } },
   { nom: "Fibre-Marqueur K", coords: [[195, 5], [205, 5]], props: { circuit: "C7" } },
+  // A 13 m de l'axe A : hors de la bande de proximite par defaut (7,5 + 3,5 = 11 m), dans celle d'une regle approuvee a 2 m de tolerance (14,75 m).
+  { nom: "Fibre-Marqueur L13", coords: [[20, 13], [80, 13]], props: { circuit: "C8" } },
 ];
 export const R2: Ligne[] = [{ nom: "Eau-Marqueur W", coords: [[20, -2], [80, -2]] }];
-export const R3: Ligne[] = [{ nom: "Gaz-Marqueur Z", coords: [[20, -100], [80, -100]] }];
+// Reseau 3 : loin de tout axe, mais son emprise englobante (x -10 a 210, y -100 a 10) CONTIENT l'axe A et pas l'axe B.
+export const R3: Ligne[] = [
+  { nom: "Gaz-Marqueur Z1", coords: [[-10, -100], [210, -100]] },
+  { nom: "Gaz-Marqueur Z2", coords: [[-10, -100], [-10, 10]] },
+];
 
 /** Constructeurs de fichiers a partir de coordonnees locales (metres) : `wgs` est fourni par le banc (PostGIS). */
 export function constructeurs(wgs: (pts: [number, number][]) => Promise<[number, number][]>) {

@@ -126,9 +126,10 @@ export async function listerConflits(acteur: Acteur, projetId: string, f: Filtre
     : base;
   const lignes = await prisma.conflitProjet.findMany({ where, include: INCLURE_LISTE, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: limite + 1 });
   const page = lignes.slice(0, limite);
-  const [boites, groupes] = await Promise.all([
+  const [boites, groupes, total] = await Promise.all([
     boitesEnglobantes(page.map((c) => c.id)),
     prisma.conflitProjet.groupBy({ by: ["statut"], where: filtreConflits(projetId, f, false), _count: { _all: true } }),
+    prisma.conflitProjet.count({ where: base }),
   ]);
   const compteurs: Record<string, number> = Object.fromEntries(STATUTS_CONFLIT.map((s) => [s, 0]));
   for (const g of groupes) compteurs[g.statut] = g._count._all;
@@ -146,7 +147,7 @@ export async function listerConflits(acteur: Acteur, projetId: string, f: Filtre
 
   const dernier = page[page.length - 1];
   return {
-    conflits: vues, compteurs, total: Object.values(compteurs).reduce((a, b) => a + b, 0),
+    conflits: vues, compteurs, total,
     curseurSuivant: lignes.length > limite && dernier ? encoderCurseur({ t: dernier.createdAt.toISOString(), i: dernier.id }) : null,
   };
 }
