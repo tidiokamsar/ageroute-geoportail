@@ -10,9 +10,9 @@ import { ReglesConflits } from "./ReglesConflits";
 import type { Concessionnaire, ProjetFiche } from "../../lib/projetsVoirieApi";
 import { exporterConflitsCsv, type ConflitResume } from "../../lib/projetsVoirieConflitsApi";
 import {
-  useAjouterPreuve, useAttribuer, useChangerStatut, useDecider, useFicheConflit, useLancerAnalyse, useListeConflits, useProposerDecision,
+  useAcquitterReexamen, useAjouterPreuve, useAttribuer, useChangerStatut, useDecider, useFicheConflit, useLancerAnalyse, useListeConflits, useProposerDecision,
 } from "../../lib/projetsVoirieConflitsHooks";
-import { BANDEAU_GARDE_FOUS, FILTRES_VIDES, classerErreurConflit, type FiltresConflits } from "../../lib/projetsVoirieConflits";
+import { BANDEAU_GARDE_FOUS, FILTRES_VIDES, classerErreurConflit, nbFiltresActifs, type FiltresConflits } from "../../lib/projetsVoirieConflits";
 import { useValeurDifferee } from "../../lib/projetsVoirieHooks";
 import { formaterNombre } from "../../lib/projetsVoirie";
 
@@ -63,14 +63,14 @@ export function OngletConflits(p: PropsOngletConflits) {
   const premiere = liste.data?.pages[0];
   const ignores = liste.data?.pages.reduce((s, pg) => s + pg.ignores, 0) ?? 0;
   const selectionResume = conflits.find((c) => c.id === conflitId) ?? null;
-  const conflitsParCle = useMemo(() => new Map(conflits.flatMap((c): Array<[string, ConflitResume]> => (c.cle ? [[c.cle, c]] : []))), [conflits]);
-
+  
   const fiche = useFicheConflit(p.projet.id, conflitId);
   const attribuer = useAttribuer(p.projet.id, conflitId ?? "");
   const statut = useChangerStatut(p.projet.id, conflitId ?? "");
   const preuve = useAjouterPreuve(p.projet.id, conflitId ?? "");
   const proposer = useProposerDecision(p.projet.id, conflitId ?? "");
   const decider = useDecider(p.projet.id, conflitId ?? "");
+  const reexamen = useAcquitterReexamen(p.projet.id, conflitId ?? "");
   const lancer = useLancerAnalyse(p.projet.id);
 
   const racine = useRef<HTMLDivElement>(null);
@@ -98,13 +98,14 @@ export function OngletConflits(p: PropsOngletConflits) {
 
   async function surExport() {
     setExport({ etat: "cours" });
-    try { await exporterConflitsCsv(p.projet.id, p.projet.code); setExport({ etat: "repos" }); } catch (e) { setExport({ etat: "erreur", message: classerErreurConflit(e).message }); }
+    try { await exporterConflitsCsv(p.projet.id, p.projet.code, filtres); setExport({ etat: "repos" }); } catch (e) { setExport({ etat: "erreur", message: classerErreurConflit(e).message }); }
   }
 
   const fichOuverte = conflitId !== null && vue === "dossiers";
   const erreurLancement = lancer.isError ? classerErreurConflit(lancer.error) : null;
   const resultat = lancer.data?.analyse ?? null;
   const rl = resultat?.resume;
+  const nbFiltres = nbFiltresActifs(filtres);
 
   return (
     <div ref={racine} className="space-y-3">
@@ -119,6 +120,7 @@ export function OngletConflits(p: PropsOngletConflits) {
           <Button type="button" variant="outline" className="min-h-[44px] xl:min-h-9" disabled={!p.enLigne || export_.etat === "cours"} onClick={() => void surExport()}>
             <Download aria-hidden="true" /> {export_.etat === "cours" ? "Export en cours…" : "Exporter les conflits (CSV)"}
           </Button>
+          {nbFiltres > 0 && <span className="text-[11px] text-gray-700">L&apos;export suit vos filtres ({nbFiltres} actif{nbFiltres > 1 ? "s" : ""}).</span>}
         </div>
       )}
 
@@ -183,6 +185,7 @@ export function OngletConflits(p: PropsOngletConflits) {
               ajouterPreuve: (c) => preuve.mutateAsync(c),
               proposerDecision: (c) => proposer.mutateAsync(c),
               decider: (decisionId, verdict, corps) => decider.mutateAsync({ decisionId, verdict, corps }),
+              acquitterReexamen: (justification) => reexamen.mutateAsync(justification),
             }}
           />
         )}
@@ -194,7 +197,7 @@ export function OngletConflits(p: PropsOngletConflits) {
         </div>
       </div>
 
-      {vue === "analyses" && <AnalysesConflits projetId={p.projet.id} conflitsParCle={conflitsParCle} onOuvrirConflit={(id) => ouvrir({ id })} />}
+      {vue === "analyses" && <AnalysesConflits projetId={p.projet.id} onOuvrirConflit={(id) => ouvrir({ id })} />}
       {vue === "regles" && <ReglesConflits projetId={p.projet.id} peutEcrire={p.peutEcrire} estAdmin={p.estAdmin} userId={user?.id} enLigne={p.enLigne} />}
     </div>
   );

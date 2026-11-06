@@ -50,7 +50,8 @@ function Resume({ c }: { c: ConflitResume }) {
 }
 
 function LigneConflit({ c, actif, onOuvrir }: { c: ConflitResume; actif: boolean; onOuvrir: (c: ConflitResume) => void }) {
-  const depassee = echeanceDepassee(c.echeance, c.statut);
+  // Le serveur dit si l'echeance est depassee ; a defaut, calcul d'affichage.
+  const depassee = c.echeanceDepassee ?? echeanceDepassee(c.echeance, c.statut);
   return (
     <li>
       <button
@@ -66,7 +67,9 @@ function LigneConflit({ c, actif, onOuvrir }: { c: ConflitResume; actif: boolean
         <span className="break-words font-medium text-gray-900">
           {c.axe ?? "Axe non précisé"}{c.concessionnaire ? ` · ${c.concessionnaire.nom ?? "Concessionnaire sans nom"}` : " · aucun concessionnaire (zone sans jeu réseau)"}
         </span>
+        {c.objet?.nom && <span className="break-words text-[11px] text-gray-700">Objet : {c.objet.nom}</span>}
         <span className="break-words text-[11px] text-gray-700"><Resume c={c} /></span>
+        {c.geometrieMasquee && <span className="text-[11px] text-gray-700">Géométrie masquée pour votre compte (jeu de réseau non lisible).</span>}
         <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-700">
           <span>Responsable : {c.responsable ? (c.responsable.nom ?? "compte sans nom") : "non attribué"}</span>
           <span>Échéance : {c.echeance ? formaterDate(c.echeance) : "non fixée"}</span>
@@ -106,7 +109,7 @@ export function ListeConflits(p: PropsListeConflits) {
     <section aria-labelledby="pv-titre-liste-conflits" className="space-y-3">
       <h3 id="pv-titre-liste-conflits" className="text-sm font-semibold text-navy">Dossiers de conflit</h3>
 
-      <div role="group" aria-label="Filtrer par statut (compteurs du serveur)" className="flex flex-wrap gap-1">
+      <div role="group" aria-label="Filtrer par statut (compteurs selon vos autres filtres)" className="flex flex-wrap gap-1">
         <button
           type="button" aria-pressed={f.statut === ""} onClick={() => maj({ statut: "" })}
           className={`min-h-[44px] rounded border px-2 text-xs font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-navy xl:min-h-8 ${f.statut === "" ? "border-2 border-navy bg-navy text-white" : "border-gray-400 bg-white text-gray-900 hover:bg-gray-100"}`}
@@ -152,7 +155,7 @@ export function ListeConflits(p: PropsListeConflits) {
             </Select>
           </div>
           <div>
-            <label htmlFor={idAxe} className="block text-xs font-medium text-gray-800">Axe (nom)</label>
+            <label htmlFor={idAxe} className="block text-xs font-medium text-gray-800">Axe (nom exact, casse ignorée)</label>
             <Input id={idAxe} list={idAxes} value={f.axe} onChange={(e) => maj({ axe: e.target.value })} autoComplete="off" maxLength={100} className="border-gray-300" />
             <datalist id={idAxes}>{axesConnus.map((a) => <option key={a} value={a} />)}</datalist>
           </div>

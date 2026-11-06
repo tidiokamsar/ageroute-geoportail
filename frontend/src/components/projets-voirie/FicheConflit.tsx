@@ -1,11 +1,11 @@
 /* eslint-disable jsx-a11y/no-noninteractive-tabindex -- zone de defilement focusable au clavier (WCAG 2.1.1, regle axe scrollable-region-focusable) */
 import { forwardRef, useState } from "react";
 import type { UseQueryResult } from "@tanstack/react-query";
-import { ArrowLeft, ClipboardPlus, FilePlus2, Gavel, UserCog } from "lucide-react";
+import { ArrowLeft, ClipboardPlus, FilePlus2, Gavel, RotateCcw, UserCog } from "lucide-react";
 import { Button } from "../ui/Button";
 import { EtatChargement, EtatErreur } from "./EtatsPv";
 import { BadgeEcheanceDepassee, BadgeReexamen, BadgeRisque, BadgeStatutConflit, BadgeStatutDecision, BadgeTypeConflit } from "./BadgesConflit";
-import { DialogueApprobation, DialogueAttribution, DialogueDecision, DialoguePreuve, DialogueTransition } from "./ActionsConflit";
+import { DialogueApprobation, DialogueAttribution, DialogueDecision, DialoguePreuve, DialogueReexamen, DialogueTransition } from "./ActionsConflit";
 import { texteValeur } from "./FicheObjet";
 import { useRestitutionFocus } from "./focusDialogue";
 import type {
@@ -36,6 +36,7 @@ export interface ActionsFiche {
   ajouterPreuve: (c: CorpsPreuve) => Promise<unknown>;
   proposerDecision: (c: CorpsDecision) => Promise<unknown>;
   decider: (decisionId: string, verdict: "approuver" | "refuser", corps: CorpsApprobation) => Promise<unknown>;
+  acquitterReexamen: (justification: string) => Promise<unknown>;
 }
 
 export interface PropsFicheConflit {
@@ -54,6 +55,7 @@ type Dialogue =
   | { genre: "transition"; transition: TransitionPossible }
   | { genre: "attribution" }
   | { genre: "preuve" }
+  | { genre: "reexamen" }
   | { genre: "decision" }
   | { genre: "approbation"; decision: DecisionConflit; verdict: "approuver" | "refuser" };
 
@@ -98,7 +100,7 @@ export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(fu
 
   const { liste: transitions, deSecours } = transitionsAffichees(f, p.role);
   const m = f.mesure;
-  const depassee = echeanceDepassee(f.echeance, f.statut);
+  const depassee = f.echeanceDepassee ?? echeanceDepassee(f.echeance, f.statut);
   const clos = f.statut === "CLOTURE";
   const peutProposer = p.peutEcrire && f.statut === "CONFIRME";
 
@@ -121,9 +123,20 @@ export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(fu
           <div role="note" className="space-y-1 rounded border-2 border-purple-400 bg-purple-50 p-2 text-xs text-purple-900">
             <BadgeReexamen motif={f.motifReexamen} />
             <p>{f.motifReexamen ? AIDE_MOTIF_REEXAMEN[f.motifReexamen] : "Une analyse demande un réexamen de ce dossier. Son verdict humain est conservé."}</p>
+            {p.peutEcrire && (
+              <Button type="button" size="sm" variant="outline" className="min-h-[44px] xl:min-h-8" disabled={!p.enLigne} onClick={() => ouvrirDialogue({ genre: "reexamen" })}>
+                <RotateCcw aria-hidden="true" /> Marquer comme réexaminé
+              </Button>
+            )}
           </div>
         )}
-        {f.geom === null && <p className="text-xs text-gray-700">La géométrie de ce conflit n&apos;est pas fournie par le serveur : la carte ne peut pas le mettre en évidence.</p>}
+        {f.geom === null && (
+          <p className="text-xs text-gray-700">
+            {f.geometrieMasquee
+              ? "La géométrie de ce conflit est masquée pour votre compte (le jeu de réseau concerné n'est plus lisible) : la carte ne peut pas le mettre en évidence."
+              : "La géométrie de ce conflit n'est pas fournie par le serveur : la carte ne peut pas le mettre en évidence."}
+          </p>
+        )}
       </header>
 
       <Section id="pv-fc-mesure" titre="Mesure">
@@ -132,6 +145,8 @@ export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(fu
           <Ligne libelle="Longueur dans l'emprise">{m.longueurEmpriseM === null ? "non mesurée" : formaterMetres(m.longueurEmpriseM)}</Ligne>
           <Ligne libelle="Distance minimale">{m.distanceMinM === null ? "non mesurée" : formaterMetres(m.distanceMinM)}</Ligne>
           <Ligne libelle="Croisements">{m.nbCroisements === null ? "non comptés" : formaterNombre(m.nbCroisements, 0)}</Ligne>
+          {m.longueurPieceM !== null && <Ligne libelle="Partie de réseau concernée">{formaterMetres(m.longueurPieceM)}</Ligne>}
+          {f.objet?.nom && <Ligne libelle="Objet du fichier">{f.objet.nom}</Ligne>}
         </dl>
       </Section>
 
@@ -145,10 +160,12 @@ export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(fu
       <Section id="pv-fc-regle" titre="Règle appliquée">
         {f.regle ? (
           <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-xs">
-            <Ligne libelle="Règle">{f.regle.code ?? "code non fourni"}, <strong>version {f.regle.version === null ? "inconnue" : f.regle.version}</strong></Ligne>
+            <Ligne libelle="Règle">{f.regle.code ?? "code non fourni"}, <strong>version {f.regle.version === null ? "inconnue" : f.regle.version}</strong>{f.regle.portee ? (f.regle.portee === "PROJET" ? " (règle du projet)" : " (règle générale)") : ""}</Ligne>
             <Ligne libelle="Famille">{f.regle.famille ? STYLE_RESEAU[f.regle.famille].libelle : "toutes familles"}</Ligne>
             <Ligne libelle="Tolérance de proximité">{f.regle.toleranceProximiteM === null ? "non fournie" : formaterMetres(f.regle.toleranceProximiteM)}</Ligne>
             <Ligne libelle="Marge d'incertitude">{f.regle.margeIncertitude === null ? "non fournie" : `facteur ${formaterNombre(f.regle.margeIncertitude, 2)} sur la précision déclarée`}</Ligne>
+            {f.regle.versionAlgorithme && <Ligne libelle="Algorithme">{f.regle.versionAlgorithme}</Ligne>}
+            {f.largeurs && <Ligne libelle="Largeurs utilisées">chaussée {f.largeurs.chausseeM === null ? "n/d" : formaterMetres(f.largeurs.chausseeM)}, emprise {f.largeurs.empriseM === null ? "n/d" : formaterMetres(f.largeurs.empriseM)}</Ligne>}
           </dl>
         ) : <p className="text-xs text-gray-700">La règle appliquée n&apos;est pas fournie par le serveur.</p>}
         <p className="text-xs text-gray-700">
@@ -165,6 +182,7 @@ export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(fu
                 <span className="font-medium break-words">{s.nomFichier ?? s.concessionnaire ?? "Jeu sans nom"}</span>
                 {" · version "}{s.version ?? "inconnue"}{s.role ? ` · ${LIBELLE_ROLE[s.role as RoleJeu] ?? s.role}` : ""}{s.concessionnaire ? ` · ${s.concessionnaire}` : ""}
                 {s.classePrecision ? ` · ${AIDE_CLASSE[s.classePrecision]}` : ""}
+                {s.dateDonnees ? ` · données du ${formaterDate(s.dateDonnees)}` : ""}{s.precisionHorizontaleM !== null ? ` · précision déclarée ${formaterMetres(s.precisionHorizontaleM)}` : ""}
                 {s.sha256 && <span className="block break-all text-[11px] text-gray-700">empreinte SHA-256 : {s.sha256.slice(0, 16)}…</span>}
               </li>
             ))}
@@ -206,10 +224,18 @@ export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(fu
             {deSecours && <p role="note" className="text-xs text-gray-700">Le serveur n&apos;a pas fourni la liste des transitions : celles-ci sont données à titre indicatif d&apos;après le contrat, et le serveur refusera toute transition interdite.</p>}
             <ul className="flex flex-wrap gap-2">
               {transitions.map((t) => (
-                <li key={t.vers}>
-                  <Button type="button" variant="outline" className="min-h-[44px] xl:min-h-9" disabled={!p.enLigne} onClick={() => ouvrirDialogue({ genre: "transition", transition: t })}>
+                <li key={t.vers} className="max-w-full">
+                  <Button
+                    type="button" variant="outline" className="min-h-[44px] xl:min-h-9" disabled={!p.enLigne || t.bloquee !== null} aria-describedby={t.bloquee ? `pv-bloc-${t.vers}` : undefined}
+                    onClick={() => ouvrirDialogue({ genre: "transition", transition: t })}
+                  >
                     {libelleTransition(f.statut, t.vers)}
                   </Button>
+                  {t.bloquee && (
+                    <p id={`pv-bloc-${t.vers}`} data-testid={`transition-bloquee-${t.vers}`} className="mt-0.5 max-w-xs text-[11px] text-amber-900">
+                      Impossible pour l&apos;instant : {t.bloquee === "PREUVE_REQUISE" ? "au moins une preuve est requise. Ajoutez une preuve ci-dessous." : "une décision approuvée est requise. Proposez-en une, puis faites-la approuver."}
+                    </p>
+                  )}
                 </li>
               ))}
             </ul>
@@ -250,12 +276,12 @@ export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(fu
                   <Ligne libelle="Coût réel"><Montant valeur={d.coutReel} devise={d.deviseCout} /></Ligne>
                   <Ligne libelle="Début prévu">{d.dateDebutPrevue ? formaterDate(d.dateDebutPrevue) : "non renseigné"}</Ligne>
                   <Ligne libelle="Fin prévue">{d.dateFinPrevue ? formaterDate(d.dateFinPrevue) : "non renseigné"}</Ligne>
-                  <Ligne libelle="Proposée par">{d.proposePar?.nom ?? "inconnu"}</Ligne>
+                  <Ligne libelle="Proposée par">{d.proposePar?.nom ?? "inconnu"}{d.createdAt ? `, ${formaterDateHeure(d.createdAt)}` : ""}</Ligne>
                   {d.approuvePar && <Ligne libelle={d.statut === "REFUSEE" ? "Refusée par" : "Décidée par"}>{d.approuvePar.nom ?? "compte sans nom"}{d.approuveLe ? `, ${formaterDateHeure(d.approuveLe)}` : ""}</Ligne>}
                   {d.motifDecision && <Ligne libelle="Motif">{d.motifDecision}</Ligne>}
                   {d.derogationSeparation && <Ligne libelle="Dérogation à la séparation des tâches"><strong>{d.derogationSeparation}</strong></Ligne>}
                 </dl>
-                {p.peutEcrire && d.statut === "PROPOSEE" && (
+                {p.peutEcrire && d.statut === "PROPOSEE" && f.statut === "CONFIRME" && (
                   <div className="flex flex-wrap gap-2">
                     <Button type="button" size="sm" className="min-h-[44px] xl:min-h-8" disabled={!p.enLigne} aria-label={`Approuver la décision : ${LIBELLE_OPTION_DECISION[d.option]}`} onClick={() => ouvrirDialogue({ genre: "approbation", decision: d, verdict: "approuver" })}>Approuver</Button>
                     <Button type="button" size="sm" variant="outline" className="min-h-[44px] xl:min-h-8" disabled={!p.enLigne} aria-label={`Refuser la décision : ${LIBELLE_OPTION_DECISION[d.option]}`} onClick={() => ouvrirDialogue({ genre: "approbation", decision: d, verdict: "refuser" })}>Refuser</Button>
@@ -279,7 +305,10 @@ export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(fu
               {f.historique.map((h) => (
                 <li key={h.id} className="rounded border border-gray-200 p-1.5 text-xs text-gray-900">
                   <p className="font-medium">{libelleAction(h.action)}{!(h.action in LIBELLE_ACTION_HISTORIQUE) ? " (action inconnue de cette version)" : ""}</p>
-                  <p className="text-[11px] text-gray-700">{formaterDateHeure(h.createdAt)} · {h.acteur ? (h.acteur.nom ?? "compte sans nom") : "calcul automatique, aucun acteur humain"}</p>
+                  <p className="text-[11px] text-gray-700">
+                    {formaterDateHeure(h.createdAt)} · {h.acteur ? (h.acteur.nom ?? "compte sans nom") : "calcul automatique, aucun acteur humain"}
+                    {h.analyse?.numero ? ` · analyse n° ${h.analyse.numero}` : ""}
+                  </p>
                   {(h.ancienStatut || h.nouveauStatut) && (
                     <p className="flex flex-wrap items-center gap-1">
                       {h.ancienStatut ? <BadgeStatutConflit statut={h.ancienStatut} /> : <span className="text-gray-700">création</span>}
@@ -310,7 +339,8 @@ export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(fu
         <DialogueAttribution fiche={f} userId={p.userId} nomUtilisateur={p.nomUtilisateur} enLigne={p.enLigne} onFermer={fermer} onValider={p.actions.attribuer} />
       )}
       {dialogue?.genre === "preuve" && <DialoguePreuve enLigne={p.enLigne} onFermer={fermer} onValider={p.actions.ajouterPreuve} />}
-      {dialogue?.genre === "decision" && <DialogueDecision enLigne={p.enLigne} onFermer={fermer} onValider={p.actions.proposerDecision} />}
+      {dialogue?.genre === "decision" && <DialogueDecision responsableConnu={f.responsable !== null} enLigne={p.enLigne} onFermer={fermer} onValider={p.actions.proposerDecision} />}
+      {dialogue?.genre === "reexamen" && <DialogueReexamen motif={f.motifReexamen} enLigne={p.enLigne} onFermer={fermer} onValider={p.actions.acquitterReexamen} />}
       {dialogue?.genre === "approbation" && (
         <DialogueApprobation
           decision={dialogue.decision} verdict={dialogue.verdict} userId={p.userId} estAdmin={p.estAdmin} enLigne={p.enLigne} onFermer={fermer}

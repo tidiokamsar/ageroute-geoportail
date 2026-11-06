@@ -67,6 +67,23 @@ export function ReglesConflits({ projetId, peutEcrire, estAdmin, userId, enLigne
       {requete.data && requete.data.ignores > 0 && (
         <p role="alert" className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">{requete.data.ignores} règle(s) de la réponse du serveur n&apos;ont pas pu être lues (statut inconnu) et ne sont pas affichées.</p>
       )}
+      {requete.data && requete.data.effectives.length > 0 && (
+        <section aria-labelledby="pv-titre-effectives" className="space-y-1">
+          <h4 id="pv-titre-effectives" className="text-xs font-semibold uppercase tracking-wide text-gray-800">Règle appliquée aujourd&apos;hui à chaque famille</h4>
+          <p className="text-[11px] text-gray-700">La version approuvée la plus récente de la famille, sinon la règle générale, sinon la règle par défaut. La prochaine analyse l&apos;utilisera.</p>
+          <ul className="space-y-0.5 text-xs text-gray-900">
+            {requete.data.effectives.map((e) => (
+              <li key={e.famille} data-famille={e.famille}>
+                <strong>{STYLE_RESEAU[e.famille].libelle}</strong> : {e.code ?? "règle sans code"}, version {e.version ?? "inconnue"}
+                {e.portee ? (e.portee === "PROJET" ? " (règle du projet)" : " (règle générale)") : ""}
+                {" · tolérance "}{e.toleranceProximiteM === null ? "non fournie" : formaterMetres(e.toleranceProximiteM)}
+                {" · marge "}{e.margeIncertitude === null ? "non fournie" : `×${formaterNombre(e.margeIncertitude, 2)}`}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {requete.isSuccess && groupes.length === 0 && <EtatVide titre="Aucune règle listée par le serveur"><p>La règle par défaut du socle s&apos;applique tant qu&apos;aucune règle n&apos;est approuvée.</p></EtatVide>}
 
       {groupes.map((g) => {
@@ -81,7 +98,7 @@ export function ReglesConflits({ projetId, peutEcrire, estAdmin, userId, enLigne
                     <strong className="break-words text-sm text-navy">{r.code}</strong>
                     <span>version {r.version}</span>
                     <BadgeStatutRegle statut={r.statut} />
-                    <span className="text-[11px] text-gray-700">{r.projetId ? "règle du projet" : "règle générale"}</span>
+                    <span className="text-[11px] text-gray-700">{(r.portee ?? (r.projetId ? "PROJET" : "GENERALE")) === "PROJET" ? "règle du projet" : "règle générale"}</span>
                   </p>
                   <p>
                     Tolérance de proximité : <strong>{r.toleranceProximiteM === null ? "non fournie" : formaterMetres(r.toleranceProximiteM)}</strong>
@@ -89,9 +106,11 @@ export function ReglesConflits({ projetId, peutEcrire, estAdmin, userId, enLigne
                   </p>
                   {r.justification && <p className="whitespace-pre-wrap break-words">Justification : {r.justification}</p>}
                   <p className="text-[11px] text-gray-700">
-                    Créée par {r.creePar ? (r.creePar.nom ?? "compte sans nom") : "le système"}, {formaterDateHeure(r.createdAt)}
+                    Créée par {r.systeme ? "le système (règle par défaut du socle)" : r.creePar ? (r.creePar.nom ?? "compte sans nom") : "un compte inconnu"}, {formaterDateHeure(r.createdAt)}
                     {r.approuvePar ? ` · approuvée par ${r.approuvePar.nom ?? "compte sans nom"}${r.approuveLe ? `, ${formaterDateHeure(r.approuveLe)}` : ""}` : ""}
                   </p>
+                  {r.motifApprobation && <p className="whitespace-pre-wrap break-words">Motif d&apos;approbation : {r.motifApprobation}</p>}
+                  {r.derogationApprobation && <p className="whitespace-pre-wrap break-words">Dérogation à la séparation des tâches : <strong>{r.derogationApprobation}</strong></p>}
                   {r.statut === "APPROUVEE" && <p className="text-[11px] text-gray-700">Immuable : pour la changer, créez une nouvelle version.</p>}
                   {estAdmin && r.statut === "BROUILLON" && (
                     <Button type="button" size="sm" className="min-h-[44px] xl:min-h-8" disabled={!enLigne} aria-label={`Approuver la règle ${r.code}, version ${r.version}`} onClick={() => { memoriser(); setAApprouver(r); }}>

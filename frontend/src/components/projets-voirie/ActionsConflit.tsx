@@ -7,8 +7,8 @@ import type {
   ConflitFiche, CorpsApprobation, CorpsAttribution, CorpsDecision, CorpsPreuve, CorpsRegle, CorpsStatut, DecisionConflit, RegleConflit, TransitionPossible,
 } from "../../lib/projetsVoirieConflitsApi";
 import {
-  AVERTISSEMENT_COUTS, JUSTIFICATION_MIN, LIBELLE_OPTION_DECISION, LIBELLE_REGLE_GENERALE, LIBELLE_RISQUE, LIBELLE_TYPE_PREUVE, MENTION_RECOLEMENT, OPTIONS_DECISION, RAPPEL_SEPARATION, RISQUES_CONFLIT,
-  TYPES_PREUVE, classerErreurConflit, erreursDecision, erreursRegle, exigencesTransition, justificationValide, lireMontant, libelleTransition,
+  AVERTISSEMENT_COUTS, JUSTIFICATION_MIN, LIBELLE_MOTIF_REEXAMEN, LIBELLE_OPTION_DECISION, LIBELLE_REGLE_GENERALE, LIBELLE_RISQUE, LIBELLE_TYPE_PREUVE, MENTION_RECOLEMENT, OPTIONS_DECISION, RAPPEL_SEPARATION, RISQUES_CONFLIT,
+  TYPES_PREUVE, classerErreurConflit, erreursDecision, erreursRegle, justificationValide, lireMontant, libelleTransition,
   type OptionDecision, type RisqueConflit, type SaisieDecision, type SaisieRegle, type TypePreuve,
 } from "../../lib/projetsVoirieConflits";
 import { STYLE_RESEAU, TYPES_RESEAU, formaterMetres, type ErreurPv, type TypeReseau } from "../../lib/projetsVoirie";
@@ -91,18 +91,19 @@ export function DialogueTransition({ fiche, transition, estAdmin, enLigne, onFer
   const [derogation, setDerogation] = useState("");
   const [recolement, setRecolement] = useState(false);
   const { enCours, erreur, envoyer } = useEnvoi(onFermer);
-  const ex = exigencesTransition(fiche.statut, transition.vers);
   const approuvees = fiche.decisions.filter((d) => d.statut === "APPROUVEE");
   const deplacement = approuvees.some((d) => d.option === "DEPLACER_RESEAU");
-  const recolementExige = ex.cloture && deplacement;
-  const derogationVisible = estAdmin && (ex.cloture || transition.derogationPossible || erreur?.code === "SEPARATION_DES_TACHES");
+  const recolementExige = transition.cloture && deplacement;
+  const derogationVisible = estAdmin && (transition.cloture || erreur?.code === "SEPARATION_DES_TACHES");
   const peutValider = justificationValide(justification) && (!recolementExige || recolement) && derogationOk(derogation);
 
   function valider() {
     const j = justification.trim();
     void envoyer(() => onValider({
       vers: transition.vers,
-      justification: recolementExige ? `${MENTION_RECOLEMENT} : ${j}` : j,
+      justification: j,
+      // Champ explicite du serveur : le recolement du reseau deplace reste a valider (il n'est pas gere dans cet outil).
+      ...(recolementExige ? { recolementAValider: true } : {}),
       ...(derogationVisible && derogation.trim() ? { derogation: derogation.trim() } : {}),
     }));
   }
@@ -116,31 +117,30 @@ export function DialogueTransition({ fiche, transition, estAdmin, enLigne, onFer
       </>}
       enCours={enCours} erreur={erreur} peutValider={peutValider} libelleValider="Enregistrer la transition" libelleEnCours="Enregistrement…" onFermer={onFermer} onValider={valider} enLigne={enLigne}
     >
-      {ex.preuveRequise && (
+      {transition.preuveRequise && (
         <p role="note" className={`rounded border p-2 text-xs ${fiche.preuves.length === 0 ? "border-amber-300 bg-amber-50 text-amber-900" : "border-gray-300 bg-gray-50 text-gray-800"}`}>
           Pour confirmer, au moins une preuve est requise. {fiche.preuves.length === 0 ? "Aucune preuve n'est au dossier : ajoutez-en une d'abord, le serveur refusera sinon." : `${fiche.preuves.length} preuve(s) au dossier.`}
         </p>
       )}
-      {ex.decisionApprouveeRequise && (
+      {transition.decisionRequise && (
         <p role="note" className={`rounded border p-2 text-xs ${approuvees.length === 0 ? "border-amber-300 bg-amber-50 text-amber-900" : "border-gray-300 bg-gray-50 text-gray-800"}`}>
           Une décision approuvée est requise. {approuvees.length === 0 ? "Aucune décision approuvée : proposez-en une, puis faites-la approuver, le serveur refusera sinon." : `${approuvees.length} décision(s) approuvée(s).`}
         </p>
       )}
-      {ex.cloture && (
+      {transition.cloture && (
         <p role="note" className="rounded border border-gray-300 bg-gray-50 p-2 text-xs text-gray-800">
           La clôture est réservée aux administrateurs : un motif et un acteur identifié sont consignés. Un dossier clos n&apos;a plus de transition possible.
         </p>
       )}
-      {transition.exigences.length > 0 && <p className="text-xs text-gray-700">Exigences indiquées par le serveur : {transition.exigences.join(" ; ")}.</p>}
       <div>
-        <label htmlFor={idJ} className="block text-sm font-medium text-gray-900">{ex.cloture ? "Motif de la clôture" : "Justification"} ({JUSTIFICATION_MIN} caractères minimum)</label>
+        <label htmlFor={idJ} className="block text-sm font-medium text-gray-900">{transition.cloture ? "Motif de la clôture" : "Justification"} ({JUSTIFICATION_MIN} caractères minimum)</label>
         <textarea id={idJ} value={justification} onChange={(e) => setJustification(e.target.value)} rows={3} maxLength={950} disabled={enCours} aria-describedby={`${idJ}-n`} className={CHAMP} />
         <Compteur id={`${idJ}-n`} texte={justification} />
       </div>
       {recolementExige && (
         <label htmlFor={idR} className="flex items-start gap-2 rounded border border-amber-300 bg-amber-50 p-2 text-sm text-amber-900">
           <input id={idR} type="checkbox" className="mt-1 h-4 w-4 shrink-0" checked={recolement} onChange={(e) => setRecolement(e.target.checked)} />
-          <span>Une décision « Déplacer le réseau » est approuvée. Je reconnais que <strong>le récolement reste à valider</strong> : il n&apos;est pas géré dans cet outil et cette clôture ne le remplace pas.</span>
+          <span>Une décision « Déplacer le réseau » est approuvée. Je confirme que <strong>le récolement reste à valider</strong> : il n&apos;est pas géré dans cet outil et cette clôture ne le remplace pas. ({MENTION_RECOLEMENT})</span>
         </label>
       )}
       {derogationVisible && <ChampDerogation valeur={derogation} onChange={setDerogation} obligatoire={erreur?.code === "SEPARATION_DES_TACHES"} />}
@@ -159,7 +159,7 @@ export function DialogueAttribution({ fiche, userId, nomUtilisateur, enLigne, on
   const [resp, setResp] = useState<"inchange" | "moi" | "aucun" | "autre">("inchange");
   const [autreId, setAutreId] = useState("");
   const [echeance, setEcheance] = useState(fiche.echeance?.slice(0, 10) ?? "");
-  const [risque, setRisque] = useState<RisqueConflit | "">("");
+  const [risque, setRisque] = useState<RisqueConflit | "aucun" | "">("");
   const [action, setAction] = useState(fiche.actionProposee ?? "");
   const { enCours, erreur, envoyer } = useEnvoi(onFermer);
 
@@ -168,7 +168,8 @@ export function DialogueAttribution({ fiche, userId, nomUtilisateur, enLigne, on
   if (resp === "aucun" && fiche.responsable) corps.responsableId = null;
   if (resp === "autre" && autreId.trim() && autreId.trim() !== fiche.responsable?.id) corps.responsableId = autreId.trim();
   if (echeance !== (fiche.echeance?.slice(0, 10) ?? "")) corps.echeance = echeance === "" ? null : echeance;
-  if (risque && risque !== fiche.risque) corps.risque = risque;
+  if (risque === "aucun") corps.risque = null;
+  else if (risque && risque !== fiche.risque) corps.risque = risque;
   if (action.trim() !== (fiche.actionProposee ?? "")) corps.actionProposee = action.trim() === "" ? null : action.trim();
   const nbChangements = Object.keys(corps).length;
 
@@ -202,9 +203,10 @@ export function DialogueAttribution({ fiche, userId, nomUtilisateur, enLigne, on
       </div>
       <div>
         <label htmlFor={`${id}-k`} className="block text-sm font-medium text-gray-900">Risque</label>
-        <Select id={`${id}-k`} value={risque} onChange={(e) => setRisque(e.target.value as RisqueConflit | "")} disabled={enCours} className="border-gray-300">
+        <Select id={`${id}-k`} value={risque} onChange={(e) => setRisque(e.target.value as RisqueConflit | "aucun" | "")} disabled={enCours} className="border-gray-300">
           <option value="">{fiche.risque ? `Inchangé : ${LIBELLE_RISQUE[fiche.risque]}` : "Inchangé : non renseigné"}</option>
           {RISQUES_CONFLIT.map((r) => <option key={r} value={r}>{LIBELLE_RISQUE[r]}</option>)}
+          {fiche.risque && <option value="aucun">Effacer le risque (non renseigné)</option>}
         </Select>
         <p className="text-xs text-gray-700">« Risque inconnu » est un niveau à part : il ne vaut pas « faible ».</p>
       </div>
@@ -258,12 +260,12 @@ export function DialoguePreuve({ enLigne, onFermer, onValider }: { enLigne: bool
 
 const SAISIE_VIDE: SaisieDecision = { option: "", justification: "", contraintes: "", coutEstime: "", deviseCout: "", coutReel: "", dateDebutPrevue: "", dateFinPrevue: "" };
 
-export function DialogueDecision({ enLigne, onFermer, onValider }: { enLigne: boolean; onFermer: () => void; onValider: (c: CorpsDecision) => Promise<unknown> }) {
+export function DialogueDecision({ responsableConnu, enLigne, onFermer, onValider }: { responsableConnu: boolean; enLigne: boolean; onFermer: () => void; onValider: (c: CorpsDecision) => Promise<unknown> }) {
   const id = useId();
   const [s, setS] = useState<SaisieDecision>(SAISIE_VIDE);
   const { enCours, erreur, envoyer } = useEnvoi(onFermer);
   const maj = (p: Partial<SaisieDecision>) => setS((x) => ({ ...x, ...p }));
-  const erreurs = erreursDecision(s);
+  const erreurs = erreursDecision(s, { responsableConnu });
 
   function valider() {
     const est = lireMontant(s.coutEstime);
@@ -292,7 +294,7 @@ export function DialogueDecision({ enLigne, onFermer, onValider }: { enLigne: bo
         </Select>
         {s.option === "DEPLACER_RESEAU" && (
           <p role="note" className="mt-1 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
-            Proposer le déplacement d&apos;un réseau n&apos;ordonne rien. Cette décision ne pourra pas être approuvée par vous (séparation des tâches, sauf dérogation d&apos;un administrateur), et le récolement restera à valider hors de cet outil.
+            Proposer le déplacement d&apos;un réseau n&apos;ordonne rien. Il exige un responsable désigné sur le dossier et un planning complet (début et fin prévus). Cette décision ne pourra pas être approuvée par vous (séparation des tâches, sauf dérogation d&apos;un administrateur), et le récolement restera à valider hors de cet outil.
           </p>
         )}
       </div>
@@ -319,8 +321,8 @@ export function DialogueDecision({ enLigne, onFermer, onValider }: { enLigne: bo
           </div>
         </div>
         <div>
-          <label htmlFor={`${id}-cd`} className="block text-xs font-medium text-gray-800">Devise des coûts (par exemple GNF)</label>
-          <Input id={`${id}-cd`} value={s.deviseCout} onChange={(e) => maj({ deviseCout: e.target.value })} autoComplete="off" maxLength={8} disabled={enCours} className="border-gray-300" />
+          <label htmlFor={`${id}-cd`} className="block text-xs font-medium text-gray-800">Devise des coûts (trois lettres, par exemple GNF)</label>
+          <Input id={`${id}-cd`} value={s.deviseCout} onChange={(e) => maj({ deviseCout: e.target.value.toUpperCase() })} autoComplete="off" maxLength={3} disabled={enCours} className="border-gray-300" />
         </div>
       </fieldset>
       <div className="grid grid-cols-2 gap-2">
@@ -357,7 +359,7 @@ export function DialogueApprobation({ decision, verdict, userId, estAdmin, enLig
   const approuver = verdict === "approuver";
   const deplacement = decision.option === "DEPLACER_RESEAU";
   const derogationVisible = approuver && estAdmin && (proposeParMoi || erreur?.code === "SEPARATION_DES_TACHES");
-  const derogationExigee = derogationVisible && proposeParMoi && deplacement;
+  const derogationExigee = derogationVisible && proposeParMoi;
   const peutValider = justificationValide(motif) && derogationOk(derogation) && (!derogationExigee || derogation.trim() !== "");
 
   return (
@@ -472,6 +474,33 @@ export function DialogueApprobationRegle({ regle, userId, enLigne, onFermer, onV
         <Compteur id={`${id}-jn`} texte={justification} />
       </div>
       {derogationVisible && <ChampDerogation valeur={derogation} onChange={setDerogation} obligatoire={auteur} />}
+    </Cadre>
+  );
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Acquittement d'un re-examen
+// ---------------------------------------------------------------------------------------------------
+
+export function DialogueReexamen({ motif, enLigne, onFermer, onValider }: { motif: string | null; enLigne: boolean; onFermer: () => void; onValider: (justification: string) => Promise<unknown> }) {
+  const id = useId();
+  const [justification, setJustification] = useState("");
+  const { enCours, erreur, envoyer } = useEnvoi(onFermer);
+  return (
+    <Cadre
+      titre="Marquer le dossier comme réexaminé"
+      description={<>
+        <p>Une analyse a demandé un réexamen de ce dossier{motif ? ` (${LIBELLE_MOTIF_REEXAMEN[motif as keyof typeof LIBELLE_MOTIF_REEXAMEN]?.toLowerCase() ?? motif})` : ""}. Une personne confirme l&apos;avoir examiné : le drapeau est retiré, l&apos;acte est consigné dans l&apos;historique avec votre nom.</p>
+        <p>Cela ne change ni le statut ni aucun autre verdict du dossier.</p>
+      </>}
+      enCours={enCours} erreur={erreur} peutValider={justificationValide(justification)} libelleValider="Marquer comme réexaminé" libelleEnCours="Enregistrement…" onFermer={onFermer} enLigne={enLigne}
+      onValider={() => void envoyer(() => onValider(justification.trim()))}
+    >
+      <div>
+        <label htmlFor={`${id}-j`} className="block text-sm font-medium text-gray-900">Justification ({JUSTIFICATION_MIN} caractères minimum)</label>
+        <textarea id={`${id}-j`} value={justification} onChange={(e) => setJustification(e.target.value)} rows={3} maxLength={2000} disabled={enCours} aria-describedby={`${id}-jn`} className={CHAMP} />
+        <Compteur id={`${id}-jn`} texte={justification} />
+      </div>
     </Cadre>
   );
 }

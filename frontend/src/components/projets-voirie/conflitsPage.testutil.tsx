@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ProjetVoirieDetailPage } from "../../pages/ProjetVoirieDetailPage";
 import { analyse, projetFiche } from "./synthetique.testutil";
 import {
-  ANALYSE_1, REGLES, analyseConflit, brut, conflit, fiche, pageConflits,
+  ANALYSE_1, REGLES, analyseConflit, brut, conflit, fiche, pageConflits, serveurComparaison, serveurDetailAnalyse, serveurFiche, serveurListeAnalyses, serveurPage, serveurRegles,
 } from "./conflitsSynthetiques.testutil";
 import type { ConflitFiche } from "../../lib/projetsVoirieConflitsApi";
 
@@ -56,20 +56,20 @@ export function reponseApi(url: string, params: Params, over: SurchargesApi = {}
   if (url === "/v2/projets-voirie/concessionnaires") return rendu([{ id: "c1", nom: "Operateur synthetique A", typeReseau: "TELECOM" }, { id: "c2", nom: "Societe des eaux synthetique", typeReseau: "EAU_POTABLE" }]);
   if (url === `${BASE}/conflits`) {
     const l = over.liste;
-    return rendu(typeof l === "function" ? (l as (p: Params) => unknown)(params) : l !== undefined ? l : brut(pageConflits()));
+    return rendu(typeof l === "function" ? (l as (p: Params) => unknown)(params) : l !== undefined ? l : brut(serveurPage(pageConflits())));
   }
   if (url.startsWith(`${BASE}/conflits/`)) {
     const id = decodeURIComponent(url.slice(`${BASE}/conflits/`.length));
     const f = over.fiches?.[id] ?? (id === "cf-1" ? FICHES_PAR_DEFAUT["cf-1"] : ficheDe(id));
-    return rendu(f instanceof Error ? f : brut(f));
+    return rendu(f instanceof Error ? f : brut(serveurFiche(f)));
   }
-  if (url === `${BASE}/analyses`) return rendu(over.analyses ?? { analyses: [brut(analyseConflit()), brut(ANALYSE_1)] });
+  if (url === `${BASE}/analyses`) return rendu(over.analyses ?? brut(serveurListeAnalyses([analyseConflit(), ANALYSE_1])));
   if (url.startsWith(`${BASE}/analyses/`) && url.endsWith("/comparaison")) {
     const c = over.comparaison;
-    return rendu(typeof c === "function" ? (c as (p: Params) => unknown)(params) : c ?? { apparus: { nb: 1, cles: ["cle-bbbb"] }, disparus: { nb: 1, cles: ["cle-dddd"] }, modifies: { nb: 0, cles: [] }, identiques: { nb: 2, cles: [] } });
+    return rendu(typeof c === "function" ? (c as (p: Params) => unknown)(params) : c ?? brut(serveurComparaison()));
   }
-  if (url.startsWith(`${BASE}/analyses/`)) return rendu(over.detailAnalyse ?? brut(analyseConflit()));
-  if (url === `${BASE}/regles`) return rendu(over.regles ?? { regles: REGLES.map((r) => brut(r)) });
+  if (url.startsWith(`${BASE}/analyses/`)) return rendu(over.detailAnalyse ?? brut(serveurDetailAnalyse(analyseConflit())));
+  if (url === `${BASE}/regles`) return rendu(over.regles ?? brut(serveurRegles(REGLES)));
   return rendu({});
 }
 
