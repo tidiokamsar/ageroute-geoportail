@@ -861,7 +861,7 @@ async function main() {
   const id3 = await trouver(P4, "Axe A", "INTERSECTION_CHAUSSEE", L("L2 bis"));
   await envoyer("post", `/${P4}/conflits/${id3}/preuves`, { type: "NOTE", texte: "Cable vu sur le terrain, passage confirme" });
   await stP(P4, id3, { vers: "CONFIRME", justification: "Passage du cable confirme sur le terrain" });
-  const dd1 = (await envoyer("post", `/${P4}/conflits/${id3}/decisions`, { option: "PROTEGER", justification: "Protection mecanique proposee pour ce cable" })).body.decision.id as string;
+  const dd1 = (await envoyer("post", `/${P4}/conflits/${id3}/decisions`, { option: "PROTEGER", justification: "Protection mecanique proposee pour ce cable" })).body.decision?.id as string;
   await envoyer("post", `/${P4}/conflits/${id3}/decisions/${dd1}/approuver`, { motif: "Protection mecanique approuvee par un autre responsable" }, T.chef2);
   await stP(P4, id3, { vers: "INFIRME", justification: "Finalement un fourreau vide, dossier infirme par l'administrateur" }, T.admin);
   await stP(P4, id3, { vers: "A_INVESTIGUER", justification: "Reouverture : l'operateur nous recontacte" });
@@ -873,7 +873,7 @@ async function main() {
   verifier("14. m3 : l'approbation d'une confirmation ANTERIEURE ne vaut plus : apres INFIRME puis reouverture jusqu'a CONFIRME, le passage a TRAITEMENT_DECIDE est refuse (409 DECISION_REQUISE) et la fiche annonce la transition bloquee ; la decision ancienne reste APPROUVEE (aucune ligne n'est modifiee)",
     reConf.status === 200 && perimee.status === 409 && perimee.body.code === "DECISION_REQUISE" && vers3?.bloquee === "DECISION_REQUISE" && (await statutDe(id3)).statut === "CONFIRME"
     && (await sql<{ s: string }>(`SELECT statut::text s FROM conflits_projet_decisions WHERE id = $1`, dd1))[0].s === "APPROUVEE", { perimee: perimee.body, vers3 });
-  const dd2 = (await envoyer("post", `/${P4}/conflits/${id3}/decisions`, { option: "A_ETUDIER", justification: "Etude complementaire apres la reouverture" })).body.decision.id as string;
+  const dd2 = (await envoyer("post", `/${P4}/conflits/${id3}/decisions`, { option: "A_ETUDIER", justification: "Etude complementaire apres la reouverture" })).body.decision?.id as string;
   await envoyer("post", `/${P4}/conflits/${id3}/decisions/${dd2}/approuver`, { motif: "Etude complementaire approuvee apres la reouverture" }, T.chef2);
   const vigueur = await stP(P4, id3, { vers: "TRAITEMENT_DECIDE", justification: "Traitement decide sur la nouvelle approbation" });
   verifier("14. m3 : une decision approuvee DEPUIS la derniere confirmation autorise TRAITEMENT_DECIDE (200) ; deux decisions APPROUVEE coexistent, seule la recente compte",
@@ -885,7 +885,7 @@ async function main() {
   await envoyer("post", `/${P4}/conflits/${id4}/preuves`, { type: "RELEVE_TERRAIN", texte: "Cable visible dans le caniveau", reference: "Releve R-77" });
   await stP(P4, id4, { vers: "CONFIRME", justification: "Cable constate sur le terrain (releve R-77)" });
   const dep = await envoyer("post", `/${P4}/conflits/${id4}/decisions`, { option: "DEPLACER_RESEAU", justification: "Deplacement propose : la chaussee prevue recouvre le cable", dateDebutPrevue: "2026-12-01", dateFinPrevue: "2026-12-20" });
-  const idDep: string = dep.body.decision.id;
+  const idDep: string = dep.body.decision?.id;
   const effaceP = await patchP(P4, id4, { responsableId: null });
   const autreP = await patchP(P4, id4, { responsableId: chef.id });
   verifier("14. m4 : une decision de deplacement de reseau PROPOSEE interdit d'effacer le responsable (422 RESPONSABLE_REQUIS, rien n'est ecrit) ; en designer un autre reste possible",
@@ -978,7 +978,7 @@ async function main() {
   verifier("14. m6 : l'analyse suivante repointe les dossiers retrouves sur le nouveau plan d'axes ; le lecteur les revoit, avec la geometrie",
     a5b.status === 201 && reperes.length >= 1 && l5b.body.total === reperes.length && l5b.body.conflits.every((c: { geometrieMasquee: boolean; bbox: unknown }) => c.geometrieMasquee === false && c.bbox !== null), { reperes: reperes.length, total: l5b.body.total });
   const retire5 = await envoyer("delete", `/${P5}/jeux/${JEU5_V2}`);
-  const idRetire = reperes[0].id;
+  const idRetire = reperes[0]?.id ?? UUID0;
   const f5a = (await get(`/${P5}/conflits/${idRetire}`, T.admin)), f5l = await get(`/${P5}/conflits/${idRetire}`, T.lecteur), l5a = (await get(`/${P5}/conflits`, T.admin)).body;
   verifier("14. m6 : le plan d'axes a ete RETIRE : meme un ADMIN ne recoit plus l'axe (geometrie, boite, mesure masquees, dossier conserve) ; un lecteur recoit 404",
     retire5.status === 200 && f5a.status === 200 && f5a.body.conflit.geometrie === null && f5a.body.conflit.geometrieMasquee === true && f5a.body.conflit.bbox === null && f5a.body.conflit.mesure === null
@@ -1076,6 +1076,14 @@ async function main() {
   const repInconnus = [...(await Promise.all(lectures(inconnu, T.chef))), ...(await Promise.all(ecritures(inconnu, idP2, T.admin)))];
   verifier("14. m1 : un projet inconnu repond 404 PROJET_INTROUVABLE a un compte national (la liste ne rend plus 200 avec zero dossier), et un compte regional recoit la meme reponse pour le projet retire",
     repInconnus.every((r) => r.status === 404 && r.body.code === "PROJET_INTROUVABLE") && (await Promise.all(lectures(P2, T.reg1))).every((r) => r.status === 404 && r.body.code === "PROJET_INTROUVABLE"), repInconnus.map((r) => [r.status, r.body.code]));
+
+  // ---- Constat (observation de la revue) : jokers LIKE dans les filtres `axe` (egalite insensible) et `q` (contient). Mesure sur la base reelle, documentee en 9.33.
+  const totalP4 = (q: string) => get(`/${P4}/conflits?${q}`, T.chef).then((r) => r.body.total as number);
+  const [sansFiltre, qPourcent, qSouligne, axeSouligne, axeEgal, qJokerNom, qNomExact, qAntislash] = await Promise.all([
+    totalP4("limite=1"), totalP4("q=%25"), totalP4("q=_"), totalP4("axe=Axe_A"), totalP4("axe=axe%20a"), totalP4("q=Fibre_Marqueur"), totalP4("q=fibre-marqueur"), totalP4("q=%5C%25")]);
+  verifier("14. constat LIKE : Prisma n'echappe ni le pourcent, ni le souligne, ni l'antislash dans `contains` et `equals` insensibles (ILIKE) : `q=%` et `q=_` rendent tous les dossiers, `axe=Axe_A` egale `axe=axe a`, `q=Fibre_Marqueur` egale `q=fibre-marqueur`, `q=\\%` ne rend rien ; aucune injection (valeurs liees), mais le filtre `axe` n'est pas une egalite stricte",
+    sansFiltre > 0 && qPourcent === sansFiltre && qSouligne === sansFiltre && axeSouligne === axeEgal && axeEgal > 0 && qJokerNom === qNomExact && qNomExact > 0 && qAntislash === 0,
+    { sansFiltre, qPourcent, qSouligne, axeSouligne, axeEgal, qJokerNom, qNomExact, qAntislash });
 
   if (process.env.CONFLITS_EXEMPLES) writeFileSync(process.env.CONFLITS_EXEMPLES, JSON.stringify(exemples, null, 2));
 }
