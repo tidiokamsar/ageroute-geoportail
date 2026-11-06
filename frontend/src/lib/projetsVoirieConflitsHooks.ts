@@ -1,6 +1,6 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ajouterPreuve, approuverDecision, approuverRegle, attribuerConflit, changerStatutConflit, comparerAnalyses, creerRegle, lancerAnalyseConflits, lireConflit, lireDetailAnalyse,
+  acquitterReexamen, ajouterPreuve, approuverDecision, approuverRegle, attribuerConflit, changerStatutConflit, comparerAnalyses, creerRegle, lancerAnalyseConflits, lireConflit, lireDetailAnalyse,
   listerAnalyses, listerConflits, listerRegles, proposerDecision, refuserDecision,
   type CorpsApprobation, type CorpsAttribution, type CorpsDecision, type CorpsPreuve, type CorpsRegle, type CorpsStatut,
 } from "./projetsVoirieConflitsApi";
@@ -43,7 +43,15 @@ export function useFicheConflit(projetId: string | undefined, conflitId: string 
 }
 
 export function useAnalysesConflits(projetId: string | undefined, actif = true) {
-  return useQuery({ queryKey: [...CLE, "analyses", projetId], queryFn: ({ signal }) => listerAnalyses(projetId as string, signal), enabled: !!projetId && actif, gcTime: 60_000, ...OPTIONS });
+  return useInfiniteQuery({
+    queryKey: [...CLE, "analyses", projetId],
+    queryFn: ({ pageParam, signal }) => listerAnalyses(projetId as string, pageParam, signal),
+    initialPageParam: null as string | null,
+    getNextPageParam: (derniere) => derniere.suivant,
+    enabled: !!projetId && actif,
+    gcTime: 60_000,
+    ...OPTIONS,
+  });
 }
 
 export function useDetailAnalyse(projetId: string | undefined, analyseId: string | null) {
@@ -77,6 +85,11 @@ export function useInvalidationConflits(projetId: string) {
 export function useAttribuer(projetId: string, conflitId: string) {
   const invalider = useInvalidationConflits(projetId);
   return useMutation({ mutationFn: (c: CorpsAttribution) => attribuerConflit(projetId, conflitId, c), onSuccess: () => invalider() });
+}
+
+export function useAcquitterReexamen(projetId: string, conflitId: string) {
+  const invalider = useInvalidationConflits(projetId);
+  return useMutation({ mutationFn: (justification: string) => acquitterReexamen(projetId, conflitId, justification), onSuccess: () => invalider() });
 }
 
 export function useChangerStatut(projetId: string, conflitId: string) {

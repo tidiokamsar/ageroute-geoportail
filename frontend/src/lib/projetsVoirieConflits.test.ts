@@ -163,17 +163,36 @@ describe("saisies : couts distincts, jamais calcules ; regles", () => {
     expect(erreursDecision({ ...base, coutEstime: "abc", deviseCout: "GNF" })).toContain("Le coût estimé n'est pas un nombre.");
     expect(erreursDecision({ ...base, coutReel: "-5", deviseCout: "GNF" })).toContain("Le coût réel ne peut pas être négatif.");
     expect(erreursDecision({ ...base, coutEstime: "10" })).toContain("Indiquez la devise des coûts saisis (par exemple GNF).");
+    expect(erreursDecision({ ...base, coutEstime: "10", deviseCout: "gnf" })).toContain("La devise s'écrit sur trois lettres majuscules (par exemple GNF).");
+    expect(erreursDecision({ ...base, coutEstime: "10", deviseCout: "GNFF" })).toContain("La devise s'écrit sur trois lettres majuscules (par exemple GNF).");
+    expect(erreursDecision({ ...base, coutEstime: "10", deviseCout: "EUR" })).toEqual([]);
     expect(erreursDecision({ ...base, dateDebutPrevue: "2026-12-10", dateFinPrevue: "2026-12-01" })).toContain("La date de fin prévue ne peut pas précéder la date de début prévue.");
   });
+  it("deplacer un reseau : responsable et planning complet exiges (regles du serveur, AT-09) ; les autres options non", () => {
+    const dep = { ...base, option: "DEPLACER_RESEAU" as const };
+    expect(erreursDecision(dep, { responsableConnu: false }).join(" ")).toMatch(/Désignez d'abord un responsable/);
+    expect(erreursDecision(dep, { responsableConnu: true }).join(" ")).toMatch(/planning complet/);
+    expect(erreursDecision({ ...dep, dateDebutPrevue: "2027-01-10" }, { responsableConnu: true }).join(" ")).toMatch(/planning complet/);
+    expect(erreursDecision({ ...dep, dateDebutPrevue: "2027-01-10", dateFinPrevue: "2027-01-20" }, { responsableConnu: true })).toEqual([]);
+    expect(erreursDecision({ ...base, option: "PROTEGER" }, { responsableConnu: false })).toEqual([]);
+    expect(erreursDecision({ ...base, option: "A_ETUDIER" })).toEqual([]);
+  });
+
   it("regle : aucune tolerance n'est inventee, tout champ requis est exige", () => {
     const ok = { famille: "TELECOM" as const, code: "RC-2D-0.2", toleranceProximiteM: "2", margeIncertitude: "1", justification: "Tolérance validée avec le concessionnaire" };
     expect(erreursRegle(ok)).toEqual([]);
     expect(erreursRegle({ ...ok, famille: "", toleranceProximiteM: "0" })).toEqual([]);
     expect(erreursRegle({ ...ok, toleranceProximiteM: "" }).join(" ")).toMatch(/aucune valeur n'est proposée/);
-    expect(erreursRegle({ ...ok, toleranceProximiteM: "-1" }).join(" ")).toMatch(/supérieur ou égal à zéro/);
+    expect(erreursRegle({ ...ok, toleranceProximiteM: "-1" }).join(" ")).toMatch(/compris entre 0 et 1 000/);
+    expect(erreursRegle({ ...ok, toleranceProximiteM: "1001" }).join(" ")).toMatch(/compris entre 0 et 1 000/);
+    expect(erreursRegle({ ...ok, toleranceProximiteM: "1000" })).toEqual([]);
+    expect(erreursRegle({ ...ok, margeIncertitude: "101" }).join(" ")).toMatch(/compris entre 0 et 100/);
     expect(erreursRegle({ ...ok, margeIncertitude: "" }).join(" ")).toMatch(/marge/);
     expect(erreursRegle({ ...ok, code: "  " }).join(" ")).toMatch(/code/);
-    expect(erreursRegle({ ...ok, code: "x".repeat(65) }).join(" ")).toMatch(/64/);
+    expect(erreursRegle({ ...ok, code: "x".repeat(65) }).join(" ")).toMatch(/2 à 64/);
+    expect(erreursRegle({ ...ok, code: "x" }).join(" ")).toMatch(/2 à 64/);
+    expect(erreursRegle({ ...ok, code: "RC 2D" }).join(" ")).toMatch(/lettres, chiffres/);
+    expect(erreursRegle({ ...ok, code: "RC-2D-0.2_a" })).toEqual([]);
     expect(erreursRegle({ ...ok, justification: "trop vite" }).join(" ")).toMatch(/justification/);
   });
 });
@@ -187,16 +206,27 @@ describe("erreurs typees du lot", () => {
     ["PREUVE_REQUISE", 409, "conflit", /Au moins une preuve/],
     ["JUSTIFICATION_REQUISE", 422, "validation", /au moins 10 caractères/],
     ["REGLE_IMMUABLE", 409, "conflit", /immuable/],
+    ["ROLE_INSUFFISANT", 403, "droit", /réservés aux administrateurs/],
+    ["MENTION_RECOLEMENT_REQUISE", 422, "validation", /récolement reste à valider/],
+    ["RESPONSABLE_REQUIS", 422, "validation", /responsable doit être désigné/],
+    ["PLANNING_REQUIS", 422, "validation", /date de début et une date de fin/],
+    ["STATUT_INCOMPATIBLE", 409, "conflit", /conflit confirmé/],
+    ["DECISION_DEJA_TRANCHEE", 409, "conflit", /vient d'être tranchée/],
+    ["RESPONSABLE_INCONNU", 400, "validation", /n'existe pas ou n'est pas actif/],
+    ["ANALYSE_NON_COMPARABLE", 409, "conflit", /analyse en échec/],
   ] as const)("%s (%i) : message en clair, genre %s, jamais le texte brut du serveur", (code, status, genre, motif) => {
     const e = classerErreurConflit(err(status, code));
     expect(e.code).toBe(code);
     expect(e.genre).toBe(genre);
     expect(e.message).toMatch(motif);
     expect(e.message).not.toContain("texte du serveur");
-    expect(e.message).toMatch(/Rien n'a été modifié|Rechargez|revenez/i);
+    expect(e.message).toMatch(/Rien n'a été modifié|Rechargez|revenez|choisissez|Vérifiez|Utilisez/i);
   });
-  it("503 PROJET_OCCUPE, 503 SERVICE_OCCUPE, 504 ANALYSE_TROP_LONGUE : expliques par le socle", () => {
-    expect(classerErreurConflit(err(503, "PROJET_OCCUPE")).message).toMatch(/projet est occupé/);
+  it("503 PROJET_OCCUPE, 503 SERVICE_OCCUPE, 504 ANALYSE_TROP_LONGUE : expliques", () => {
+    const occupe = classerErreurConflit(err(503, "PROJET_OCCUPE"));
+    expect(occupe.message).toMatch(/Ce projet ou ce dossier est occupé/);
+    expect(occupe.message).toMatch(/une analyse est peut-être en cours/);
+    expect(occupe.genre).toBe("serveur");
     expect(classerErreurConflit(err(503, "SERVICE_OCCUPE")).message).toMatch(/Réessayez/);
     expect(classerErreurConflit(err(504, "ANALYSE_TROP_LONGUE")).message).toMatch(/délai/);
   });

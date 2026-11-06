@@ -342,8 +342,14 @@ export interface SaisieDecision {
   dateFinPrevue: string;
 }
 
-/** Messages d'erreur d'une proposition de decision (liste vide : la saisie est utilisable). */
-export function erreursDecision(s: SaisieDecision): string[] {
+/** Devise des couts : trois lettres majuscules (code ISO 4217, exige par le serveur). */
+export const MOTIF_DEVISE = /^[A-Z]{3}$/;
+
+/**
+ * Messages d'erreur d'une proposition de decision (liste vide : la saisie est utilisable). Deplacer un reseau exige un responsable sur le dossier
+ * et un planning complet (regles du serveur, AT-09) : `responsableConnu` dit si le dossier en a un.
+ */
+export function erreursDecision(s: SaisieDecision, contexte: { responsableConnu: boolean } = { responsableConnu: true }): string[] {
   const e: string[] = [];
   if (!s.option) e.push("Choisissez une option.");
   if (!justificationValide(s.justification)) e.push(`La justification doit faire au moins ${JUSTIFICATION_MIN} caractères.`);
@@ -354,22 +360,30 @@ export function erreursDecision(s: SaisieDecision): string[] {
   if (Number.isNaN(reel)) e.push("Le coût réel n'est pas un nombre.");
   else if (reel !== null && reel < 0) e.push("Le coût réel ne peut pas être négatif.");
   if ((est !== null || reel !== null) && !s.deviseCout.trim()) e.push("Indiquez la devise des coûts saisis (par exemple GNF).");
+  else if ((est !== null || reel !== null) && !MOTIF_DEVISE.test(s.deviseCout.trim())) e.push("La devise s'écrit sur trois lettres majuscules (par exemple GNF).");
+  if (s.option === "DEPLACER_RESEAU") {
+    if (!contexte.responsableConnu) e.push("Désignez d'abord un responsable sur le dossier (bouton « Attribuer ou modifier ») : le serveur l'exige pour proposer le déplacement d'un réseau.");
+    if (!s.dateDebutPrevue || !s.dateFinPrevue) e.push("Le déplacement d'un réseau exige un planning complet : date de début prévue et date de fin prévue.");
+  }
   if (s.dateDebutPrevue && s.dateFinPrevue && s.dateFinPrevue < s.dateDebutPrevue) e.push("La date de fin prévue ne peut pas précéder la date de début prévue.");
   return e;
 }
+
+/** Code d'une regle (serveur) : 2 a 64 caracteres, lettres, chiffres, point, tiret et souligne. */
+export const MOTIF_CODE_REGLE = /^[A-Za-z0-9][A-Za-z0-9_.-]{1,63}$/;
 
 export interface SaisieRegle { famille: TypeReseau | ""; code: string; toleranceProximiteM: string; margeIncertitude: string; justification: string }
 
 export function erreursRegle(s: SaisieRegle): string[] {
   const e: string[] = [];
   if (!s.code.trim()) e.push("Le code de la règle est obligatoire.");
-  else if (s.code.trim().length > 64) e.push("Le code de la règle fait 64 caractères au plus.");
+  else if (!MOTIF_CODE_REGLE.test(s.code.trim())) e.push("Le code de la règle fait 2 à 64 caractères : lettres, chiffres, point, tiret et souligné, en commençant par une lettre ou un chiffre.");
   const tol = lireMontant(s.toleranceProximiteM);
   if (tol === null) e.push("La tolérance de proximité est obligatoire (aucune valeur n'est proposée : saisissez-la en mètres, 0 si aucune).");
-  else if (Number.isNaN(tol) || tol < 0) e.push("La tolérance de proximité doit être un nombre de mètres supérieur ou égal à zéro.");
+  else if (Number.isNaN(tol) || tol < 0 || tol > 1000) e.push("La tolérance de proximité doit être un nombre de mètres compris entre 0 et 1 000.");
   const marge = lireMontant(s.margeIncertitude);
   if (marge === null) e.push("La marge d'incertitude est obligatoire (facteur appliqué à la précision déclarée du jeu).");
-  else if (Number.isNaN(marge) || marge < 0) e.push("La marge d'incertitude doit être un nombre supérieur ou égal à zéro.");
+  else if (Number.isNaN(marge) || marge < 0 || marge > 100) e.push("La marge d'incertitude doit être un nombre compris entre 0 et 100.");
   if (!justificationValide(s.justification)) e.push(`La justification doit faire au moins ${JUSTIFICATION_MIN} caractères.`);
   return e;
 }
@@ -386,6 +400,15 @@ export const MESSAGE_CODE_CONFLIT: Record<string, string> = {
   PREUVE_REQUISE: "Au moins une preuve est requise pour confirmer un conflit. Ajoutez une preuve (note, référence de document, contact du concessionnaire ou relevé de terrain), puis réessayez. Rien n'a été modifié.",
   JUSTIFICATION_REQUISE: `Une justification d'au moins ${JUSTIFICATION_MIN} caractères est obligatoire. Rien n'a été modifié.`,
   REGLE_IMMUABLE: "Une règle approuvée est immuable. Pour la changer, créez un nouveau brouillon : il portera une nouvelle version. Rien n'a été modifié.",
+  ROLE_INSUFFISANT: "Votre rôle ne permet pas cette action : infirmer un dossier confirmé ou décidé, clore un dossier et approuver une règle sont réservés aux administrateurs. Rien n'a été modifié.",
+  MENTION_RECOLEMENT_REQUISE: "Un déplacement de réseau est décidé : confirmez que le récolement reste à valider (il n'est pas géré dans cet outil) pour clore le dossier. Rien n'a été modifié.",
+  RESPONSABLE_REQUIS: "Un responsable doit être désigné sur le dossier avant de proposer le déplacement d'un réseau. Utilisez « Attribuer ou modifier », puis réessayez.",
+  PLANNING_REQUIS: "Le planning est incomplet ou incohérent : le déplacement d'un réseau exige une date de début et une date de fin prévues, la fin ne précédant pas le début. Rien n'a été modifié.",
+  STATUT_INCOMPATIBLE: "Le statut du dossier ne permet plus ce geste : une décision ne se propose et ne se tranche que pour un conflit confirmé. Rechargez la fiche. Rien n'a été modifié.",
+  DECISION_DEJA_TRANCHEE: "Cette décision vient d'être tranchée (approuvée, refusée ou annulée) : elle ne change plus. Rechargez la fiche.",
+  RESPONSABLE_INCONNU: "Le responsable désigné n'existe pas ou n'est pas actif. Vérifiez l'identifiant du compte.",
+  ANALYSE_NON_COMPARABLE: "Une analyse en échec n'a pas de résultat à comparer : choisissez deux analyses terminées.",
+  PROJET_OCCUPE: "Ce projet ou ce dossier est occupé par une autre opération (une analyse est peut-être en cours) : réessayez dans quelques instants.",
   CONFLIT_INTROUVABLE: "Ce conflit est introuvable : il a peut-être été retiré du projet. Revenez à la liste.",
   DECISION_INTROUVABLE: "Cette décision est introuvable. Rechargez la fiche.",
   REGLE_INTROUVABLE: "Cette règle est introuvable. Rechargez la liste des règles.",
