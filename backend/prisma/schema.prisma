@@ -4379,8 +4379,9 @@ model JeuDonneesProjet {
   createdAt              DateTime               @default(now())
   deletedAt              DateTime?
 
-  objets   ObjetProjet[]
-  conflits ConflitProjet[]
+  objets       ObjetProjet[]
+  conflits     ConflitProjet[] @relation("ConflitJeuReseau")
+  conflitsAxes ConflitProjet[] @relation("ConflitJeuAxes")
 
   @@index([projetId, statut])
   @@index([concessionnaireId])
@@ -4558,7 +4559,10 @@ model ConflitProjet {
   type              TypeConflit
   axe               String
   jeuReseauId       String?
-  jeuReseau         JeuDonneesProjet?      @relation(fields: [jeuReseauId], references: [id], onDelete: Restrict)
+  jeuReseau         JeuDonneesProjet?      @relation("ConflitJeuReseau", fields: [jeuReseauId], references: [id], onDelete: Restrict)
+  /// Plan d axes dont depend un dossier de COUVERTURE_INSUFFISANTE (sa geometrie est l axe) ; nul pour les autres types.
+  jeuAxesId         String?
+  jeuAxes           JeuDonneesProjet?      @relation("ConflitJeuAxes", fields: [jeuAxesId], references: [id], onDelete: Restrict)
   objetId           BigInt?
   objet             ObjetProjet?           @relation(fields: [objetId], references: [id], onDelete: Restrict)
   concessionnaireId String?
@@ -4592,6 +4596,7 @@ model ConflitProjet {
   @@index([projetId, type])
   @@index([responsableId])
   @@index([jeuReseauId])
+  @@index([jeuAxesId])
   @@index([premiereAnalyseId])
   @@index([derniereAnalyseId])
   @@map("conflits_projet")
