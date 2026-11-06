@@ -6,10 +6,11 @@ import { BandeauHorsLigne, EtatChargement, EtatErreur, EtatVide } from "../compo
 import { PanneauAnalyse } from "../components/projets-voirie/PanneauAnalyse";
 import { PanneauCouches, nomDuJeu } from "../components/projets-voirie/PanneauCouches";
 import { FicheObjet } from "../components/projets-voirie/FicheObjet";
+import { OngletConflits, type SurbrillanceConflit } from "../components/projets-voirie/OngletConflits";
 import { Echantillon, EchantillonAxes, EchantillonConflit } from "../components/projets-voirie/Motifs";
 import { useAuth } from "../lib/auth";
 import {
-  useAnalyse, useCarte, useDecisionJeu, useEnLigne, useModifierProjet, useProjet, useRetirerJeu, useValeurDifferee,
+  useAnalyse, useCarte, useConcessionnaires, useDecisionJeu, useEnLigne, useModifierProjet, useProjet, useRetirerJeu, useValeurDifferee,
 } from "../lib/projetsVoirieHooks";
 import { exporterCsv, lireObjetCarte, type JeuProjet, type ObjetCarte } from "../lib/projetsVoirieApi";
 import {
@@ -22,7 +23,7 @@ const CarteProjet = lazy(() => import("../components/projets-voirie/CarteProjet"
 const DialogueDepot = lazy(() => import("../components/projets-voirie/DialogueDepot").then((m) => ({ default: m.DialogueDepot })));
 
 /**
- * Page d'un projet : carte plein cadre et panneau a deux onglets (Analyse, Couches).
+ * Page d'un projet : carte plein cadre et panneau a trois onglets (Analyse, Couches, Conflits).
  *
  * Disposition : l'ordre du DOM est l'ordre de lecture ET de tabulation (barre de la carte, carte, panneau) ; il ne change pas d'un point de
  * rupture a l'autre. Sous 1280 px, une seule colonne : la carte puis le panneau. A partir de 1280 px, la carte a gauche et le panneau a droite.
@@ -34,8 +35,8 @@ const DialogueDepot = lazy(() => import("../components/projets-voirie/DialogueDe
  * des dialogues (z-50).
  */
 
-type IdOnglet = "analyse" | "couches";
-const ONGLETS: { id: IdOnglet; libelle: string }[] = [{ id: "analyse", libelle: "Analyse" }, { id: "couches", libelle: "Couches" }];
+type IdOnglet = "analyse" | "couches" | "conflits";
+const ONGLETS: { id: IdOnglet; libelle: string }[] = [{ id: "analyse", libelle: "Analyse" }, { id: "couches", libelle: "Couches" }, { id: "conflits", libelle: "Conflits" }];
 const PLAFOND_OBJETS_LISTE = 5000;
 const PLAFOND_JEUX_CARTE = 50;
 const CONFLITS_PAR_DEFAUT: Record<CleConflit, boolean> = { chaussee: true, emprise: true, hors: false, croisements: true };
@@ -60,6 +61,9 @@ export function ProjetVoirieDetailPage() {
   const [selection, setSelection] = useState<ObjetCarte | null>(null);
   const [depot, setDepot] = useState(false);
   const [jeuEnAvant, setJeuEnAvant] = useState<string | null>(null);
+  // Onglet « Conflits » : monte a la premiere visite puis conserve (filtres, dossier ouvert) ; sa geometrie en surbrillance va sur la carte.
+  const [conflitsMonte, setConflitsMonte] = useState(false);
+  const [surbrillance, setSurbrillance] = useState<SurbrillanceConflit | null>(null);
   const refTitreFiche = useRef<HTMLHeadingElement>(null);
   const refOnglets = useRef<Array<HTMLButtonElement | null>>([]);
   const tronqueRef = useRef(false);
@@ -107,6 +111,7 @@ export function ProjetVoirieDetailPage() {
     return sortie;
   }, [couches, jeuParId]);
 
+  const concessionnaires = useConcessionnaires(conflitsMonte);
   const modifier = useModifierProjet(id ?? "");
   const retirer = useRetirerJeu(id ?? "");
   const decision = useDecisionJeu(id ?? "");
@@ -140,7 +145,8 @@ export function ProjetVoirieDetailPage() {
   }
 
   // Un changement de projet repart de zero.
-  useEffect(() => { setSelection(null); setApercu(null); setMasques(new Set()); setRequete(null); setVue(null); }, [id]);
+  useEffect(() => { setSelection(null); setApercu(null); setMasques(new Set()); setRequete(null); setVue(null); setConflitsMonte(false); setSurbrillance(null); }, [id]);
+  useEffect(() => { if (onglet === "conflits") setConflitsMonte(true); }, [onglet]);
 
   if (projet.isPending) return <EtatChargement libelle="Chargement du projet…" />;
   if (projet.isError || !fiche) {
@@ -228,7 +234,7 @@ export function ProjetVoirieDetailPage() {
             <Suspense fallback={<EtatChargement libelle="Chargement de la carte…" />}>
               <CarteProjet
                 fond={fond} bbox={fiche.bbox} cadrageCle={cadrageCle} couches={couches} jeux={jeux} analyse={analyse.data}
-                conflitsVisibles={conflitsVisibles} selection={selection} onSelect={choisirObjet} onVue={surVue}
+                conflitsVisibles={conflitsVisibles} selection={selection} surbrillance={surbrillance} onSelect={choisirObjet} onVue={surVue}
               />
             </Suspense>
             {sansDonnee && (
@@ -237,7 +243,7 @@ export function ProjetVoirieDetailPage() {
               </p>
             )}
           </div>
-          <Legende jeux={jeuxAffiches} conflitsVisibles={conflitsDisponibles ? conflitsVisibles : null} />
+          <Legende jeux={jeuxAffiches} conflitsVisibles={conflitsDisponibles ? conflitsVisibles : null} dossierEnEvidence={surbrillance !== null} />
         </section>
 
         <aside id="pv-panneau" aria-label="Panneau du projet" className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm xl:max-h-[calc(100vh-11rem)] xl:overflow-y-auto">
@@ -259,7 +265,7 @@ export function ProjetVoirieDetailPage() {
             ))}
           </div>
           <div role="tabpanel" id={`pv-panneau-${onglet}`} aria-labelledby={`pv-onglet-${onglet}`} className="mt-3">
-            {onglet === "analyse" ? (
+            {onglet === "analyse" && (
               <div className="space-y-3">
                 {sansDonnee && (
                   <EtatVide titre="Ce projet n'a pas encore de données">
@@ -275,7 +281,8 @@ export function ProjetVoirieDetailPage() {
                   exporter={() => exporterCsv(fiche.id, fiche.code, apercu, inclure)}
                 />
               </div>
-            ) : (
+            )}
+            {onglet === "couches" && (
               <PanneauCouches
                 jeux={jeux} visibles={visibles}
                 onBasculerJeu={(jid, v) => setMasques((m) => { const n = new Set(m); if (v) n.delete(jid); else n.add(jid); return n; })}
@@ -287,6 +294,14 @@ export function ProjetVoirieDetailPage() {
                 decider={(jid, d, justification) => decision.mutateAsync({ jeuId: jid, decision: d, justification })}
                 jeuMisEnAvant={jeuEnAvant}
               />
+            )}
+            {conflitsMonte && (
+              <div hidden={onglet !== "conflits"}>
+                <OngletConflits
+                  projet={fiche} actif={onglet === "conflits"} concessionnaires={concessionnaires.data ?? []} role={user?.role}
+                  peutEcrire={peutEcrire} estAdmin={estAdmin} enLigne={enLigne} onSurbrillance={setSurbrillance}
+                />
+              </div>
             )}
           </div>
         </aside>
@@ -302,7 +317,7 @@ export function ProjetVoirieDetailPage() {
 }
 
 /** Legende TEXTUELLE de ce qui est affiche : couleur, motif de trait (nomme) et libelle. */
-function Legende({ jeux, conflitsVisibles }: { jeux: JeuProjet[]; conflitsVisibles: Record<CleConflit, boolean> | null }) {
+function Legende({ jeux, conflitsVisibles, dossierEnEvidence }: { jeux: JeuProjet[]; conflitsVisibles: Record<CleConflit, boolean> | null; dossierEnEvidence: boolean }) {
   const lignes = new Map<string, { s: ReturnType<typeof styleJeu>; nonAutorise: boolean }>();
   for (const j of jeux) {
     const s = styleJeu(j.role, j.typeReseau ?? j.concessionnaire?.typeReseau ?? null);
@@ -312,7 +327,7 @@ function Legende({ jeux, conflitsVisibles }: { jeux: JeuProjet[]; conflitsVisibl
   return (
     <div className="border-t border-gray-200 px-3 py-2">
       <p className="text-xs font-semibold text-gray-800">Légende</p>
-      {lignes.size === 0 && conflits.length === 0 ? (
+      {lignes.size === 0 && conflits.length === 0 && !dossierEnEvidence ? (
         <p className="text-xs text-gray-600">Aucune couche affichée.</p>
       ) : (
         <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-800">
@@ -325,6 +340,11 @@ function Legende({ jeux, conflitsVisibles }: { jeux: JeuProjet[]; conflitsVisibl
           {conflits.map((c) => (
             <li key={c} className="flex items-center gap-1"><EchantillonConflit cle={c} />{STYLE_CONFLIT[c].libelle} ({STYLE_CONFLIT[c].nomMotif})</li>
           ))}
+          {dossierEnEvidence && (
+            <li data-testid="legende-dossier" className="flex items-center gap-1">
+              <Echantillon couleur="#7f1d1d" motif="" epaisseur={6} />Dossier de conflit ouvert (trait sombre épais cerclé de blanc)
+            </li>
+          )}
         </ul>
       )}
     </div>

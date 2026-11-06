@@ -180,6 +180,16 @@ export function transitionsDeSecours(statut: StatutConflit, role: string | undef
   }
 }
 
+const ESPACES_INSECABLES = new RegExp("[" + String.fromCharCode(0x202f, 0xa0) + "]", "g");
+
+/** Date et heure d'un evenement d'historique, en UTC (la Guinee est a UTC+0 toute l'annee) : deterministe, sans dependance au fuseau du poste. */
+export function formaterDateHeure(iso: string | null | undefined): string {
+  if (!iso) return "date inconnue";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "date inconnue";
+  return `${new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "UTC" }).format(d).replace(ESPACES_INSECABLES, " ")} UTC`;
+}
+
 /** Libelle du bouton d'une transition : un verbe d'etat du dossier, jamais un verbe d'execution. */
 export function libelleTransition(de: StatutConflit, vers: StatutConflit): string {
   if (vers === "INFIRME") return de === "A_INVESTIGUER" || de === "POTENTIEL" ? "Infirmer ce conflit" : "Infirmer ce conflit (administrateur)";
