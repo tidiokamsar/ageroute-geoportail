@@ -57,6 +57,8 @@ lancer "sections.integration.mts"
 lancer "inspection-terrain.integration.mts"
 # Projets de voirie et reseaux : clone `essai_projets_voirie` ; exige la migration 20261030100000 dans `replay` (95 migrations).
 lancer "projets-voirie.integration.mts"
+# Dossiers de conflit (lot RC-3) : clone `essai_conflits_pv` ; applique lui-meme la migration 20261031100000 au clone si `replay` ne la porte pas.
+lancer "conflits-projets-voirie.integration.mts"
 
 printf '\n%s\n' "Resultat des bancs d'integration"
 printf '%s\n' "${lignes[@]}"

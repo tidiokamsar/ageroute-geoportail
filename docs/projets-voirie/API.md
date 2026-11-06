@@ -1,6 +1,6 @@
 # API Projets de voirie et réseaux : référence
 
-Préfixe : `/api/v2/projets-voirie`. Contrat : `docs/projets-voirie/CONTRAT.md` (v2, fait foi pour le modèle et les règles). Ce document décrit les routes **telles qu'elles répondent**. Les exemples sont des réponses réelles, relevées par le banc `backend/tests-integration/projets-voirie.integration.mts` sur des données 100 % synthétiques (identifiants raccourcis, listes tronquées).
+Préfixe : `/api/v2/projets-voirie`. Contrat : `docs/projets-voirie/CONTRAT.md` (v2, fait foi pour le modèle et les règles) ; dossiers de conflit : `CONTRAT-CONFLITS.md` et la section « Dossiers de conflit (lot RC-3) » de ce document. Ce document décrit les routes **telles qu'elles répondent**. Les exemples sont des réponses réelles, relevées par le banc `backend/tests-integration/projets-voirie.integration.mts` sur des données 100 % synthétiques (identifiants raccourcis, listes tronquées).
 
 Toutes les routes : jeton d'accès (`Authorization: Bearer ...`), clé de module `projets-voirie` (un `ADMIN` passe sans clé), réponses `Cache-Control: no-store` et `X-Content-Type-Options: nosniff`. Erreurs : `{ "error": "texte", "code": "CODE", ... }`.
 
@@ -34,7 +34,7 @@ Contrôle territorial : repose sur `perimetres_comptes` comme les autres routes 
 | `GET /:id/analyse` | lecture | analyse indicative (section Analyse) |
 | `GET /:id/analyse/export.csv` | `ADMIN`, `GESTIONNAIRE` | `text/csv`, audité |
 
-Il n'existe **aucune** route d'export des géométries d'un jeu (ni GeoJSON, ni KML) ; un test de l'inventaire des accès fige la liste des 15 routes.
+Il n'existe **aucune** route d'export des géométries d'un jeu (ni GeoJSON, ni KML) ; un test de l'inventaire des accès fige la liste des routes (15 du socle ; les 16 routes des dossiers de conflit sont décrites dans la section « Dossiers de conflit (lot RC-3) »).
 
 ### Créer un projet
 
@@ -252,5 +252,247 @@ Lire la géométrie d'un réseau de tiers (carte, couche de conflits et croiseme
 
 - Données RESTREINT par défaut, jamais dans l'API publique ni les tuiles (test statique `isolation.test.ts` + banc : aucune réponse publique ne contient les noms des objets).
 - Aucune écriture hors des tables du module et d'`audit_logs` (test statique + banc : comptes de toutes les tables avant et après).
-- Entités auditées : `ProjetVoirie`, `JeuDonneesProjet`, `ConcessionnaireReseau`, `ExportProjetVoirie`, `ConsultationJeuProjet` (lecture de la géométrie d'un jeu sensible, voir plus haut). Actions : `CREATE` (projet, concessionnaire, dépôt, export), `UPDATE` (projet), `VALIDATE` (autorisation), `REJECT` (rejet), `DELETE` (retrait). Les valeurs auditées ne portent aucune géométrie.
+- Entités auditées : `ProjetVoirie`, `JeuDonneesProjet`, `ConcessionnaireReseau`, `ExportProjetVoirie`, `ConsultationJeuProjet` (lecture de la géométrie d'un jeu sensible, voir plus haut) ; lot RC-3 : `AnalyseConflitProjet` (une ligne par analyse, y compris en échec), `RegleConflit` (création, approbation, dérogation), `ConflitProjet` (une ligne par écriture humaine : attribution, transition, preuve, décision proposée, approuvée ou refusée, dérogation), `ExportConflitsProjetVoirie`. Aucune ligne ne porte de géométrie. Actions : `CREATE` (projet, concessionnaire, dépôt, export), `UPDATE` (projet), `VALIDATE` (autorisation), `REJECT` (rejet), `DELETE` (retrait). Les valeurs auditées ne portent aucune géométrie.
 - La base refuse : suppression physique, modification d'un objet, objet vide / invalide / hors Guinée / de type incohérent, jeu dont rôle, concessionnaire, nature, version, retrait ou décision sont incohérents, deux jeux autorisés de même clé.
+
+## Dossiers de conflit (lot RC-3)
+
+Contrat : `docs/projets-voirie/CONTRAT-CONFLITS.md` (modèle, machine à états, règles). Les exemples ci-dessous sont des réponses réelles du banc `backend/tests-integration/conflits-projets-voirie.integration.mts` (données 100 % synthétiques, identifiants raccourcis, listes tronquées).
+
+**Principe.** Le socle calcule une analyse 2D à la demande ; ce lot la **persiste** : une analyse est reproductible (versions et empreintes des jeux, versions des règles, largeurs, version de l'algorithme) et chaque résultat devient un **dossier de conflit** suivi dans le temps. Un conflit est un **signal de vérification, jamais un ordre** : aucune route, aucun champ ne crée d'ordre, de déplacement ni de décision automatique. L'absence de conflit détecté ne prouve pas l'absence de réseau.
+
+Mêmes gardes, dans le même ordre, que le socle (voir « Gardes, dans l'ordre ») : jeton, clé de module, octet NUL, UUID (`IDENTIFIANT_INVALIDE` pour `:cid`, `:aid`, `:did`, `:regleId` et le paramètre `avec`), rôle, **projet désigné (404 identique hors périmètre)**, validation du corps. Les 16 routes figurent à l'inventaire des accès (`inventaire-acces.test.ts`, 31 routes au total pour le module).
+
+### Routes
+
+| Route | Rôle | Réponse |
+|---|---|---|
+| `GET /:id/regles` | lecture | `{ regles, effectives }` : règles du projet et générales (dont la règle par défaut), et la règle **effective** de chacune des six familles |
+| `POST /:id/regles` | ADMIN, GESTIONNAIRE | 201 `{ regle }` (`BROUILLON`, version suivante) |
+| `POST /:id/regles/:regleId/approuver` | ADMIN | `{ regle }` ; corps `{ justification, derogation? }` |
+| `POST /:id/analyses` | ADMIN, GESTIONNAIRE | 201 `{ analyse, resume }` ; corps vide `{}` (aucun paramètre de calcul n'est modifiable par la requête) |
+| `GET /:id/analyses` | lecture | `{ analyses, curseurSuivant }` (`limite` 1 à 100, défaut 25 ; `curseur`) |
+| `GET /:id/analyses/:aid` | lecture | `{ analyse }` |
+| `GET /:id/analyses/:aid/comparaison?avec=:bid` | lecture | `:aid` est la comparée, `:bid` la **référence** |
+| `GET /:id/conflits` | lecture | `{ conflits, compteurs, total, curseurSuivant }` |
+| `GET /:id/conflits/export.csv` | ADMIN, GESTIONNAIRE, audité | `text/csv`, un conflit par ligne, aucune géométrie |
+| `GET /:id/conflits/:cid` | lecture | fiche complète |
+| `PATCH /:id/conflits/:cid` | ADMIN, GESTIONNAIRE | `{ conflit, modifie }` |
+| `POST /:id/conflits/:cid/statut` | ADMIN, GESTIONNAIRE (selon la transition) | `{ conflit }` |
+| `POST /:id/conflits/:cid/preuves` | ADMIN, GESTIONNAIRE | 201 `{ preuve }` |
+| `POST /:id/conflits/:cid/decisions` | ADMIN, GESTIONNAIRE | 201 `{ decision }` |
+| `POST /:id/conflits/:cid/decisions/:did/approuver` et `/refuser` | ADMIN, GESTIONNAIRE (séparation des tâches) | `{ decision }` ; corps `{ motif, derogation? }` |
+
+### Calcul : ce qu'est un conflit
+
+Entrées : les jeux **`AUTORISE`** du projet (jamais la quarantaine), les largeurs du projet, la règle applicable à la famille de chaque réseau. Le calcul réutilise celui du socle (mêmes axes simplifiés, mêmes tampons, mêmes morceaux d'axe, même mesure sur la géographie) : la mesure d'un conflit est celle de l'analyse indicative pour le même axe et le même objet (vérifié par le banc, écart maximal 0,02 m). Seuls les réseaux **linéaires** sont évalués.
+
+Un conflit = une **partie connexe** d'un réseau, pour un axe, un objet et un type ; les parties d'un même objet qui tombent dans la même cellule de localisation (environ 22 m, `floor(x / 0,0002° + 0,5)`) ne font qu'un dossier.
+
+| Type | Géométrie du dossier | Quand |
+|---|---|---|
+| `INTERSECTION_CHAUSSEE` | partie du réseau dans la bande de chaussée (axe ± demi-chaussée) | réseau dans la chaussée |
+| `INTERSECTION_EMPRISE` | partie dans l'emprise, **hors chaussée** | réseau dans l'emprise |
+| `PROXIMITE` | partie comprise dans la bande élargie | objet sans aucune partie dans l'emprise, à moins de demi-emprise + tolérance + précision déclarée x marge |
+| `TRAVERSEE` | un point par croisement | le réseau coupe l'axe |
+| `COUVERTURE_INSUFFISANTE` | l'axe | aucun jeu de réseau autorisé (linéaire) dont l'emprise englobante **contient** l'axe : zone à investiguer, **jamais** « absence de réseau » |
+| `DIVERGENCE_SOURCES` | | **non calculé dans ce lot** (voir « Ce qui n'est pas fait ») |
+
+La **mesure** porte `longueurChausseeM`, `longueurEmpriseM` (chaussée comprise, comme dans le socle), `distanceMinM` (à l'axe, `null` pour une couverture), `nbCroisements`, `longueurPieceM` (longueur de la partie, de l'axe pour une couverture). Chaque objet d'un fichier produit ses propres dossiers : trois circuits de même tracé donnent trois dossiers (le socle les fusionne dans ses totaux, pas dans son détail par objet).
+
+**Classification initiale.** Un calcul ne produit que `A_INVESTIGUER` ou `POTENTIEL`, jamais un statut humain. Précision déclarée A, B ou C : `POTENTIEL` ; D, E ou **inconnue** : `A_INVESTIGUER` (motif `PRECISION_INCONNUE` ou `PRECISION_INSUFFISANTE`) ; couverture et divergence : toujours `A_INVESTIGUER`. `verticalEvalue` est **toujours faux** dans ce lot (profondeur et altitude absentes) et chaque dossier porte la mention ; aucun champ ne permet de le déclarer évalué (le noyau sait faire passer en `A_INVESTIGUER` un conflit dont le vertical est exigé et non évalué, derrière un paramètre faux dans ce lot).
+
+**Clé stable.** `cle` = SHA-256 de (projet, axe, objet de réseau, type, cellule de localisation). L'objet de réseau est identifié par concessionnaire + nom (ou empreinte de géométrie s'il n'a pas de nom), jamais par les identifiants de jeu et d'objet, qui changent à chaque version. Deux objets de même nom, même axe, même type et même cellule restent deux dossiers (départagés par l'empreinte) ; deux copies exactes n'en font qu'un.
+
+### Analyse persistée
+
+`POST /:id/analyses` rend 201 :
+
+```json
+{ "analyse": { "id": "d7ee318c-...", "projetId": "8ec2f02b-...", "numero": 1, "statut": "TERMINEE", "largeurEmpriseM": 15, "largeurChausseeM": 7,
+    "regles": [ { "code": "RC-2D-0.1", "portee": "DEFAUT", "famille": "TELECOM", "regleId": "00000000-0000-4000-8000-00000000c301", "version": 0, "margeIncertitude": 1, "toleranceProximiteM": 0 } ],
+    "jeux": [ { "role": "RESEAU_TIERS", "jeuId": "ce7ac294-...", "sha256": "25ce7e1e94f7...", "statut": "AUTORISE", "version": 1, "nomFichier": "r1.geojson", "typeReseau": "TELECOM", "classePrecision": "B", "concessionnaireId": "71b4a746-...", "precisionHorizontaleM": 3.5 } ],
+    "versionAlgorithme": "RC3-2D-UTM-1", "nbConflitsTrouves": 14, "declenchePar": { "id": "d592c42c-...", "nomComplet": "Sekou Gestionnaire" }, "duree": 345, "createdAt": "2026-11-06T13:46:48.594Z",
+    "resume": { "statut": "TERMINEE", "versionAlgorithme": "RC3-2D-UTM-1",
+      "totaux": { "conflitsTrouves": 14, "axes": 2, "jeuxReseau": 3, "axesNonCouverts": 1 },
+      "parType": { "INTERSECTION_CHAUSSEE": 6, "INTERSECTION_EMPRISE": 4, "PROXIMITE": 1, "TRAVERSEE": 2, "COUVERTURE_INSUFFISANTE": 1 },
+      "parStatut": { "POTENTIEL": 12, "A_INVESTIGUER": 2 },
+      "nouveaux": 14, "retrouves": 0, "identiques": 0, "modifies": 0, "disparus": 0, "reapparus": 0, "marquesAReexaminer": 0,
+      "plafond": { "conflitsMax": 20000 },
+      "limites": [ "Conflit vertical non évalué : profondeur et altitude absentes.", "Aucun conflit détecté ne prouve l'absence de réseau.", "Résultat indicatif : aucune décision de déplacement n'en découle.", "..." ] } },
+  "resume": { "...": "même objet que analyse.resume" } }
+```
+
+`parStatut` est l'état du projet **après** l'analyse (statuts existants, inchangés, plus statuts initiaux des nouveaux). `statut` vaut `TERMINEE` ou `ECHEC` (une analyse qui échoue par délai ou volume laisse une ligne `ECHEC` sans conflit : `resume.erreur = { code, message }` ; elle n'est pas comparable, 409 `ANALYSE_NON_COMPARABLE`). Les `jeux` d'une analyse listent les jeux **pris en compte** (axes et réseaux autorisés) avec leur empreinte ; une analyse est immuable (la base refuse UPDATE et DELETE).
+
+**Rejeu** (une nouvelle analyse sur un projet qui a déjà des conflits) :
+- conflit retrouvé (même clé) : `derniereAnalyseId`, mesure, géométrie, objet et jeu courants sont mis à jour ; si la **mesure** a changé, `aReexaminer = true` et `motifReexamen = MESURE_MODIFIEE` ; si la mesure est la même mais que le plan d'axes, le jeu de réseau (empreinte) ou la classe de précision ont changé, `NOUVELLE_VERSION_DONNEES` ;
+- conflit **non retrouvé** : il reste en base, `aReexaminer = true`, `motifReexamen = NON_RETROUVE` ;
+- conflit nouveau : créé ;
+- **aucun statut, risque, responsable, échéance ni action proposée n'est jamais modifié par un calcul** (la base le refuse : déclencheur `conflits_projet_recalcul`, la transaction d'analyse pose `bdri.conflit_recalcul`) ; si la classe de précision d'un jeu change, le dossier est marqué à réexaminer, il n'est pas requalifié ;
+- un dossier non retrouvé qui réapparaît avec la même mesure redevient normal (`aReexaminer = false`) et reçoit une ligne `RETROUVE` ;
+- **idempotent** : rejouer les mêmes entrées ne change que `derniereAnalyseId` ; aucune ligne d'historique n'est ajoutée pour un dossier inchangé.
+
+Une seule analyse à la fois par projet (verrou consultatif propre à l'analyse, qui ne bloque pas les autres opérations du projet) : 503 `PROJET_OCCUPE` sinon. Trois analyses simultanées au plus par processus (503 `SERVICE_OCCUPE`, comme le socle). Délai côté base : `PROJETS_VOIRIE_DELAI_ANALYSE_MS` (504 `ANALYSE_TROP_LONGUE`) ; plafonds de sommets du socle (422 `ANALYSE_TROP_VOLUMINEUSE` avec `sommetsAxes` et `sommetsReseau`) ; plafond de conflits `PROJETS_VOIRIE_CONFLITS_MAX` (défaut 20 000, bornes 100 à 100 000 ; 422 `ANALYSE_TROP_VOLUMINEUSE` avec `conflitsMax`).
+
+**Comparaison** : `GET /:id/analyses/:aid/comparaison?avec=:bid` (`:aid` = comparée, `:bid` = référence). Extrait réel (analyse 4 contre analyse 3, après décalage de l'axe A de 4 m) :
+
+```json
+{ "reference": { "id": "b6d0b635-...", "numero": 3, "createdAt": "2026-11-06T13:46:55.513Z" },
+  "comparee": { "id": "ddffbb93-...", "numero": 4, "createdAt": "2026-11-06T13:46:55.976Z" },
+  "identiques": { "nb": 10 },
+  "apparus": { "nb": 4, "cles": [ "1d57180b16df..." ], "detailsTronques": false,
+    "conflits": [ { "cle": "1d57180b16df...", "id": "b0853b7e-...", "type": "INTERSECTION_CHAUSSEE", "axe": "Axe A", "statut": "POTENTIEL", "aReexaminer": false } ] },
+  "disparus": { "nb": 3, "cles": [ "3a0cebb9fcdd..." ], "detailsTronques": false,
+    "conflits": [ { "cle": "3a0cebb9fcdd...", "id": "b7949562-...", "type": "INTERSECTION_EMPRISE", "axe": "Axe A", "statut": "POTENTIEL", "aReexaminer": true } ] },
+  "modifies": { "nb": 2, "cles": [ "1e6ff5f1edd6..." ], "detailsTronques": false, "conflits": [ { "...": "même forme" } ] } }
+```
+
+`identiques` porte aussi `cles` (la liste complète). `conflits` identifie les dossiers touchés (au plus 1 000 par catégorie, `detailsTronques` sinon) : un dossier disparu est toujours en base, avec son statut.
+
+### Liste et fiche
+
+`GET /:id/conflits` : filtres `statut` et `type` (une valeur ou une liste séparée par des virgules), `axe` (nom exact, casse ignorée), `concessionnaireId`, `responsableId`, `aReexaminer` et `echeanceDepassee` (`true` ou `false`), `q` (recherche dans l'axe, l'action proposée, le concessionnaire, le nom de l'objet), `limite` (1 à 200, défaut 50), `curseur` (opaque). Tout filtre inconnu ou invalide : 400 `PARAMETRES_INVALIDES` ; curseur invalide : 400 `CURSEUR_INVALIDE`. `total` = nombre de conflits qui répondent à **tous** les filtres ; `compteurs` = répartition par statut des conflits qui répondent aux filtres **hors statut** (pour afficher les pastilles d'un filtre à choix multiple). Une échéance est « dépassée » si elle est antérieure à aujourd'hui (UTC) et que le conflit n'est ni `CLOTURE` ni `INFIRME`. Tri : du plus récent au plus ancien.
+
+```json
+{ "conflits": [ { "id": "ddfedf00-...", "projetId": "8ec2f02b-...", "cle": "664876a4a805...", "type": "TRAVERSEE", "axe": "Axe A", "statut": "POTENTIEL",
+      "risque": null, "aReexaminer": false, "motifReexamen": null, "responsable": null, "echeance": null, "echeanceDepassee": false, "actionProposee": null,
+      "classePrecision": "B", "verticalEvalue": false, "concessionnaire": { "id": "71b4a746-...", "nom": "Operateur Telecom Synthetique" }, "typeReseau": "TELECOM",
+      "jeuReseauId": "ce7ac294-...", "objet": { "id": "8", "nom": "Fibre-Marqueur P" },
+      "mesure": { "distanceMinM": 0, "nbCroisements": 1, "longueurPieceM": 0, "longueurEmpriseM": 0, "longueurChausseeM": 0 },
+      "premiereAnalyseId": "d7ee318c-...", "derniereAnalyseId": "b1c20bdc-...", "bbox": [ -10.0908815, 9.1805913, -10.0908815, 9.1805913 ], "geometrieMasquee": false,
+      "createdAt": "2026-11-06T13:46:48.250Z", "updatedAt": "2026-11-06T13:46:50.049Z" } ],
+  "compteurs": { "A_INVESTIGUER": 2, "POTENTIEL": 12, "CONFIRME": 0, "INFIRME": 0, "TRAITEMENT_DECIDE": 0, "CLOTURE": 0 }, "total": 14, "curseurSuivant": null }
+```
+
+La liste ne porte **aucune géométrie** : `bbox` (ouest, sud, est, nord) suffit à zoomer. `GET /:id/conflits/:cid` rend la fiche :
+
+```json
+{ "conflit": { "...": "les champs de la liste", "geometrie": { "type": "LineString", "coordinates": [ [ -10.092065, 9.180606 ], [ -10.091519, 9.180608 ] ] } },
+  "sources": [ { "jeuId": "441dd75a-...", "role": "AXES_TRAVAUX", "version": 1, "sha256": "707294b93bbf...", "statut": "AUTORISE", "nomFichier": "axes.kml", "confidentialite": "RESTREINT_PROJET", "classePrecision": null, "precisionHorizontaleM": null, "concessionnaire": null, "typeReseau": null, "dateDonnees": null },
+               { "jeuId": "ce7ac294-...", "role": "RESEAU_TIERS", "version": 1, "sha256": "25ce7e1e94f7...", "statut": "AUTORISE", "nomFichier": "r1.geojson", "confidentialite": "CONFIDENTIEL_CONCESSIONNAIRE", "classePrecision": "B", "precisionHorizontaleM": 3.5, "concessionnaire": { "id": "71b4a746-...", "nom": "Operateur Telecom Synthetique" }, "typeReseau": "TELECOM", "dateDonnees": null } ],
+  "regle": { "code": "RC-2D-0.1", "portee": "DEFAUT", "famille": "TELECOM", "regleId": "00000000-0000-4000-8000-00000000c301", "version": 0, "toleranceProximiteM": 0, "margeIncertitude": 1, "versionAlgorithme": "RC3-2D-UTM-1" },
+  "largeurs": { "empriseM": 15, "chausseeM": 7 },
+  "analyses": { "premiere": { "id": "d7ee318c-...", "numero": 1, "createdAt": "..." }, "derniere": { "id": "d7ee318c-...", "numero": 1, "createdAt": "..." } },
+  "tronconsProches": [ { "code": "BANC-T-PROCHE", "nom": "Troncon proche de l'axe A" } ],
+  "historique": [ { "id": "f2e689b4-...", "action": "CREATION", "ancienStatut": null, "nouveauStatut": "POTENTIEL", "justification": null, "acteur": null, "analyseId": "d7ee318c-...", "analyseNumero": 1,
+                    "donnees": { "type": "INTERSECTION_CHAUSSEE", "axe": "Axe A", "statutInitial": "POTENTIEL", "motifs": [], "notes": [ "VERTICAL_NON_EVALUE" ], "classePrecision": "B", "mesure": { "...": "..." } }, "createdAt": "..." } ],
+  "preuves": [], "decisions": [],
+  "transitionsPossibles": [ { "vers": "CONFIRME", "justificationRequise": true, "preuveRequise": true, "decisionRequise": false, "cloture": false, "bloquee": "PREUVE_REQUISE" },
+                            { "vers": "INFIRME", "justificationRequise": true, "preuveRequise": false, "decisionRequise": false, "cloture": false, "bloquee": null } ],
+  "avertissements": [ "Un conflit est un signal de vérification : aucun déplacement n'est décidé ni ordonné par le système.", "Conflit vertical non évalué : profondeur et altitude absentes.", "L'absence de conflit détecté ne prouve pas l'absence de réseau." ] }
+```
+
+- `transitionsPossibles` ne liste que les transitions que **le compte** peut tenter depuis l'état courant (vide pour un compte qui ne décide pas, et pour un dossier clos) ; `bloquee` dit ce qui la refuserait aujourd'hui (`PREUVE_REQUISE`, `DECISION_REQUISE`) ; `cloture: true` signale qu'une mention de récolement peut être exigée. **Aucune action « déplacer » ni « ordonner » n'existe.**
+- `regle` est celle de la **dernière analyse** pour la famille du réseau (pour un dossier de couverture, la première règle de l'analyse). `sources` : le plan d'axes et le jeu de réseau avec versions et empreintes ; un lecteur n'y voit que les jeux `AUTORISE`, un `RETIRE` n'est montré à personne.
+- `historique` est trié du plus ancien au plus récent ; `acteur` est nul pour un calcul (alors `analyseId` renseigné). `donnees` d'une ligne `CREATION` porte les motifs d'investigation (`PRECISION_INCONNUE`, `PRECISION_INSUFFISANTE`, `COUVERTURE_INSUFFISANTE`) et les notes (`VERTICAL_NON_EVALUE`) ; une ligne `MESURE_MODIFIEE` porte `avant` et `apres`.
+- **Géométrie et confidentialité.** `conflit.geometrie`, `bbox` et `jeuReseauId` suivent la règle des jeux du socle : un **lecteur** ne les reçoit (valeurs `null`, `geometrieMasquee: true`) que si le jeu de réseau est encore `AUTORISE` ; un jeu `REMPLACE` reste visible d'un ADMIN ou GESTIONNAIRE, un jeu `RETIRE` n'est visible de personne (le dossier reste, sa géométrie non). Un dossier de couverture n'a pas de jeu de réseau : sa géométrie (l'axe) est toujours rendue. Lire la géométrie ou la boîte englobante d'un réseau `CONFIDENTIEL_CONCESSIONNAIRE` ou `INFRASTRUCTURE_SENSIBLE` (liste ou fiche) est **tracé** comme la carte : une ligne `ConsultationJeuProjet` (`route: "conflits"`) par compte, par jeu et par fenêtre de 15 minutes, écrite avant la remise, sans géométrie.
+- Les réponses d'**écriture** (`PATCH`, `statut`) rendent le conflit sans `bbox` ni `geometrie` : relire la fiche.
+
+### Statuts et transitions
+
+Dix transitions seulement ; toute autre : 409 `TRANSITION_INTERDITE` (y compris vers le même statut, et toute sortie de `CLOTURE`). Chaque transition exige une **justification de 10 caractères au moins** (422 `JUSTIFICATION_REQUISE`) et écrit une ligne `STATUT` (acteur, ancien et nouveau statut, justification).
+
+| De | Vers | Qui | Exigences |
+|---|---|---|---|
+| `A_INVESTIGUER` | `POTENTIEL`, `INFIRME` | ADMIN, GESTIONNAIRE | justification |
+| `POTENTIEL` | `CONFIRME` | ADMIN, GESTIONNAIRE | justification, **au moins une preuve** (409 `PREUVE_REQUISE`) |
+| `POTENTIEL` | `INFIRME`, `A_INVESTIGUER` | ADMIN, GESTIONNAIRE | justification |
+| `CONFIRME` | `TRAITEMENT_DECIDE` | ADMIN, GESTIONNAIRE | justification, **une décision `APPROUVEE`** (409 `DECISION_REQUISE`) |
+| `CONFIRME`, `TRAITEMENT_DECIDE` | `INFIRME` | ADMIN (GESTIONNAIRE : 403 `ROLE_INSUFFISANT`) | justification |
+| `TRAITEMENT_DECIDE` | `CLOTURE` | ADMIN | justification (le motif), séparation des tâches, mention du récolement si un déplacement de réseau est décidé |
+| `INFIRME` | `A_INVESTIGUER` | ADMIN, GESTIONNAIRE | justification (réouverture) |
+
+Ordre des contrôles : transition connue (409), rôle (403), justification (422), preuve (409), décision (409), clôture. Corps : `{ "vers": "...", "justification": "...", "derogation": "...", "recolementAValider": true }` (`derogation` et `recolementAValider` facultatifs). Une transition faite par une personne **acquitte** le drapeau `aReexaminer` (la ligne d'historique porte `reexamenAcquitte` avec le motif d'origine). Un **verdict humain** (`CONFIRME`, `INFIRME`, `TRAITEMENT_DECIDE`, `CLOTURE`) n'est jamais modifié par un calcul.
+
+Clôture : si une décision `DEPLACER_RESEAU` est approuvée, le corps doit porter **`recolementAValider: true`** (mention explicite que le récolement reste à valider ; le récolement n'est pas géré dans ce lot) sinon 422 `MENTION_RECOLEMENT_REQUISE` ; la mention est inscrite dans l'historique. **Séparation des tâches** : la personne qui a placé le dossier en `TRAITEMENT_DECIDE` (la « proposition » de clôture) ne le clôt pas : 409 `SEPARATION_DES_TACHES`, sauf `derogation` motivée (10 caractères au moins) d'un ADMIN, inscrite dans l'historique et dans l'audit.
+
+Extrait réel d'une infirmation conservée (AT-08) : la ligne d'historique `STATUT` porte `acteur`, `createdAt`, `justification`, `ancienStatut: "A_INVESTIGUER"`, `nouveauStatut: "INFIRME"` ; la ligne `CREATION` (la proposition du calcul) reste en tête de l'historique et la mesure reste lisible ; le dossier reste dans la liste (`statut=INFIRME`) et offre la réouverture.
+
+### Attribution, preuves, décisions
+
+**`PATCH /:id/conflits/:cid`** : `responsableId` (UUID d'un compte actif, ou `null`), `echeance` (`AAAA-MM-JJ` ou `null`), `risque` (`FAIBLE`, `MOYEN`, `ELEVE`, `INCONNU` ou `null`), `actionProposee` (texte de 2 000 caractères au plus, ou `null`), et `aReexaminer: false` avec `justification` (10 caractères au moins, 422 sinon) pour **acquitter un re-examen** (ligne `REEXAMEN` d'un acteur, avec le motif d'origine). Tout autre champ (dont `statut`, `verticalEvalue`, `aReexaminer: true`) : 400 `CHAMPS_INVALIDES`. Un changement écrit une ligne `ATTRIBUTION` (`donnees`: `{ champ: { avant, apres } }`) ; **sans changement, 200 avec `modifie: false` et aucune ligne**. Responsable inconnu ou inactif : 400 `RESPONSABLE_INCONNU`. Réponse :
+
+```json
+{ "conflit": { "id": "0cf08ccc-...", "statut": "POTENTIEL", "risque": "ELEVE", "responsable": { "id": "e4d5019b-...", "nomComplet": "Fanta Gestionnaire" },
+               "echeance": "2099-01-31", "echeanceDepassee": false, "actionProposee": "Verifier la profondeur avec l'operateur avant tout travaux", "...": "..." }, "modifie": true }
+```
+
+**`POST /:id/conflits/:cid/preuves`** : `{ type, texte, reference? }` (`type` : `NOTE`, `REFERENCE_DOCUMENT`, `CONTACT_CONCESSIONNAIRE`, `RELEVE_TERRAIN` ; `reference` : texte libre de 500 caractères, **aucun fichier** dans ce lot). Journal en **ajout seul** (la base refuse UPDATE et DELETE). 201 :
+
+```json
+{ "preuve": { "id": "13e2d58a-...", "type": "REFERENCE_DOCUMENT", "texte": "Courrier de l'operateur confirmant le passage du cable", "reference": "Courrier 2026/045",
+              "auteur": { "id": "d592c42c-...", "nomComplet": "Sekou Gestionnaire" }, "createdAt": "2026-11-06T13:46:52.734Z" } }
+```
+
+**`POST /:id/conflits/:cid/decisions`** : `{ option, justification, contraintes?, coutEstime?, coutReel?, deviseCout?, dateDebutPrevue?, dateFinPrevue? }`. `option` : `PROTEGER`, `ADAPTER_PROJET`, `DEPLACER_RESEAU`, `SANS_INTERVENTION`, `A_ETUDIER`. Une décision se **propose** pour un conflit `CONFIRME` (409 `STATUT_INCOMPATIBLE` sinon) avec une justification de 10 caractères (422). `DEPLACER_RESEAU` exige un **responsable désigné sur le dossier** (422 `RESPONSABLE_REQUIS`) et un **planning complet** (422 `PLANNING_REQUIS`) ; deux dates inversées : 422 `PLANNING_REQUIS`. `coutEstime` et `coutReel` sont **deux champs distincts, saisis, jamais calculés** (positifs ou nuls, 13 chiffres entiers au plus) ; un coût exige `deviseCout` (trois majuscules, ex. `GNF`) : 400 sinon. Proposer ne change pas le statut du conflit. 201 :
+
+```json
+{ "decision": { "id": "7e99ec76-...", "conflitId": "0cf08ccc-...", "option": "DEPLACER_RESEAU", "justification": "Deplacement du cable propose : la chaussee prevue le recouvre sur 7 m",
+                "contraintes": "Coupure de service a coordonner avec l'operateur", "coutEstime": 12500000.5, "deviseCout": "GNF", "coutReel": null,
+                "dateDebutPrevue": "2026-12-01", "dateFinPrevue": "2026-12-20", "statut": "PROPOSEE", "proposePar": { "id": "d592c42c-...", "nomComplet": "Sekou Gestionnaire" },
+                "approuvePar": null, "approuveLe": null, "motifDecision": null, "derogationSeparation": null, "createdAt": "2026-11-06T13:46:53.478Z" } }
+```
+
+**`.../decisions/:did/approuver`** et **`/refuser`** : `{ motif, derogation? }` (motif de 10 caractères, 422 sinon). La décision doit être `PROPOSEE` (409 `DECISION_DEJA_TRANCHEE` : une décision tranchée ne change plus, la base le refuse) et le conflit `CONFIRME` (409 `STATUT_INCOMPATIBLE`). `approuvePar` est la personne qui a **tranché** (approbation ou refus). **Séparation des tâches** : la personne qui tranche une décision qu'elle a proposée doit avoir une `derogation` motivée (10 caractères au moins), exigée **aussi par une contrainte de la base** ; pour `DEPLACER_RESEAU`, ou dès qu'il existe au moins **deux comptes habilités** (ADMIN ou GESTIONNAIRE actifs, avec la clé de module, dans le périmètre du projet), seule la dérogation d'un **ADMIN** est admise ; s'il n'y a qu'un compte habilité, la dérogation motivée suffit. Sans dérogation valable : 409 `SEPARATION_DES_TACHES`. La dérogation est inscrite sur la décision, dans l'historique (`DECISION_APPROUVEE`, `DECISION_REFUSEE`) et dans l'audit (`memePersonne: true`).
+
+### Règles de conflit
+
+Une règle porte `toleranceProximiteM` (bande à vérifier **au-delà de l'emprise**, 0 à 1 000 m) et `margeIncertitude` (facteur appliqué à la **précision horizontale déclarée** du jeu, jamais inventée, 0 à 100, défaut 1) ; bande de proximité = demi-emprise + tolérance + précision x marge. Règle applicable à la famille d'un réseau : la plus récente approuvée, dans l'ordre **projet + famille**, **projet**, **générale + famille**, **générale**, **défaut** (`portee`: `PROJET_FAMILLE`, `PROJET`, `GENERALE_FAMILLE`, `GENERALE`, `DEFAUT`).
+
+**La règle par défaut `RC-2D-0.1` est créée par la migration** (version 0, `APPROUVEE`, tolérance 0, marge 1, identifiant fixe `00000000-0000-4000-8000-00000000c301`, sans auteur : `systeme: true`) : une base neuve a toujours une règle applicable, sans amorçage à l'exécution, et le rejeu de la migration ne la duplique pas. Elle est la seule règle sans auteur ; aucun seuil n'y est inventé.
+
+`POST /:id/regles` : `{ famille?, code, toleranceProximiteM, margeIncertitude?, justification }` (`famille` : une des six familles de réseau, ou absente = toutes ; `code` : 2 à 64 caractères, lettres, chiffres, `.`, `_`, `-`). La règle naît `BROUILLON`, rattachée au projet, en **version suivante** de (projet, famille, code) (1 pour la première) ; justification de 10 caractères (422). **Un brouillon n'est jamais appliqué.** `POST .../approuver` : ADMIN seulement (403 sinon), `{ justification, derogation? }`. L'**auteur** ne peut pas approuver sa propre règle sans `derogation` motivée (409 `SEPARATION_DES_TACHES`), tracée dans la règle (`derogationApprobation`) et dans l'audit. Une règle approuvée est **immuable** (409 `REGLE_IMMUABLE`, et déclencheur : on crée une nouvelle version) ; la règle par défaut aussi. Une règle approuvée s'applique à la **prochaine** analyse, qui enregistre sa version ; les analyses passées ne changent pas.
+
+```json
+{ "regle": { "id": "36e2dac3-...", "projetId": "8ec2f02b-...", "portee": "PROJET", "famille": "TELECOM", "code": "TOL-TELECOM", "version": 1, "toleranceProximiteM": 2, "margeIncertitude": 1.5,
+             "statut": "BROUILLON", "justification": "Tolerance proposee par la direction technique", "systeme": false, "creePar": { "id": "d592c42c-...", "nomComplet": "Sekou Gestionnaire" },
+             "approuvePar": null, "approuveLe": null, "motifApprobation": null, "derogationApprobation": null, "createdAt": "2026-11-06T13:46:54.880Z" } }
+```
+
+### Export CSV
+
+`GET /:id/conflits/export.csv` (mêmes filtres que la liste, sans `limite` ni `curseur`) : `text/csv; charset=utf-8`, BOM UTF-8, séparateur `;`, virgule décimale, `Content-Disposition: attachment; filename="conflits-<code>-AAAA-MM-JJ.csv"`, `X-Lignes-Exportees`, 100 000 lignes au plus. Un conflit par ligne, **agrégats seulement, aucune géométrie**. Cellules neutralisées contre l'injection de formules (préfixe apostrophe si elles commencent par `=`, `+`, `-`, `@`, tabulation ou retour chariot) comme l'export du socle. Audité (`ExportConflitsProjetVoirie`) **avant** la remise. Réservé aux ADMIN et GESTIONNAIRE (403 pour un lecteur).
+
+```
+axe;type;statut;risque;aReexaminer;motifReexamen;concessionnaire;typeReseau;classePrecision;verticalEvalue;longueurChausseeM;longueurEmpriseM;distanceMinM;nbCroisements;longueurPieceM;responsable;echeance;actionProposee;nbPreuves;nbDecisions;premiereAnalyse;derniereAnalyse;cle
+Axe A;INTERSECTION_CHAUSSEE;A_INVESTIGUER;;non;;Societe des Eaux Synthetique;EAU_POTABLE;inconnue;non;60,02;60,02;2;0;60,02;;;;0;0;1;2;45005a25f79d753c...
+```
+
+### Codes d'erreur ajoutés par ce lot
+
+| Statut | Code | Cas |
+|---|---|---|
+| 400 | `IDENTIFIANT_INVALIDE` | `:cid`, `:aid`, `:did`, `:regleId` ou `avec` qui n'est pas un UUID |
+| 400 | `CHAMPS_INVALIDES`, `PARAMETRES_INVALIDES`, `CURSEUR_INVALIDE`, `RESPONSABLE_INCONNU` | entrée mal formée (`details` donne le champ) |
+| 403 | `ROLE_INSUFFISANT` | transition ou approbation réservée à l'ADMIN |
+| 404 | `PROJET_INTROUVABLE` (masqué), `CONFLIT_INTROUVABLE`, `ANALYSE_INTROUVABLE`, `REGLE_INTROUVABLE`, `DECISION_INTROUVABLE` | inexistant ou d'un autre projet |
+| 409 | `TRANSITION_INTERDITE`, `SEPARATION_DES_TACHES`, `DECISION_REQUISE`, `PREUVE_REQUISE`, `REGLE_IMMUABLE` | contrat, sections 4 et 6 |
+| 409 | `STATUT_INCOMPATIBLE`, `DECISION_DEJA_TRANCHEE`, `ANALYSE_NON_COMPARABLE` | décision proposée ou tranchée hors d'un conflit confirmé ; décision déjà tranchée ; analyse en échec |
+| 422 | `JUSTIFICATION_REQUISE`, `MENTION_RECOLEMENT_REQUISE`, `RESPONSABLE_REQUIS`, `PLANNING_REQUIS` | justification ou motif de moins de 10 caractères ; clôture d'un déplacement sans mention du récolement ; déplacement sans responsable ou sans planning |
+| 422 | `ANALYSE_TROP_VOLUMINEUSE` | trop de sommets (`sommetsAxes`, `sommetsReseau`) ou trop de conflits (`conflitsMax`) |
+| 503 | `PROJET_OCCUPE` | une autre analyse du projet est en cours, ou une écriture attend la ligne d'un dossier au-delà du délai de verrou |
+| 503 | `SERVICE_OCCUPE` (+ `Retry-After`) | plus de trois analyses simultanées dans le processus |
+| 504 | `ANALYSE_TROP_LONGUE` | la base a coupé l'analyse (délai) |
+
+Exemples réels :
+
+```json
+{ "error": "La transition A_INVESTIGUER vers CLOTURE n'existe pas.", "code": "TRANSITION_INTERDITE" }
+{ "error": "La personne qui a proposé une décision ne peut pas la trancher elle-même sans dérogation motivée (10 caractères au moins).", "code": "SEPARATION_DES_TACHES" }
+{ "error": "Une analyse de conflits est déjà en cours sur ce projet : réessayez dans quelques instants.", "code": "PROJET_OCCUPE" }
+{ "error": "L'analyse a dépassé 1 s et a été interrompue : le projet est trop volumineux pour un calcul immédiat.", "code": "ANALYSE_TROP_LONGUE" }
+```
+
+### Garanties de la base
+
+Journaux en **ajout seul** (UPDATE et DELETE refusés, code 23001) : `conflits_projet_historique`, `conflits_projet_preuves`, `analyses_conflit_projet`. Aucune suppression physique d'un conflit, d'une règle ou d'une décision. Une règle approuvée est immuable ; une décision tranchée ne change plus ; un recalcul ne peut modifier ni statut, ni risque, ni responsable, ni échéance, ni action proposée. Contraintes : historique de statut avec justification d'au moins 10 caractères, décision à coût sans devise refusée, `DEPLACER_RESEAU` sans planning refusé, trancher sa propre décision sans dérogation refusé. Aucune écriture dans le référentiel : `troncons` n'est lu que pour `tronconsProches` (code et nom, au plus 10, à moins de la demi-largeur d'emprise).
+
+### Ce qui n'est pas fait, décisions hors contrat, défauts connus
+
+- **`DIVERGENCE_SOURCES` n'est pas calculé** : le type et la classification (`A_INVESTIGUER`) existent, aucun dossier n'est produit. Apparier deux sources de la même famille exige un seuil de corridor qu'aucune décision n'a fixé ; en inventer un serait un seuil caché.
+- Les objets ponctuels et surfaciques ne sont pas évalués (comme dans l'analyse indicative). Les limites de route ne servent pas encore au calcul (emprise théorique).
+- La **géométrie d'un conflit retrouvé est remplacée** par la géométrie courante (seules les mesures avant et après sont gardées dans l'historique) ; les analyses passées gardent l'empreinte de chaque mesure, pas la géométrie.
+- Le récolement n'est pas géré ; la clôture d'un déplacement n'en porte que la mention.
+- Les dossiers conservent pour toujours le lien vers le jeu de réseau d'origine et sa géométrie courante (suppression logique) : la politique de conservation d'un tiers qui retire son accord (m6 de la revue) reste à décider.
+- Le 504 de l'analyse persistée réutilise le mécanisme du socle (`statement_timeout` posé par étape) ; il est prouvé par le banc avec une table verrouillée et un délai de 1 s, pas avec un calcul réellement trop long.
