@@ -58,6 +58,7 @@ import { CurseurTemporel } from "./geoportail/CurseurTemporel";
 import type { EtatCouchePortions } from "./geoportail/PortionsDateLayer";
 import type { EtatCurseur } from "../lib/curseur";
 import { api } from "../lib/api";
+import { downloadViaApi } from "../lib/download";
 import userEvent from "@testing-library/user-event";
 
 function rendre(el: React.ReactNode) {
@@ -603,6 +604,54 @@ describe("Accessibilite du module Projets de voirie : etats cles", () => {
       await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     }
   }, 90_000);
+
+  it("page projet : approbation d'une decision apres SEPARATION_DES_TACHES (gestionnaire : champ de derogation et alerte du serveur), puis refus", async () => {
+    h.role = "GESTIONNAIRE";
+    h.get["/v2/projets-voirie/p1/conflits/cf-1"] = brutConflit(serveurFiche(ficheConflit({ statut: "CONFIRME", decisions: [decisionConflit({ proposePar: { id: "u", nom: "Moi" } })], preuves: [preuveConflit()], transitions: [] })));
+    const { container } = await ouvrirConflits();
+    const f = await ouvrirDossier();
+    const corps = container.ownerDocument.body;
+    for (const [bouton, valider] of [["Approuver la décision", "Approuver la décision"], ["Refuser la décision", "Refuser la décision"]] as const) {
+      await userEvent.click(within(f).getByRole("button", { name: new RegExp(`^${bouton}`) }));
+      const d = await screen.findByRole("dialog");
+      expect(await violationsAccessibilite(corps)).toEqual([]);
+      vi.mocked(api.post).mockRejectedValueOnce(Object.assign(new Error("409"), { response: { status: 409, data: { code: "SEPARATION_DES_TACHES", error: "La personne qui a proposé une décision ne peut pas la trancher elle-même sans dérogation motivée (10 caractères au moins)." } } }));
+      await userEvent.type(within(d).getByLabelText(/Motif/), "Seul compte habilité");
+      await userEvent.click(within(d).getByRole("button", { name: valider }));
+      await within(d).findByLabelText(/Dérogation à la séparation des tâches/, undefined, { timeout: 10_000 });
+      await within(d).findByRole("alert");
+      expect(await violationsAccessibilite(corps)).toEqual([]);
+      await userEvent.click(within(d).getByRole("button", { name: "Annuler" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    }
+  }, 90_000);
+
+  it("page projet : fiche d'un conflit dont le serveur masque objet, mesure, concessionnaire, troncons et sources (lecteur) ; avertissements du serveur", async () => {
+    h.role = "LECTEUR";
+    const masque = ficheConflit({
+      geom: null, geometrieMasquee: true, objet: null, concessionnaire: null, typeReseau: null, jeuReseauId: null, bbox: null, sources: [], tronconsProches: [],
+      mesure: { longueurChausseeM: null, longueurEmpriseM: null, distanceMinM: null, nbCroisements: null, longueurPieceM: null }, regle: null, largeurs: null,
+      avertissements: ["Avertissement envoyé par le serveur."],
+    });
+    h.get["/v2/projets-voirie/p1/conflits/cf-1"] = brutConflit(serveurFiche(masque));
+    const { container } = await ouvrirConflits();
+    const f = await ouvrirDossier();
+    expect(within(f).getByTestId("mesure-absente")).toHaveTextContent("Mesure masquée pour votre compte");
+    expect(within(f).getByTestId("avertissements-dossier")).toHaveTextContent("Avertissement envoyé par le serveur.");
+    expect(await violationsAccessibilite(container)).toEqual([]);
+  }, 30_000);
+
+  it("page projet : export CSV en erreur typee (corps JSON relu) et analyse refusee 429", async () => {
+    const { container } = await ouvrirConflits();
+    vi.mocked(downloadViaApi).mockRejectedValueOnce(Object.assign(new Error("403"), { response: { status: 403, data: new Blob([JSON.stringify({ error: "Rôle insuffisant", code: "ROLE_INSUFFISANT" })]) } }));
+    await userEvent.click(screen.getByRole("button", { name: /Exporter les conflits/ }));
+    await screen.findByTestId("export-erreur", undefined, { timeout: 10_000 });
+    expect(await violationsAccessibilite(container)).toEqual([]);
+    vi.mocked(api.post).mockRejectedValueOnce(Object.assign(new Error("429"), { response: { status: 429, headers: { "retry-after": "30" }, data: { error: "Une analyse par minute." } } }));
+    await userEvent.click(screen.getByRole("button", { name: "Lancer une analyse" }));
+    await screen.findByTestId("analyse-erreur", undefined, { timeout: 10_000 });
+    expect(await violationsAccessibilite(container)).toEqual([]);
+  }, 60_000);
 
   it("page projet : analyses (historique, detail, comparaison)", async () => {
     const { container } = await ouvrirConflits();

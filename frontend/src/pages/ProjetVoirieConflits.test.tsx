@@ -16,7 +16,7 @@ import {
   CONFLIT_INVESTIGUER, COMPTEURS, brut, conflit, decision, fiche, histo, pageConflits, preuve, serveurConflit, serveurPage,
 } from "../components/projets-voirie/conflitsSynthetiques.testutil";
 import { BASE, erreurHttp, ficheDe, rendrePage, reponseApi, type SurchargesApi } from "../components/projets-voirie/conflitsPage.testutil";
-import { BANDEAU_GARDE_FOUS } from "../lib/projetsVoirieConflits";
+import { AVERTISSEMENTS_DE_SECOURS, BANDEAU_GARDE_FOUS } from "../lib/projetsVoirieConflits";
 
 /**
  * Onglet « Conflits » de la page projet : bandeau permanent, liste (filtres, compteurs, tri, curseur, etats), fiche (contenu, carte, clavier).
@@ -184,6 +184,32 @@ describe("liste : filtres, recherche, tri, curseur", () => {
     expect(appelsListe().length - n0).toBeLessThanOrEqual(2);
   });
 
+  it("filtre axe differe comme la recherche : une requete par pause (pas une par touche), longueur 300, libelle « nom exact de l'axe »", async () => {
+    await ouvrirListe();
+    await userEvent.click(screen.getByRole("button", { name: /Filtres avancés/ }));
+    const champ = screen.getByLabelText(/^Nom exact de l'axe/) as HTMLInputElement;
+    expect(champ).toHaveAttribute("maxLength", "300");
+    expect(champ).toHaveAccessibleDescription(/Le serveur compare le nom en entier/);
+    const n0 = appelsListe().length;
+    await userEvent.type(champ, "Axe Nord-Sud 12");
+    expect(champ.value).toBe("Axe Nord-Sud 12");
+    await waitFor(() => expect(appelsListe().at(-1)).toEqual({ axe: "Axe Nord-Sud 12" }));
+    // Aucune requete intermediaire (« A », « Ax », ...) : au plus la requete finale.
+    expect(appelsListe().slice(n0).filter((p) => p.axe !== "Axe Nord-Sud 12")).toEqual([]);
+    expect(appelsListe().length - n0).toBeLessThanOrEqual(1);
+  });
+
+  it("le champ axe accepte 300 caracteres, la recherche 100 (limites du serveur)", async () => {
+    await ouvrirListe();
+    await userEvent.click(screen.getByRole("button", { name: /Filtres avancés/ }));
+    const long = "a".repeat(300);
+    await userEvent.click(screen.getByLabelText(/^Nom exact de l'axe/));
+    await userEvent.paste(long);
+    expect((screen.getByLabelText(/^Nom exact de l'axe/) as HTMLInputElement).value).toHaveLength(300);
+    expect(screen.getByLabelText(/Rechercher \(axe/)).toHaveAttribute("maxLength", "100");
+    await waitFor(() => expect(appelsListe().at(-1)).toEqual({ axe: long }));
+  });
+
   it("filtres avances : type, axe, concessionnaire, responsable (Moi), a reexaminer, echeance depassee ; le tout part au serveur ; reinitialiser", async () => {
     await ouvrirListe();
     expect(screen.getByRole("button", { name: /Filtres avancés/ })).toHaveAttribute("aria-expanded", "false");
@@ -191,7 +217,7 @@ describe("liste : filtres, recherche, tri, curseur", () => {
     await userEvent.selectOptions(screen.getByLabelText("Type de conflit"), "PROXIMITE");
     await userEvent.selectOptions(screen.getByLabelText("Concessionnaire"), "c1");
     await userEvent.selectOptions(screen.getByLabelText("Responsable"), "u-gest");
-    await userEvent.type(screen.getByLabelText(/^Axe \(nom/), "Axe B");
+    await userEvent.type(screen.getByLabelText(/^Nom exact de l'axe/), "Axe B");
     await userEvent.click(screen.getByLabelText(/À réexaminer/));
     await userEvent.click(screen.getByLabelText("Échéance dépassée"));
     await waitFor(() => expect(appelsListe().at(-1)).toEqual({ type: "PROXIMITE", concessionnaireId: "c1", responsableId: "u-gest", axe: "Axe B", aReexaminer: "true", echeanceDepassee: "true" }));
@@ -199,7 +225,7 @@ describe("liste : filtres, recherche, tri, curseur", () => {
     await userEvent.click(screen.getByRole("button", { name: /Réinitialiser les filtres/ }));
     expect(screen.queryByRole("button", { name: /Réinitialiser les filtres/ })).toBeNull();
     expect((screen.getByLabelText("Type de conflit") as HTMLSelectElement).value).toBe("");
-    expect((screen.getByLabelText(/^Axe \(nom/) as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText(/^Nom exact de l'axe/) as HTMLInputElement).value).toBe("");
     expect(screen.getByLabelText("Échéance dépassée")).not.toBeChecked();
   });
 
@@ -219,7 +245,7 @@ describe("liste : filtres, recherche, tri, curseur", () => {
     expect(ordre()).toEqual(["cf-1", "cf-2", "cf-3", "cf-4"]);
     await userEvent.selectOptions(screen.getByLabelText("Trier"), "risque");
     expect(ordre()).toEqual(["cf-3", "cf-1", "cf-4", "cf-2"]);
-    expect(screen.getByTestId("etat-liste-conflits")).toHaveTextContent("Le tri porte sur les conflits chargés");
+    expect(screen.getByTestId("aide-tri")).toHaveTextContent("Le tri ne porte que sur les conflits déjà chargés");
     await userEvent.selectOptions(screen.getByLabelText("Trier"), "echeance");
     expect(ordre()).toEqual(["cf-2", "cf-1", "cf-4", "cf-3"]);
     await userEvent.selectOptions(screen.getByLabelText("Trier"), "statut");
@@ -390,7 +416,7 @@ describe("fiche d'un conflit", () => {
     expect(note.closest("[role=note]")).toHaveTextContent("verdict humain est conservé");
     const at = within(f).getByRole("heading", { name: "Attribution" }).closest("section")!;
     expect(at).toHaveTextContent("ResponsableAwa Responsable");
-    expect(at).toHaveTextContent("Concessionnaireaucun (zone sans jeu réseau)");
+    expect(at).toHaveTextContent("Concessionnaireaucun concessionnaire (zone sans jeu réseau)");
   });
 
   it("geometrie non fournie : la fiche le dit, aucun zoom", async () => {
@@ -520,5 +546,79 @@ describe("hors ligne", () => {
     await userEvent.click(await screen.findByRole("tab", { name: "Conflits" }));
     expect(screen.getByRole("button", { name: "Lancer une analyse" })).toBeDisabled();
     expect(screen.getByRole("button", { name: /Exporter les conflits/ })).toBeDisabled();
+  });
+});
+
+describe("avertissements du dossier : ceux du serveur, avec repli sur les textes de secours", () => {
+  it("la fiche affiche les avertissements ENVOYES par le serveur (et non les textes de secours)", async () => {
+    const f = await ouvrirFiche("cf-1", { fiches: { "cf-1": fiche({ avertissements: ["Avertissement propre au serveur n° 1.", "Avertissement propre au serveur n° 2."] }) } });
+    const l = within(f).getByTestId("avertissements-dossier");
+    expect(l).toHaveAttribute("data-source", "serveur");
+    expect([...l.querySelectorAll("li")].map((li) => li.textContent)).toEqual(["Avertissement propre au serveur n° 1.", "Avertissement propre au serveur n° 2."]);
+    for (const secours of AVERTISSEMENTS_DE_SECOURS) expect(l).not.toHaveTextContent(secours);
+  });
+  it("sans `avertissements` dans la reponse : repli sur les textes de secours, dits comme tels dans l'attribut data-source", async () => {
+    const f = await ouvrirFiche("cf-1", { fiches: { "cf-1": fiche({ avertissements: null }) } });
+    const l = within(f).getByTestId("avertissements-dossier");
+    expect(l).toHaveAttribute("data-source", "secours");
+    expect([...l.querySelectorAll("li")].map((li) => li.textContent)).toEqual([...AVERTISSEMENTS_DE_SECOURS]);
+  });
+  it("le bandeau permanent reste le texte du contrat, mot pour mot, quels que soient les avertissements du dossier", async () => {
+    await ouvrirFiche("cf-1", { fiches: { "cf-1": fiche({ avertissements: ["Autre texte."] }) } });
+    expect(screen.getByTestId("bandeau-garde-fous")).toHaveTextContent(BANDEAU_GARDE_FOUS);
+  });
+});
+
+describe("champs masques par le serveur pour un lecteur : « masque », jamais une erreur ni un faux « aucun »", () => {
+  const listeMasquee = () => ({
+    conflits: [{ ...(brut(serveurConflit(conflit())) as Record<string, unknown>), mesure: null, objet: null, concessionnaire: null, typeReseau: null, jeuReseauId: null, bbox: null, geometrieMasquee: true }],
+    compteurs: COMPTEURS, total: 1, curseurSuivant: null,
+  });
+
+  it("liste : mesure, objet et concessionnaire masques sont dits tels, sans zero ni « aucun concessionnaire »", async () => {
+    h.role = "LECTEUR";
+    await ouvrirListe({ liste: listeMasquee() });
+    const li = bouton("cf-1").closest("li")!;
+    expect(li).toHaveTextContent("Mesure masquée pour votre compte");
+    expect(li).toHaveTextContent("Objet : masqué pour votre compte");
+    expect(li).toHaveTextContent("concessionnaire masqué pour votre compte");
+    expect(li).not.toHaveTextContent("aucun concessionnaire");
+    expect(li).not.toHaveTextContent("Mesure non fournie");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("fiche : mesure, objet, troncons proches et sources masques sont dits tels, la page ne plante pas", async () => {
+    h.role = "LECTEUR";
+    const masquee = fiche({
+      geom: null, geometrieMasquee: true, objet: null, concessionnaire: null, typeReseau: null, jeuReseauId: null, bbox: null, sources: [], tronconsProches: [], regle: null, largeurs: null,
+      mesure: { longueurChausseeM: null, longueurEmpriseM: null, distanceMinM: null, nbCroisements: null, longueurPieceM: null },
+    });
+    const f = await ouvrirFiche("cf-1", { fiches: { "cf-1": masquee } });
+    expect(within(f).getByTestId("mesure-absente")).toHaveTextContent("Mesure masquée pour votre compte.");
+    const section = (titre: string | RegExp) => within(f).getByRole("heading", { name: titre }).closest("section")!;
+    expect(section("Mesure")).not.toHaveTextContent("non mesurée");
+    expect(section(/Sources et versions/)).toHaveTextContent("Sources masquées pour votre compte");
+    expect(section(/Tronçons proches/)).toHaveTextContent("masqués pour votre compte");
+    expect(section(/Tronçons proches/)).not.toHaveTextContent("Aucun tronçon du référentiel relevé");
+    expect(section("Attribution")).toHaveTextContent("concessionnaire masqué pour votre compte");
+  });
+
+  it("fiche NON masquee : une source ou un troncon absent garde son texte habituel (le serveur n'a rien masque)", async () => {
+    const f = await ouvrirFiche("cf-1", { fiches: { "cf-1": fiche({ sources: [], tronconsProches: [] }) } });
+    expect(within(f).getByRole("heading", { name: /Sources et versions/ }).closest("section")).toHaveTextContent("Aucune source n'est listée par le serveur");
+    expect(within(f).getByRole("heading", { name: /Tronçons proches/ }).closest("section")).toHaveTextContent("Aucun tronçon du référentiel relevé");
+  });
+
+  it("un conflit devenu illisible (404 CONFLIT_INTROUVABLE) : message qui dit aussi qu'il n'est peut-etre plus lisible pour le compte", async () => {
+    h.role = "LECTEUR";
+    await ouvrirListe({ fiches: { "cf-1": erreurHttp(404, "CONFLIT_INTROUVABLE") } });
+    await userEvent.click(bouton("cf-1"));
+    expect(await screen.findByText(/n'est plus lisible pour votre compte/)).toBeInTheDocument();
+  });
+
+  it("liste qui a perdu des conflits (jeu non autorise) : la liste vide est un etat valide, sans erreur", async () => {
+    h.role = "LECTEUR";
+    await ouvrirOnglet({ liste: { conflits: [], compteurs: { ...COMPTEURS, POTENTIEL: 0, A_INVESTIGUER: 0, CONFIRME: 0 }, total: 0, curseurSuivant: null } });
+    expect(await screen.findByText("Aucun dossier de conflit pour ce projet")).toBeInTheDocument();
   });
 });

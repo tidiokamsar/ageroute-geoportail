@@ -51,7 +51,7 @@ function Detail({ projetId, analyseId }: { projetId: string; analyseId: string }
       </div>
       <div>
         <p className="font-semibold">Jeux de données pris en compte</p>
-        {a.jeux.length === 0 ? <p className="text-gray-700">Aucun jeu listé par le serveur.</p> : (
+        {a.jeux.length === 0 ? <p className="text-gray-700">Aucun jeu listé par le serveur (la liste peut être masquée pour votre compte quand un jeu n&apos;est plus lisible).</p> : (
           <ul className="list-disc pl-5">
             {a.jeux.map((j, i) => (
               <li key={`${j.jeuId ?? j.sha256}-${i}`} className="break-words">
@@ -141,7 +141,7 @@ function ListeComparee({ cat, onOuvrir }: { cat: CategorieComparaison; onOuvrir:
           </li>
         ))}
       </ul>
-      {sansDetail > 0 && <p className="text-[11px] text-gray-700">{formaterNombre(sansDetail, 0)} autre(s) sans détail{cat.detailsTronques ? " (le serveur limite le détail)" : ""}.</p>}
+      {sansDetail > 0 && <p className="text-[11px] text-gray-700">{formaterNombre(sansDetail, 0)} autre(s) sans détail{cat.detailsTronques ? " (le serveur limite le détail)" : " (détail masqué pour votre compte ou non fourni par le serveur)"}.</p>}
     </>
   );
 }

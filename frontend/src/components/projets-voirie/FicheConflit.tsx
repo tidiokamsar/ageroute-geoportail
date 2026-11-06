@@ -13,8 +13,9 @@ import type {
 } from "../../lib/projetsVoirieConflitsApi";
 import { transitionsAffichees } from "../../lib/projetsVoirieConflitsApi";
 import {
-  AIDE_MOTIF_REEXAMEN, AIDE_TYPE_CONFLIT, LIBELLE_ACTION_HISTORIQUE, LIBELLE_OPTION_DECISION, LIBELLE_TYPE_CONFLIT, LIBELLE_TYPE_PREUVE, MENTION_VERTICAL, STYLE_STATUT_CONFLIT,
-  classerErreurConflit, echeanceDepassee, formaterDateHeure, libelleAction, libelleTransition,
+  AIDE_DECISION_TRANCHEE, AIDE_MOTIF_REEXAMEN, AIDE_TYPE_CONFLIT, AVERTISSEMENTS_DE_SECOURS, LIBELLE_ACTION_HISTORIQUE, LIBELLE_OPTION_DECISION, LIBELLE_TYPE_CONFLIT, LIBELLE_TYPE_PREUVE, MENTION_VERTICAL,
+  STYLE_STATUT_CONFLIT, TEXTE_MASQUE,
+  classerErreurConflit, echeanceDepassee, formaterDateHeure, libelleAction, libelleConcessionnaire, libelleMesureAbsente, libelleTransition, mesureAbsente,
 } from "../../lib/projetsVoirieConflits";
 import {
   AIDE_CLASSE, LIBELLE_ROLE, STYLE_RESEAU, classeIncertaine, formaterDate, formaterMetres, formaterNombre,
@@ -139,15 +140,26 @@ export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(fu
         )}
       </header>
 
+      <Section id="pv-fc-avertissements" titre="Avertissements">
+        <ul data-testid="avertissements-dossier" data-source={f.avertissements ? "serveur" : "secours"} className="list-disc space-y-0.5 pl-5 text-xs text-gray-900">
+          {(f.avertissements ?? AVERTISSEMENTS_DE_SECOURS).map((a) => <li key={a}>{a}</li>)}
+        </ul>
+      </Section>
+
       <Section id="pv-fc-mesure" titre="Mesure">
+        {mesureAbsente(f) ? (
+          <p data-testid="mesure-absente" className="text-xs text-gray-800">{libelleMesureAbsente(f)}.{f.objet?.nom ? ` Objet du fichier : ${f.objet.nom}.` : ""}</p>
+        ) : (
         <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-xs">
           <Ligne libelle="Longueur dans la chaussée">{m.longueurChausseeM === null ? "non mesurée" : formaterMetres(m.longueurChausseeM)}</Ligne>
           <Ligne libelle="Longueur dans l'emprise">{m.longueurEmpriseM === null ? "non mesurée" : formaterMetres(m.longueurEmpriseM)}</Ligne>
           <Ligne libelle="Distance minimale">{m.distanceMinM === null ? "non mesurée" : formaterMetres(m.distanceMinM)}</Ligne>
           <Ligne libelle="Croisements">{m.nbCroisements === null ? "non comptés" : formaterNombre(m.nbCroisements, 0)}</Ligne>
           {m.longueurPieceM !== null && <Ligne libelle="Partie de réseau concernée">{formaterMetres(m.longueurPieceM)}</Ligne>}
-          {f.objet?.nom && <Ligne libelle="Objet du fichier">{f.objet.nom}</Ligne>}
+          {f.objet?.nom ? <Ligne libelle="Objet du fichier">{f.objet.nom}</Ligne>
+            : f.geometrieMasquee && f.type !== "COUVERTURE_INSUFFISANTE" ? <Ligne libelle="Objet du fichier">{TEXTE_MASQUE}</Ligne> : null}
         </dl>
+        )}
       </Section>
 
       <Section id="pv-fc-precision" titre="Précision et limites">
@@ -175,7 +187,7 @@ export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(fu
       </Section>
 
       <Section id="pv-fc-sources" titre="Sources et versions des jeux">
-        {f.sources.length === 0 ? <p className="text-xs text-gray-700">Aucune source n&apos;est listée par le serveur pour ce conflit.</p> : (
+        {f.sources.length === 0 ? <p className="text-xs text-gray-700">{f.geometrieMasquee ? `Sources masquées pour votre compte : le jeu de réseau de ce dossier n'est plus lisible par votre compte.` : "Aucune source n'est listée par le serveur pour ce conflit."}</p> : (
           <ul className="space-y-1">
             {f.sources.map((s, i) => (
               <li key={`${s.jeuId ?? s.sha256}-${i}`} className="rounded border border-gray-200 p-1.5 text-xs text-gray-900">
@@ -191,7 +203,7 @@ export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(fu
       </Section>
 
       <Section id="pv-fc-troncons" titre="Tronçons proches du référentiel (lecture seule)">
-        {f.tronconsProches.length === 0 ? <p className="text-xs text-gray-700">Aucun tronçon du référentiel relevé à proximité. Le référentiel officiel n&apos;est jamais modifié par ces dossiers.</p> : (
+        {f.tronconsProches.length === 0 ? <p className="text-xs text-gray-700">{f.geometrieMasquee ? `Tronçons proches masqués pour votre compte (jeu de réseau non lisible) : leur absence ici ne veut pas dire qu'il n'y en a pas.` : "Aucun tronçon du référentiel relevé à proximité. Le référentiel officiel n'est jamais modifié par ces dossiers."}</p> : (
           <ul className="list-disc space-y-0.5 pl-5 text-xs text-gray-900">
             {f.tronconsProches.map((t) => <li key={t.code}>{t.code}{t.nom ? ` : ${t.nom}` : ""}</li>)}
           </ul>
@@ -203,7 +215,7 @@ export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(fu
           <Ligne libelle="Responsable">{f.responsable ? (f.responsable.nom ?? "compte sans nom") : "non attribué"}</Ligne>
           <Ligne libelle="Échéance">{f.echeance ? formaterDate(f.echeance) : "non fixée"}</Ligne>
           <Ligne libelle="Action proposée">{f.actionProposee ?? "aucune"}</Ligne>
-          <Ligne libelle="Concessionnaire">{f.concessionnaire ? (f.concessionnaire.nom ?? "sans nom") : "aucun (zone sans jeu réseau)"}</Ligne>
+          <Ligne libelle="Concessionnaire">{libelleConcessionnaire(f)}</Ligne>
         </dl>
         {p.peutEcrire && !clos && (
           <Button type="button" variant="outline" size="sm" className="min-h-[44px] xl:min-h-8" disabled={!p.enLigne} onClick={() => ouvrirDialogue({ genre: "attribution" })}>
@@ -264,6 +276,7 @@ export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(fu
 
       <Section id="pv-fc-decisions" titre={`Décisions (${f.decisions.length})`}>
         <p role="note" className="text-xs text-gray-700">Une décision est proposée, puis approuvée ou refusée par des personnes habilitées. Le système n&apos;ordonne et n&apos;exécute rien.</p>
+        <p role="note" data-testid="aide-decision-fiche" className="text-xs text-gray-700">{AIDE_DECISION_TRANCHEE}</p>
         {f.decisions.length === 0 ? <p className="text-xs text-gray-700">Aucune décision proposée.</p> : (
           <ol className="space-y-2">
             {f.decisions.map((d) => (

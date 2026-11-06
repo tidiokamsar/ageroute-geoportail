@@ -115,12 +115,34 @@ describe("lancer une analyse", () => {
     expect(await screen.findByTestId("analyse-erreur")).toHaveTextContent("Le serveur est injoignable");
   });
 
-  it("analyse enregistree en echec : dite comme telle, conflits intacts", async () => {
+  it("analyse en echec cote serveur (delai, volume) : c'est une ERREUR HTTP, dite avec son code ; aucun faux succes", async () => {
+    await ouvrir();
+    h.post.mockRejectedValueOnce(erreurHttp(504, "ANALYSE_TROP_LONGUE", "L'analyse a dépassé 60 s et a été interrompue"));
+    await userEvent.click(screen.getByRole("button", { name: "Lancer une analyse" }));
+    const e = await screen.findByTestId("analyse-erreur");
+    expect(e).toHaveAttribute("data-code", "ANALYSE_TROP_LONGUE");
+    expect(e).toHaveTextContent("L'analyse n'a pas abouti.");
+    expect(screen.queryByTestId("analyse-terminee")).toBeNull();
+    expect(screen.queryByTestId("analyse-echec")).toBeNull();
+  });
+
+  it("une reponse 2xx dont le statut n'est pas TERMINEE (jamais envoyee par le serveur) n'est pas presentee comme une analyse terminee ni comme un echec invente", async () => {
     await ouvrir();
     h.post.mockResolvedValueOnce({ data: brut(serveurLancement(analyseConflit({ statut: "ECHEC" }))) });
     await userEvent.click(screen.getByRole("button", { name: "Lancer une analyse" }));
-    expect(await screen.findByTestId("analyse-echec")).toHaveTextContent("L'analyse a échoué");
+    expect(await screen.findByText(/n'a pas détaillé son résultat/)).toBeInTheDocument();
     expect(screen.queryByTestId("analyse-terminee")).toBeNull();
+    expect(screen.queryByTestId("analyse-echec")).toBeNull();
+  });
+
+  it("429 (limite de frequence) : message en clair avec le delai Retry-After, sans code invente", async () => {
+    await ouvrir();
+    h.post.mockRejectedValueOnce(Object.assign(new Error("429"), { response: { status: 429, headers: { "retry-after": "42" }, data: { error: "Une analyse par minute et par projet.", code: "ANALYSE_TROP_RAPPROCHEE" } } }));
+    await userEvent.click(screen.getByRole("button", { name: "Lancer une analyse" }));
+    const e = await screen.findByTestId("analyse-erreur");
+    expect(e).toHaveTextContent("Trop de demandes en peu de temps");
+    expect(e).toHaveTextContent("Une analyse par minute et par projet.");
+    expect(e).toHaveTextContent("Réessayez dans 42 secondes");
   });
 
   it("reponse sans detail : on le dit et on renvoie a l'historique, sans inventer de resultat", async () => {
@@ -492,6 +514,27 @@ describe("export CSV des conflits", () => {
     await userEvent.click(screen.getByRole("button", { name: /Exporter les conflits \(CSV\)/ }));
     expect(await screen.findByText(/L'export CSV a échoué/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Exporter les conflits \(CSV\)/ })).toBeEnabled();
+  });
+
+  it("echec : le corps JSON typé de l'erreur (Blob) est relu, le message est celui du CODE (ici 404 PROJET_INTROUVABLE)", async () => {
+    await ouvrir();
+    const corps = new Blob([JSON.stringify({ error: "Projet introuvable", code: "PROJET_INTROUVABLE" })], { type: "application/json" });
+    vi.mocked(downloadViaApi).mockImplementationOnce(async () => { throw Object.assign(new Error("404"), { response: { status: 404, data: corps } }); });
+    // L'API reelle passe par `downloadViaApi` : le test verifie la relecture du Blob dans `exporterConflitsCsv`.
+    await userEvent.click(screen.getByRole("button", { name: /Exporter les conflits \(CSV\)/ }));
+    const a = await screen.findByTestId("export-erreur");
+    expect(a).toHaveAttribute("data-code", "PROJET_INTROUVABLE");
+    expect(a).toHaveTextContent("Projet introuvable : il n'existe pas, a été retiré, ou n'est pas dans votre périmètre.");
+  });
+
+  it("echec : un corps qui n'est pas du JSON garde le message generique du statut (jamais d'exception)", async () => {
+    await ouvrir();
+    const corps = new Blob(["<html>502</html>"], { type: "text/html" });
+    vi.mocked(downloadViaApi).mockImplementationOnce(async () => { throw Object.assign(new Error("502"), { response: { status: 502, data: corps } }); });
+    await userEvent.click(screen.getByRole("button", { name: /Exporter les conflits \(CSV\)/ }));
+    const a = await screen.findByTestId("export-erreur");
+    expect(a).toHaveTextContent("Le serveur a rencontré une erreur");
+    expect(a).not.toHaveAttribute("data-code");
   });
 
   it("lecteur : aucun bouton d'export", async () => {
