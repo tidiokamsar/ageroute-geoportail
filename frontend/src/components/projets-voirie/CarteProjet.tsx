@@ -8,6 +8,7 @@ import { ElementsCarteHorsTabulation } from "../carte/ElementsCarteHorsTabulatio
 import type { Analyse, CoucheCarte, JeuProjet, ObjetCarte } from "../../lib/projetsVoirieApi";
 import { lireObjetCarte } from "../../lib/projetsVoirieApi";
 import { STYLE_CONFLIT, arrondirBbox, lireBbox, styleJeu, type Bbox, type CleConflit } from "../../lib/projetsVoirie";
+import { bboxDeGeometrie } from "../../lib/projetsVoirieConflits";
 import { nomDuJeu } from "./PanneauCouches";
 
 /**
@@ -99,6 +100,36 @@ function Croisements({ collection }: { collection: FeatureCollection }) {
   );
 }
 
+/**
+ * Surbrillance d'un dossier de conflit selectionne : un halo clair large sous un trait sombre PLEIN et epais (la forme se lit sans la couleur :
+ * le halo contraste avec le fond de carte, le trait dessine l'objet), puis zoom sur son emprise. Non interactif, construit sans HTML.
+ */
+function SurbrillanceConflit({ cle, geometrie }: { cle: string; geometrie: Geometry }) {
+  const map = useMap();
+  const feature = useMemo<Feature<Geometry>>(() => ({ type: "Feature", geometry: geometrie, properties: {} }), [geometrie]);
+  const emprise = useMemo(() => bboxDeGeometrie(geometrie), [geometrie]);
+  const cleEmprise = emprise ? emprise.join(",") : "";
+  useEffect(() => {
+    if (!emprise) return;
+    map.fitBounds([[emprise[1], emprise[0]], [emprise[3], emprise[2]]], { padding: [48, 48], maxZoom: 19 });
+  }, [map, cle, cleEmprise]); // eslint-disable-line react-hooks/exhaustive-deps
+  const ident = `${cle}-${identite(geometrie)}`;
+  return (
+    <>
+      <GeoJSON
+        key={`conflit-halo-${ident}`} data={feature} interactive={false}
+        style={() => ({ color: "#ffffff", weight: 16, opacity: 0.95, fill: false, lineCap: "round" })}
+        pointToLayer={(_f, latlng) => L.circleMarker(latlng, { radius: 16, color: "#ffffff", weight: 4, fillColor: "#ffffff", fillOpacity: 0.9, interactive: false })}
+      />
+      <GeoJSON
+        key={`conflit-trait-${ident}`} data={feature} interactive={false}
+        style={() => ({ color: "#7f1d1d", weight: 8, opacity: 1, fill: false, lineCap: "round" })}
+        pointToLayer={(_f, latlng) => L.circleMarker(latlng, { radius: 9, color: "#7f1d1d", weight: 4, fillColor: "#ffffff", fillOpacity: 1, interactive: false })}
+      />
+    </>
+  );
+}
+
 function Capteur({ bbox, cadrageCle, onVue }: { bbox: Bbox | null; cadrageCle: number; onVue: (bbox: Bbox, zoom: number) => void }) {
   const map = useMap();
   const lire = useCallback(() => {
@@ -131,12 +162,14 @@ export interface PropsCarteProjet {
   analyse: Analyse | undefined;
   conflitsVisibles: Record<CleConflit, boolean>;
   selection: ObjetCarte | null;
+  /** Dossier de conflit ouvert : sa geometrie est mise en evidence et la carte zoome dessus. */
+  surbrillance?: { cle: string; geometrie: Geometry } | null;
   onSelect: (o: ObjetCarte) => void;
   onVue: (bbox: Bbox, zoom: number) => void;
   className?: string;
 }
 
-export function CarteProjet({ fond, bbox, cadrageCle, couches, jeux, analyse, conflitsVisibles, selection, onSelect, onVue, className = "h-full w-full" }: PropsCarteProjet) {
+export function CarteProjet({ fond, bbox, cadrageCle, couches, jeux, analyse, conflitsVisibles, selection, surbrillance = null, onSelect, onVue, className = "h-full w-full" }: PropsCarteProjet) {
   const f = FONDS[fond];
   const jeuParId = useMemo(() => new Map(jeux.map((j) => [j.id, j])), [jeux]);
   const zones = analyse?.conflits.zones;
@@ -153,6 +186,7 @@ export function CarteProjet({ fond, bbox, cadrageCle, couches, jeux, analyse, co
       {zones?.chaussee && conflitsVisibles.chaussee && <ZoneConflit cle="chaussee" geometrie={zones.chaussee} />}
       {analyse?.conflits.croisements && conflitsVisibles.croisements && <Croisements collection={analyse.conflits.croisements} />}
       {selection && <Selection objet={selection} />}
+      {surbrillance && <SurbrillanceConflit cle={surbrillance.cle} geometrie={surbrillance.geometrie} />}
     </MapContainer>
   );
 }

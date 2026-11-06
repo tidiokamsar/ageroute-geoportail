@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { violationsAccessibilite } from "../test/accessibilite";
@@ -12,8 +12,8 @@ import { violationsAccessibilite } from "../test/accessibilite";
  * violations : elles se corrigent, elles ne se taisent pas.
  */
 
-const h = vi.hoisted(() => ({ get: {} as Record<string, unknown> }));
-vi.mock("../lib/auth", () => ({ useAuth: () => ({ user: { id: "u", role: "GESTIONNAIRE", modulesAutorises: [] } }) }));
+const h = vi.hoisted(() => ({ get: {} as Record<string, unknown>, role: "GESTIONNAIRE" }));
+vi.mock("../lib/auth", () => ({ useAuth: () => ({ user: { id: "u", role: h.role, modulesAutorises: [] } }) }));
 vi.mock("../lib/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("../lib/download", () => ({ downloadViaApi: vi.fn() }));
 vi.mock("../components/CarteReleve", () => ({ CarteReleve: () => <div data-testid="carte" /> }));
@@ -38,6 +38,10 @@ import { MainCourantePage } from "./MainCourantePage";
 import { ProjetsVoirieListePage } from "./ProjetsVoirieListePage";
 import { ProjetVoirieDetailPage } from "./ProjetVoirieDetailPage";
 import { analyse as analyseProjet, projetFiche, projetResume } from "../components/projets-voirie/synthetique.testutil";
+import {
+  ANALYSE_1, REGLES, analyseConflit, brut as brutConflit, decision as decisionConflit, fiche as ficheConflit, pageConflits, preuve as preuveConflit, serveurComparaison, serveurDetailAnalyse,
+  serveurFiche, serveurLancement, serveurListeAnalyses, serveurPage, serveurRegles, transition as transitionConflit,
+} from "../components/projets-voirie/conflitsSynthetiques.testutil";
 import { DefautsRegistrePage } from "./DefautsRegistrePage";
 import { MissionsPage } from "./MissionsPage";
 import { PortionsGestionPage } from "./PortionsGestionPage";
@@ -206,7 +210,15 @@ beforeEach(() => {
     "/v2/projets-voirie/p1/analyse": analyseProjet(),
     "/v2/projets-voirie/p1/carte": [],
     "/v2/projets-voirie/concessionnaires": [{ id: "c1", nom: "Operateur synthetique A", typeReseau: "TELECOM" }],
+    // Dossiers de conflit (lot RC-3) : reponses SYNTHETIQUES.
+    "/v2/projets-voirie/p1/conflits": brutConflit(serveurPage(pageConflits())),
+    "/v2/projets-voirie/p1/conflits/cf-1": brutConflit(serveurFiche(ficheConflit({ statut: "CONFIRME", decisions: [decisionConflit(), decisionConflit({ id: "d2", option: "DEPLACER_RESEAU", statut: "APPROUVEE", coutEstime: null, coutReel: 0, approuvePar: { id: "u-adm", nom: "Fatou Admin" }, approuveLe: "2026-11-05T10:00:00Z", motifDecision: "Approuvé en comité", derogationSeparation: "Seul compte habilité" })], preuves: [preuveConflit()], transitions: [transitionConflit("TRAITEMENT_DECIDE", { decisionRequise: true })] }))),
+    "/v2/projets-voirie/p1/analyses": brutConflit(serveurListeAnalyses([analyseConflit(), ANALYSE_1])),
+    "/v2/projets-voirie/p1/analyses/an-2": brutConflit(serveurDetailAnalyse(analyseConflit())),
+    "/v2/projets-voirie/p1/analyses/an-2/comparaison": brutConflit(serveurComparaison()),
+    "/v2/projets-voirie/p1/regles": brutConflit(serveurRegles(REGLES)),
   };
+  h.role = "GESTIONNAIRE";
 });
 
 describe("L'instrument mesure vraiment", () => {
@@ -525,6 +537,110 @@ describe("Accessibilite du module Projets de voirie : etats cles", () => {
     await userEvent.click(within(d).getByRole("button", { name: "Simuler le dépôt" }));
     await within(d).findByRole("heading", { name: "Résultat de la simulation" }, { timeout: 10_000 });
     expect(await violationsAccessibilite(container.ownerDocument.body)).toEqual([]);
+  }, 60_000);
+
+  async function ouvrirConflits() {
+    const r = rendreProjet();
+    await userEvent.click(await screen.findByRole("tab", { name: "Conflits" }, { timeout: 10_000 }));
+    await screen.findByRole("list", { name: "Liste des conflits" }, { timeout: 10_000 });
+    return r;
+  }
+  const ouvrirDossier = async () => {
+    await userEvent.click(document.querySelector('button[data-conflit-id="cf-1"]')!);
+    return screen.findByTestId("fiche-conflit", undefined, { timeout: 10_000 });
+  };
+
+  it("page projet : onglet Conflits, liste (bandeau, compteurs, badges texte et forme)", async () => {
+    const { container } = await ouvrirConflits();
+    expect(await violationsAccessibilite(container)).toEqual([]);
+  }, 30_000);
+
+  it("page projet : onglet Conflits, filtres avances ouverts", async () => {
+    const { container } = await ouvrirConflits();
+    await userEvent.click(screen.getByRole("button", { name: /Filtres avancés/ }));
+    expect(await violationsAccessibilite(container)).toEqual([]);
+  }, 30_000);
+
+  it("page projet : onglet Conflits, liste vide, puis liste en erreur 504", async () => {
+    h.get["/v2/projets-voirie/p1/conflits"] = { conflits: [], compteurs: null };
+    const a = rendreProjet();
+    await userEvent.click(await screen.findByRole("tab", { name: "Conflits" }, { timeout: 10_000 }));
+    await screen.findByText("Aucun dossier de conflit pour ce projet", undefined, { timeout: 10_000 });
+    expect(await violationsAccessibilite(a.container)).toEqual([]);
+    a.unmount();
+    h.get["/v2/projets-voirie/p1/conflits"] = Object.assign(new Error("504"), { response: { status: 504, data: {} } });
+    const b = rendreProjet();
+    await userEvent.click(await screen.findByRole("tab", { name: "Conflits" }, { timeout: 10_000 }));
+    await screen.findByText(/délai autorisé/, undefined, { timeout: 10_000 });
+    expect(await violationsAccessibilite(b.container)).toEqual([]);
+  }, 60_000);
+
+  it("page projet : fiche d'un conflit (mesure, regle, sources, historique, preuves, decisions, transitions)", async () => {
+    const { container } = await ouvrirConflits();
+    await ouvrirDossier();
+    expect(await violationsAccessibilite(container)).toEqual([]);
+  }, 30_000);
+
+  it("page projet : fiche d'un conflit en lecture seule (role lecteur)", async () => {
+    h.role = "LECTEUR";
+    const { container } = await ouvrirConflits();
+    await ouvrirDossier();
+    expect(await violationsAccessibilite(container)).toEqual([]);
+  }, 30_000);
+
+  it("page projet : dialogues d'un conflit (transition, attribution, preuve, decision, approbation)", async () => {
+    h.role = "ADMIN";
+    h.get["/v2/projets-voirie/p1/conflits/cf-1"] = brutConflit(serveurFiche(ficheConflit({ statut: "CONFIRME", decisions: [decisionConflit({ proposePar: { id: "u", nom: "Moi" } })], preuves: [preuveConflit()], transitions: [transitionConflit("TRAITEMENT_DECIDE", { decisionRequise: true })] })));
+    const { container } = await ouvrirConflits();
+    const f = await ouvrirDossier();
+    const corps = container.ownerDocument.body;
+    for (const nom of ["Marquer le traitement décidé", "Attribuer ou modifier", "Ajouter une preuve", "Proposer une décision", "Approuver la décision"]) {
+      await userEvent.click(within(f).getByRole("button", { name: new RegExp(nom) }));
+      const d = await screen.findByRole("dialog");
+      if (nom.startsWith("Approuver")) await within(d).findByLabelText(/Dérogation à la séparation des tâches/);
+      expect(await violationsAccessibilite(corps)).toEqual([]);
+      await userEvent.click(within(d).getByRole("button", { name: "Annuler" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    }
+  }, 90_000);
+
+  it("page projet : analyses (historique, detail, comparaison)", async () => {
+    const { container } = await ouvrirConflits();
+    await userEvent.click(screen.getByRole("button", { name: "Analyses" }));
+    await screen.findByRole("list", { name: "Analyses" }, { timeout: 10_000 });
+    await userEvent.click(screen.getAllByRole("button", { name: /Règles et jeux de l'analyse/ })[0]);
+    await screen.findByText(/redonne les mêmes conflits/, undefined, { timeout: 10_000 });
+    await userEvent.click(screen.getByRole("button", { name: "Comparer" }));
+    await screen.findByTestId("resultat-comparaison", undefined, { timeout: 10_000 });
+    expect(await violationsAccessibilite(container)).toEqual([]);
+  }, 30_000);
+
+  it("page projet : regles (liste, creation d'un brouillon, approbation)", async () => {
+    h.role = "ADMIN";
+    const { container } = await ouvrirConflits();
+    await userEvent.click(screen.getByRole("button", { name: "Règles" }));
+    await screen.findAllByText(/^version [0-9]/, undefined, { timeout: 10_000 });
+    expect(await violationsAccessibilite(container)).toEqual([]);
+    await userEvent.click(screen.getByRole("button", { name: "Créer un brouillon de règle" }));
+    await screen.findByRole("dialog");
+    expect(await violationsAccessibilite(container.ownerDocument.body)).toEqual([]);
+    await userEvent.click(screen.getByRole("button", { name: "Annuler" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await userEvent.click(screen.getByRole("button", { name: /Approuver la règle RC-TEL, version 2/ }));
+    await screen.findByRole("dialog");
+    expect(await violationsAccessibilite(container.ownerDocument.body)).toEqual([]);
+  }, 60_000);
+
+  it("page projet : analyse terminee, puis erreur 503 PROJET_OCCUPE", async () => {
+    const { container } = await ouvrirConflits();
+    vi.mocked(api.post).mockResolvedValueOnce({ data: brutConflit(serveurLancement(analyseConflit())) } as never);
+    await userEvent.click(screen.getByRole("button", { name: "Lancer une analyse" }));
+    await screen.findByTestId("analyse-terminee", undefined, { timeout: 10_000 });
+    expect(await violationsAccessibilite(container)).toEqual([]);
+    vi.mocked(api.post).mockRejectedValueOnce(Object.assign(new Error("503"), { response: { status: 503, data: { code: "PROJET_OCCUPE", error: "occupé" } } }));
+    await userEvent.click(screen.getByRole("button", { name: "Lancer une analyse" }));
+    await screen.findByTestId("analyse-erreur", undefined, { timeout: 10_000 });
+    expect(await violationsAccessibilite(container)).toEqual([]);
   }, 60_000);
 
   it("page projet : erreurs 403 puis 404, projet sans donnee", async () => {

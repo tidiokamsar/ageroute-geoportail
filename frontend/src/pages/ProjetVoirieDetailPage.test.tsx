@@ -104,10 +104,15 @@ describe("page projet : carte, panneau, onglets", () => {
     expect(couchesTab).toHaveFocus();
     expect(screen.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", "pv-onglet-couches");
     expect(analyseTab).toHaveAttribute("tabindex", "-1");
+    // Troisieme onglet (lot RC-3) : « Conflits ».
+    const conflitsTab = screen.getByRole("tab", { name: "Conflits" });
+    await userEvent.keyboard("{ArrowRight}");
+    expect(conflitsTab).toHaveAttribute("aria-selected", "true");
+    expect(conflitsTab).toHaveFocus();
     await userEvent.keyboard("{ArrowRight}");
     expect(analyseTab).toHaveAttribute("aria-selected", "true");
     await userEvent.keyboard("{End}");
-    expect(couchesTab).toHaveFocus();
+    expect(conflitsTab).toHaveFocus();
     await userEvent.keyboard("{Home}");
     expect(analyseTab).toHaveFocus();
     expect(analyseTab).toHaveAttribute("aria-controls", "pv-panneau-analyse");

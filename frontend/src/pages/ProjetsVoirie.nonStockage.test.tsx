@@ -16,6 +16,8 @@ vi.mock("../lib/download", () => ({ downloadViaApi: vi.fn().mockResolvedValue(un
 
 import { ProjetVoirieDetailPage } from "./ProjetVoirieDetailPage";
 import { analyse, couche, ligne, projetFiche } from "../components/projets-voirie/synthetique.testutil";
+import { BASE, reponseApi } from "../components/projets-voirie/conflitsPage.testutil";
+import { downloadViaApi } from "../lib/download";
 
 /**
  * AUCUN RESEAU DE CONCESSIONNAIRE N'EST CONSERVE SUR L'APPAREIL (contrat, sections 2 et 6).
@@ -44,7 +46,8 @@ const sansCommentaires = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "").repla
 describe("preuve statique", () => {
   const fichiers = fichiersDuModule();
   it("le module compte bien des fichiers (la recherche ne porte pas sur un dossier vide)", () => {
-    expect(fichiers.length).toBeGreaterThanOrEqual(14);
+    // Socle (14) + dossiers de conflit (lot RC-3 : 3 lib, 8 composants).
+    expect(fichiers.length).toBeGreaterThanOrEqual(25);
   });
   it.each([
     ["stockage local", /localStorage|sessionStorage|indexedDB|IndexedDB|openDatabase|\bcaches\b|serviceWorker|navigator\.storage|persistQueryClient|createSyncStoragePersister/],
@@ -58,6 +61,17 @@ describe("preuve statique", () => {
   it("contre-epreuve : la recherche detecte bien un usage interdit", () => {
     expect(/localStorage/.test(sansCommentaires("const x = localStorage.getItem('a');"))).toBe(true);
     expect(/localStorage/.test(sansCommentaires("/* jamais localStorage */ // ni localStorage\nconst x = 1;"))).toBe(false);
+  });
+  it("les dossiers de conflit n'appellent ni l'API publique, ni une exportation de geometrie, ni une route qui deplace, ordonne ou execute", () => {
+    const api = sansCommentaires(readFileSync(path.join(RACINE, "lib/projetsVoirieConflitsApi.ts"), "utf8"));
+    expect(api).not.toMatch(/\/api\/public|\/public\//);
+    expect(api).not.toMatch(/export\.(geojson|kml|kmz|shp)/i);
+    // `/${id(projetId)}/conflits/:cid/statut` devient `/conflits/statut` : on compare les segments fixes des routes.
+    const routes = [...api.matchAll(/`\$\{BASE\}([^`]*)`/g)].map((m) => m[1].replace(/\/\$\{id\(\w+\)\}/g, ""));
+    expect(routes.length).toBeGreaterThanOrEqual(15);
+    expect(routes.filter((r) => /deplacer|ordre|ordonner|executer|execution/i.test(r))).toEqual([]);
+    // Le seul export est le CSV d'agregats.
+    expect(routes.filter((r) => /export/.test(r))).toEqual(["/conflits/export.csv"]);
   });
   it("aucune route, aucun appel du module ne vise l'API publique ni une exportation de geometrie", () => {
     const api = sansCommentaires(readFileSync(path.join(RACINE, "lib/projetsVoirieApi.ts"), "utf8"));
@@ -130,6 +144,57 @@ describe("preuve a l'execution : un parcours complet ne touche aucun stockage", 
     expect(espions.length).toBeGreaterThanOrEqual(10);
     expect(espions.flatMap((e) => e.mock.calls)).toEqual([]);
   }, 60_000);
+
+  it("onglet Conflits : liste, dossier, transition, attribution, preuve, decision, analyse, historique, comparaison, regles, export : zero appel de stockage", async () => {
+    h.get.mockImplementation(async (url: string, opts?: { params?: Record<string, unknown> }) => reponseApi(url, opts?.params));
+    h.post.mockReset(); h.post.mockResolvedValue({ data: {} });
+    const patch = vi.fn().mockResolvedValue({ data: {} });
+    (await import("../lib/api")).api.patch = patch as never;
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(
+      <MemoryRouter initialEntries={["/projets-voirie/p1"]}>
+        <QueryClientProvider client={qc}>
+          <Routes><Route path="/projets-voirie/:id" element={<ProjetVoirieDetailPage />} /></Routes>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    await userEvent.click(await screen.findByRole("tab", { name: "Conflits" }, { timeout: 25000 }));
+    const lien = await waitFor(() => { const b = document.querySelector<HTMLButtonElement>('button[data-conflit-id="cf-1"]'); if (!b) throw new Error("liste absente"); return b; }, { timeout: 25000 });
+    await userEvent.click(lien);
+    const f = await screen.findByTestId("fiche-conflit");
+    // Preuve.
+    await userEvent.click(within(f).getByRole("button", { name: /Ajouter une preuve/ }));
+    let d = await screen.findByRole("dialog");
+    await userEvent.type(within(d).getByLabelText("Texte de la preuve"), "Note de terrain");
+    await userEvent.click(within(d).getByRole("button", { name: "Ajouter la preuve" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // Attribution.
+    await userEvent.click(within(f).getByRole("button", { name: /Attribuer ou modifier/ }));
+    d = await screen.findByRole("dialog");
+    await userEvent.selectOptions(within(d).getByLabelText("Risque"), "ELEVE");
+    await userEvent.click(within(d).getByRole("button", { name: "Enregistrer l'attribution" }));
+    await waitFor(() => expect(patch).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // Transition.
+    await userEvent.click(within(f).getByRole("button", { name: "Infirmer ce conflit" }));
+    d = await screen.findByRole("dialog");
+    await userEvent.type(within(d).getByLabelText(/Justification/), "Écarté après contrôle");
+    await userEvent.click(within(d).getByRole("button", { name: "Enregistrer la transition" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // Analyse, historique, comparaison, regles, export.
+    await userEvent.click(screen.getByRole("button", { name: "Retour à la liste des conflits" }));
+    await userEvent.click(screen.getByRole("button", { name: "Lancer une analyse" }));
+    await waitFor(() => expect(h.post).toHaveBeenCalledWith(`${BASE}/analyses`, {}));
+    await userEvent.click(screen.getByRole("button", { name: "Analyses" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Comparer" }));
+    await screen.findByTestId("resultat-comparaison");
+    await userEvent.click(screen.getByRole("button", { name: "Règles" }));
+    await screen.findAllByText(/^version [0-9]/);
+    await userEvent.click(screen.getByRole("button", { name: /Exporter les conflits/ }));
+    await waitFor(() => expect(downloadViaApi).toHaveBeenCalled());
+    expect(espions.length).toBeGreaterThanOrEqual(10);
+    expect(espions.flatMap((e) => e.mock.calls)).toEqual([]);
+  }, 90_000);
 
   it("contre-epreuve : les espions voient bien un appel de stockage", () => {
     localStorage.setItem("essai", "1");
