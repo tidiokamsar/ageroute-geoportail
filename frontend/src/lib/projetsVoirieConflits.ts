@@ -36,6 +36,14 @@ export const BANDEAU_GARDE_FOUS = "Un conflit est un signal de vérification : a
 export const MENTION_VERTICAL = "Vertical non évalué : profondeur et altitude absentes.";
 export const MENTION_RECOLEMENT = "Récolement à valider (non géré dans cet outil)";
 export const RAPPEL_SEPARATION = "Séparation des tâches : la personne qui propose une décision ou une clôture ne l'approuve pas. Seul un administrateur peut accorder une dérogation, avec un motif, tracée dans l'historique et l'audit.";
+/** Une decision tranchee ne s'annule pas (aucune route d'annulation ; la base interdit de modifier une decision tranchee) : on en propose une nouvelle. */
+export const AIDE_DECISION_TRANCHEE = "Une décision tranchée (approuvée ou refusée) ne peut être ni annulée ni modifiée, coûts compris : elle ne peut qu'être remplacée par une nouvelle proposition. Tant que le dossier est « Confirmé », proposez-en une nouvelle ; après « Traitement décidé », un administrateur doit d'abord rouvrir le dossier (infirmé, puis requalifié).";
+/** Avertissements de SECOURS d'un dossier : ceux du serveur (`avertissements` de la fiche) priment ; ce sont les memes phrases que le backend du lot. */
+export const AVERTISSEMENTS_DE_SECOURS: readonly string[] = [
+  "Un conflit est un signal de vérification : aucun déplacement n'est décidé ni ordonné par le système.",
+  "Conflit vertical non évalué : profondeur et altitude absentes.",
+  "L'absence de conflit détecté ne prouve pas l'absence de réseau.",
+];
 export const AVERTISSEMENT_COUTS = "Le coût estimé et le coût réel sont deux champs distincts, saisis à la main : l'outil ne calcule, ne déduit et ne somme aucun coût.";
 
 /** Formes distinctes pour les badges : le MOT et la FORME portent l'information, jamais la seule couleur (WCAG 1.4.1). */
@@ -234,6 +242,12 @@ export interface FiltresConflits {
   tri: TriConflit;
 }
 
+/** Longueurs maximales acceptees par le serveur (`axe` : 300 caracteres, `q` : 100) ; le champ de saisie ne coupe pas une valeur valide. */
+export const AXE_MAX = 300;
+export const RECHERCHE_MAX = 100;
+/** Delai de frappe : `q` et `axe` ne partent au serveur qu'une fois la saisie posee (une requete par pause, pas une par touche). */
+export const DELAI_FILTRE_TEXTE_MS = 300;
+
 export const FILTRES_VIDES: FiltresConflits = { statut: "", type: "", axe: "", concessionnaireId: "", responsableId: "", aReexaminer: false, echeanceDepassee: false, q: "", tri: "serveur" };
 
 /** Nombre de filtres actifs (le tri n'en est pas un : il ne change pas les resultats). */
@@ -283,6 +297,34 @@ export function trierConflits<T extends TriableConflit>(liste: readonly T[], tri
     }
   };
   return copie.sort((p, q) => cmp(p.x, q.x) || p.i - q.i).map((e) => e.x);
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Champs masques : le serveur peut retirer ou vider (`null`) objet, mesure, concessionnaire, troncons proches ou sources pour un lecteur
+// quand le jeu de reseau du dossier n'est plus lisible par lui. Un champ masque n'est JAMAIS rendu comme « zero » ni comme « aucun ».
+// ---------------------------------------------------------------------------------------------------
+
+export const TEXTE_MASQUE = "masqué pour votre compte";
+
+interface MasquableConflit {
+  type: TypeConflit;
+  geometrieMasquee: boolean;
+  mesure: { longueurChausseeM: number | null; longueurEmpriseM: number | null; distanceMinM: number | null; nbCroisements: number | null; longueurPieceM: number | null };
+  concessionnaire: { nom: string | null } | null;
+  objet: { nom: string | null } | null;
+}
+
+/** La mesure est-elle entierement absente ? (un serveur qui la masque ne renvoie aucune valeur ; une mesure reelle en porte toujours.) */
+export const mesureAbsente = (c: Pick<MasquableConflit, "mesure">): boolean => Object.values(c.mesure).every((v) => v === null);
+
+/** Phrase de la mesure absente : « masquee » si le serveur masque ce dossier, « non fournie » sinon. */
+export const libelleMesureAbsente = (c: Pick<MasquableConflit, "geometrieMasquee">): string => (c.geometrieMasquee ? "Mesure masquée pour votre compte" : "Mesure non fournie");
+
+/** Concessionnaire d'un dossier : « aucun » n'est dit que pour une couverture insuffisante (zone sans jeu) ; ailleurs, l'absence est un masquage ou un champ non renseigne. */
+export function libelleConcessionnaire(c: Pick<MasquableConflit, "type" | "geometrieMasquee" | "concessionnaire">): string {
+  if (c.concessionnaire) return c.concessionnaire.nom ?? "Concessionnaire sans nom";
+  if (c.type === "COUVERTURE_INSUFFISANTE") return "aucun concessionnaire (zone sans jeu réseau)";
+  return c.geometrieMasquee ? `concessionnaire ${TEXTE_MASQUE}` : "concessionnaire non renseigné";
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -395,7 +437,7 @@ export function erreursRegle(s: SaisieRegle): string[] {
 /** Messages en clair des codes du lot (contrat, section 6). Le texte du serveur ne sert que pour un code inconnu. */
 export const MESSAGE_CODE_CONFLIT: Record<string, string> = {
   TRANSITION_INTERDITE: "Cette transition n'est pas permise depuis le statut actuel : le dossier a peut-être changé, ou votre compte n'a pas ce droit. Rechargez la fiche : seules les transitions valides y sont proposées. Rien n'a été modifié.",
-  SEPARATION_DES_TACHES: "Séparation des tâches : la personne qui a proposé cette décision (ou cette clôture) ne peut pas l'approuver. Un autre compte habilité doit le faire ; un administrateur peut accorder une dérogation motivée, tracée dans l'historique et l'audit. Rien n'a été modifié.",
+  SEPARATION_DES_TACHES: "Séparation des tâches : la personne qui a proposé cette décision (ou qui a placé le dossier en traitement décidé) ne peut pas la trancher elle-même sans dérogation motivée, tracée dans l'historique et l'audit. Selon le serveur, la dérogation est acceptée d'un administrateur, ou d'un gestionnaire seulement s'il est le seul compte habilité (hors déplacement de réseau) ; la clôture d'un dossier et l'approbation d'une règle n'acceptent que celle d'un administrateur. Rien n'a été modifié.",
   DECISION_REQUISE: "Une décision approuvée est requise avant de passer à « Traitement décidé » : proposez-en une, puis faites-la approuver par une autre personne. Rien n'a été modifié.",
   PREUVE_REQUISE: "Au moins une preuve est requise pour confirmer un conflit. Ajoutez une preuve (note, référence de document, contact du concessionnaire ou relevé de terrain), puis réessayez. Rien n'a été modifié.",
   JUSTIFICATION_REQUISE: `Une justification d'au moins ${JUSTIFICATION_MIN} caractères est obligatoire. Rien n'a été modifié.`,
@@ -409,12 +451,28 @@ export const MESSAGE_CODE_CONFLIT: Record<string, string> = {
   RESPONSABLE_INCONNU: "Le responsable désigné n'existe pas ou n'est pas actif. Vérifiez l'identifiant du compte.",
   ANALYSE_NON_COMPARABLE: "Une analyse en échec n'a pas de résultat à comparer : choisissez deux analyses terminées.",
   PROJET_OCCUPE: "Ce projet ou ce dossier est occupé par une autre opération (une analyse est peut-être en cours) : réessayez dans quelques instants.",
-  CONFLIT_INTROUVABLE: "Ce conflit est introuvable : il a peut-être été retiré du projet. Revenez à la liste.",
+  CONFLIT_INTROUVABLE: "Ce conflit est introuvable : il a peut-être été retiré du projet, ou il n'est plus lisible pour votre compte (le jeu de réseau concerné n'est plus autorisé). Revenez à la liste.",
   DECISION_INTROUVABLE: "Cette décision est introuvable. Rechargez la fiche.",
   REGLE_INTROUVABLE: "Cette règle est introuvable. Rechargez la liste des règles.",
   ANALYSE_INTROUVABLE: "Cette analyse est introuvable. Rechargez l'historique des analyses.",
   PROJET_INTROUVABLE: "Projet introuvable : il n'existe pas, a été retiré, ou n'est pas dans votre périmètre.",
 };
+
+const objet = (v: unknown): Record<string, unknown> | null => (v && typeof v === "object" ? (v as Record<string, unknown>) : null);
+
+/** Texte d'erreur du serveur (`{ error }`), sans toucher au reste : sert a completer un message en clair par la precision du serveur. */
+function texteDuServeur(e: unknown): string | null {
+  const corps = objet(objet(objet(e)?.response)?.data);
+  return typeof corps?.error === "string" && corps.error.trim() ? corps.error.trim() : null;
+}
+
+/** En-tete `Retry-After` en secondes (entier), ou null. Les en-tetes axios sont en minuscules ; la date HTTP n'est pas interpretee. */
+function delaiRetryAfter(e: unknown): number | null {
+  const h = objet(objet(objet(e)?.response)?.headers);
+  const v = h ? (h["retry-after"] ?? h["Retry-After"]) : null;
+  const n = typeof v === "string" || typeof v === "number" ? Number(v) : NaN;
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
 
 /**
  * Classe une erreur pour l'ecran des conflits : les codes du lot ont un message en clair, un 503 ou un 504 sans code est explique (jamais un
@@ -424,7 +482,15 @@ export function classerErreurConflit(e: unknown): ErreurPv {
   const base = classerErreur(e);
   if (base.code && MESSAGE_CODE_CONFLIT[base.code]) {
     const genre: GenreErreur = base.status === 409 ? "conflit" : base.status === 404 ? "introuvable" : base.status === 403 ? "droit" : base.status === 422 || base.status === 400 ? "validation" : base.genre;
-    return { ...base, genre, message: MESSAGE_CODE_CONFLIT[base.code] };
+    // Separation des taches : la precision du serveur (qui peut deroger, pourquoi la derogation donnee ne suffit pas) complete le message en clair.
+    const precision = base.code === "SEPARATION_DES_TACHES" ? texteDuServeur(e) : null;
+    return { ...base, genre, message: precision ? `${MESSAGE_CODE_CONFLIT[base.code]} Précision du serveur : ${precision}` : MESSAGE_CODE_CONFLIT[base.code] };
+  }
+  if (base.status === 429) {
+    const attente = delaiRetryAfter(e);
+    const consigne = attente !== null ? ` Réessayez dans ${attente} seconde${attente > 1 ? "s" : ""}.` : " Réessayez dans un instant.";
+    const detail = texteDuServeur(e);
+    return { ...base, genre: "serveur", message: `Trop de demandes en peu de temps : le serveur limite la fréquence de cette opération (429).${detail ? ` ${detail}` : ""}${consigne} Rien n'a été modifié.` };
   }
   if (!base.code && base.status === 504) {
     return { ...base, genre: "serveur", message: "Le serveur n'a pas répondu dans le délai autorisé (504) : le calcul ou la lecture a été interrompu. Réessayez dans un instant ; avant de relancer une analyse, consultez l'historique des analyses." };
