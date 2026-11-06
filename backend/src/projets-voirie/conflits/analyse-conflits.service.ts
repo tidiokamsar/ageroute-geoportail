@@ -20,13 +20,14 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { logAuditTransactionnelle } from "../../utils/audit";
 import { Budget, avecErreurDelai, estDelaiDepasse, poserDelais } from "../bd";
-import { delaiAnalyseMs, delaiDepotMs, delaiVerrouMs, conflitsParAnalyseMax } from "../config";
+import { analyseIntervalleMinS, delaiAnalyseMs, delaiDepotMs, delaiVerrouMs, conflitsParAnalyseMax } from "../config";
 import { epsgPourLongitude, LIMITES_OBLIGATOIRES } from "../analyse.noyau";
 import * as socle from "../analyse.depot";
 import { limiteurAnalyses } from "../limiteurs";
 import { ErreurMetier, introuvable } from "../erreurs";
 import { SOMMETS_AXES_ANALYSE_MAX, SOMMETS_RESEAU_ANALYSE_MAX } from "../analyse.service";
 import type { Acteur } from "../projets.service";
+import { verifierCadence } from "./cadence.noyau";
 import { cellule, empreinteMesure, finaliserCandidats, type CandidatBrut, type ConflitCalcule } from "./classification.noyau";
 import * as depot from "./conflits.depot";
 import { distanceProximiteM, resoudreRegle, type RegleLue } from "./regle.noyau";
@@ -47,17 +48,35 @@ export interface VueAnalyseConflits {
   duree: number; createdAt: Date;
 }
 
-type LigneAnalyse = Prisma.AnalyseConflitProjetGetPayload<{ include: { declenchePar: { select: { id: true; nomComplet: true } } } }>;
+/**
+ * Colonnes d une analyse rendues par l API : TOUTES SAUF `instantane` (le JSON { cle : empreinte } peut peser plusieurs centaines de Ko
+ * pour 20 000 conflits ; il ne sert qu a la comparaison, qui le lit elle-meme). Le nombre de conflits est dans `resume.totaux` (revue RC-3, M2).
+ */
+export const SELECT_ANALYSE = {
+  id: true, projetId: true, numero: true, statut: true, largeurEmpriseM: true, largeurChausseeM: true, regles: true, jeux: true,
+  versionAlgorithme: true, resume: true, declencheParId: true, duree: true, createdAt: true,
+  declenchePar: { select: { id: true, nomComplet: true } },
+} as const;
 
-export const INCLURE_ANALYSE = { declenchePar: { select: { id: true, nomComplet: true } } } as const;
+type LigneAnalyse = Prisma.AnalyseConflitProjetGetPayload<{ select: typeof SELECT_ANALYSE }>;
 
-export function vueAnalyse(a: LigneAnalyse): VueAnalyseConflits {
-  const inst = a.instantane as Record<string, unknown> | null;
+/** Nombre de conflits trouves, tel que le resume l a fige a l analyse (zero pour une analyse en echec, qui n a pas de resultat). */
+const nbConflitsDuResume = (resume: unknown): number => {
+  const n = (resume as { totaux?: { conflitsTrouves?: unknown } } | null)?.totaux?.conflitsTrouves;
+  return typeof n === "number" && Number.isFinite(n) ? n : 0;
+};
+
+/**
+ * Vue d une analyse. `jeuLisible` : filtre des jeux utilises selon leur statut COURANT et le compte (voir visibilite.noyau.ts) ; absent,
+ * aucun filtre (l analyse que l on vient de lancer ne porte que des jeux autorises).
+ */
+export function vueAnalyse(a: LigneAnalyse, jeuLisible?: (jeuId: string) => boolean): VueAnalyseConflits {
+  const jeux = Array.isArray(a.jeux) && jeuLisible ? (a.jeux as { jeuId?: unknown }[]).filter((j) => typeof j.jeuId === "string" && jeuLisible(j.jeuId)) : a.jeux;
   return {
     id: a.id, projetId: a.projetId, numero: a.numero, statut: a.statut,
     largeurEmpriseM: Number(a.largeurEmpriseM), largeurChausseeM: Number(a.largeurChausseeM),
-    regles: a.regles, jeux: a.jeux, versionAlgorithme: a.versionAlgorithme, resume: a.resume,
-    nbConflitsTrouves: inst ? Object.keys(inst).length : 0,
+    regles: a.regles, jeux, versionAlgorithme: a.versionAlgorithme, resume: a.resume,
+    nbConflitsTrouves: nbConflitsDuResume(a.resume),
     declenchePar: a.declenchePar ? { id: a.declenchePar.id, nomComplet: a.declenchePar.nomComplet } : null,
     duree: a.duree, createdAt: a.createdAt,
   };
@@ -92,9 +111,25 @@ export interface ResumeAnalyse {
   limites: string[];
 }
 
+/**
+ * Delai minimal entre deux analyses TERMINEES d un projet (revue RC-3, m8) : 429 ANALYSE_TROP_FREQUENTE avec `retryAfterS` (et l en-tete
+ * Retry-After). Verifie une premiere fois AVANT d attendre une place du limiteur, puis sous le verrou de l analyse (deux demandes qui se
+ * croisent ne passent pas toutes les deux). Une analyse en ECHEC ne compte pas.
+ */
+async function exigerCadence(lecteur: Pick<typeof prisma, "analyseConflitProjet">, projetId: string): Promise<void> {
+  const derniere = await lecteur.analyseConflitProjet.aggregate({ where: { projetId, statut: "TERMINEE" }, _max: { createdAt: true } });
+  const v = verifierCadence({ derniereTermineeLe: derniere._max.createdAt, maintenant: new Date(), intervalleS: analyseIntervalleMinS() });
+  if (!v.ok) {
+    throw new ErreurMetier(429, "ANALYSE_TROP_FREQUENTE",
+      `Une analyse de ce projet date de moins de ${analyseIntervalleMinS()} s : réessayez dans ${v.retryAfterS} s (le résultat serait identique tant que les données ne changent pas).`,
+      { retryAfterS: v.retryAfterS });
+  }
+}
+
 export async function lancerAnalyse(acteur: Acteur, projetId: string): Promise<{ analyse: VueAnalyseConflits; resume: ResumeAnalyse }> {
   const projet = await prisma.projetVoirie.findFirst({ where: { id: projetId, deletedAt: null } });
   if (!projet) throw introuvable("Projet", "PROJET_INTROUVABLE");
+  await exigerCadence(prisma, projetId);
   const debut = performance.now();
   const delai = delaiAnalyseMs();
   const trop = () => new ErreurMetier(504, "ANALYSE_TROP_LONGUE", `L'analyse a dépassé ${Math.round(delai / 1000)} s et a été interrompue : le projet est trop volumineux pour un calcul immédiat.`);
@@ -117,6 +152,7 @@ type ProjetLu = { id: string; code: string; regionId: number | null; largeurEmpr
 async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: ProjetLu, debut: number, delai: number, trop: () => Error) {
   const verrou = await tx.$queryRaw<{ ok: boolean }[]>`SELECT pg_try_advisory_xact_lock(hashtextextended(${cleVerrou(projet.id)}, 0)) AS "ok"`;
   if (!verrou[0]?.ok) throw new ErreurMetier(503, "PROJET_OCCUPE", "Une analyse de conflits est déjà en cours sur ce projet : réessayez dans quelques instants.");
+  await exigerCadence(tx, projet.id);
   await tx.$executeRaw`SELECT set_config('bdri.conflit_recalcul', 'oui', true)`;
 
   const empr = Number(projet.largeurEmpriseM);
@@ -182,7 +218,7 @@ async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: Pr
       };
     }),
     ...sansCouverture.map((c): CandidatBrut => ({
-      type: "COUVERTURE_INSUFFISANTE", axe: c.axe, jeuReseauId: null, objetId: null, concessionnaireId: null, nomObjet: null, empreinteObjet: null,
+      type: "COUVERTURE_INSUFFISANTE", axe: c.axe, jeuReseauId: null, jeuAxesId: c.jeu, objetId: null, concessionnaireId: null, nomObjet: null, empreinteObjet: null,
       classePrecision: null, mesure: { longueurChausseeM: 0, longueurEmpriseM: 0, distanceMinM: null, nbCroisements: 0, longueurPieceM: c.len }, cellule: cellule(c.lon, c.lat), geomHex: c.g,
     })),
   ];
@@ -246,7 +282,7 @@ async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: Pr
       versionAlgorithme: VERSION_ALGORITHME_CONFLITS, resume: resume as unknown as Prisma.InputJsonValue,
       instantane: instantane as unknown as Prisma.InputJsonValue, declencheParId: acteur.id, duree: Math.round(performance.now() - debut),
     },
-    include: INCLURE_ANALYSE,
+    select: SELECT_ANALYSE,
   });
 
   try {
@@ -273,7 +309,7 @@ async function ecrireConflits(
   const historique: Prisma.ConflitHistoriqueCreateManyInput[] = [];
   const aTroncons: string[] = [];
   const ligne = (c: ConflitCalcule) => ({
-    jeuReseauId: c.jeuReseauId ?? "", objetId: c.objetId ?? "", concessionnaireId: c.concessionnaireId ?? "", mesure: json(c.mesure), geomHex: c.geomHex, classePrecision: c.classePrecision ?? "",
+    jeuReseauId: c.jeuReseauId ?? "", jeuAxesId: c.jeuAxesId ?? "", objetId: c.objetId ?? "", concessionnaireId: c.concessionnaireId ?? "", mesure: json(c.mesure), geomHex: c.geomHex, classePrecision: c.classePrecision ?? "",
   });
 
   const crees = actions.filter((a): a is Extract<ActionRejeu, { genre: "CREER" }> => a.genre === "CREER");

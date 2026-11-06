@@ -89,7 +89,12 @@ const STATUT_LECTURE: Record<string, number> = { FICHIER_TROP_GROS: 413, FORMAT_
 
 /** Rend une erreur metier ou de lecture au format `{ error, code, ... }` ; toute autre erreur va au gestionnaire commun. */
 function traiter(res: Response, next: NextFunction, e: unknown): void {
-  if (e instanceof ErreurMetier) { res.status(e.status).json({ error: e.message, code: e.code, ...e.extra }); return; }
+  if (e instanceof ErreurMetier) {
+    // 429 : le delai a attendre (secondes) est aussi dans l'en-tete Retry-After.
+    if (typeof e.extra.retryAfterS === "number") res.setHeader("Retry-After", String(e.extra.retryAfterS));
+    res.status(e.status).json({ error: e.message, code: e.code, ...e.extra });
+    return;
+  }
   if (e instanceof ErreurLecture) { res.status(STATUT_LECTURE[e.code] ?? 422).json({ error: e.message, code: e.code }); return; }
   if (e instanceof ServiceOccupe) { res.setHeader("Retry-After", String(e.retryAfterS)); res.status(503).json({ error: e.message, code: e.code }); return; }
   next(e);

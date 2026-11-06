@@ -374,6 +374,48 @@ describe("validation des entrees : 400 avec code, jamais 500, le service n'est p
   });
 });
 
+describe("revue RC-3, m7 : curseurs forges, 400 CURSEUR_INVALIDE avant tout acces a la base", () => {
+  const b64 = (o: unknown) => Buffer.from(JSON.stringify(o), "utf8").toString("base64url");
+  const NUL = String.fromCharCode(0);
+  const ID = "123e4567-e89b-42d3-a456-426614174000";
+
+  it("analyses : numero superieur a la colonne integer, nul, fractionnaire, texte : 400, le service n'est pas appele", async () => {
+    for (const n of [2_147_483_648, 1e300, 0, -1, 1.5, "7"]) {
+      const r = await avec(request(app).get(`${BASE}/${P_R1}/analyses?curseur=${b64({ n })}`), "GEST");
+      expect(r.status, String(n)).toBe(400);
+      expect(r.body.code).toBe("CURSEUR_INVALIDE");
+    }
+    expect(appelsDe("listerAnalyses")).toEqual([]);
+    expect((await avec(request(app).get(`${BASE}/${P_R1}/analyses?curseur=${b64({ n: 2_147_483_647 })}`), "GEST")).status).toBe(200);
+  });
+
+  it("dossiers : identifiant qui n'est pas un UUID (octet NUL compris), date hors intervalle PostgreSQL ou de forme libre : 400, le service n'est pas appele", async () => {
+    const forges = [{ t: "2026-11-06T10:15:30.123Z", i: NUL }, { t: "2026-11-06T10:15:30.123Z", i: "abc" }, { t: "+275760-09-13T00:00:00.000Z", i: ID }, { t: "9999-01-01T00:00:00.000Z", i: ID }, { t: "Nov 6 2026", i: ID }];
+    for (const c of forges) {
+      const r = await avec(request(app).get(`${BASE}/${P_R1}/conflits?curseur=${b64(c)}`), "GEST");
+      expect(r.status, JSON.stringify(c)).toBe(400);
+      expect(r.body.code).toBe("CURSEUR_INVALIDE");
+    }
+    expect(appelsDe("listerConflits")).toEqual([]);
+    const ok = await avec(request(app).get(`${BASE}/${P_R1}/conflits?curseur=${b64({ t: "2026-11-06T10:15:30.123Z", i: ID })}`), "GEST");
+    expect(ok.status).toBe(200);
+    expect(appelsDe("listerConflits")).toHaveLength(1);
+  });
+});
+
+describe("revue RC-3, M1 : les lectures d'analyses recoivent le compte (filtre des jeux selon le statut courant et le role)", () => {
+  it("liste, detail et comparaison transmettent l'acteur du jeton (identifiant et role) au service", async () => {
+    await avec(request(app).get(`${BASE}/${P_R1}/analyses`), "LECT");
+    await avec(request(app).get(`${BASE}/${P_R1}/analyses/${A1}`), "LECT");
+    await avec(request(app).get(`${BASE}/${P_R1}/analyses/${A1}/comparaison?avec=${A2}`), "LECT");
+    for (const nom of ["listerAnalyses", "detailAnalyse", "comparerAnalyses"]) {
+      expect(appelsDe(nom), nom).toHaveLength(1);
+      expect(appelsDe(nom)[0].args[0], nom).toMatchObject({ id: "u-lect", role: "LECTEUR" });
+      expect(appelsDe(nom)[0].args[1], nom).toBe(P_R1);
+    }
+  });
+});
+
 describe("erreurs typees du contrat : rendues telles quelles, au format { error, code, ... }", () => {
   const cas: [ErreurMetier, number][] = [
     [new ErreurMetier(409, "TRANSITION_INTERDITE", "La transition A vers B n'existe pas."), 409],
@@ -385,6 +427,11 @@ describe("erreurs typees du contrat : rendues telles quelles, au format { error,
     [new ErreurMetier(404, "CONFLIT_INTROUVABLE", "Conflit introuvable"), 404],
     [new ErreurMetier(503, "PROJET_OCCUPE", "Projet occupe."), 503],
     [new ErreurMetier(504, "ANALYSE_TROP_LONGUE", "Analyse trop longue."), 504],
+    [new ErreurMetier(404, "PROJET_INTROUVABLE", "Projet introuvable"), 404],
+    [new ErreurMetier(409, "STATUT_INCOMPATIBLE", "Ce dossier est clôturé."), 409],
+    [new ErreurMetier(422, "RESPONSABLE_REQUIS", "Un responsable doit rester désigné."), 422],
+    [new ErreurMetier(422, "RESPONSABLE_NON_HABILITE", "Le responsable n'a pas accès au module."), 422],
+    [new ErreurMetier(504, "EXPORT_TROP_LONG", "L'export a dépassé 20 s."), 504],
     [new ErreurMetier(422, "ANALYSE_TROP_VOLUMINEUSE", "Trop volumineux.", { conflitsMax: 100 }), 422],
   ];
   it("chaque erreur du service sort avec son statut, son code et ses champs supplementaires, jamais un 500", async () => {
@@ -402,6 +449,20 @@ describe("erreurs typees du contrat : rendues telles quelles, au format { error,
     expect(r.status).toBe(503);
     expect(r.body.code).toBe("SERVICE_OCCUPE");
     expect(r.headers["retry-after"]).toBe("7");
+  });
+
+  it("revue RC-3, m8 : une analyse trop frequente sort en 429 ANALYSE_TROP_FREQUENTE avec le delai dans le corps ET dans l'en-tete Retry-After", async () => {
+    w.echec = new ErreurMetier(429, "ANALYSE_TROP_FREQUENTE", "Une analyse de ce projet date de moins de 60 s.", { retryAfterS: 42 });
+    const r = await avec(request(app).post(`${BASE}/${P_R1}/analyses`).send({}), "GEST");
+    expect(r.status).toBe(429);
+    expect(r.body).toEqual({ error: "Une analyse de ce projet date de moins de 60 s.", code: "ANALYSE_TROP_FREQUENTE", retryAfterS: 42 });
+    expect(r.headers["retry-after"]).toBe("42");
+  });
+
+  it("une erreur sans delai n'ajoute pas d'en-tete Retry-After", async () => {
+    w.echec = new ErreurMetier(409, "TRANSITION_INTERDITE", "Interdite.");
+    const r = await avec(request(app).post(`${BASE}/${P_R1}/conflits/${C1}/statut`).send({ vers: "POTENTIEL", justification: "Controle effectue avec le chef" }), "GEST");
+    expect(r.headers["retry-after"]).toBeUndefined();
   });
 
   it("une erreur inattendue du service : 500 generique, sans detail", async () => {

@@ -24,6 +24,8 @@ const depotConflits = await banc.imp("projets-voirie/conflits/conflits.depot");
 const request = (await import("supertest")).default;
 const pg = (await import("pg")).default;
 
+// Revue RC-3, m8 : le delai minimal entre deux analyses d un projet (defaut 60 s) est desactive pour ce banc, qui en enchaine plusieurs ; la section 14 le remet.
+process.env.PROJETS_VOIRIE_ANALYSE_INTERVALLE_S = "0";
 const app = createApp();
 const BASE = "/api/v2/projets-voirie";
 
@@ -729,18 +731,73 @@ async function main() {
   const R1_V2: Ligne[] = [...R1_BASE, { nom: "Fibre-Marqueur Loin", coords: [[100, 200], [160, 200]] }];
   const JEU_R1_V2 = await deposerEtAutoriser(PID, await geojson(R1_V2), { role: "RESEAU_TIERS", concessionnaireId: CONC1, classePrecision: "B", precisionHorizontaleM: "3.5" }, "r1-v2.geojson");
   const statutR1 = (await sql<{ statut: string }>(`SELECT statut::text FROM projets_voirie_jeux WHERE id = $1`, JEU_R1))[0].statut;
-  const vLecteur = (await get(`/${PID}/conflits/${idL2}`, T.lecteur)).body;
+  // REVUE RC-3, M1. Regle : un jeu RETIRE n'est montre a personne ; un jeu non AUTORISE (ici REMPLACE) n'est montre qu'a ADMIN et GESTIONNAIRE.
+  // Un compte qui ne decide pas ne voit pas un dossier dont un jeu n'est pas AUTORISE (liste, total, compteurs, fiche, comparaison, analyses) ;
+  // un compte qui decide voit le dossier (archive), sans les donnees tirees d'un jeu RETIRE.
+  const nbCaches = async () => compter(`SELECT count(*) n FROM conflits_projet c LEFT JOIN projets_voirie_jeux jr ON jr.id = c."jeuReseauId" LEFT JOIN projets_voirie_jeux ja ON ja.id = c."jeuAxesId"
+    WHERE c."projetId" = $1 AND NOT (coalesce(jr.statut::text, 'AUTORISE') = 'AUTORISE' AND coalesce(ja.statut::text, 'AUTORISE') = 'AUTORISE')`, PID);
+  const nbTous = await compter(`SELECT count(*) n FROM conflits_projet WHERE "projetId" = $1`, PID);
+  const cachesRemplace = await nbCaches();
+  const fLecteur = await get(`/${PID}/conflits/${idL2}`, T.lecteur);
   const vChef = (await get(`/${PID}/conflits/${idL2}`, T.chef)).body;
-  verifier("12. le jeu de reseau a ete REMPLACE : un lecteur ne voit plus la geometrie, la boite englobante ni l'identifiant du jeu de ce dossier (le dossier reste lisible) ; un GESTIONNAIRE voit tout (comme pour les jeux du socle)",
-    statutR1 === "REMPLACE" && vLecteur.conflit.geometrie === null && vLecteur.conflit.geometrieMasquee === true && vLecteur.conflit.bbox === null && vLecteur.conflit.jeuReseauId === null
-    && !vLecteur.sources.some((s: { jeuId: string }) => s.jeuId === JEU_R1) && vLecteur.historique.every((h: { donnees: { jeuReseauId?: unknown } }) => !("jeuReseauId" in (h.donnees ?? {})))
-    && vChef.conflit.geometrie?.type === "LineString" && vChef.conflit.geometrieMasquee === false && vChef.sources.some((s: { jeuId: string }) => s.jeuId === JEU_R1), { statutR1, lecteur: vLecteur.conflit });
+  verifier("12. M1 : le jeu de reseau a ete REMPLACE. Un lecteur recoit 404 CONFLIT_INTROUVABLE sur la fiche d'un dossier de ce jeu (aucune mesure, aucun objet, aucun troncon voisin) ; un GESTIONNAIRE voit tout, geometrie et source comprises (comme pour les jeux du socle)",
+    statutR1 === "REMPLACE" && cachesRemplace > 0 && fLecteur.status === 404 && fLecteur.body.code === "CONFLIT_INTROUVABLE" && !JSON.stringify(fLecteur.body).includes("Marqueur")
+    && vChef.conflit.geometrie?.type === "LineString" && vChef.conflit.geometrieMasquee === false && vChef.sources.some((s: { jeuId: string }) => s.jeuId === JEU_R1), { statutR1, cachesRemplace, statut: fLecteur.status });
   const listeLecteur = (await get(`/${PID}/conflits?limite=200`, T.lecteur)).body;
-  verifier("12. dans la liste, un lecteur recoit bbox = null pour les dossiers du jeu remplace", listeLecteur.conflits.filter((c: { concessionnaire: { id: string } | null }) => c.concessionnaire?.id === CONC1).every((c: { bbox: unknown; geometrieMasquee: boolean }) => c.bbox === null && c.geometrieMasquee));
+  const listeChef = (await get(`/${PID}/conflits?limite=200`, T.chef)).body;
+  const somme = (c: Record<string, number>) => Object.values(c).reduce((a, b) => a + b, 0);
+  verifier(`12. M1 : dans la liste, un lecteur ne recoit AUCUN dossier du jeu remplace : liste, total et compteurs excluent ${cachesRemplace} dossiers (oracle SQL), la somme des compteurs est le total ; le GESTIONNAIRE a les ${nbTous} dossiers`,
+    listeLecteur.total === nbTous - cachesRemplace && listeLecteur.conflits.length === nbTous - cachesRemplace && somme(listeLecteur.compteurs) === listeLecteur.total
+    && listeLecteur.conflits.every((c: { concessionnaire: { id: string } | null; bbox: unknown; mesure: unknown }) => c.concessionnaire?.id !== CONC1 && c.bbox !== null && c.mesure !== null)
+    && listeChef.total === nbTous && somme(listeChef.compteurs) === nbTous && listeChef.conflits.some((c: { concessionnaire: { id: string } | null }) => c.concessionnaire?.id === CONC1),
+    { lecteur: [listeLecteur.total, somme(listeLecteur.compteurs)], attendu: nbTous - cachesRemplace, chef: listeChef.total });
+  const sondeLecteur = [`concessionnaireId=${CONC1}`, "q=fibre-marqueur", "statut=CONFIRME"].map((q) => get(`/${PID}/conflits?limite=200&${q}`, T.lecteur));
+  const sondes = await Promise.all(sondeLecteur);
+  verifier("12. M1 : un lecteur ne peut pas sonder un dossier masque par un filtre (concessionnaire du jeu remplace, nom d'objet, statut d'un dossier masque : 0 resultat) ; le total reste celui des seuls dossiers visibles",
+    sondes[0].body.total === 0 && sondes[1].body.total === 0 && sondes[2].body.total === (await compter(`SELECT count(*) n FROM conflits_projet c LEFT JOIN projets_voirie_jeux jr ON jr.id = c."jeuReseauId" LEFT JOIN projets_voirie_jeux ja ON ja.id = c."jeuAxesId" WHERE c."projetId" = $1 AND c.statut = 'CONFIRME' AND coalesce(jr.statut::text, 'AUTORISE') = 'AUTORISE' AND coalesce(ja.statut::text, 'AUTORISE') = 'AUTORISE'`, PID)), sondes.map((s) => s.body.total));
+
+  const jeuxAnalyse = async (aid: string, t: string) => ((await get(`/${PID}/analyses/${aid}`, t)).body.analyse.jeux as { jeuId: string }[]).map((j) => j.jeuId).sort();
+  const statutsJeux = new Map((await sql<{ id: string; statut: string }>(`SELECT id, statut::text FROM projets_voirie_jeux WHERE "projetId" = $1`, PID)).map((j) => [j.id, j.statut]));
+  const idsA3 = (await sql<{ jeux: { jeuId: string }[] }>(`SELECT jeux FROM analyses_conflit_projet WHERE id = $1`, A3))[0].jeux.map((j) => j.jeuId).sort();
+  const lectA3 = await jeuxAnalyse(A3, T.lecteur), chefA3 = await jeuxAnalyse(A3, T.chef);
+  verifier("12. M1 : les jeux d'une analyse sont filtres selon leur statut COURANT : un lecteur ne recoit que les jeux AUTORISES (jeuId, empreinte, nom de fichier d'un jeu remplace ne fuient plus), un GESTIONNAIRE tous sauf les RETIRES ; meme filtre dans la liste des analyses",
+    idsA3.length === 4 && idsA3.some((id) => statutsJeux.get(id) === "REMPLACE") && JSON.stringify(lectA3) === JSON.stringify(idsA3.filter((id) => statutsJeux.get(id) === "AUTORISE"))
+    && JSON.stringify(chefA3) === JSON.stringify(idsA3.filter((id) => statutsJeux.get(id) !== "RETIRE")) && lectA3.length < chefA3.length
+    && JSON.stringify(((await get(`/${PID}/analyses?limite=100`, T.lecteur)).body.analyses as { numero: number; jeux: { jeuId: string }[] }[]).find((a) => a.numero === 3)?.jeux.map((j) => j.jeuId).sort()) === JSON.stringify(lectA3),
+    { idsA3: idsA3.map((id) => [id.slice(0, 4), statutsJeux.get(id)]), lectA3: lectA3.length, chefA3: chefA3.length });
+  const cmpL = (await get(`/${PID}/analyses/${A4}/comparaison?avec=${A3}`, T.lecteur)).body, cmpC = (await get(`/${PID}/analyses/${A4}/comparaison?avec=${A3}`, T.chef)).body;
+  const clesCachees = new Set((await sql<{ cle: string }>(`SELECT c.cle FROM conflits_projet c LEFT JOIN projets_voirie_jeux jr ON jr.id = c."jeuReseauId" WHERE c."projetId" = $1 AND coalesce(jr.statut::text, 'AUTORISE') <> 'AUTORISE'`, PID)).map((x) => x.cle));
+  const clesDe = (c: { apparus: { cles: string[] }; disparus: { cles: string[] }; modifies: { cles: string[] }; identiques: { cles: string[] } }) => [...c.apparus.cles, ...c.disparus.cles, ...c.modifies.cles, ...c.identiques.cles];
+  verifier("12. M1 : la comparaison de deux analyses ne liste, pour un lecteur, AUCUN dossier masque (cles, identifiants, type, axe, statut) et ses comptes ne les incluent pas ; le GESTIONNAIRE les voit",
+    clesDe(cmpC).some((k) => clesCachees.has(k)) && !clesDe(cmpL).some((k) => clesCachees.has(k))
+    && cmpL.apparus.nb + cmpL.disparus.nb + cmpL.modifies.nb + cmpL.identiques.nb === clesDe(cmpL).length && cmpL.apparus.nb + cmpL.disparus.nb + cmpL.modifies.nb + cmpL.identiques.nb < cmpC.apparus.nb + cmpC.disparus.nb + cmpC.modifies.nb + cmpC.identiques.nb
+    && !JSON.stringify([cmpL.apparus.conflits, cmpL.disparus.conflits, cmpL.modifies.conflits]).includes(idL2) && clesDe(cmpL).length === cmpL.apparus.cles.length + cmpL.disparus.cles.length + cmpL.modifies.cles.length + cmpL.identiques.cles.length,
+    { lecteur: clesDe(cmpL).length, chef: clesDe(cmpC).length, cachees: clesCachees.size });
+
   const retirer = await envoyer("delete", `/${PID}/jeux/${JEU_R2}`);
   const vAdmin = (await get(`/${PID}/conflits/${idW}`, T.admin)).body;
-  verifier("12. le jeu de reseau a ete RETIRE : meme un ADMIN ne recoit plus sa geometrie (dossier conserve, geometrie masquee, source absente)",
-    retirer.status === 200 && vAdmin.conflit.geometrie === null && vAdmin.conflit.geometrieMasquee === true && !vAdmin.sources.some((s: { jeuId: string }) => s.jeuId === JEU_R2) && vAdmin.conflit.statut === "INFIRME");
+  const fLecteurW = await get(`/${PID}/conflits/${idW}`, T.lecteur);
+  const histW = vAdmin.historique as { action: string; donnees: Record<string, unknown> }[];
+  verifier("12. le jeu de reseau a ete RETIRE : meme un ADMIN ne recoit plus rien de ce jeu (dossier conserve : statut, historique des personnes ; geometrie, boite, jeu, source, objet, mesure, troncons voisins, type de reseau, concessionnaire, classe, regle masques ; lignes de calcul de l'historique sans details) ; un lecteur recoit 404",
+    retirer.status === 200 && vAdmin.conflit.statut === "INFIRME" && vAdmin.conflit.geometrie === null && vAdmin.conflit.geometrieMasquee === true && vAdmin.conflit.bbox === null && vAdmin.conflit.jeuReseauId === null
+    && !vAdmin.sources.some((s: { jeuId: string }) => s.jeuId === JEU_R2) && vAdmin.conflit.objet === null && vAdmin.conflit.mesure === null && vAdmin.conflit.concessionnaire === null && vAdmin.conflit.typeReseau === null
+    && vAdmin.conflit.classePrecision === null && vAdmin.regle === null && vAdmin.tronconsProches.length === 0
+    && histW.filter((h) => h.action === "CREATION").every((h) => JSON.stringify(h.donnees) === JSON.stringify({ masquees: true })) && histW.some((h) => h.action === "STATUT" && /fourreau vide/.test(String((h as unknown as { justification: string }).justification)))
+    && fLecteurW.status === 404, { conflit: vAdmin.conflit, regle: vAdmin.regle });
+  const listeAdminRetire = (await get(`/${PID}/conflits?limite=200`, T.admin)).body;
+  const ligneW = listeAdminRetire.conflits.find((c: { id: string }) => c.id === idW);
+  const sondeRetire = await Promise.all([get(`/${PID}/conflits?q=eau-marqueur`, T.admin), get(`/${PID}/conflits?q=eaux`, T.admin), get(`/${PID}/conflits?concessionnaireId=${CONC2}`, T.admin)]);
+  verifier("12. un dossier d'un jeu RETIRE reste dans la liste de l'ADMIN (archive des decisions) mais sans objet, mesure ni concessionnaire ; l'ADMIN ne peut pas le retrouver par le nom de l'objet, le nom du concessionnaire ni le filtre concessionnaire (aucun sondage du contenu d'un jeu retire)",
+    !!ligneW && ligneW.objet === null && ligneW.mesure === null && ligneW.concessionnaire === null && ligneW.geometrieMasquee === true
+    && sondeRetire.every((s) => !s.body.conflits.some((c: { id: string }) => c.id === idW)), sondeRetire.map((s) => s.body.total));
+  const csvAdmin = (await get(`/${PID}/conflits/export.csv`, T.admin)).text.split(/\r?\n/);
+  const colonnes = csvAdmin[0].replace(/^﻿/, "").split(";");
+  const cleW = (await sql<{ cle: string }>(`SELECT cle FROM conflits_projet WHERE id = $1`, idW))[0].cle;
+  const ligneCsvW = csvAdmin.find((l) => l.endsWith(`;${cleW}`));
+  const cellulesW = (ligneCsvW ?? "").split(";");
+  verifier("12. l'export CSV ne porte pas non plus le concessionnaire, le type de reseau, la classe ni les longueurs d'un jeu RETIRE",
+    !!ligneCsvW && cellulesW[colonnes.indexOf("concessionnaire")] === "" && cellulesW[colonnes.indexOf("typeReseau")] === "" && cellulesW[colonnes.indexOf("classePrecision")] === ""
+    && cellulesW[colonnes.indexOf("longueurChausseeM")] === "0" && !ligneCsvW?.includes("Societe des Eaux"), ligneCsvW);
   const a6 = await analyser();
   const flagL2 = await statutDe(idL2);
   const jeuDeL2 = (await sql<{ j: string }>(`SELECT "jeuReseauId" j FROM conflits_projet WHERE id = $1`, idL2))[0].j;
@@ -766,6 +823,259 @@ async function main() {
     && (await compter(`SELECT count(*) n FROM audit_logs WHERE "entityType" = 'RegleConflit'`)) === (await compter(`SELECT count(*) n FROM regles_conflit_projet WHERE "creeParId" IS NOT NULL`)) + (await compter(`SELECT count(*) n FROM regles_conflit_projet WHERE statut = 'APPROUVEE' AND "creeParId" IS NOT NULL`)), { auditConflit, histHumain });
   verifier("13. aucun verdict humain ne vient du calcul : chaque statut humain a une ligne d'historique STATUT d'un acteur identifie",
     (await compter(`SELECT count(*) n FROM conflits_projet c WHERE c.statut IN ('CONFIRME','INFIRME','TRAITEMENT_DECIDE','CLOTURE') AND NOT EXISTS (SELECT 1 FROM conflits_projet_historique h WHERE h."conflitId" = c.id AND h.action = 'STATUT' AND h."nouveauStatut" = c.statut AND h."acteurId" IS NOT NULL)`)) === 0);
+
+  // ================================================================ 14. Revue independante RC-3 : corrections (M2, m1, m3, m4, m5, m6, m7, m8, m11, responsable)
+  const dormir = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+  const stP = (pid: string, id: string, corps: unknown, t = T.chef) => envoyer("post", `/${pid}/conflits/${id}/statut`, corps, t);
+  const patchP = (pid: string, id: string, corps: unknown, t = T.chef) => envoyer("patch", `/${pid}/conflits/${id}`, corps, t);
+  const histoN = async (id: string) => compter(`SELECT count(*) n FROM conflits_projet_historique WHERE "conflitId" = $1`, id);
+
+  // ---- Projet de la revue : memes fixtures que le projet principal (14 conflits), axes, reseau 1 (classe B) et reseau 3 (classe A).
+  const P4: string = (await envoyer("post", "", { code: "CONFLITS-REVUE", nom: "Projet de la revue RC-3", regionId: R1 })).body.projet.id;
+  await deposerEtAutoriser(P4, await kml(AXES), { role: "AXES_TRAVAUX" }, "axes.kml");
+  await deposerEtAutoriser(P4, await geojson(R1_BASE), { role: "RESEAU_TIERS", concessionnaireId: CONC1, classePrecision: "B", precisionHorizontaleM: "3.5" }, "r1.geojson");
+  await deposerEtAutoriser(P4, await kml(R3), { role: "RESEAU_TIERS", concessionnaireId: CONC3, classePrecision: "A" }, "r3.kml");
+  const a41 = await analyser(P4);
+  const inst41 = await sql<{ id: string; u: string; t: string }>(`SELECT id, "updatedAt"::text u, "tronconsProches"::text t FROM conflits_projet WHERE "projetId" = $1 ORDER BY id`, P4);
+  await dormir(1100);
+  const a42 = await analyser(P4);
+  const inst42 = await sql<{ id: string; u: string; t: string }>(`SELECT id, "updatedAt"::text u, "tronconsProches"::text t FROM conflits_projet WHERE "projetId" = $1 ORDER BY id`, P4);
+  verifier(`14. m11 : un recalcul qui ne change rien ne touche pas \`updatedAt\` : ${inst41.length} dossiers retrouves a l'identique, aucun \`updatedAt\` ne bouge (avant la correction : tous etaient reecrits)`,
+    a41.status === 201 && a42.status === 201 && a42.body.resume.identiques === 13 && inst41.length === 13 && JSON.stringify(inst41.map((x) => [x.id, x.u])) === JSON.stringify(inst42.map((x) => [x.id, x.u])), { a42: a42.body.resume });
+
+  // ---- Responsable : compte actif ET detenteur de la cle du module (observation de la revue)
+  const inactif = await mk("inactif@banc.invalid", "Compte inactif", "GESTIONNAIRE");
+  await sql(`UPDATE users SET actif = false WHERE id = $1`, inactif.id);
+  const idRes = await trouver(P4, "Axe A", "INTERSECTION_EMPRISE", L("L6"));
+  const rNon = await patchP(P4, idRes, { responsableId: sansModule.id });
+  const rIna = await patchP(P4, idRes, { responsableId: inactif.id });
+  const rInc = await patchP(P4, idRes, { responsableId: UUID0 });
+  verifier("14. responsable : un compte sans la cle `projets-voirie` ou inactif est refuse (422 RESPONSABLE_NON_HABILITE) ; un compte inconnu reste 400 RESPONSABLE_INCONNU ; rien n'est ecrit",
+    rNon.status === 422 && rNon.body.code === "RESPONSABLE_NON_HABILITE" && rIna.status === 422 && rIna.body.code === "RESPONSABLE_NON_HABILITE" && rInc.status === 400 && rInc.body.code === "RESPONSABLE_INCONNU"
+    && (await sql<{ r: string | null }>(`SELECT "responsableId" r FROM conflits_projet WHERE id = $1`, idRes))[0].r === null, [rNon.body, rIna.body]);
+  const rOk1 = await patchP(P4, idRes, { responsableId: admin.id });
+  const rOk2 = await patchP(P4, idRes, { responsableId: lecteur.id });
+  verifier("14. responsable : un ADMIN (sans liste de modules, aucune restriction) et un compte actif qui a la cle sont acceptes", rOk1.status === 200 && rOk1.body.conflit.responsable.id === admin.id && rOk2.status === 200 && rOk2.body.conflit.responsable.id === lecteur.id);
+
+  // ---- m3 : une approbation anterieure au dernier passage a CONFIRME est perimee
+  const id3 = await trouver(P4, "Axe A", "INTERSECTION_CHAUSSEE", L("L2 bis"));
+  await envoyer("post", `/${P4}/conflits/${id3}/preuves`, { type: "NOTE", texte: "Cable vu sur le terrain, passage confirme" });
+  await stP(P4, id3, { vers: "CONFIRME", justification: "Passage du cable confirme sur le terrain" });
+  const dd1 = (await envoyer("post", `/${P4}/conflits/${id3}/decisions`, { option: "PROTEGER", justification: "Protection mecanique proposee pour ce cable" })).body.decision.id as string;
+  await envoyer("post", `/${P4}/conflits/${id3}/decisions/${dd1}/approuver`, { motif: "Protection mecanique approuvee par un autre responsable" }, T.chef2);
+  await stP(P4, id3, { vers: "INFIRME", justification: "Finalement un fourreau vide, dossier infirme par l'administrateur" }, T.admin);
+  await stP(P4, id3, { vers: "A_INVESTIGUER", justification: "Reouverture : l'operateur nous recontacte" });
+  await stP(P4, id3, { vers: "POTENTIEL", justification: "Precision confirmee par l'operateur, classe B" });
+  const reConf = await stP(P4, id3, { vers: "CONFIRME", justification: "Passage du cable reconfirme apres releve" });
+  const fiche3 = (await get(`/${P4}/conflits/${id3}`, T.admin)).body;
+  const vers3 = (fiche3.transitionsPossibles as { vers: string; bloquee: string | null }[]).find((t) => t.vers === "TRAITEMENT_DECIDE");
+  const perimee = await stP(P4, id3, { vers: "TRAITEMENT_DECIDE", justification: "Traitement decide sur l'ancienne approbation" });
+  verifier("14. m3 : l'approbation d'une confirmation ANTERIEURE ne vaut plus : apres INFIRME puis reouverture jusqu'a CONFIRME, le passage a TRAITEMENT_DECIDE est refuse (409 DECISION_REQUISE) et la fiche annonce la transition bloquee ; la decision ancienne reste APPROUVEE (aucune ligne n'est modifiee)",
+    reConf.status === 200 && perimee.status === 409 && perimee.body.code === "DECISION_REQUISE" && vers3?.bloquee === "DECISION_REQUISE" && (await statutDe(id3)).statut === "CONFIRME"
+    && (await sql<{ s: string }>(`SELECT statut::text s FROM conflits_projet_decisions WHERE id = $1`, dd1))[0].s === "APPROUVEE", { perimee: perimee.body, vers3 });
+  const dd2 = (await envoyer("post", `/${P4}/conflits/${id3}/decisions`, { option: "A_ETUDIER", justification: "Etude complementaire apres la reouverture" })).body.decision.id as string;
+  await envoyer("post", `/${P4}/conflits/${id3}/decisions/${dd2}/approuver`, { motif: "Etude complementaire approuvee apres la reouverture" }, T.chef2);
+  const vigueur = await stP(P4, id3, { vers: "TRAITEMENT_DECIDE", justification: "Traitement decide sur la nouvelle approbation" });
+  verifier("14. m3 : une decision approuvee DEPUIS la derniere confirmation autorise TRAITEMENT_DECIDE (200) ; deux decisions APPROUVEE coexistent, seule la recente compte",
+    vigueur.status === 200 && vigueur.body.conflit.statut === "TRAITEMENT_DECIDE" && (await compter(`SELECT count(*) n FROM conflits_projet_decisions WHERE "conflitId" = $1 AND statut = 'APPROUVEE'`, id3)) === 2);
+
+  // ---- m4 : responsable d'un deplacement de reseau, dossier clos
+  const id4 = await trouver(P4, "Axe A", "INTERSECTION_CHAUSSEE", L("P"));
+  await patchP(P4, id4, { responsableId: chef2.id });
+  await envoyer("post", `/${P4}/conflits/${id4}/preuves`, { type: "RELEVE_TERRAIN", texte: "Cable visible dans le caniveau", reference: "Releve R-77" });
+  await stP(P4, id4, { vers: "CONFIRME", justification: "Cable constate sur le terrain (releve R-77)" });
+  const dep = await envoyer("post", `/${P4}/conflits/${id4}/decisions`, { option: "DEPLACER_RESEAU", justification: "Deplacement propose : la chaussee prevue recouvre le cable", dateDebutPrevue: "2026-12-01", dateFinPrevue: "2026-12-20" });
+  const idDep: string = dep.body.decision.id;
+  const effaceP = await patchP(P4, id4, { responsableId: null });
+  const autreP = await patchP(P4, id4, { responsableId: chef.id });
+  verifier("14. m4 : une decision de deplacement de reseau PROPOSEE interdit d'effacer le responsable (422 RESPONSABLE_REQUIS, rien n'est ecrit) ; en designer un autre reste possible",
+    dep.status === 201 && effaceP.status === 422 && effaceP.body.code === "RESPONSABLE_REQUIS" && autreP.status === 200 && autreP.body.conflit.responsable.id === chef.id, [effaceP.body, autreP.body]);
+  await envoyer("post", `/${P4}/conflits/${id4}/decisions/${idDep}/approuver`, { motif: "Deplacement valide : seule option viable" }, T.chef2);
+  const histoAvantPatch = await histoN(id4);
+  const effaceA = await patchP(P4, id4, { responsableId: null });
+  verifier("14. m4 : meme refus quand le deplacement est APPROUVE (AT-09 ne se controlait qu'a la proposition)", effaceA.status === 422 && effaceA.body.code === "RESPONSABLE_REQUIS" && (await histoN(id4)) === histoAvantPatch);
+  await stP(P4, id4, { vers: "TRAITEMENT_DECIDE", justification: "Deplacement approuve, planning arrete" });
+  const clos4 = await stP(P4, id4, { vers: "CLOTURE", justification: "Travaux de deplacement termines et constates", recolementAValider: true }, T.admin);
+  const histoClos4 = await histoN(id4);
+  const patchClos = await Promise.all([patchP(P4, id4, { risque: "FAIBLE" }), patchP(P4, id4, { responsableId: null }, T.admin), patchP(P4, id4, { echeance: "2099-01-01" }), patchP(P4, id4, { actionProposee: "Nouvelle action" })]);
+  const ackClos = await patchP(P4, id4, { aReexaminer: false, justification: "Aucun re-examen en attente sur ce dossier clos" });
+  verifier("14. m4 : un dossier CLOTURE ne se modifie plus par l'API : responsable, echeance, risque et action proposee sont refuses (409 STATUT_INCOMPATIBLE, ADMIN compris), l'acquittement d'un re-examen reste possible ; rien n'est ecrit",
+    clos4.status === 200 && patchClos.every((r) => r.status === 409 && r.body.code === "STATUT_INCOMPATIBLE") && ackClos.status === 200 && ackClos.body.modifie === false && (await histoN(id4)) === histoClos4
+    && (await sql<{ r: string | null }>(`SELECT "responsableId" r FROM conflits_projet WHERE id = $1`, id4))[0].r === chef.id, patchClos.map((r) => [r.status, r.body.code]));
+
+  // ---- m5 : TRUNCATE refuse, sortie de CLOTURE refusee par la base
+  const TABLES_FERMEES = ["regles_conflit_projet", "analyses_conflit_projet", "conflits_projet", "conflits_projet_historique", "conflits_projet_preuves", "conflits_projet_decisions"];
+  const avantTruncate = await Promise.all(TABLES_FERMEES.map((t) => compter(`SELECT count(*) n FROM "${t}"`)));
+  const tronque = (t: string, cascade = false) => essaiAnnule(async (tx) => { await tx.$executeRawUnsafe(`TRUNCATE "${t}"${cascade ? " CASCADE" : ""}`); });
+  const feuilles = TABLES_FERMEES.filter((t) => t !== "analyses_conflit_projet" && t !== "conflits_projet");
+  const codesTruncate = await Promise.all(feuilles.map((t) => tronque(t)));
+  const codesCascade = await Promise.all(TABLES_FERMEES.map((t) => tronque(t, true)));
+  const plainRefs = await Promise.all([tronque("analyses_conflit_projet"), tronque("conflits_projet")]);
+  const cascade = await tronque("projets_voirie", true);
+  const apresTruncate = await Promise.all(TABLES_FERMEES.map((t) => compter(`SELECT count(*) n FROM "${t}"`)));
+  verifier("14. m5 : TRUNCATE est refuse (23001) sur les six tables des dossiers de conflit (directement sur les quatre qu aucune cle etrangere ne protege, par CASCADE sur les six - la base refuse deja le TRUNCATE simple des deux tables referencees - et par CASCADE depuis la table des projets) ; aucune ligne n'est perdue",
+    codesTruncate.every((c) => c === "23001") && codesCascade.every((c) => c === "23001") && plainRefs.every((c) => c !== "ok") && cascade === "23001" && JSON.stringify(avantTruncate) === JSON.stringify(apresTruncate) && avantTruncate.every((n) => n > 0), { codesTruncate, codesCascade, plainRefs, cascade });
+  verifier("14. m5 : un dossier CLOTURE ne change plus de statut, meme hors recalcul et hors API (23001) ; une ecriture qui ne change pas le statut passe",
+    await sqlstate(() => sql(`UPDATE conflits_projet SET statut = 'A_INVESTIGUER' WHERE id = $1`, id4)) === "23001" && await sqlstate(() => sql(`UPDATE conflits_projet SET statut = 'INFIRME' WHERE id = $1`, id4)) === "23001"
+    && await essaiAnnule(async (tx) => { await tx.$queryRawUnsafe(`UPDATE conflits_projet SET statut = 'CLOTURE', "aReexaminer" = false WHERE id = '${id4}'`); }) === "ok");
+
+  // ---- m11 (suite) : un changement de mesure met `updatedAt` a jour, un dossier non retrouve ou a mesure inchangee non ; tronconsProches reecrit seulement s'il differe
+  await deposerEtAutoriser(P4, await kml([{ nom: "Axe A", coords: [[0, 4], [200, 4]] }, { nom: "Axe B", coords: [[200, 0], [200, 150]] }]), { role: "AXES_TRAVAUX" }, "axes-v2.kml");
+  const avant43 = await sql<{ id: string; u: string }>(`SELECT id, "updatedAt"::text u FROM conflits_projet WHERE "projetId" = $1`, P4);
+  await dormir(1100);
+  const a43 = await analyser(P4);
+  const inst43 = await sql<{ id: string; u: string; motif: string | null; are: boolean }>(`SELECT id, "updatedAt"::text u, "motifReexamen"::text motif, "aReexaminer" are FROM conflits_projet WHERE "projetId" = $1`, P4);
+  const avantParId = new Map(avant43.map((x) => [x.id, x.u] as const));
+  const modifies = inst43.filter((x) => x.motif === "MESURE_MODIFIEE"), nonRetrouves = inst43.filter((x) => x.motif === "NON_RETROUVE"), versionDonnees = inst43.filter((x) => x.motif === "NOUVELLE_VERSION_DONNEES");
+  verifier(`14. m11 : apres modification d'un axe, \`updatedAt\` change pour les ${modifies.length} dossiers dont la mesure change et pas pour les ${nonRetrouves.length} non retrouves ni les ${versionDonnees.length} retrouves a mesure inchangee`,
+    a43.status === 201 && modifies.length >= 1 && nonRetrouves.length >= 1 && versionDonnees.length >= 1
+    && modifies.every((x) => x.u !== avantParId.get(x.id)) && nonRetrouves.every((x) => x.u === avantParId.get(x.id)) && versionDonnees.every((x) => x.u === avantParId.get(x.id)), { modifies: modifies.length, nonRetrouves: nonRetrouves.length, versionDonnees: versionDonnees.length });
+  const idsP4 = inst43.map((x) => x.id);
+  const frais = await prisma.$transaction((tx: typeof prisma) => depotConflits.majTronconsProches(tx, idsP4, 7.5));
+  const xminClos = async () => (await sql<{ x: string }>(`SELECT xmin::text x FROM conflits_projet WHERE id = $1`, id4))[0].x;
+  const x0 = await xminClos();
+  await prisma.$transaction((tx: typeof prisma) => depotConflits.majTronconsProches(tx, [id4], 7.5));
+  const idProche = await trouver(P4, "Axe A", "INTERSECTION_CHAUSSEE", L("L2"));
+  const troncons0 = await sql<{ t: string }>(`SELECT "tronconsProches"::text t FROM conflits_projet WHERE id = $1`, idProche);
+  await sql(`UPDATE conflits_projet SET "tronconsProches" = '[]'::jsonb WHERE id = $1`, idProche);
+  const reecrits = await prisma.$transaction((tx: typeof prisma) => depotConflits.majTronconsProches(tx, idsP4, 7.5));
+  const restaure = await sql<{ t: string }>(`SELECT "tronconsProches"::text t FROM conflits_projet WHERE id = $1`, idProche);
+  verifier("14. m11 : `tronconsProches` n'est reecrit que s'il differe de la valeur calculee : 0 ligne reecrite quand tout est a jour (le dossier CLOTURE n'est pas touche, meme identifiant de version de ligne) ; une seule ligne quand une seule a ete alteree, et elle retrouve sa valeur",
+    Number(frais) === 0 && (await xminClos()) === x0 && troncons0[0].t.includes("BANC-T-PROCHE") && Number(reecrits) === 1 && restaure[0].t === troncons0[0].t, { frais, reecrits });
+
+  // ---- M2 : le nombre de conflits d'une analyse vient du resume, identique au nombre de cles de l'instantane (qui n'est plus lu pour la liste)
+  const lAnP4 = (await get(`/${P4}/analyses?limite=100`, T.lecteur)).body.analyses as { id: string; nbConflitsTrouves: number; resume: { totaux?: { conflitsTrouves: number } }; instantane?: unknown }[];
+  const clesInst = await sql<{ id: string; n: bigint }>(`SELECT id, (SELECT count(*) FROM jsonb_object_keys(instantane)) n FROM analyses_conflit_projet WHERE "projetId" = $1 AND statut = 'TERMINEE'`, P4);
+  verifier("14. M2 : `nbConflitsTrouves` = `resume.totaux.conflitsTrouves` = nombre de cles de l'instantane (sur les analyses terminees), et l'instantane n'est jamais rendu par la liste ni par le detail",
+    lAnP4.length === 3 && lAnP4.every((a) => a.nbConflitsTrouves === a.resume.totaux?.conflitsTrouves && a.nbConflitsTrouves === Number(clesInst.find((c) => c.id === a.id)?.n)) && lAnP4.every((a) => !("instantane" in a))
+    && !JSON.stringify((await get(`/${P4}/analyses/${lAnP4[0].id}`, T.chef)).body).includes("instantane"), lAnP4.map((a) => [a.nbConflitsTrouves, a.resume.totaux?.conflitsTrouves]));
+  const lAnEchec = (await get(`/${PID}/analyses?limite=100`)).body.analyses as { statut: string; nbConflitsTrouves: number }[];
+  verifier("14. M2 : une analyse en ECHEC (sans instantane ni totaux) a zero conflit trouve", lAnEchec.filter((a) => a.statut === "ECHEC").length >= 1 && lAnEchec.filter((a) => a.statut === "ECHEC").every((a) => a.nbConflitsTrouves === 0));
+
+  // ---- m6 : couverture insuffisante : le plan d'axes porte le masquage et la trace
+  const AXES_CONF = { role: "AXES_TRAVAUX", confidentialite: "CONFIDENTIEL_CONCESSIONNAIRE" };
+  const P5: string = (await envoyer("post", "", { code: "CONFLITS-COUVERTURE", nom: "Couverture de la revue", regionId: R1 })).body.projet.id;
+  const JEU5 = await deposerEtAutoriser(P5, await kml(AXES), AXES_CONF, "axes.kml");
+  const a5a = await analyser(P5);
+  const couv5 = await sql<{ id: string; ja: string | null; jr: string | null; axe: string }>(`SELECT id, "jeuAxesId" ja, "jeuReseauId" jr, axe FROM conflits_projet WHERE "projetId" = $1 ORDER BY axe`, P5);
+  verifier("14. m6 : les dossiers de couverture insuffisante memorisent le plan d'axes dont ils portent la geometrie (jeuAxesId), jamais un jeu de reseau", a5a.status === 201 && couv5.length === 2 && couv5.every((c) => c.ja === JEU5 && c.jr === null), couv5);
+  const traces5 = async () => compter(`SELECT count(*) n FROM audit_logs WHERE "entityType" = 'ConsultationJeuProjet' AND "entityId" = $1 AND "userId" = $2`, JEU5, lecteur.id);
+  const avantTrace = await traces5();
+  const l5 = await get(`/${P5}/conflits`, T.lecteur);
+  const f5 = await get(`/${P5}/conflits/${couv5[0].id}`, T.lecteur);
+  verifier("14. m6 : la consultation d'un dossier de couverture (liste et fiche) est TRACEE comme celle d'un reseau (ConsultationJeuProjet sur le plan d'axes, route conflits, une ligne par fenetre) ; la fiche rend l'axe",
+    avantTrace === 0 && l5.body.total === 2 && f5.status === 200 && f5.body.conflit.geometrie?.type === "LineString" && (await traces5()) === 1
+    && (await sql<{ r: string }>(`SELECT after->>'route' r FROM audit_logs WHERE "entityType" = 'ConsultationJeuProjet' AND "entityId" = $1 AND "userId" = $2`, JEU5, lecteur.id))[0].r === "conflits", { avantTrace });
+  const JEU5_V2 = await deposerEtAutoriser(P5, await kml([{ nom: "Axe A", coords: [[0, 4], [200, 4]] }, { nom: "Axe B", coords: [[200, 0], [200, 150]] }]), AXES_CONF, "axes-v2.kml");
+  const statutJeu5 = (await sql<{ s: string }>(`SELECT statut::text s FROM projets_voirie_jeux WHERE id = $1`, JEU5))[0].s;
+  const l5r = await get(`/${P5}/conflits`, T.lecteur), l5c = await get(`/${P5}/conflits`, T.chef), f5r = await get(`/${P5}/conflits/${couv5[1].id}`, T.lecteur), f5c = await get(`/${P5}/conflits/${couv5[1].id}`, T.chef);
+  verifier("14. m6 : le plan d'axes a ete REMPLACE : un lecteur ne voit plus les dossiers de couverture (liste vide, fiche 404, geometrie jamais servie) ; un GESTIONNAIRE les voit avec l'axe",
+    statutJeu5 === "REMPLACE" && l5r.body.total === 0 && l5r.body.conflits.length === 0 && f5r.status === 404 && l5c.body.total === 2 && f5c.body.conflit.geometrie?.type === "LineString" && f5c.body.conflit.geometrieMasquee === false,
+    { statutJeu5, lecteur: l5r.body.total, fiche: f5r.status });
+  const a5b = await analyser(P5);
+  const reperes = await sql<{ id: string }>(`SELECT id FROM conflits_projet WHERE "projetId" = $1 AND "jeuAxesId" = $2`, P5, JEU5_V2);
+  const l5b = await get(`/${P5}/conflits`, T.lecteur);
+  verifier("14. m6 : l'analyse suivante repointe les dossiers retrouves sur le nouveau plan d'axes ; le lecteur les revoit, avec la geometrie",
+    a5b.status === 201 && reperes.length >= 1 && l5b.body.total === reperes.length && l5b.body.conflits.every((c: { geometrieMasquee: boolean; bbox: unknown }) => c.geometrieMasquee === false && c.bbox !== null), { reperes: reperes.length, total: l5b.body.total });
+  const retire5 = await envoyer("delete", `/${P5}/jeux/${JEU5_V2}`);
+  const idRetire = reperes[0].id;
+  const f5a = (await get(`/${P5}/conflits/${idRetire}`, T.admin)), f5l = await get(`/${P5}/conflits/${idRetire}`, T.lecteur), l5a = (await get(`/${P5}/conflits`, T.admin)).body;
+  verifier("14. m6 : le plan d'axes a ete RETIRE : meme un ADMIN ne recoit plus l'axe (geometrie, boite, mesure masquees, dossier conserve) ; un lecteur recoit 404",
+    retire5.status === 200 && f5a.status === 200 && f5a.body.conflit.geometrie === null && f5a.body.conflit.geometrieMasquee === true && f5a.body.conflit.bbox === null && f5a.body.conflit.mesure === null
+    && f5l.status === 404 && l5a.total >= 2 && l5a.conflits.filter((c: { geometrieMasquee: boolean }) => c.geometrieMasquee).length === reperes.length, { statut: f5a.status });
+
+  // ---- m7 : curseurs forges, vraies routes et vraie base
+  const b64 = (o: unknown) => Buffer.from(JSON.stringify(o), "utf8").toString("base64url");
+  const forges = [
+    ["conflits", `/${PID}/conflits?curseur=${b64({ t: "+275760-09-13T00:00:00.000Z", i: "123e4567-e89b-42d3-a456-426614174000" })}`],
+    ["conflits", `/${PID}/conflits?curseur=${b64({ t: "2026-11-06T10:15:30.123Z", i: String.fromCharCode(0) })}`],
+    ["conflits", `/${PID}/conflits?curseur=${b64({ t: "9999-01-01T00:00:00.000Z", i: "123e4567-e89b-42d3-a456-426614174000" })}`],
+    ["analyses", `/${PID}/analyses?curseur=${b64({ n: 2147483648 })}`], ["analyses", `/${PID}/analyses?curseur=${b64({ n: 1e300 })}`],
+  ] as const;
+  const repForges = await Promise.all(forges.map(([, c]) => get(c, T.lecteur)));
+  verifier("14. m7 : un curseur forge (annee hors intervalle PostgreSQL, identifiant avec octet NUL, numero superieur a la colonne integer) donne 400 CURSEUR_INVALIDE, jamais 500", repForges.every((r) => r.status === 400 && r.body.code === "CURSEUR_INVALIDE"), repForges.map((r) => [r.status, r.body.code]));
+  const pageUn = await get(`/${PID}/conflits?limite=3`, T.chef);
+  verifier("14. m7 : le curseur produit par le serveur reste accepte (page suivante, aucune regression)", pageUn.body.curseurSuivant && (await get(`/${PID}/conflits?limite=3&curseur=${encodeURIComponent(pageUn.body.curseurSuivant)}`, T.chef)).status === 200);
+
+  // ---- m8 : cadence minimale des analyses par projet (reglage par defaut : une par minute) ; une analyse en ECHEC ne compte pas
+  delete process.env.PROJETS_VOIRIE_ANALYSE_INTERVALLE_S;
+  const P6: string = (await envoyer("post", "", { code: "CONFLITS-CADENCE", nom: "Cadence de la revue", regionId: R1 })).body.projet.id;
+  await deposerEtAutoriser(P6, await kml([{ nom: "Axe unique", coords: [[0, 0], [200, 0]] }]), { role: "AXES_TRAVAUX" }, "axe.kml");
+  await deposerEtAutoriser(P6, await geojson(dense), { role: "RESEAU_TIERS", concessionnaireId: CONC1, classePrecision: "C" }, "dense.geojson");
+  process.env.PROJETS_VOIRIE_CONFLITS_MAX = "100";
+  const echec6 = await analyser(P6);
+  delete process.env.PROJETS_VOIRIE_CONFLITS_MAX;
+  const ok6 = await analyser(P6);
+  verifier("14. m8 : une analyse en ECHEC ne compte pas dans la cadence : apres un 422 ANALYSE_TROP_VOLUMINEUSE (trace ECHEC), la nouvelle analyse passe tout de suite (201)", echec6.status === 422 && ok6.status === 201, [echec6.status, ok6.status]);
+  const nAvant6 = await compter(`SELECT count(*) n FROM analyses_conflit_projet WHERE "projetId" = $1`, P6);
+  const histoAvant6 = await compter(`SELECT count(*) n FROM audit_logs WHERE "entityType" = 'AnalyseConflitProjet'`);
+  const trop6 = await analyser(P6);
+  exemples["erreur_analyse_trop_frequente"] = trop6.body;
+  verifier("14. m8 : une deuxieme analyse TERMINEE du meme projet dans la minute : 429 ANALYSE_TROP_FREQUENTE, delai restant dans le corps et dans Retry-After (1 a 60 s), rien n'est ecrit (ni analyse, ni audit)",
+    trop6.status === 429 && trop6.body.code === "ANALYSE_TROP_FREQUENTE" && Number.isInteger(trop6.body.retryAfterS) && trop6.body.retryAfterS >= 1 && trop6.body.retryAfterS <= 60 && trop6.headers["retry-after"] === String(trop6.body.retryAfterS)
+    && (await compter(`SELECT count(*) n FROM analyses_conflit_projet WHERE "projetId" = $1`, P6)) === nAvant6 && (await compter(`SELECT count(*) n FROM audit_logs WHERE "entityType" = 'AnalyseConflitProjet'`)) === histoAvant6, trop6.body);
+  verifier("14. m8 : la cadence est PAR PROJET (une analyse d'un autre projet passe) ; un lecteur n'a toujours pas le droit de lancer une analyse (403, avant toute cadence)",
+    (await analyser((await envoyer("post", "", { code: "CONFLITS-AUTRE", nom: "Autre projet", regionId: R1 })).body.projet.id, T.chef)).status === 201 && (await analyser(P6, T.lecteur)).status === 403);
+  process.env.PROJETS_VOIRIE_ANALYSE_INTERVALLE_S = "1";
+  await dormir(1200);
+  const apresDelai = await analyser(P6);
+  process.env.PROJETS_VOIRIE_ANALYSE_INTERVALLE_S = "0";
+  verifier("14. m8 : le delai ecoule (reglage a 1 s pour l'essai), l'analyse passe a nouveau (201)", apresDelai.status === 201, apresDelai.body);
+
+  // Export : meme limiteur que les analyses (3 simultanes), puis delai cote base.
+  const limiteurs = await banc.imp("projets-voirie/limiteurs");
+  const liberer: (() => void)[] = [];
+  const tenus = [0, 1, 2].map(() => limiteurs.limiteurAnalyses.executer(() => new Promise<void>((res) => { liberer.push(res); })));
+  await dormir(150);
+  const exportAttend = Promise.resolve(get(`/${PID}/conflits/export.csv`, T.chef));
+  await dormir(500);
+  const etatPendant = { ...limiteurs.limiteurAnalyses.etat };
+  liberer[0]();
+  const repExport = await exportAttend;
+  liberer.forEach((f) => f());
+  await Promise.all(tenus);
+  verifier("14. m8 : l'export CSV passe par le limiteur des analyses : avec trois analyses en cours, il ATTEND une place (3 actifs, 1 en attente) puis aboutit (200) quand une est liberee",
+    etatPendant.actifs === 3 && etatPendant.enAttente === 1 && repExport.status === 200 && repExport.headers["content-type"].includes("text/csv"), etatPendant);
+  const nExport0 = await compter(`SELECT count(*) n FROM audit_logs WHERE "entityType" = 'ExportConflitsProjetVoirie'`);
+  process.env.PROJETS_VOIRIE_DELAI_ANALYSE_MS = "1000";
+  const client2 = new pg.Client({ connectionString: banc.urlClone });
+  await client2.connect();
+  await client2.query("BEGIN");
+  await client2.query(`LOCK TABLE conflits_projet IN ACCESS EXCLUSIVE MODE`);
+  const debutExport = Date.now();
+  const exportLent = Promise.resolve(get(`/${PID}/conflits/export.csv`, T.chef));
+  const garde = setTimeout(() => { client2.query("ROLLBACK").catch(() => undefined); }, 4000);
+  const repLent = await exportLent;
+  clearTimeout(garde);
+  const dureeExport = Date.now() - debutExport;
+  await client2.query("ROLLBACK").catch(() => undefined);
+  await client2.end();
+  delete process.env.PROJETS_VOIRIE_DELAI_ANALYSE_MS;
+  verifier(`14. m8 : l'export est borne cote BASE (statement_timeout 1 s, table verrouillee par une autre session) : 504 EXPORT_TROP_LONG en ${dureeExport} ms, jamais un 500, jamais une attente sans fin`,
+    repLent.status === 504 && repLent.body.code === "EXPORT_TROP_LONG" && dureeExport < 3500, { statut: repLent.status, corps: repLent.body, dureeExport });
+  verifier("14. m8 : un export interrompu n'est pas audite comme remis (aucune ligne ExportConflitsProjetVoirie pour la tentative echouee)", repLent.status === 504 && (await compter(`SELECT count(*) n FROM audit_logs WHERE "entityType" = 'ExportConflitsProjetVoirie'`)) === nExport0);
+
+  // ---- m1 : projet retire ou inconnu : 404 PROJET_INTROUVABLE pour tous les comptes, lectures et ecritures
+  const idP2 = (await sql<{ id: string }>(`SELECT id FROM conflits_projet WHERE "projetId" = $1 ORDER BY id LIMIT 1`, P2))[0].id;
+  const idA2 = (await sql<{ id: string }>(`SELECT id FROM analyses_conflit_projet WHERE "projetId" = $1 ORDER BY numero LIMIT 1`, P2))[0].id;
+  const idsLect = (chemin: string, t: string) => get(chemin, t);
+  const ecritures = (pid: string, cid: string, t: string) => [
+    patchP(pid, cid, { risque: "FAIBLE" }, t), stP(pid, cid, { vers: "POTENTIEL", justification: "Controle effectue avec le chef" }, t), envoyer("post", `/${pid}/conflits/${cid}/preuves`, { type: "NOTE", texte: "x" }, t),
+    envoyer("post", `/${pid}/conflits/${cid}/decisions`, { option: "PROTEGER", justification: "Protection mecanique du cable" }, t), envoyer("post", `/${pid}/conflits/${cid}/decisions/${UUID0}/approuver`, { motif: JUSTIF }, t),
+    envoyer("post", `/${pid}/regles`, { code: "TOL-FANTOME", toleranceProximiteM: 1, justification: "Tolerance pour un projet retire" }, t), envoyer("post", `/${pid}/analyses`, {}, t),
+  ];
+  const lectures = (pid: string, t: string) => [get(`/${pid}/regles`, t), get(`/${pid}/analyses`, t), get(`/${pid}/analyses/${idA2}`, t), get(`/${pid}/analyses/${idA2}/comparaison?avec=${idA2}`, t), get(`/${pid}/conflits`, t), get(`/${pid}/conflits/${idP2}`, t), get(`/${pid}/conflits/export.csv`, t)];
+  const avantRetrait = await Promise.all(lectures(P2, T.chef));
+  const histoP2 = await compter(`SELECT count(*) n FROM conflits_projet_historique h JOIN conflits_projet c ON c.id = h."conflitId" WHERE c."projetId" = $1`, P2);
+  const suppr = await envoyer("delete", `/${P2}`, undefined, T.admin);
+  const nationaux = [...(await Promise.all(lectures(P2, T.chef))), ...(await Promise.all(lectures(P2, T.admin))), ...(await Promise.all(ecritures(P2, idP2, T.chef))), ...(await Promise.all(ecritures(P2, idP2, T.admin)))];
+  verifier(`14. m1 : le projet a ete retire (suppression logique) : ${nationaux.length} appels de comptes NATIONAUX (7 lectures et 7 ecritures, GESTIONNAIRE et ADMIN) donnent tous 404 PROJET_INTROUVABLE (avant la correction : 200 en lecture, ecritures acceptees), rien n'est ecrit`,
+    avantRetrait.filter((r) => r.status === 200).length === 7 && suppr.status === 200 && nationaux.every((r) => r.status === 404 && r.body.code === "PROJET_INTROUVABLE")
+    && (await compter(`SELECT count(*) n FROM conflits_projet_historique h JOIN conflits_projet c ON c.id = h."conflitId" WHERE c."projetId" = $1`, P2)) === histoP2, nationaux.map((r) => [r.status, r.body.code]));
+  const inconnu = "00000000-0000-4000-8000-0000000000bb";
+  const repInconnus = [...(await Promise.all(lectures(inconnu, T.chef))), ...(await Promise.all(ecritures(inconnu, idP2, T.admin)))];
+  verifier("14. m1 : un projet inconnu repond 404 PROJET_INTROUVABLE a un compte national (la liste ne rend plus 200 avec zero dossier), et un compte regional recoit la meme reponse pour le projet retire",
+    repInconnus.every((r) => r.status === 404 && r.body.code === "PROJET_INTROUVABLE") && (await Promise.all(lectures(P2, T.reg1))).every((r) => r.status === 404 && r.body.code === "PROJET_INTROUVABLE"), repInconnus.map((r) => [r.status, r.body.code]));
 
   if (process.env.CONFLITS_EXEMPLES) writeFileSync(process.env.CONFLITS_EXEMPLES, JSON.stringify(exemples, null, 2));
 }
