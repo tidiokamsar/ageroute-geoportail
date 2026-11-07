@@ -38,11 +38,12 @@ COMMIT="${1:-}"
 SHA_ATTENDU="${2:-}"
 ARCHIVE_LOCALE="${3:-}"
 # Branche feat/reseaux-integration (module Projets de voirie et reseaux), releve de production du 28/10/2026 apres le deploiement du commit b0f17ca :
-# 94 migrations appliquees, toutes presentes dans cette branche (aucune orpheline). En attente = 1 migration (95 au total) :
-# 20261030100000_projets_voirie_reseaux (tables projets_voirie, concessionnaires_reseau, projets_voirie_jeux, projets_voirie_objets ; additive, avec descente).
+# 94 migrations appliquees, toutes presentes dans cette branche (aucune orpheline). En attente = 2 migrations (96 au total) :
+# 20261030100000_projets_voirie_reseaux (tables projets_voirie, concessionnaires_reseau, projets_voirie_jeux, projets_voirie_objets ; additive, avec descente) ;
+# 20261031100000_conflits_projets_voirie (regles, analyses, dossiers de conflit, historique, preuves, decisions ; additive, avec descente, une regle par defaut).
 # Aucune donnee existante n'est touchee. Le conteneur GDAL (infra/geoconv) n'est PAS deploye : aucun fichier de production ne le reference.
 # Rappel : deux couples d'horodatages identiques (20261027100000, 20261027110000) se rejouent dans l'ordre alphabetique du nom de dossier.
-ATTENDUES_EN_ATTENTE=1
+ATTENDUES_EN_ATTENTE=2
 # Seuil de disque libre en %. Defaut 15. L'operateur peut le passer consciemment
 # (ex. SEUIL_DISQUE=13) quand il a verifie le besoin transient du build (~1,6 Go :
 # dump, code-avant, couches d'image) et que l'arrondi de df arrete a tort.
