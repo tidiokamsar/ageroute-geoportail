@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  TRANSITIONS, evaluerTransition, transitionsPossibles, verifierPropositionDecision, verifierSeparationCloture, verifierSeparationDecision,
-  verifierTranchage, type EntreeTransition,
+  TRANSITIONS, decisionsEnVigueur, evaluerTransition, transitionsPossibles, verifierModificationDossier, verifierPropositionDecision, verifierResponsable,
+  verifierSeparationCloture, verifierSeparationDecision, verifierTranchage, type EntreeTransition,
 } from "./etats.noyau";
 import { STATUTS_CONFLIT, type OptionDecision, type StatutConflit } from "./types.noyau";
 
@@ -294,5 +294,95 @@ describe("transitions possibles pour la fiche", () => {
     expect(poss("CONFIRME", "ADMIN", 0, 0).find((x) => x.vers === "TRAITEMENT_DECIDE")?.bloquee).toBe("DECISION_REQUISE");
     expect(poss("CONFIRME", "ADMIN", 0, 1).find((x) => x.vers === "TRAITEMENT_DECIDE")?.bloquee).toBe(null);
     expect(poss("TRAITEMENT_DECIDE", "ADMIN").find((x) => x.vers === "CLOTURE")?.cloture).toBe(true);
+  });
+});
+
+// ------------------------------------------------------------------------------------------------
+// Revue RC-3 : m3 (approbation perimee), m4 (dossier clos, responsable d'un deplacement), responsable habilite
+// ------------------------------------------------------------------------------------------------
+
+const T0 = new Date("2026-11-01T10:00:00.000Z");
+const apres = (min: number) => new Date(T0.getTime() + min * 60_000);
+const decDate = (option: OptionDecision, approuveLe: Date | null | undefined) => ({ id: "d1", option, proposeParId: "u-prop", approuveLe });
+
+describe("m3 : une approbation anterieure au dernier passage a CONFIRME est perimee", () => {
+  it("decisionsEnVigueur : sans date de reference toutes comptent ; avec une reference, seules celles approuvees apres (ou a l'instant meme)", () => {
+    const toutes = [decDate("PROTEGER", apres(-30)), decDate("A_ETUDIER", apres(0)), decDate("SANS_INTERVENTION", apres(10))];
+    expect(decisionsEnVigueur(toutes, null)).toHaveLength(3);
+    expect(decisionsEnVigueur(toutes, undefined)).toHaveLength(3);
+    expect(decisionsEnVigueur(toutes, T0).map((d) => d.option)).toEqual(["A_ETUDIER", "SANS_INTERVENTION"]);
+  });
+
+  it("avec une reference, une decision dont la date d'approbation est inconnue ne compte pas (prudence)", () => {
+    expect(decisionsEnVigueur([decDate("PROTEGER", null), decDate("A_ETUDIER", undefined)], T0)).toHaveLength(0);
+  });
+
+  it("CONFIRME vers TRAITEMENT_DECIDE avec la seule approbation d'une confirmation ANTERIEURE : 409 DECISION_REQUISE (avant la correction : passait)", () => {
+    const v = evaluerTransition(entree("CONFIRME", "TRAITEMENT_DECIDE", { decisionsApprouvees: [decDate("PROTEGER", apres(-60))], dernierPassageConfirmeLe: T0 }));
+    expect(v.ok).toBe(false);
+    if (!v.ok) { expect(v.status).toBe(409); expect(v.code).toBe("DECISION_REQUISE"); expect(v.message).toMatch(/confirmation antérieure/); }
+  });
+
+  it("... avec une approbation POSTERIEURE a la derniere confirmation : passe ; avec les deux, la recente suffit", () => {
+    expect(evaluerTransition(entree("CONFIRME", "TRAITEMENT_DECIDE", { decisionsApprouvees: [decDate("PROTEGER", apres(5))], dernierPassageConfirmeLe: T0 })).ok).toBe(true);
+    expect(evaluerTransition(entree("CONFIRME", "TRAITEMENT_DECIDE", { decisionsApprouvees: [decDate("PROTEGER", apres(-60)), decDate("A_ETUDIER", apres(5))], dernierPassageConfirmeLe: T0 })).ok).toBe(true);
+  });
+
+  it("sans decision du tout, le message reste celui d'origine", () => {
+    const v = evaluerTransition(entree("CONFIRME", "TRAITEMENT_DECIDE", { decisionsApprouvees: [], dernierPassageConfirmeLe: T0 }));
+    expect(!v.ok && v.code === "DECISION_REQUISE" && /Une décision approuvée est requise/.test(v.message)).toBe(true);
+  });
+
+  it("cloture : une approbation DEPLACER_RESEAU perimee n'impose pas la mention du recolement, une approbation en vigueur l'impose", () => {
+    const perimee = evaluerTransition(entree("TRAITEMENT_DECIDE", "CLOTURE", { decisionsApprouvees: [decDate("DEPLACER_RESEAU", apres(-60)), decDate("PROTEGER", apres(5))], dernierPassageConfirmeLe: T0 }));
+    expect(perimee.ok).toBe(true);
+    const vigueur = evaluerTransition(entree("TRAITEMENT_DECIDE", "CLOTURE", { decisionsApprouvees: [decDate("DEPLACER_RESEAU", apres(5))], dernierPassageConfirmeLe: T0 }));
+    expect(!vigueur.ok && vigueur.code === "MENTION_RECOLEMENT_REQUISE").toBe(true);
+  });
+
+  it("transitionsPossibles / la fiche : le calcul de `bloquee` suit le nombre de decisions EN VIGUEUR que le service lui passe", () => {
+    const t = transitionsPossibles({ de: "CONFIRME", role: "ADMIN", nbPreuves: 1, nbDecisionsApprouvees: decisionsEnVigueur([decDate("PROTEGER", apres(-60))], T0).length });
+    expect(t.find((x) => x.vers === "TRAITEMENT_DECIDE")?.bloquee).toBe("DECISION_REQUISE");
+  });
+});
+
+describe("m4 : un dossier clos ne se modifie plus, le responsable d'un deplacement decide ne s'efface pas", () => {
+  const base = { statut: "CONFIRME" as StatutConflit, modifieChampsHumains: true, retireLeResponsable: false, deplacementPropose: false };
+
+  it("dossier CLOTURE : toute modification d'un champ humain est refusee, 409 STATUT_INCOMPATIBLE ; un acquittement seul (aucun champ humain) passe", () => {
+    const v = verifierModificationDossier({ ...base, statut: "CLOTURE" });
+    expect(!v.ok && v.status === 409 && v.code === "STATUT_INCOMPATIBLE").toBe(true);
+    expect(verifierModificationDossier({ ...base, statut: "CLOTURE", modifieChampsHumains: false }).ok).toBe(true);
+  });
+
+  it("les autres statuts (y compris INFIRME) se modifient comme avant", () => {
+    for (const s of STATUTS_CONFLIT.filter((x) => x !== "CLOTURE")) expect(verifierModificationDossier({ ...base, statut: s }).ok, s).toBe(true);
+  });
+
+  it("retirer le responsable alors qu'un deplacement de reseau est propose ou approuve : 422 RESPONSABLE_REQUIS ; sans deplacement, ou en designant un autre, passe", () => {
+    const v = verifierModificationDossier({ ...base, retireLeResponsable: true, deplacementPropose: true });
+    expect(!v.ok && v.status === 422 && v.code === "RESPONSABLE_REQUIS").toBe(true);
+    expect(verifierModificationDossier({ ...base, retireLeResponsable: true, deplacementPropose: false }).ok).toBe(true);
+    expect(verifierModificationDossier({ ...base, retireLeResponsable: false, deplacementPropose: true }).ok).toBe(true);
+  });
+
+  it("un dossier clos est refuse avant le controle du responsable", () => {
+    const v = verifierModificationDossier({ ...base, statut: "CLOTURE", retireLeResponsable: true, deplacementPropose: true });
+    expect(!v.ok && v.code === "STATUT_INCOMPATIBLE").toBe(true);
+  });
+});
+
+describe("responsable habilite : compte actif avec la cle du module", () => {
+  it("un compte inactif, ou sans la cle `projets-voirie` (hors ADMIN), est refuse : 422 RESPONSABLE_NON_HABILITE", () => {
+    const inactif = verifierResponsable({ actif: false, role: "GESTIONNAIRE", modulesAutorises: ["projets-voirie"] });
+    expect(!inactif.ok && inactif.status === 422 && inactif.code === "RESPONSABLE_NON_HABILITE").toBe(true);
+    const sansCle = verifierResponsable({ actif: true, role: "GESTIONNAIRE", modulesAutorises: ["troncons"] });
+    expect(!sansCle.ok && sansCle.status === 422 && sansCle.code === "RESPONSABLE_NON_HABILITE").toBe(true);
+    expect(verifierResponsable({ actif: true, role: "LECTEUR", modulesAutorises: [] }).ok).toBe(false);
+  });
+
+  it("un compte actif avec la cle passe ; un ADMIN passe sans la cle (il n'a aucune restriction de module)", () => {
+    expect(verifierResponsable({ actif: true, role: "GESTIONNAIRE", modulesAutorises: ["projets-voirie", "troncons"] }).ok).toBe(true);
+    expect(verifierResponsable({ actif: true, role: "ADMIN", modulesAutorises: [] }).ok).toBe(true);
   });
 });

@@ -10,6 +10,8 @@
  *   PROJETS_VOIRIE_SOMMETS_PAR_OBJET  defaut 100 000  (bornes 1 000 a 1 000 000)
  *   PROJETS_VOIRIE_SOMMETS_PAR_FICHIER defaut 2 000 000 (bornes 10 000 a 10 000 000)
  *   PROJETS_VOIRIE_CONFLITS_MAX       defaut 20 000   (bornes 100 a 100 000)       conflits au plus par analyse persistee (422 ANALYSE_TROP_VOLUMINEUSE)
+ *   PROJETS_VOIRIE_ANALYSE_INTERVALLE_S defaut 60     (bornes 0 a 3 600)           delai minimal entre deux analyses TERMINEES d un meme projet (429 ANALYSE_TROP_FREQUENTE) ;
+ *                                                     0 desactive le delai (bancs d essai ; jamais en production). Une analyse en ECHEC ne compte pas.
  *
  * POURQUOI CES DEFAUTS. Le delai de transaction de Prisma est un delai CLIENT : il ferme la transaction cote application mais la
  * requete continue dans PostgreSQL (415 s de calcul pour un delai de 120 s dans la revue). `SET LOCAL statement_timeout` coupe la
@@ -33,6 +35,8 @@ export const delaiDepotMs = () => borne("PROJETS_VOIRIE_DELAI_DEPOT_MS", 60_000,
 export const delaiVerrouMs = () => borne("PROJETS_VOIRIE_VERROU_MS", 5_000, 500, 60_000);
 export const sommetsParObjetMax = () => borne("PROJETS_VOIRIE_SOMMETS_PAR_OBJET", 100_000, 1_000, 1_000_000);
 export const conflitsParAnalyseMax = () => borne("PROJETS_VOIRIE_CONFLITS_MAX", 20_000, 100, 100_000);
+/** Une analyse persistee cree une ligne immuable et une ligne d audit meme sans changement : une par minute et par projet suffit (revue RC-3, m8). */
+export const analyseIntervalleMinS = () => borne("PROJETS_VOIRIE_ANALYSE_INTERVALLE_S", 60, 0, 3_600);
 export const sommetsParFichierMax = () => borne("PROJETS_VOIRIE_SOMMETS_PAR_FICHIER", 2_000_000, 10_000, 10_000_000);
 
 /** Fenetre pendant laquelle une meme consultation d'un jeu sensible par un meme compte n'est tracee qu'une fois. */

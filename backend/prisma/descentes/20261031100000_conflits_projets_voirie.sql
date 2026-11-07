@@ -37,6 +37,12 @@ END
 $garde$;
 
 -- Declencheurs (les tables partent avec, mais on les retire d'abord pour que l'ordre soit lisible).
+DROP TRIGGER IF EXISTS conflits_projet_decisions_troncature ON "conflits_projet_decisions";
+DROP TRIGGER IF EXISTS conflits_projet_preuves_troncature ON "conflits_projet_preuves";
+DROP TRIGGER IF EXISTS conflits_projet_historique_troncature ON "conflits_projet_historique";
+DROP TRIGGER IF EXISTS conflits_projet_troncature ON "conflits_projet";
+DROP TRIGGER IF EXISTS analyses_conflit_projet_troncature ON "analyses_conflit_projet";
+DROP TRIGGER IF EXISTS regles_conflit_projet_troncature ON "regles_conflit_projet";
 DROP TRIGGER IF EXISTS conflits_projet_decisions_garde ON "conflits_projet_decisions";
 DROP TRIGGER IF EXISTS conflits_projet_decisions_suppression ON "conflits_projet_decisions";
 DROP TRIGGER IF EXISTS conflits_projet_preuves_ajout_seul ON "conflits_projet_preuves";
@@ -55,6 +61,7 @@ DROP TABLE IF EXISTS "conflits_projet";
 DROP TABLE IF EXISTS "analyses_conflit_projet";
 DROP TABLE IF EXISTS "regles_conflit_projet";
 
+DROP FUNCTION IF EXISTS conflits_projet_refuse_troncature();
 DROP FUNCTION IF EXISTS conflits_projet_decision_garde();
 DROP FUNCTION IF EXISTS conflits_projet_garde_modification();
 DROP FUNCTION IF EXISTS regles_conflit_projet_immuable();

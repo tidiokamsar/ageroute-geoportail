@@ -124,6 +124,8 @@ export interface CandidatBrut {
   type: TypeConflit;
   axe: string;
   jeuReseauId: string | null;
+  /** Plan d axes dont depend un dossier de couverture insuffisante (sa geometrie est l axe) ; nul pour les autres types. */
+  jeuAxesId?: string | null;
   objetId: string | null;
   concessionnaireId: string | null;
   nomObjet: string | null;

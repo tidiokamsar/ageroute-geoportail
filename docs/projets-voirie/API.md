@@ -228,6 +228,8 @@ Toute valeur absente, illisible ou hors bornes redonne le défaut.
 | `PROJETS_VOIRIE_VERROU_MS` | 5 000 | 500 à 60 000 | `lock_timeout` (attente du verrou du projet) |
 | `PROJETS_VOIRIE_SOMMETS_PAR_OBJET` | 100 000 | 1 000 à 1 000 000 | plafond de sommets par objet |
 | `PROJETS_VOIRIE_SOMMETS_PAR_FICHIER` | 2 000 000 | 10 000 à 10 000 000 | plafond de sommets par fichier |
+| `PROJETS_VOIRIE_CONFLITS_MAX` | 20 000 | 100 à 100 000 | conflits au plus par analyse persistée (422 `ANALYSE_TROP_VOLUMINEUSE`, avec `conflitsMax`) |
+| `PROJETS_VOIRIE_ANALYSE_INTERVALLE_S` | 60 | 0 à 3 600 | délai minimal entre deux analyses persistées **terminées** d'un même projet (429 `ANALYSE_TROP_FREQUENTE`) ; 0 le supprime (bancs d'essai, jamais en production) ; une analyse en échec ne compte pas |
 
 Le délai de transaction de Prisma est un délai CLIENT : il ne coupe pas la requête dans PostgreSQL. Les délais ci-dessus sont posés côté base (`set_config('statement_timeout', ..., true)`) et prouvés par le banc (une requête `pg_sleep(8)` sous un délai de 1 s est coupée en moins de 3 s ; l'analyse du banc de charge sous un délai de 1 s répond 504 en 1,6 s et plus aucune requête n'est active ensuite). Une requête coupée au milieu d'un calcul GEOS ressort en erreur `XX000 ... InterruptedException` : le serveur la traite comme un délai dépassé.
 
@@ -333,6 +335,8 @@ La **mesure** porte `longueurChausseeM`, `longueurEmpriseM` (chaussée comprise,
 - un dossier non retrouvé qui réapparaît avec la même mesure redevient normal (`aReexaminer = false`) et reçoit une ligne `RETROUVE` ;
 - **idempotent** : rejouer les mêmes entrées ne change que `derniereAnalyseId` ; aucune ligne d'historique n'est ajoutée pour un dossier inchangé.
 
+**Cadence (revue RC-3, m8).** Une analyse terminée écrit une ligne immuable et une ligne d'audit même si rien n'a changé : une nouvelle analyse n'est acceptée que 60 s (`PROJETS_VOIRIE_ANALYSE_INTERVALLE_S`) après la précédente analyse **terminée** du même projet ; sinon **429 `ANALYSE_TROP_FREQUENTE`**, avec le délai restant dans le corps (`retryAfterS`) et dans l'en-tête `Retry-After`, et rien n'est écrit. Le délai est par projet, vérifié sous le verrou de l'analyse (deux demandes qui se croisent ne passent pas toutes deux) ; une analyse en échec (`ECHEC`) ne compte pas : après un 504 ou un 422, on recommence tout de suite.
+
 Une seule analyse à la fois par projet (verrou consultatif propre à l'analyse, qui ne bloque pas les autres opérations du projet) : 503 `PROJET_OCCUPE` sinon. Trois analyses simultanées au plus par processus (503 `SERVICE_OCCUPE`, comme le socle). Délai côté base : `PROJETS_VOIRIE_DELAI_ANALYSE_MS` (504 `ANALYSE_TROP_LONGUE`) ; plafonds de sommets du socle (422 `ANALYSE_TROP_VOLUMINEUSE` avec `sommetsAxes` et `sommetsReseau`) ; plafond de conflits `PROJETS_VOIRIE_CONFLITS_MAX` (défaut 20 000, bornes 100 à 100 000 ; 422 `ANALYSE_TROP_VOLUMINEUSE` avec `conflitsMax`).
 
 **Comparaison** : `GET /:id/analyses/:aid/comparaison?avec=:bid` (`:aid` = comparée, `:bid` = référence). Extrait réel (analyse 4 contre analyse 3, après décalage de l'axe A de 4 m) :
@@ -352,7 +356,13 @@ Une seule analyse à la fois par projet (verrou consultatif propre à l'analyse,
 
 ### Liste et fiche
 
-`GET /:id/conflits` : filtres `statut` et `type` (une valeur ou une liste séparée par des virgules), `axe` (nom exact, casse ignorée), `concessionnaireId`, `responsableId`, `aReexaminer` et `echeanceDepassee` (`true` ou `false`), `q` (recherche dans l'axe, l'action proposée, le concessionnaire, le nom de l'objet), `limite` (1 à 200, défaut 50), `curseur` (opaque). Tout filtre inconnu ou invalide : 400 `PARAMETRES_INVALIDES` ; curseur invalide : 400 `CURSEUR_INVALIDE`. `total` = nombre de conflits qui répondent à **tous** les filtres ; `compteurs` = répartition par statut des conflits qui répondent aux filtres **hors statut** (pour afficher les pastilles d'un filtre à choix multiple). Une échéance est « dépassée » si elle est antérieure à aujourd'hui (UTC) et que le conflit n'est ni `CLOTURE` ni `INFIRME`. Tri : du plus récent au plus ancien.
+`GET /:id/conflits` : filtres `statut` et `type` (une valeur ou une liste séparée par des virgules), `axe` (nom de l'axe, casse ignorée ; voir « Jokers » ci-dessous), `concessionnaireId`, `responsableId`, `aReexaminer` et `echeanceDepassee` (`true` ou `false`), `q` (recherche dans l'axe, l'action proposée, le concessionnaire, le nom de l'objet), `limite` (1 à 200, défaut 50), `curseur` (opaque). Tout filtre inconnu ou invalide : 400 `PARAMETRES_INVALIDES` ; curseur invalide : 400 `CURSEUR_INVALIDE`. `total` = nombre de conflits qui répondent à **tous** les filtres ; `compteurs` = répartition par statut des conflits qui répondent aux filtres **hors statut** (pour afficher les pastilles d'un filtre à choix multiple). Une échéance est « dépassée » si elle est antérieure à aujourd'hui (UTC) et que le conflit n'est ni `CLOTURE` ni `INFIRME`. Tri : du plus récent au plus ancien.
+
+**Curseur (revue RC-3, m7).** Le curseur est opaque mais lu par le serveur : tout curseur qui n'a pas la forme produite par le serveur est refusé en 400 `CURSEUR_INVALIDE` avant tout accès à la base (dossiers : horodatage ISO 8601 UTC à la milliseconde, année 1970 à 2200, identifiant UUID en minuscules ; analyses : entier de 1 à 2 147 483 647).
+
+**Qui voit quoi (revue RC-3, M1).** Un dossier dépend d'un jeu (le réseau qui l'a produit ou, pour une couverture insuffisante, le plan d'axes). Un jeu `RETIRE` n'est montré à personne ; un jeu `REMPLACE`, reçu, contrôlé ou rejeté n'est montré qu'à `ADMIN` et `GESTIONNAIRE` ; un jeu `AUTORISE` à tout compte qui a la clé de module. Conséquences : (1) **un compte qui ne décide pas** (lecteur...) ne voit **pas** un dossier dont un jeu n'est pas `AUTORISE` : il est absent de la liste, du `total` et des `compteurs`, des comparaisons, et sa fiche répond 404 `CONFLIT_INTROUVABLE` ; il revient dès que l'analyse suivante le repointe sur un jeu autorisé ; (2) **un compte qui décide** voit toujours le dossier (archive des verdicts, preuves et décisions), mais, pour un jeu `RETIRE`, **sans rien de ce que ce jeu a produit** : `geometrie`, `bbox`, `jeuReseauId`, `objet`, `mesure`, `concessionnaire`, `typeReseau`, `classePrecision` (nuls, `geometrieMasquee: true`), `regle` (nulle), `tronconsProches` (vide), détails des lignes d'historique issues du calcul (`{ "masquees": true }`), colonnes correspondantes de l'export CSV ; les filtres `concessionnaireId` et `q` ne sondent pas le contenu d'un jeu retiré ; (3) `GET /analyses` et `GET /analyses/:aid` ne rendent, dans `jeux`, que les jeux lisibles selon leur statut **courant** ; la comparaison ne liste pas les dossiers masqués et ne les compte pas. Les `resume` des analyses (totaux, conflits par type et par statut) sont des agrégats figés au calcul : ils ne sont pas filtrés. Les règles (`GET /regles`) sont des paramètres de calcul, sans donnée de jeu : elles ne sont pas filtrées.
+
+**Jokers (revue RC-3, observation).** Prisma n'échappe ni `%`, ni `_`, ni `\` dans `contains` et dans `equals` insensible à la casse (ILIKE). Mesuré sur PostGIS (banc, section 14) : `q=%` et `q=_` rendent tous les dossiers, `axe=Axe_A` rend les mêmes dossiers que `axe=axe a`, `q=Fibre_Marqueur` les mêmes que `q=fibre-marqueur`, `q=\%` ne rend rien. Aucune injection (les valeurs sont liées) ; mais le filtre `axe` n'est **pas** une égalité stricte et un joker élargit la recherche. Non corrigé (hors périmètre) ; à échapper si l'exploitant veut une égalité stricte.
 
 ```json
 { "conflits": [ { "id": "ddfedf00-...", "projetId": "8ec2f02b-...", "cle": "664876a4a805...", "type": "TRAVERSEE", "axe": "Axe A", "statut": "POTENTIEL",
@@ -398,7 +408,7 @@ Dix transitions seulement ; toute autre : 409 `TRANSITION_INTERDITE` (y compris 
 | `A_INVESTIGUER` | `POTENTIEL`, `INFIRME` | ADMIN, GESTIONNAIRE | justification |
 | `POTENTIEL` | `CONFIRME` | ADMIN, GESTIONNAIRE | justification, **au moins une preuve** (409 `PREUVE_REQUISE`) |
 | `POTENTIEL` | `INFIRME`, `A_INVESTIGUER` | ADMIN, GESTIONNAIRE | justification |
-| `CONFIRME` | `TRAITEMENT_DECIDE` | ADMIN, GESTIONNAIRE | justification, **une décision `APPROUVEE`** (409 `DECISION_REQUISE`) |
+| `CONFIRME` | `TRAITEMENT_DECIDE` | ADMIN, GESTIONNAIRE | justification, **une décision `APPROUVEE` depuis le dernier passage à `CONFIRME`** (409 `DECISION_REQUISE` ; une approbation d'une confirmation antérieure est périmée) |
 | `CONFIRME`, `TRAITEMENT_DECIDE` | `INFIRME` | ADMIN (GESTIONNAIRE : 403 `ROLE_INSUFFISANT`) | justification |
 | `TRAITEMENT_DECIDE` | `CLOTURE` | ADMIN | justification (le motif), séparation des tâches, mention du récolement si un déplacement de réseau est décidé |
 | `INFIRME` | `A_INVESTIGUER` | ADMIN, GESTIONNAIRE | justification (réouverture) |
@@ -411,7 +421,7 @@ Extrait réel d'une infirmation conservée (AT-08) : la ligne d'historique `STAT
 
 ### Attribution, preuves, décisions
 
-**`PATCH /:id/conflits/:cid`** : `responsableId` (UUID d'un compte actif, ou `null`), `echeance` (`AAAA-MM-JJ` ou `null`), `risque` (`FAIBLE`, `MOYEN`, `ELEVE`, `INCONNU` ou `null`), `actionProposee` (texte de 2 000 caractères au plus, ou `null`), et `aReexaminer: false` avec `justification` (10 caractères au moins, 422 sinon) pour **acquitter un re-examen** (ligne `REEXAMEN` d'un acteur, avec le motif d'origine). Tout autre champ (dont `statut`, `verticalEvalue`, `aReexaminer: true`) : 400 `CHAMPS_INVALIDES`. Un changement écrit une ligne `ATTRIBUTION` (`donnees`: `{ champ: { avant, apres } }`) ; **sans changement, 200 avec `modifie: false` et aucune ligne**. Responsable inconnu ou inactif : 400 `RESPONSABLE_INCONNU`. Réponse :
+**`PATCH /:id/conflits/:cid`** : `responsableId` (UUID d'un compte actif, ou `null`), `echeance` (`AAAA-MM-JJ` ou `null`), `risque` (`FAIBLE`, `MOYEN`, `ELEVE`, `INCONNU` ou `null`), `actionProposee` (texte de 2 000 caractères au plus, ou `null`), et `aReexaminer: false` avec `justification` (10 caractères au moins, 422 sinon) pour **acquitter un re-examen** (ligne `REEXAMEN` d'un acteur, avec le motif d'origine). Tout autre champ (dont `statut`, `verticalEvalue`, `aReexaminer: true`) : 400 `CHAMPS_INVALIDES`. Un changement écrit une ligne `ATTRIBUTION` (`donnees`: `{ champ: { avant, apres } }`) ; **sans changement, 200 avec `modifie: false` et aucune ligne**. Responsable inexistant : 400 `RESPONSABLE_INCONNU` ; compte **inactif** ou **sans la clé de module** `projets-voirie` (un `ADMIN` l'a toujours) : 422 `RESPONSABLE_NON_HABILITE` (le périmètre territorial du responsable n'est pas contrôlé). **Dossier `CLOTURE`** : plus aucune modification de `responsableId`, `echeance`, `risque` ni `actionProposee` (409 `STATUT_INCOMPATIBLE`, ADMIN compris) ; seul l'acquittement d'un re-examen reste possible. **Déplacement de réseau** : tant qu'une décision `DEPLACER_RESEAU` est proposée ou approuvée, `responsableId: null` est refusé (422 `RESPONSABLE_REQUIS`) ; désigner un autre responsable reste possible. Réponse :
 
 ```json
 { "conflit": { "id": "0cf08ccc-...", "statut": "POTENTIEL", "risque": "ELEVE", "responsable": { "id": "e4d5019b-...", "nomComplet": "Fanta Gestionnaire" },
@@ -466,14 +476,16 @@ Axe A;INTERSECTION_CHAUSSEE;A_INVESTIGUER;;non;;Societe des Eaux Synthetique;EAU
 | 400 | `IDENTIFIANT_INVALIDE` | `:cid`, `:aid`, `:did`, `:regleId` ou `avec` qui n'est pas un UUID |
 | 400 | `CHAMPS_INVALIDES`, `PARAMETRES_INVALIDES`, `CURSEUR_INVALIDE`, `RESPONSABLE_INCONNU` | entrée mal formée (`details` donne le champ) |
 | 403 | `ROLE_INSUFFISANT` | transition ou approbation réservée à l'ADMIN |
-| 404 | `PROJET_INTROUVABLE` (masqué), `CONFLIT_INTROUVABLE`, `ANALYSE_INTROUVABLE`, `REGLE_INTROUVABLE`, `DECISION_INTROUVABLE` | inexistant ou d'un autre projet |
+| 404 | `PROJET_INTROUVABLE` (masqué), `CONFLIT_INTROUVABLE`, `ANALYSE_INTROUVABLE`, `REGLE_INTROUVABLE`, `DECISION_INTROUVABLE` | inexistant ou d'un autre projet ; **projet retiré ou inconnu : 404 pour tous les comptes, nationaux compris, en lecture comme en écriture** ; fiche d'un dossier dont le jeu n'est pas autorisé, pour un compte qui ne décide pas |
 | 409 | `TRANSITION_INTERDITE`, `SEPARATION_DES_TACHES`, `DECISION_REQUISE`, `PREUVE_REQUISE`, `REGLE_IMMUABLE` | contrat, sections 4 et 6 |
-| 409 | `STATUT_INCOMPATIBLE`, `DECISION_DEJA_TRANCHEE`, `ANALYSE_NON_COMPARABLE` | décision proposée ou tranchée hors d'un conflit confirmé ; décision déjà tranchée ; analyse en échec |
+| 409 | `STATUT_INCOMPATIBLE`, `DECISION_DEJA_TRANCHEE`, `ANALYSE_NON_COMPARABLE` | décision proposée ou tranchée hors d'un conflit confirmé ; `PATCH` sur un dossier `CLOTURE` ; décision déjà tranchée ; analyse en échec |
 | 422 | `JUSTIFICATION_REQUISE`, `MENTION_RECOLEMENT_REQUISE`, `RESPONSABLE_REQUIS`, `PLANNING_REQUIS` | justification ou motif de moins de 10 caractères ; clôture d'un déplacement sans mention du récolement ; déplacement sans responsable ou sans planning |
+| 422 | `RESPONSABLE_NON_HABILITE` | responsable inactif ou sans la clé de module |
 | 422 | `ANALYSE_TROP_VOLUMINEUSE` | trop de sommets (`sommetsAxes`, `sommetsReseau`) ou trop de conflits (`conflitsMax`) |
+| 429 | `ANALYSE_TROP_FREQUENTE` (+ `retryAfterS` et `Retry-After`) | une analyse terminée du projet date de moins de 60 s |
 | 503 | `PROJET_OCCUPE` | une autre analyse du projet est en cours, ou une écriture attend la ligne d'un dossier au-delà du délai de verrou |
-| 503 | `SERVICE_OCCUPE` (+ `Retry-After`) | plus de trois analyses simultanées dans le processus |
-| 504 | `ANALYSE_TROP_LONGUE` | la base a coupé l'analyse (délai) |
+| 503 | `SERVICE_OCCUPE` (+ `Retry-After`) | plus de trois analyses ou exports simultanés dans le processus (l'export CSV passe par le même limiteur) |
+| 504 | `ANALYSE_TROP_LONGUE`, `EXPORT_TROP_LONG` | la base a coupé l'analyse ou l'export CSV (`PROJETS_VOIRIE_DELAI_ANALYSE_MS`) |
 
 Exemples réels :
 
@@ -486,7 +498,7 @@ Exemples réels :
 
 ### Garanties de la base
 
-Journaux en **ajout seul** (UPDATE et DELETE refusés, code 23001) : `conflits_projet_historique`, `conflits_projet_preuves`, `analyses_conflit_projet`. Aucune suppression physique d'un conflit, d'une règle ou d'une décision. Une règle approuvée est immuable ; une décision tranchée ne change plus ; un recalcul ne peut modifier ni statut, ni risque, ni responsable, ni échéance, ni action proposée. Contraintes : historique de statut avec justification d'au moins 10 caractères, décision à coût sans devise refusée, `DEPLACER_RESEAU` sans planning refusé, trancher sa propre décision sans dérogation refusé. Aucune écriture dans le référentiel : `troncons` n'est lu que pour `tronconsProches` (code et nom, au plus 10, à moins de la demi-largeur d'emprise).
+Journaux en **ajout seul** (UPDATE et DELETE refusés, code 23001) : `conflits_projet_historique`, `conflits_projet_preuves`, `analyses_conflit_projet`. **`TRUNCATE` est refusé** (23001, déclencheur d'instruction) sur les six tables du lot, y compris par `CASCADE` depuis la table des projets ; la base refuse déjà le `TRUNCATE` simple des deux tables référencées par une clé étrangère (0A000). Un dossier `CLOTURE` ne change plus de statut, même hors API (23001). Aucune suppression physique d'un conflit, d'une règle ou d'une décision. Une règle approuvée est immuable ; une décision tranchée ne change plus ; un recalcul ne peut modifier ni statut, ni risque, ni responsable, ni échéance, ni action proposée. Contraintes : historique de statut avec justification d'au moins 10 caractères, décision à coût sans devise refusée, `DEPLACER_RESEAU` sans planning refusé, trancher sa propre décision sans dérogation refusé. Aucune écriture dans le référentiel : `troncons` n'est lu que pour `tronconsProches` (code et nom, au plus 10, à moins de la demi-largeur d'emprise).
 
 ### Ce qui n'est pas fait, décisions hors contrat, défauts connus
 
@@ -495,4 +507,5 @@ Journaux en **ajout seul** (UPDATE et DELETE refusés, code 23001) : `conflits_p
 - La **géométrie d'un conflit retrouvé est remplacée** par la géométrie courante (seules les mesures avant et après sont gardées dans l'historique) ; les analyses passées gardent l'empreinte de chaque mesure, pas la géométrie.
 - Le récolement n'est pas géré ; la clôture d'un déplacement n'en porte que la mention.
 - Les dossiers conservent pour toujours le lien vers le jeu de réseau d'origine et sa géométrie courante (suppression logique) : la politique de conservation d'un tiers qui retire son accord (m6 de la revue) reste à décider.
+- **Revue indépendante RC-3 (07/11/2026)** : M1, M2, m1, m3 à m8 et m11 sont corrigés ; voir `CONTRAT-CONFLITS.md`, section 9, points 17 (complément) et 19 à 34, pour les règles exactes, les limites connues (`resume` des analyses non filtré, séparation des tâches d'un ADMIN envers lui-même, annulation d'une décision, jokers LIKE...) et les décisions à prendre. Lecture de la liste, de la fiche et de la comparaison : un délai côté base n'est posé que pour l'export CSV (les autres lectures sont paginées).
 - Le 504 de l'analyse persistée réutilise le mécanisme du socle (`statement_timeout` posé par étape) ; il est prouvé par le banc avec une table verrouillée et un délai de 1 s, pas avec un calcul réellement trop long.

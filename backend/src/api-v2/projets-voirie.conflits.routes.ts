@@ -98,15 +98,15 @@ export function monterRoutesConflits(router: Router, o: OutilsRoutes): void {
       avant = decoderCurseurAnalyse(p.data.curseur) ?? undefined;
       if (avant === undefined) { res.status(400).json({ error: "Curseur invalide : repartez de la première page", code: "CURSEUR_INVALIDE" }); return; }
     }
-    res.json(await listerAnalyses(req.params.id, p.data.limite, avant));
+    res.json(await listerAnalyses(acteurDe(req), req.params.id, p.data.limite, avant));
   }));
 
-  router.get("/:id/analyses/:aid", gardeProjet, enveloppe(async (req, res) => { res.json(await detailAnalyse(req.params.id, req.params.aid)); }));
+  router.get("/:id/analyses/:aid", gardeProjet, enveloppe(async (req, res) => { res.json(await detailAnalyse(acteurDe(req), req.params.id, req.params.aid)); }));
 
   router.get("/:id/analyses/:aid/comparaison", gardeProjet, enveloppe(async (req, res) => {
     const p = z.object({ avec: uuid }).strict().safeParse(req.query);
     if (!p.success) { res.status(400).json({ error: "Paramètre « avec » : identifiant d'analyse (UUID) attendu", code: "IDENTIFIANT_INVALIDE", details: p.error.flatten().fieldErrors }); return; }
-    res.json(await comparerAnalyses(req.params.id, req.params.aid, p.data.avec));
+    res.json(await comparerAnalyses(acteurDe(req), req.params.id, req.params.aid, p.data.avec));
   }));
 
   // ------------------------------------------------------------------------------------------------ Conflits : liste et export

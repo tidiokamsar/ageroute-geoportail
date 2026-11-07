@@ -315,6 +315,9 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
     // Export CSV de l'analyse (agregats, sans geometrie) : une lecture, mais reservee aux roles d'ecriture et auditee.
     "GET /api/v2/projets-voirie/:id/analyse/export.csv": ["ADMIN", "GESTIONNAIRE"],
     // Dossiers de conflit (lot RC-3). L'approbation d'une regle est reservee a l'ADMIN ; les transitions reservees a l'ADMIN le sont dans le service (403 ROLE_INSUFFISANT).
+    // Corrections de la revue RC-3 : AUCUNE route ni aucun role ne change (les 16 routes restent) ; seuls les codes de reponse evoluent (404 PROJET_INTROUVABLE
+    // aussi pour un compte national, 404 CONFLIT_INTROUVABLE pour un dossier dont le jeu n'est pas autorise, 429 ANALYSE_TROP_FREQUENTE, 504 EXPORT_TROP_LONG),
+    // prouves par api-v2/projets-voirie.conflits.routes.test.ts et par le banc PostGIS (docs/securite/CONTROLE-ACCES.md).
     "POST /api/v2/projets-voirie/:id/regles": ["ADMIN", "GESTIONNAIRE"],
     "POST /api/v2/projets-voirie/:id/regles/:regleId/approuver": ["ADMIN"],
     "POST /api/v2/projets-voirie/:id/analyses": ["ADMIN", "GESTIONNAIRE"],

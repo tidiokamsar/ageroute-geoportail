@@ -13,10 +13,13 @@ import { logAuditTransactionnelle } from "../../utils/audit";
 import { estDelaiDepasse } from "../bd";
 import { ErreurMetier, introuvable } from "../erreurs";
 import { verrouillerProjet, type Acteur } from "../projets.service";
-import { INCLURE_ANALYSE, vueAnalyse } from "./analyse-conflits.service";
+import { SELECT_ANALYSE, vueAnalyse } from "./analyse-conflits.service";
+import { decoderCurseurAnalyse as decoderCurseurAnalyseNoyau, encoderCurseurAnalyse } from "./curseurs.noyau";
+import { dossiersNonVisibles, exigerProjetActif } from "./dossiers.service";
 import { prochaineVersionRegle, resoudreRegle, verifierApprobationRegle, type RegleLue } from "./regle.noyau";
 import { comparerInstantanes } from "./rejeu.noyau";
-import { JUSTIFICATION_MIN } from "./types.noyau";
+import { JUSTIFICATION_MIN, estDecideur } from "./types.noyau";
+import { jeuLisible } from "./visibilite.noyau";
 
 const FAMILLES = ["TELECOM", "EAU_POTABLE", "ELECTRICITE", "ASSAINISSEMENT", "GAZ_HYDROCARBURES", "AUTRE"] as const;
 const personne = (p: { id: string; nomComplet: string } | null | undefined) => (p ? { id: p.id, nomComplet: p.nomComplet } : null);
@@ -39,6 +42,7 @@ const lue = (r: LigneRegle): RegleLue => ({
 
 /** Regles du projet et regles generales (dont la regle par defaut), avec la regle EFFECTIVE de chaque famille de reseau. */
 export async function listerRegles(projetId: string) {
+  await exigerProjetActif(projetId);
   const lignes = await prisma.regleConflit.findMany({
     where: { OR: [{ projetId }, { projetId: null }] }, include: INCLURE_REGLE, orderBy: [{ projetId: "asc" }, { code: "asc" }, { version: "desc" }],
   });
@@ -109,27 +113,38 @@ export async function approuverRegle(acteur: Acteur, projetId: string, regleId: 
 // Analyses : historique, detail, comparaison
 // ------------------------------------------------------------------------------------------------
 
-const encoder = (n: number) => Buffer.from(JSON.stringify({ n }), "utf8").toString("base64url");
-export function decoderCurseurAnalyse(s: string): number | null {
-  try {
-    const o = JSON.parse(Buffer.from(s, "base64url").toString("utf8")) as { n?: unknown };
-    return typeof o.n === "number" && Number.isInteger(o.n) && o.n >= 1 ? o.n : null;
-  } catch { return null; }
+/** Curseur des analyses : voir curseurs.noyau.ts (entier de 1 a 2 147 483 647, sinon 400 CURSEUR_INVALIDE). */
+export const decoderCurseurAnalyse = decoderCurseurAnalyseNoyau;
+
+/**
+ * Filtre des jeux d'une analyse : un jeu n'est rendu que s'il est lisible pour ce role selon son statut COURANT (RETIRE : personne ;
+ * non AUTORISE : ADMIN et GESTIONNAIRE seulement). Un jeu inconnu n'est pas rendu. Un seul acces a la base pour toute la page.
+ */
+async function jeuxLisiblesDe(role: string, analyses: readonly { jeux: unknown }[]): Promise<(jeuId: string) => boolean> {
+  const ids = new Set<string>();
+  for (const a of analyses) if (Array.isArray(a.jeux)) for (const j of a.jeux as { jeuId?: unknown }[]) if (typeof j.jeuId === "string") ids.add(j.jeuId);
+  const lus = ids.size ? await prisma.jeuDonneesProjet.findMany({ where: { id: { in: [...ids] } }, select: { id: true, statut: true } }) : [];
+  const statuts = new Map(lus.map((j) => [j.id, j.statut as string] as const));
+  return (id) => { const s = statuts.get(id); return s !== undefined && jeuLisible(role, s); };
 }
 
-export async function listerAnalyses(projetId: string, limite: number, avantNumero?: number) {
+export async function listerAnalyses(acteur: Acteur, projetId: string, limite: number, avantNumero?: number) {
+  await exigerProjetActif(projetId);
+  // `instantane` n'est PAS lu (SELECT_ANALYSE) : le nombre de conflits est dans le resume (revue RC-3, M2).
   const l = await prisma.analyseConflitProjet.findMany({
     where: { projetId, ...(avantNumero ? { numero: { lt: avantNumero } } : {}) },
-    include: INCLURE_ANALYSE, orderBy: { numero: "desc" }, take: limite + 1,
+    select: SELECT_ANALYSE, orderBy: { numero: "desc" }, take: limite + 1,
   });
   const page = l.slice(0, limite);
-  return { analyses: page.map(vueAnalyse), curseurSuivant: l.length > limite ? encoder(page[page.length - 1].numero) : null };
+  const lisible = await jeuxLisiblesDe(acteur.role, page);
+  return { analyses: page.map((a) => vueAnalyse(a, lisible)), curseurSuivant: l.length > limite ? encoderCurseurAnalyse(page[page.length - 1].numero) : null };
 }
 
-export async function detailAnalyse(projetId: string, aid: string) {
-  const a = await prisma.analyseConflitProjet.findFirst({ where: { id: aid, projetId }, include: INCLURE_ANALYSE });
+export async function detailAnalyse(acteur: Acteur, projetId: string, aid: string) {
+  await exigerProjetActif(projetId);
+  const a = await prisma.analyseConflitProjet.findFirst({ where: { id: aid, projetId }, select: SELECT_ANALYSE });
   if (!a) throw introuvable("Analyse", "ANALYSE_INTROUVABLE");
-  return { analyse: vueAnalyse(a) };
+  return { analyse: vueAnalyse(a, await jeuxLisiblesDe(acteur.role, [a])) };
 }
 
 const DETAILS_MAX = 1000;
@@ -139,7 +154,8 @@ const DETAILS_MAX = 1000;
  * de `bid` ; `disparus` = presents dans `bid` et absents de `aid` ; `modifies` = presents des deux avec une mesure differente.
  * Une analyse en echec n'a pas d'instantane : 409 ANALYSE_NON_COMPARABLE.
  */
-export async function comparerAnalyses(projetId: string, aid: string, bid: string) {
+export async function comparerAnalyses(acteur: Acteur, projetId: string, aid: string, bid: string) {
+  await exigerProjetActif(projetId);
   const [a, b] = await Promise.all([
     prisma.analyseConflitProjet.findFirst({ where: { id: aid, projetId }, select: { id: true, numero: true, statut: true, instantane: true, createdAt: true } }),
     prisma.analyseConflitProjet.findFirst({ where: { id: bid, projetId }, select: { id: true, numero: true, statut: true, instantane: true, createdAt: true } }),
@@ -148,7 +164,12 @@ export async function comparerAnalyses(projetId: string, aid: string, bid: strin
   if (a.statut !== "TERMINEE" || b.statut !== "TERMINEE") {
     throw new ErreurMetier(409, "ANALYSE_NON_COMPARABLE", "Une analyse en échec n'a pas de résultat à comparer.");
   }
-  const c = comparerInstantanes(b.instantane as Record<string, string>, a.instantane as Record<string, string>);
+  const brut = comparerInstantanes(b.instantane as Record<string, string>, a.instantane as Record<string, string>);
+  // Un compte qui ne decide pas ne voit pas les dossiers dont le jeu n'est pas autorise : leurs cles sortent des quatre listes, et des comptes.
+  const cachees = estDecideur(acteur.role) ? new Set<string>()
+    : new Set((await prisma.conflitProjet.findMany({ where: dossiersNonVisibles(projetId), select: { cle: true } })).map((x) => x.cle));
+  const visibles = (cles: string[]) => (cachees.size === 0 ? cles : cles.filter((k) => !cachees.has(k)));
+  const c = { apparus: visibles(brut.apparus), disparus: visibles(brut.disparus), modifies: visibles(brut.modifies), identiques: visibles(brut.identiques) };
   const aDetailler = [...c.apparus.slice(0, DETAILS_MAX), ...c.disparus.slice(0, DETAILS_MAX), ...c.modifies.slice(0, DETAILS_MAX)];
   const lignes = aDetailler.length
     ? await prisma.conflitProjet.findMany({ where: { projetId, cle: { in: aDetailler } }, select: { cle: true, id: true, type: true, axe: true, statut: true, aReexaminer: true } })

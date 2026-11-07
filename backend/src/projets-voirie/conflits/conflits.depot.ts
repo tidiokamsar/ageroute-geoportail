@@ -131,7 +131,7 @@ export async function candidatsLineaires(tx: TxLecture, b: Bandes, jeuxTol: read
   }));
 }
 
-export interface LigneCouverture { aid: string; axe: string; len: number; lon: number; lat: number; g: string; nbCouvrants: number }
+export interface LigneCouverture { aid: string; jeu: string; axe: string; len: number; lon: number; lat: number; g: string; nbCouvrants: number }
 
 /**
  * Tous les axes lineaires des jeux d'axes, avec le nombre de jeux de reseau LINEAIRES autorises dont l'emprise englobante contient l'axe.
@@ -139,13 +139,13 @@ export interface LigneCouverture { aid: string; axe: string; len: number; lon: n
  */
 export async function couvertureDesAxes(tx: TxLecture, axesIds: readonly string[], reseauIds: readonly string[]): Promise<LigneCouverture[]> {
   if (axesIds.length === 0) return [];
-  const r = await tx.$queryRaw<{ aid: bigint | string; axe: string; len: number; lon: number; lat: number; g: string; nb: number }[]>`
+  const r = await tx.$queryRaw<{ aid: bigint | string; jeu: string; axe: string; len: number; lon: number; lat: number; g: string; nb: number }[]>`
     WITH enveloppes AS MATERIALIZED (
       SELECT o."jeuId" AS "jeu", ST_SetSRID(ST_Extent(o."geom")::geometry, 4326) AS "env"
         FROM "projets_voirie_objets" o
        WHERE o."jeuId" = ANY(${[...reseauIds]}::text[]) AND o."typeGeom" = 'LIGNE'
        GROUP BY o."jeuId")
-    SELECT o."id"::text AS "aid", COALESCE(o."nom", 'Axe ' || (o."ordre" + 1)::text) AS "axe",
+    SELECT o."id"::text AS "aid", o."jeuId" AS "jeu", COALESCE(o."nom", 'Axe ' || (o."ordre" + 1)::text) AS "axe",
            ST_Length(o."geom"::geography) AS "len", ST_X(rp."p") AS "lon", ST_Y(rp."p") AS "lat",
            encode(ST_AsEWKB(o."geom"), 'hex') AS "g",
            (SELECT count(*)::int FROM enveloppes e WHERE ST_Covers(e."env", o."geom")) AS "nb"
@@ -153,7 +153,7 @@ export async function couvertureDesAxes(tx: TxLecture, axesIds: readonly string[
       CROSS JOIN LATERAL (SELECT CASE WHEN GeometryType(o."geom") = 'LINESTRING' THEN ST_LineInterpolatePoint(o."geom", 0.5) ELSE ST_PointOnSurface(o."geom") END AS "p") rp
      WHERE o."jeuId" = ANY(${[...axesIds]}::text[]) AND o."typeGeom" = 'LIGNE'
      ORDER BY "axe", o."id"`;
-  return r.map((x) => ({ aid: String(x.aid), axe: x.axe, len: Number(x.len), lon: Number(x.lon), lat: Number(x.lat), g: x.g, nbCouvrants: Number(x.nb) }));
+  return r.map((x) => ({ aid: String(x.aid), jeu: x.jeu, axe: x.axe, len: Number(x.len), lon: Number(x.lon), lat: Number(x.lat), g: x.g, nbCouvrants: Number(x.nb) }));
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -161,7 +161,7 @@ export async function couvertureDesAxes(tx: TxLecture, axesIds: readonly string[
 // ------------------------------------------------------------------------------------------------
 
 export interface LigneNouveauConflit {
-  id: string; cle: string; type: string; axe: string; jeuReseauId: string; objetId: string; concessionnaireId: string;
+  id: string; cle: string; type: string; axe: string; jeuReseauId: string; jeuAxesId: string; objetId: string; concessionnaireId: string;
   mesure: string; geomHex: string; statut: string; classePrecision: string;
 }
 
@@ -169,65 +169,70 @@ export interface LigneNouveauConflit {
 export async function insererConflits(tx: TxEcriture, projetId: string, analyseId: string, l: readonly LigneNouveauConflit[]): Promise<number> {
   if (l.length === 0) return 0;
   return tx.$executeRaw`
-    INSERT INTO "conflits_projet" ("id", "projetId", "cle", "type", "axe", "jeuReseauId", "objetId", "concessionnaireId", "mesure", "geom", "statut", "classePrecision", "verticalEvalue", "premiereAnalyseId", "derniereAnalyseId", "aReexaminer", "motifReexamen", "tronconsProches")
-    SELECT v."id", ${projetId}, v."cle", v."type"::"TypeConflit", v."axe", NULLIF(v."jeu", ''), NULLIF(v."objet", '')::bigint, NULLIF(v."conc", ''), v."mesure"::jsonb,
+    INSERT INTO "conflits_projet" ("id", "projetId", "cle", "type", "axe", "jeuReseauId", "jeuAxesId", "objetId", "concessionnaireId", "mesure", "geom", "statut", "classePrecision", "verticalEvalue", "premiereAnalyseId", "derniereAnalyseId", "aReexaminer", "motifReexamen", "tronconsProches")
+    SELECT v."id", ${projetId}, v."cle", v."type"::"TypeConflit", v."axe", NULLIF(v."jeu", ''), NULLIF(v."jeuaxes", ''), NULLIF(v."objet", '')::bigint, NULLIF(v."conc", ''), v."mesure"::jsonb,
            ST_GeomFromEWKB(decode(v."geom", 'hex')), v."statut"::"StatutConflit", NULLIF(v."classe", '')::"ClassePrecision", false, ${analyseId}, ${analyseId}, false, NULL, '[]'::jsonb
       FROM unnest(${l.map((x) => x.id)}::text[], ${l.map((x) => x.cle)}::text[], ${l.map((x) => x.type)}::text[], ${l.map((x) => x.axe)}::text[],
-                  ${l.map((x) => x.jeuReseauId)}::text[], ${l.map((x) => x.objetId)}::text[], ${l.map((x) => x.concessionnaireId)}::text[],
+                  ${l.map((x) => x.jeuReseauId)}::text[], ${l.map((x) => x.jeuAxesId)}::text[], ${l.map((x) => x.objetId)}::text[], ${l.map((x) => x.concessionnaireId)}::text[],
                   ${l.map((x) => x.mesure)}::text[], ${l.map((x) => x.geomHex)}::text[], ${l.map((x) => x.statut)}::text[], ${l.map((x) => x.classePrecision)}::text[])
-           AS v("id", "cle", "type", "axe", "jeu", "objet", "conc", "mesure", "geom", "statut", "classe")`;
+           AS v("id", "cle", "type", "axe", "jeu", "jeuaxes", "objet", "conc", "mesure", "geom", "statut", "classe")`;
 }
 
 export interface LigneConflitRetrouve {
-  id: string; jeuReseauId: string; objetId: string; concessionnaireId: string; mesure: string; geomHex: string; classePrecision: string;
+  id: string; jeuReseauId: string; jeuAxesId: string; objetId: string; concessionnaireId: string; mesure: string; geomHex: string; classePrecision: string;
   aReexaminer: boolean; motifReexamen: string;
 }
 
 /**
  * Met a jour un conflit retrouve : derniere analyse, mesure, geometrie courante, objet et jeu courants, classe copiee, drapeau a reexaminer.
  * Ne touche JAMAIS statut, risque, responsable, echeance ni action proposee (le declencheur de la base le refuserait de toute facon).
+ * `updatedAt` ne change QUE si la mesure change : un recalcul qui ne change rien n est pas une mise a jour du dossier (revue RC-3, m11).
  */
 export async function majConflitsRetrouves(tx: TxEcriture, analyseId: string, l: readonly LigneConflitRetrouve[]): Promise<number> {
   if (l.length === 0) return 0;
   return tx.$executeRaw`
     UPDATE "conflits_projet" c
        SET "derniereAnalyseId" = ${analyseId}, "mesure" = v."mesure"::jsonb, "geom" = ST_GeomFromEWKB(decode(v."geom", 'hex')),
-           "jeuReseauId" = NULLIF(v."jeu", ''), "objetId" = NULLIF(v."objet", '')::bigint, "concessionnaireId" = NULLIF(v."conc", ''),
+           "jeuReseauId" = NULLIF(v."jeu", ''), "jeuAxesId" = NULLIF(v."jeuaxes", ''), "objetId" = NULLIF(v."objet", '')::bigint, "concessionnaireId" = NULLIF(v."conc", ''),
            "classePrecision" = NULLIF(v."classe", '')::"ClassePrecision", "aReexaminer" = v."are", "motifReexamen" = NULLIF(v."motif", '')::"MotifReexamenConflit",
-           "updatedAt" = CURRENT_TIMESTAMP
-      FROM unnest(${l.map((x) => x.id)}::text[], ${l.map((x) => x.jeuReseauId)}::text[], ${l.map((x) => x.objetId)}::text[], ${l.map((x) => x.concessionnaireId)}::text[],
+           "updatedAt" = CASE WHEN c."mesure" IS DISTINCT FROM v."mesure"::jsonb THEN CURRENT_TIMESTAMP ELSE c."updatedAt" END
+      FROM unnest(${l.map((x) => x.id)}::text[], ${l.map((x) => x.jeuReseauId)}::text[], ${l.map((x) => x.jeuAxesId)}::text[], ${l.map((x) => x.objetId)}::text[], ${l.map((x) => x.concessionnaireId)}::text[],
                   ${l.map((x) => x.mesure)}::text[], ${l.map((x) => x.geomHex)}::text[], ${l.map((x) => x.classePrecision)}::text[],
                   ${l.map((x) => x.aReexaminer)}::boolean[], ${l.map((x) => x.motifReexamen)}::text[])
-           AS v("id", "jeu", "objet", "conc", "mesure", "geom", "classe", "are", "motif")
+           AS v("id", "jeu", "jeuaxes", "objet", "conc", "mesure", "geom", "classe", "are", "motif")
      WHERE c."id" = v."id"`;
 }
 
-/** Marque a reexaminer des conflits non retrouves (NON_RETROUVE). Rien d'autre ne change. */
+/** Marque a reexaminer des conflits non retrouves (NON_RETROUVE). Rien d'autre ne change (pas meme `updatedAt` : la mesure n'a pas change). */
 export async function marquerNonRetrouves(tx: TxEcriture, ids: readonly string[]): Promise<number> {
   if (ids.length === 0) return 0;
   return tx.$executeRaw`
-    UPDATE "conflits_projet" SET "aReexaminer" = true, "motifReexamen" = 'NON_RETROUVE'::"MotifReexamenConflit", "updatedAt" = CURRENT_TIMESTAMP
+    UPDATE "conflits_projet" SET "aReexaminer" = true, "motifReexamen" = 'NON_RETROUVE'::"MotifReexamenConflit"
      WHERE "id" = ANY(${[...ids]}::text[])`;
 }
 
 /**
- * Troncons du referentiel a moins de la demi-largeur d'emprise de chaque conflit : code et nom, au plus 10 par conflit, du plus proche
- * au plus eloigne. LECTURE SEULE de `troncons` ; seule la colonne `tronconsProches` du conflit est ecrite.
+ * Troncons du referentiel a moins de la demi-largeur d emprise de chaque conflit : code et nom, au plus 10 par conflit, du plus proche
+ * au plus eloigne. LECTURE SEULE de `troncons` ; seule la colonne `tronconsProches` du conflit est ecrite, et SEULEMENT si elle differe de
+ * la valeur calculee (un dossier clos n est pas reecrit pour rien : revue RC-3, m11). Rend le nombre de lignes reellement reecrites.
  */
 export async function majTronconsProches(tx: TxEcriture, ids: readonly string[], demiEmpriseM: number): Promise<number> {
   if (ids.length === 0) return 0;
   const deg = demiEmpriseM * 1.2e-5;
   return tx.$executeRaw`
     UPDATE "conflits_projet" c
-       SET "tronconsProches" = COALESCE((
-         SELECT jsonb_agg(jsonb_build_object('code', q."code", 'nom', q."nom") ORDER BY q."d", q."code")
-           FROM (SELECT t."code" AS "code", t."nom" AS "nom", ST_Distance(t."geom"::geography, c."geom"::geography) AS "d"
-                   FROM "troncons" t
-                  WHERE t."deletedAt" IS NULL AND t."geom" IS NOT NULL
-                    AND t."geom" && ST_Expand(c."geom", ${deg}::float8)
-                    AND ST_DWithin(t."geom"::geography, c."geom"::geography, ${demiEmpriseM}::float8)
-                  ORDER BY "d", t."code" LIMIT 10) q), '[]'::jsonb)
-     WHERE c."id" = ANY(${[...ids]}::text[])`;
+       SET "tronconsProches" = n."proches"
+      FROM (
+        SELECT k."id" AS "id", COALESCE((
+          SELECT jsonb_agg(jsonb_build_object('code', q."code", 'nom', q."nom") ORDER BY q."d", q."code")
+            FROM (SELECT t."code" AS "code", t."nom" AS "nom", ST_Distance(t."geom"::geography, k."geom"::geography) AS "d"
+                    FROM "troncons" t
+                   WHERE t."deletedAt" IS NULL AND t."geom" IS NOT NULL
+                     AND t."geom" && ST_Expand(k."geom", ${deg}::float8)
+                     AND ST_DWithin(t."geom"::geography, k."geom"::geography, ${demiEmpriseM}::float8)
+                   ORDER BY "d", t."code" LIMIT 10) q), '[]'::jsonb) AS "proches"
+          FROM "conflits_projet" k WHERE k."id" = ANY(${[...ids]}::text[])) n
+     WHERE c."id" = n."id" AND c."tronconsProches" IS DISTINCT FROM n."proches"`;
 }
 
 /** Nombre de comptes habilites a decider sur ce projet : ADMIN ou GESTIONNAIRE actifs, avec la cle de module, dans le perimetre du projet. */

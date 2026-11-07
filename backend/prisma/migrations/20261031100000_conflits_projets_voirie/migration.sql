@@ -133,6 +133,9 @@ CREATE TABLE IF NOT EXISTS "conflits_projet" (
   -- Nom de l'axe de travaux (ou « Axe n » sans nom).
   "axe"               TEXT NOT NULL,
   "jeuReseauId"       TEXT REFERENCES "projets_voirie_jeux"("id") ON UPDATE CASCADE ON DELETE RESTRICT,
+  -- Plan d'axes dont dependent les donnees d'un dossier de COUVERTURE_INSUFFISANTE (sa geometrie est l'axe) ; nul pour les autres types.
+  -- Il sert au meme masquage et a la meme trace de consultation que `jeuReseauId` (revue RC-3, m6).
+  "jeuAxesId"         TEXT REFERENCES "projets_voirie_jeux"("id") ON UPDATE CASCADE ON DELETE RESTRICT,
   "objetId"           BIGINT REFERENCES "projets_voirie_objets"("id") ON UPDATE CASCADE ON DELETE RESTRICT,
   "concessionnaireId" TEXT REFERENCES "concessionnaires_reseau"("id") ON UPDATE CASCADE ON DELETE RESTRICT,
   -- { longueurChausseeM, longueurEmpriseM, distanceMinM, nbCroisements, ... }
@@ -169,6 +172,9 @@ CREATE INDEX IF NOT EXISTS "conflits_projet_projetId_statut_idx" ON "conflits_pr
 CREATE INDEX IF NOT EXISTS "conflits_projet_projetId_type_idx" ON "conflits_projet" ("projetId", "type");
 CREATE INDEX IF NOT EXISTS "conflits_projet_responsableId_idx" ON "conflits_projet" ("responsableId");
 CREATE INDEX IF NOT EXISTS "conflits_projet_jeuReseauId_idx" ON "conflits_projet" ("jeuReseauId");
+-- Rejeu de la migration sur une base qui portait deja la version precedente de la table (sans `jeuAxesId`) : la colonne est ajoutee.
+ALTER TABLE "conflits_projet" ADD COLUMN IF NOT EXISTS "jeuAxesId" TEXT REFERENCES "projets_voirie_jeux"("id") ON UPDATE CASCADE ON DELETE RESTRICT;
+CREATE INDEX IF NOT EXISTS "conflits_projet_jeuAxesId_idx" ON "conflits_projet" ("jeuAxesId");
 CREATE INDEX IF NOT EXISTS "conflits_projet_premiereAnalyseId_idx" ON "conflits_projet" ("premiereAnalyseId");
 CREATE INDEX IF NOT EXISTS "conflits_projet_derniereAnalyseId_idx" ON "conflits_projet" ("derniereAnalyseId");
 CREATE INDEX IF NOT EXISTS "conflits_projet_geom_gist" ON "conflits_projet" USING GIST ("geom");
@@ -257,6 +263,16 @@ BEGIN
 END
 $fn$;
 
+-- TRUNCATE ne passe pas par les declencheurs de ligne : un declencheur d'instruction le refuse (revue RC-3, m5). Meme motif que les gardes
+-- du simulateur d'aide a la decision (tests-integration/aide-decision-scenarios.integration.mts).
+CREATE OR REPLACE FUNCTION conflits_projet_refuse_troncature() RETURNS trigger
+LANGUAGE plpgsql AS $fn$
+BEGIN
+  RAISE EXCEPTION '% : TRUNCATE interdit (regles, analyses, dossiers, historique, preuves et decisions ne se vident pas)', TG_TABLE_NAME
+    USING ERRCODE = 'restrict_violation';
+END
+$fn$;
+
 CREATE OR REPLACE FUNCTION conflits_projet_ajout_seul() RETURNS trigger
 LANGUAGE plpgsql AS $fn$
 BEGIN
@@ -298,6 +314,10 @@ BEGIN
      OR NEW."axe" IS DISTINCT FROM OLD."axe" OR NEW."premiereAnalyseId" IS DISTINCT FROM OLD."premiereAnalyseId"
      OR NEW."createdAt" IS DISTINCT FROM OLD."createdAt" THEN
     RAISE EXCEPTION 'conflits_projet : identite du conflit immuable (cle, projet, type, axe, premiere analyse)' USING ERRCODE = 'restrict_violation';
+  END IF;
+  -- Un dossier clos ne se rouvre pas : le tableau des transitions n'a aucune sortie de CLOTURE (revue RC-3, m5).
+  IF OLD."statut" = 'CLOTURE' AND NEW."statut" IS DISTINCT FROM OLD."statut" THEN
+    RAISE EXCEPTION 'conflits_projet : un dossier cloture ne change plus de statut' USING ERRCODE = 'restrict_violation';
   END IF;
   IF coalesce(current_setting('bdri.conflit_recalcul', true), '') = 'oui' THEN
     IF NEW."statut" IS DISTINCT FROM OLD."statut" OR NEW."risque" IS DISTINCT FROM OLD."risque"
@@ -350,6 +370,16 @@ DROP TRIGGER IF EXISTS conflits_projet_decisions_suppression ON "conflits_projet
 CREATE TRIGGER conflits_projet_decisions_suppression BEFORE DELETE ON "conflits_projet_decisions" FOR EACH ROW EXECUTE FUNCTION conflits_projet_refuse_suppression();
 DROP TRIGGER IF EXISTS conflits_projet_decisions_garde ON "conflits_projet_decisions";
 CREATE TRIGGER conflits_projet_decisions_garde BEFORE UPDATE ON "conflits_projet_decisions" FOR EACH ROW EXECUTE FUNCTION conflits_projet_decision_garde();
+
+DO $tr$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['regles_conflit_projet', 'analyses_conflit_projet', 'conflits_projet', 'conflits_projet_historique', 'conflits_projet_preuves', 'conflits_projet_decisions'] LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', t || '_troncature', t);
+    EXECUTE format('CREATE TRIGGER %I BEFORE TRUNCATE ON %I FOR EACH STATEMENT EXECUTE FUNCTION conflits_projet_refuse_troncature()', t || '_troncature', t);
+  END LOOP;
+END
+$tr$;
 
 -- ===== 7. Regle par defaut RC-2D-0.1 =====
 -- Celle du socle (analyse 2D indicative) : version 0, APPROUVEE par construction, SANS seuil invente (tolerance 0, marge 1).
