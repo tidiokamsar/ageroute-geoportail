@@ -620,8 +620,10 @@ describe("proposition de decision : couts estime et reel distincts, jamais calcu
   });
 });
 
-describe("approbation et refus d'une decision : separation des taches, derogation reservee ADMIN", () => {
+describe("approbation et refus d'une decision : separation des taches, derogation proposee selon la reponse du serveur", () => {
   const proposee = (over = {}) => decision({ id: "d1", statut: "PROPOSEE", option: "DEPLACER_RESEAU", proposePar: { id: "u-gest", nom: "Moussa Gestionnaire" }, ...over });
+
+  const ouvrirFicheAvecDecision = () => ouvrir(fiche({ statut: "CONFIRME", transitions: [], decisions: [proposee()] }), "GESTIONNAIRE", "u-autre");
 
   async function ouvrirApprobation(role: string, userId: string, d = proposee(), verdict: "Approuver" | "Refuser" = "Approuver") {
     const f = await ouvrir(fiche({ statut: "CONFIRME", transitions: [], decisions: [d] }), role, userId);
@@ -654,26 +656,74 @@ describe("approbation et refus d'une decision : separation des taches, derogatio
     await waitFor(() => expect(h.post).toHaveBeenCalledWith(`${BASE}/conflits/cf-1/decisions/d1/refuser`, { motif: "Option non retenue par le comité" }));
   });
 
-  it("gestionnaire qui approuve SA proposition : avertissement, pas de derogation possible ; le serveur refuse (409 SEPARATION_DES_TACHES)", async () => {
-    const d = await ouvrirApprobation("GESTIONNAIRE", "u-gest");
-    expect(d).toHaveTextContent("Vous avez proposé cette décision de déplacement de réseau : un autre compte habilité doit l'approuver.");
+  it("gestionnaire qui approuve SA proposition : on ne devine pas son droit ; le serveur oppose SEPARATION_DES_TACHES, le champ de derogation apparait, l'envoi est rejoue avec elle", async () => {
+    const d = await ouvrirApprobation("GESTIONNAIRE", "u-gest", proposee({ option: "PROTEGER" }));
+    expect(d).toHaveTextContent("Vous avez proposé cette décision : un autre compte habilité doit en principe l'approuver. Si vous essayez quand même, le serveur dit si votre compte peut déroger");
     expect(within(d).queryByLabelText(/Dérogation/)).toBeNull();
-    h.post.mockRejectedValueOnce(erreurHttp(409, "SEPARATION_DES_TACHES"));
-    await saisir(d, /Motif/, "Je l'approuve moi-même");
+    h.post.mockRejectedValueOnce(erreurHttp(409, "SEPARATION_DES_TACHES", "La personne qui a proposé une décision ne peut pas la trancher elle-même sans dérogation motivée (10 caractères au moins)."));
+    await saisir(d, /Motif/, "Je suis le seul compte habilité");
     await userEvent.click(within(d).getByRole("button", { name: "Approuver la décision" }));
     const alerte = await within(d).findByRole("alert");
     expect(alerte).toHaveAttribute("data-code", "SEPARATION_DES_TACHES");
     expect(alerte).toHaveTextContent("Séparation des tâches");
+    // La précision du serveur complète le message en clair.
+    expect(alerte).toHaveTextContent("Précision du serveur : La personne qui a proposé une décision ne peut pas la trancher elle-même");
+    const champ = await within(d).findByLabelText(/Dérogation à la séparation des tâches : motif obligatoire ici/);
+    expect(within(d).queryByText(/réservée aux administrateurs/)).toBeNull();
+    const envoyer = within(d).getByRole("button", { name: "Approuver la décision" });
+    expect(envoyer).toBeDisabled();
+    await userEvent.type(champ, "Seul compte habilité du périmètre");
+    expect(envoyer).toBeEnabled();
+    await userEvent.click(envoyer);
+    await waitFor(() => expect(h.post).toHaveBeenLastCalledWith(`${BASE}/conflits/cf-1/decisions/d1/approuver`, { motif: "Je suis le seul compte habilité", derogation: "Seul compte habilité du périmètre" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("REFUS de sa propre proposition : meme parcours (SEPARATION_DES_TACHES, champ de derogation, rejeu sur /refuser avec la derogation)", async () => {
+    const d = await ouvrirApprobation("GESTIONNAIRE", "u-gest", proposee({ option: "A_ETUDIER" }), "Refuser");
+    expect(d).toHaveTextContent("un autre compte habilité doit en principe la refuser");
     expect(within(d).queryByLabelText(/Dérogation/)).toBeNull();
+    h.post.mockRejectedValueOnce(erreurHttp(409, "SEPARATION_DES_TACHES"));
+    await saisir(d, /Motif/, "Option abandonnée, étude faite");
+    await userEvent.click(within(d).getByRole("button", { name: "Refuser la décision" }));
+    await within(d).findByRole("alert");
+    const champ = await within(d).findByLabelText(/Dérogation à la séparation des tâches : motif obligatoire ici/);
+    await userEvent.type(champ, "Seul compte habilité");
+    await userEvent.click(within(d).getByRole("button", { name: "Refuser la décision" }));
+    await waitFor(() => expect(h.post).toHaveBeenLastCalledWith(`${BASE}/conflits/cf-1/decisions/d1/refuser`, { motif: "Option abandonnée, étude faite", derogation: "Seul compte habilité" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("le champ de derogation reste affiche pendant l'envoi rejoue ; si le serveur refuse encore, sa precision est dite et le champ reste", async () => {
+    const d = await ouvrirApprobation("GESTIONNAIRE", "u-gest", proposee({ option: "PROTEGER" }));
+    h.post.mockRejectedValueOnce(erreurHttp(409, "SEPARATION_DES_TACHES"));
+    await saisir(d, /Motif/, "Je suis le seul compte habilité");
+    await userEvent.click(within(d).getByRole("button", { name: "Approuver la décision" }));
+    const champ = await within(d).findByLabelText(/Dérogation à la séparation des tâches/);
+    h.post.mockRejectedValueOnce(erreurHttp(409, "SEPARATION_DES_TACHES", "Plusieurs comptes habilités existent : seul un administrateur peut déroger à la séparation des tâches."));
+    await userEvent.type(champ, "Je suis le seul compte habilité");
+    await userEvent.click(within(d).getByRole("button", { name: "Approuver la décision" }));
+    const alerte = await within(d).findByRole("alert");
+    expect(alerte).toHaveTextContent("Précision du serveur : Plusieurs comptes habilités existent : seul un administrateur peut déroger");
+    expect(within(d).getByLabelText(/Dérogation à la séparation des tâches/)).toBeInTheDocument();
+    expect(h.post).toHaveBeenCalledTimes(2);
+  });
+
+  it("l'aide dit qu'une decision tranchee ne s'annule pas mais se remplace par une nouvelle proposition (dialogue et fiche)", async () => {
+    const f = await ouvrirFicheAvecDecision();
+    expect(within(f).getByTestId("aide-decision-fiche")).toHaveTextContent("ne peut être ni annulée ni modifiée, coûts compris : elle ne peut qu'être remplacée par une nouvelle proposition");
+    await userEvent.click(within(f).getByRole("button", { name: /^Approuver la décision/ }));
+    const d = await dialogue();
+    expect(within(d).getByTestId("aide-decision-tranchee")).toHaveTextContent("Tant que le dossier est « Confirmé », proposez-en une nouvelle");
   });
 
   it("ADMIN qui approuve SA proposition de deplacement : champ de derogation, motif obligatoire, envoye", async () => {
     const d = await ouvrirApprobation("ADMIN", "u-gest");
-    expect(d).toHaveTextContent("Vous avez proposé cette décision de déplacement de réseau : seule une dérogation motivée d'un administrateur permet de l'approuver vous-même");
+    expect(d).toHaveTextContent("Vous avez proposé cette décision de déplacement de réseau : seule une dérogation motivée permet de l'approuver vous-même");
     const envoyer = within(d).getByRole("button", { name: "Approuver la décision" });
     await saisir(d, /Motif/, "Approuvé en comité technique");
     expect(envoyer).toBeDisabled();
-    await saisir(d, /Dérogation à la séparation des tâches \(réservée aux administrateurs\) : motif obligatoire ici/, "Un seul compte habilité");
+    await saisir(d, /Dérogation à la séparation des tâches : motif obligatoire ici/, "Un seul compte habilité");
     expect(envoyer).toBeEnabled();
     await userEvent.click(envoyer);
     await waitFor(() => expect(h.post).toHaveBeenCalledWith(`${BASE}/conflits/cf-1/decisions/d1/approuver`, { motif: "Approuvé en comité technique", derogation: "Un seul compte habilité" }));
@@ -681,7 +731,7 @@ describe("approbation et refus d'une decision : separation des taches, derogatio
 
   it("ADMIN qui approuve SA proposition (autre option que le deplacement) : la derogation est exigee aussi", async () => {
     const d = await ouvrirApprobation("ADMIN", "u-gest", proposee({ option: "PROTEGER" }));
-    expect(d).toHaveTextContent("Vous avez proposé cette décision : seule une dérogation motivée d'un administrateur permet de l'approuver vous-même.");
+    expect(d).toHaveTextContent("Vous avez proposé cette décision : seule une dérogation motivée permet de l'approuver vous-même.");
     await saisir(d, /Motif/, "Approuvé en comité technique");
     const envoyer = within(d).getByRole("button", { name: "Approuver la décision" });
     expect(envoyer).toBeDisabled();
@@ -712,8 +762,19 @@ describe("approbation et refus d'une decision : separation des taches, derogatio
     expect(await within(d).findByLabelText(/Dérogation à la séparation des tâches/)).toBeInTheDocument();
   });
 
-  it("un refus n'a jamais de champ de derogation", async () => {
+  it("ADMIN qui REFUSE SA proposition : le champ de derogation est propose d'emblee, motif obligatoire, envoye sur /refuser", async () => {
     const d = await ouvrirApprobation("ADMIN", "u-gest", proposee(), "Refuser");
+    expect(d).toHaveTextContent("seule une dérogation motivée permet de la refuser vous-même");
+    await saisir(d, /Motif/, "Option abandonnée par le comité");
+    const envoyer = within(d).getByRole("button", { name: "Refuser la décision" });
+    expect(envoyer).toBeDisabled();
+    await saisir(d, /Dérogation à la séparation des tâches : motif obligatoire ici/, "Un seul compte habilité");
+    await userEvent.click(envoyer);
+    await waitFor(() => expect(h.post).toHaveBeenCalledWith(`${BASE}/conflits/cf-1/decisions/d1/refuser`, { motif: "Option abandonnée par le comité", derogation: "Un seul compte habilité" }));
+  });
+
+  it("refuser la proposition d'un autre : aucun champ de derogation tant que le serveur ne l'oppose pas", async () => {
+    const d = await ouvrirApprobation("ADMIN", "u-adm", proposee(), "Refuser");
     expect(within(d).queryByLabelText(/Dérogation/)).toBeNull();
   });
 

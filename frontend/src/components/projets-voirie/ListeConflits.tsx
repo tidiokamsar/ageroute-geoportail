@@ -8,7 +8,7 @@ import { BadgeEcheanceDepassee, BadgeReexamen, BadgeRisque, BadgeStatutConflit, 
 import type { Concessionnaire } from "../../lib/projetsVoirieApi";
 import type { ConflitResume, PageConflits } from "../../lib/projetsVoirieConflitsApi";
 import {
-  FILTRES_VIDES, LIBELLE_TRI, LIBELLE_TYPE_CONFLIT, STATUTS_CONFLIT, STYLE_STATUT_CONFLIT, TYPES_CONFLIT, echeanceDepassee, nbFiltresActifs, trierConflits,
+  AXE_MAX, FILTRES_VIDES, LIBELLE_TRI, LIBELLE_TYPE_CONFLIT, RECHERCHE_MAX, STATUTS_CONFLIT, STYLE_STATUT_CONFLIT, TEXTE_MASQUE, TYPES_CONFLIT, echeanceDepassee, libelleConcessionnaire, libelleMesureAbsente, mesureAbsente, nbFiltresActifs, trierConflits,
   classerErreurConflit,
   type FiltresConflits, type StatutConflit, type TriConflit,
 } from "../../lib/projetsVoirieConflits";
@@ -21,6 +21,10 @@ import { formaterDate, formaterMetres, formaterNombre } from "../../lib/projetsV
  * Le tri s'applique aux conflits DEJA CHARGES (le contrat n'a pas de parametre de tri) : la page le dit.
  * « Aucun conflit » ne signifie jamais « aucun reseau » : le bandeau permanent de l'onglet le rappelle.
  */
+
+/** Boutons a bascule (statut, section) : l'etat actif et l'etat inactif sont deux chaines distinctes, chacune avec son texte et son fond. */
+export const CLASSES_BASCULE_ACTIF = "border-2 border-navy bg-navy text-white";
+export const CLASSES_BASCULE_INACTIF = "border-gray-400 bg-white text-gray-900 hover:bg-gray-100";
 
 export type RequeteConflits = UseInfiniteQueryResult<InfiniteData<PageConflits>, unknown>;
 
@@ -46,7 +50,7 @@ function Resume({ c }: { c: ConflitResume }) {
     m.distanceMinM !== null ? `distance minimale ${formaterMetres(m.distanceMinM)}` : null,
     m.nbCroisements !== null ? `${formaterNombre(m.nbCroisements, 0)} croisement(s)` : null,
   ].filter(Boolean);
-  return <>{morceaux.length > 0 ? morceaux.join(" · ") : "Mesure non fournie"}</>;
+  return <>{morceaux.length > 0 ? morceaux.join(" · ") : mesureAbsente(c) ? libelleMesureAbsente(c) : "Mesure non fournie"}</>;
 }
 
 function LigneConflit({ c, actif, onOuvrir }: { c: ConflitResume; actif: boolean; onOuvrir: (c: ConflitResume) => void }) {
@@ -65,9 +69,10 @@ function LigneConflit({ c, actif, onOuvrir }: { c: ConflitResume; actif: boolean
           {depassee && <BadgeEcheanceDepassee />}
         </span>
         <span className="break-words font-medium text-gray-900">
-          {c.axe ?? "Axe non précisé"}{c.concessionnaire ? ` · ${c.concessionnaire.nom ?? "Concessionnaire sans nom"}` : " · aucun concessionnaire (zone sans jeu réseau)"}
+          {c.axe ?? "Axe non précisé"} · {libelleConcessionnaire(c)}
         </span>
-        {c.objet?.nom && <span className="break-words text-[11px] text-gray-700">Objet : {c.objet.nom}</span>}
+        {c.objet?.nom ? <span className="break-words text-[11px] text-gray-700">Objet : {c.objet.nom}</span>
+          : c.geometrieMasquee && c.type !== "COUVERTURE_INSUFFISANTE" ? <span className="text-[11px] text-gray-700">Objet : {TEXTE_MASQUE}</span> : null}
         <span className="break-words text-[11px] text-gray-700"><Resume c={c} /></span>
         {c.geometrieMasquee && <span className="text-[11px] text-gray-700">Géométrie masquée pour votre compte (jeu de réseau non lisible).</span>}
         <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-700">
@@ -112,7 +117,7 @@ export function ListeConflits(p: PropsListeConflits) {
       <div role="group" aria-label="Filtrer par statut (compteurs selon vos autres filtres)" className="flex flex-wrap gap-1">
         <button
           type="button" aria-pressed={f.statut === ""} onClick={() => maj({ statut: "" })}
-          className={`min-h-[44px] rounded border px-2 text-xs font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-navy xl:min-h-8 ${f.statut === "" ? "border-2 border-navy bg-navy text-white" : "border-gray-400 bg-white text-gray-900 hover:bg-gray-100"}`}
+          className={`min-h-[44px] rounded border px-2 text-xs font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-navy xl:min-h-8 ${f.statut === "" ? CLASSES_BASCULE_ACTIF : CLASSES_BASCULE_INACTIF}`}
         >
           Tous{total !== null ? ` (${formaterNombre(total, 0)})` : ""}
         </button>
@@ -122,7 +127,7 @@ export function ListeConflits(p: PropsListeConflits) {
           return (
             <button
               key={s} type="button" aria-pressed={on} onClick={() => maj({ statut: on ? "" : s })} data-statut-filtre={s}
-              className={`min-h-[44px] rounded border px-2 text-xs font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-navy xl:min-h-8 ${on ? "border-2 border-navy bg-navy text-white" : "border-gray-400 bg-white text-gray-900 hover:bg-gray-100"}`}
+              className={`min-h-[44px] rounded border px-2 text-xs font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-navy xl:min-h-8 ${on ? CLASSES_BASCULE_ACTIF : CLASSES_BASCULE_INACTIF}`}
             >
               {STYLE_STATUT_CONFLIT[s].libelle}{typeof n === "number" ? ` (${formaterNombre(n, 0)})` : ""}
             </button>
@@ -134,7 +139,7 @@ export function ListeConflits(p: PropsListeConflits) {
         <label htmlFor={idQ} className="block text-xs font-medium text-gray-800">Rechercher (axe, concessionnaire, action proposée…)</label>
         <div className="relative mt-1">
           <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-gray-500" />
-          <Input id={idQ} type="search" value={f.q} onChange={(e) => maj({ q: e.target.value })} autoComplete="off" maxLength={100} className="border-gray-300 pl-9" />
+          <Input id={idQ} type="search" value={f.q} onChange={(e) => maj({ q: e.target.value })} autoComplete="off" maxLength={RECHERCHE_MAX} className="border-gray-300 pl-9" />
         </div>
       </div>
 
@@ -155,8 +160,9 @@ export function ListeConflits(p: PropsListeConflits) {
             </Select>
           </div>
           <div>
-            <label htmlFor={idAxe} className="block text-xs font-medium text-gray-800">Axe (nom exact, casse ignorée)</label>
-            <Input id={idAxe} list={idAxes} value={f.axe} onChange={(e) => maj({ axe: e.target.value })} autoComplete="off" maxLength={100} className="border-gray-300" />
+            <label htmlFor={idAxe} className="block text-xs font-medium text-gray-800">Nom exact de l&apos;axe (casse ignorée)</label>
+            <Input id={idAxe} list={idAxes} value={f.axe} onChange={(e) => maj({ axe: e.target.value })} autoComplete="off" maxLength={AXE_MAX} aria-describedby={`${idAxe}-aide`} className="border-gray-300" />
+            <p id={`${idAxe}-aide`} className="text-[11px] text-gray-700">Le serveur compare le nom en entier : une saisie partielle ne trouve rien (utilisez « Rechercher » pour une partie du nom). Les suggestions viennent des conflits déjà chargés.</p>
             <datalist id={idAxes}>{axesConnus.map((a) => <option key={a} value={a} />)}</datalist>
           </div>
           <div>
@@ -188,9 +194,12 @@ export function ListeConflits(p: PropsListeConflits) {
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div className="min-w-[10rem] flex-1">
           <label htmlFor={idTri} className="block text-xs font-medium text-gray-800">Trier</label>
-          <Select id={idTri} value={f.tri} onChange={(e) => maj({ tri: e.target.value as TriConflit })} className="border-gray-300">
+          <Select id={idTri} value={f.tri} onChange={(e) => maj({ tri: e.target.value as TriConflit })} aria-describedby={`${idTri}-aide`} className="border-gray-300">
             {(Object.keys(LIBELLE_TRI) as TriConflit[]).map((t) => <option key={t} value={t}>{LIBELLE_TRI[t]}</option>)}
           </Select>
+          <p id={`${idTri}-aide`} data-testid="aide-tri" className="text-[11px] text-gray-700">
+            Le tri ne porte que sur les conflits déjà chargés{aSuite && f.tri !== "serveur" ? " : d'autres restent à charger et peuvent venir se placer n'importe où dans l'ordre" : ""}.
+          </p>
         </div>
         {actifs > 0 && (
           <Button type="button" variant="outline" className="min-h-[44px] xl:min-h-9" onClick={() => p.onFiltres({ ...FILTRES_VIDES, tri: f.tri })}>
@@ -208,7 +217,6 @@ export function ListeConflits(p: PropsListeConflits) {
         <>
           <p role="status" className="text-xs text-gray-700" data-testid="etat-liste-conflits">
             {p.conflits.length === 0 ? "Aucun conflit à afficher." : `${formaterNombre(p.conflits.length, 0)} conflit(s) chargé(s)${aSuite ? ", d'autres restent à charger" : ""}.`}
-            {p.conflits.length > 1 && f.tri !== "serveur" ? " Le tri porte sur les conflits chargés." : ""}
           </p>
           {p.ignores > 0 && (
             <p role="alert" className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">

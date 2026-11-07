@@ -144,6 +144,8 @@ export interface ConflitFiche extends ConflitResume {
   decisions: DecisionConflit[];
   /** Transitions renvoyees par le serveur ; `null` si la reponse n'en porte pas (affichage de secours). */
   transitions: TransitionPossible[] | null;
+  /** Avertissements du serveur (`avertissements`) ; `null` s'il n'en envoie pas (l'ecran se replie alors sur les textes de secours). */
+  avertissements: string[] | null;
 }
 
 export interface RegleAppliquee { regleId: string | null; code: string | null; version: number | null; famille: TypeReseau | null; portee: string | null; toleranceProximiteM: number | null; margeIncertitude: number | null }
@@ -441,7 +443,14 @@ export function lireFicheConflit(data: unknown): ConflitFiche {
     preuves: lirePreuves(racine.preuves),
     decisions: lireDecisions(racine.decisions),
     transitions: lireTransitions(racine.transitionsPossibles),
+    avertissements: lireAvertissements(racine.avertissements),
   };
+}
+
+/** Avertissements du serveur : les chaines non vides de la liste ; `null` si le champ est absent, mal forme ou vide (repli sur les textes de secours). */
+export function lireAvertissements(v: unknown): string[] | null {
+  const l = chaines(v).map((x) => x.trim());
+  return l.length > 0 ? l : null;
 }
 
 function lireNombresParCle(v: unknown): Record<string, number> {
@@ -671,6 +680,29 @@ export function urlExportConflits(projetId: string, filtres?: FiltresConflits): 
   const q = new URLSearchParams(filtres ? paramsListeConflits(filtres, null) : {}).toString();
   return q ? `${base}?${q}` : base;
 }
-export function exporterConflitsCsv(projetId: string, code: string, filtres?: FiltresConflits): Promise<void> {
-  return downloadViaApi(urlExportConflits(projetId, filtres), `${code.replace(/[^\w.-]+/g, "_")}-dossiers-de-conflit.csv`);
+
+/**
+ * `downloadViaApi` demande un blob : en cas d'erreur HTTP, le corps JSON typé du serveur (`{ error, code }`) arrive lui aussi en Blob, que
+ * `classerErreur` ne sait pas lire. On le relit ici (JSON seulement, jamais interprété autrement) et on le remet en objet dans l'erreur, pour
+ * que le message soit celui du code (par exemple 403 ROLE_INSUFFISANT, 404 PROJET_INTROUVABLE, 400 CHAMPS_INVALIDES). Corps illisible : erreur inchangée.
+ */
+export async function lireCorpsErreurBlob(e: unknown): Promise<unknown> {
+  const r = estObjet(e) && estObjet(e.response) ? e.response : null;
+  const corps = r?.data;
+  if (!r || typeof Blob === "undefined" || !(corps instanceof Blob)) return e;
+  try {
+    // Corps d'ERREUR du serveur (pas un fichier de l'utilisateur) ; `Blob.text()` seulement, le module ne lit jamais le contenu d'un fichier avec FileReader.
+    const t = await corps.text();
+    const json: unknown = JSON.parse(t);
+    if (estObjet(json)) r.data = json;
+  } catch { /* corps non JSON : on garde l'erreur telle quelle (message generique du statut) */ }
+  return e;
+}
+
+export async function exporterConflitsCsv(projetId: string, code: string, filtres?: FiltresConflits): Promise<void> {
+  try {
+    await downloadViaApi(urlExportConflits(projetId, filtres), `${code.replace(/[^\w.-]+/g, "_")}-dossiers-de-conflit.csv`);
+  } catch (e) {
+    throw await lireCorpsErreurBlob(e);
+  }
 }

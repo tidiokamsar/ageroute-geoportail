@@ -5,14 +5,14 @@ import { Button } from "../ui/Button";
 import { useAuth } from "../../lib/auth";
 import { AnalysesConflits } from "./AnalysesConflits";
 import { FicheConflit } from "./FicheConflit";
-import { ListeConflits } from "./ListeConflits";
+import { CLASSES_BASCULE_ACTIF, CLASSES_BASCULE_INACTIF, ListeConflits } from "./ListeConflits";
 import { ReglesConflits } from "./ReglesConflits";
 import type { Concessionnaire, ProjetFiche } from "../../lib/projetsVoirieApi";
 import { exporterConflitsCsv, type ConflitResume } from "../../lib/projetsVoirieConflitsApi";
 import {
   useAcquitterReexamen, useAjouterPreuve, useAttribuer, useChangerStatut, useDecider, useFicheConflit, useLancerAnalyse, useListeConflits, useProposerDecision,
 } from "../../lib/projetsVoirieConflitsHooks";
-import { BANDEAU_GARDE_FOUS, FILTRES_VIDES, classerErreurConflit, nbFiltresActifs, type FiltresConflits } from "../../lib/projetsVoirieConflits";
+import { BANDEAU_GARDE_FOUS, DELAI_FILTRE_TEXTE_MS, FILTRES_VIDES, classerErreurConflit, nbFiltresActifs, type FiltresConflits } from "../../lib/projetsVoirieConflits";
 import { useValeurDifferee } from "../../lib/projetsVoirieHooks";
 import { formaterNombre } from "../../lib/projetsVoirie";
 
@@ -54,9 +54,11 @@ export function OngletConflits(p: PropsOngletConflits) {
   const [vue, setVue] = useState<Vue>("dossiers");
   const [filtres, setFiltres] = useState<FiltresConflits>(FILTRES_VIDES);
   const [conflitId, setConflitId] = useState<string | null>(null);
-  const [export_, setExport] = useState<{ etat: "repos" | "cours" | "erreur"; message?: string }>({ etat: "repos" });
-  const qDiffere = useValeurDifferee(filtres.q.trim(), 300);
-  const filtresRequete = useMemo(() => ({ ...filtres, q: qDiffere }), [filtres, qDiffere]);
+  const [export_, setExport] = useState<{ etat: "repos" | "cours" | "erreur"; message?: string; code?: string | null }>({ etat: "repos" });
+  // Les deux champs de texte (recherche et axe) ne partent au serveur qu'une fois la saisie posee : une requete par pause, pas une par touche.
+  const qDiffere = useValeurDifferee(filtres.q.trim(), DELAI_FILTRE_TEXTE_MS);
+  const axeDiffere = useValeurDifferee(filtres.axe.trim(), DELAI_FILTRE_TEXTE_MS);
+  const filtresRequete = useMemo(() => ({ ...filtres, q: qDiffere, axe: axeDiffere }), [filtres, qDiffere, axeDiffere]);
   const liste = useListeConflits(p.projet.id, filtresRequete);
 
   const conflits = useMemo(() => liste.data?.pages.flatMap((pg) => pg.conflits) ?? [], [liste.data]);
@@ -98,7 +100,7 @@ export function OngletConflits(p: PropsOngletConflits) {
 
   async function surExport() {
     setExport({ etat: "cours" });
-    try { await exporterConflitsCsv(p.projet.id, p.projet.code, filtres); setExport({ etat: "repos" }); } catch (e) { setExport({ etat: "erreur", message: classerErreurConflit(e).message }); }
+    try { await exporterConflitsCsv(p.projet.id, p.projet.code, filtres); setExport({ etat: "repos" }); } catch (e) { const c = classerErreurConflit(e); setExport({ etat: "erreur", message: c.message, code: c.code }); }
   }
 
   const fichOuverte = conflitId !== null && vue === "dossiers";
@@ -141,12 +143,8 @@ export function OngletConflits(p: PropsOngletConflits) {
             {" "}Aucun verdict humain n&apos;a été modifié.
           </p>
         )}
-        {lancer.isSuccess && resultat && resultat.statut === "ECHEC" && (
-          <p role="alert" data-testid="analyse-echec" className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-900">
-            <strong>L&apos;analyse a échoué</strong> : le serveur l&apos;a enregistrée en échec. Les conflits existants sont restés intacts. Consultez l&apos;historique, puis réessayez.
-          </p>
-        )}
-        {lancer.isSuccess && !resultat && (
+        {/* Une analyse en echec (delai, volume) est repondue par une ERREUR HTTP (504, 422) et listee dans l'historique : le serveur ne repond jamais 2xx avec un statut ECHEC. */}
+        {lancer.isSuccess && (!resultat || resultat.statut !== "TERMINEE") && (
           <p role="status" className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
             Analyse lancée, mais le serveur n&apos;a pas détaillé son résultat : consultez l&apos;historique des analyses.
           </p>
@@ -159,14 +157,14 @@ export function OngletConflits(p: PropsOngletConflits) {
             )}
           </div>
         )}
-        {export_.etat === "erreur" && <p role="alert" className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-900">L&apos;export CSV a échoué. {export_.message}</p>}
+        {export_.etat === "erreur" && <p role="alert" data-testid="export-erreur" data-code={export_.code ?? undefined} className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-900">L&apos;export CSV a échoué. {export_.message}</p>}
       </div>
 
       <div role="group" aria-label="Sections de l'onglet Conflits" hidden={fichOuverte} className={fichOuverte ? "hidden" : "flex flex-wrap gap-1"}>
         {VUES.map((v) => (
           <button
             key={v.id} type="button" aria-pressed={vue === v.id} data-vue={v.id} onClick={() => setVue(v.id)}
-            className={`min-h-[44px] rounded border px-3 text-xs font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-navy xl:min-h-8 ${vue === v.id ? "border-2 border-navy bg-navy text-white" : "border-gray-400 bg-white text-gray-900 hover:bg-gray-100"}`}
+            className={`min-h-[44px] rounded border px-3 text-xs font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-navy xl:min-h-8 ${vue === v.id ? CLASSES_BASCULE_ACTIF : CLASSES_BASCULE_INACTIF}`}
           >
             {v.libelle}
           </button>

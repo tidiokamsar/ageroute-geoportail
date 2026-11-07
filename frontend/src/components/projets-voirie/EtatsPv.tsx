@@ -40,6 +40,8 @@ export function BandeauHorsLigne() {
   );
 }
 
+const CODES_INTROUVABLE_DU_LOT = ["CONFLIT_INTROUVABLE", "ANALYSE_INTROUVABLE", "REGLE_INTROUVABLE", "DECISION_INTROUVABLE"];
+
 export function EtatErreur({ erreur, sujet, onReessayer, enCours }: { erreur: ErreurPv; sujet: string; onReessayer?: () => void; enCours?: boolean }) {
   if (erreur.genre === "droit") {
     // 403 avec un code precis (QUARANTAINE_RESERVEE, ROLE_INSUFFISANT) : le compte a bien le module, c'est ce geste-la qui lui est refuse.
@@ -65,7 +67,8 @@ export function EtatErreur({ erreur, sujet, onReessayer, enCours }: { erreur: Er
     return (
       <div role="alert" data-etat="introuvable" className="flex items-start gap-2 rounded-md border border-gray-300 bg-white p-3 text-sm text-gray-800">
         <SearchX aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
-        <p><strong>{sujet} : introuvable.</strong> Il n&apos;existe pas, ou il a été retiré. Revenez à la liste des projets.</p>
+        {/* Un conflit, une analyse, une regle ou une decision introuvable peut aussi etre MASQUE pour ce compte : le message du lot le dit. */}
+        <p><strong>{sujet} : introuvable.</strong> {erreur.code && CODES_INTROUVABLE_DU_LOT.includes(erreur.code) ? erreur.message : "Il n'existe pas, ou il a été retiré. Revenez à la liste des projets."}</p>
       </div>
     );
   }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BANDEAU_GARDE_FOUS, FILTRES_VIDES, OPTIONS_DECISION, STATUTS_CONFLIT, STYLE_STATUT_CONFLIT, TYPES_CONFLIT, FORME_TYPE_CONFLIT, LIBELLE_OPTION_DECISION,
-  bboxDeGeometrie, classerErreurConflit, echeanceDepassee, erreursDecision, erreursRegle, exigencesTransition, justificationValide, libelleAction, libelleTransition,
+  AIDE_DECISION_TRANCHEE, AVERTISSEMENTS_DE_SECOURS, AXE_MAX, RECHERCHE_MAX, bboxDeGeometrie, classerErreurConflit, libelleConcessionnaire, libelleMesureAbsente, mesureAbsente, echeanceDepassee, erreursDecision, erreursRegle, exigencesTransition, justificationValide, libelleAction, libelleTransition,
   lireMontant, nbFiltresActifs, paramsListeConflits, transitionsDeSecours, trierConflits,
   type SaisieDecision, type StatutConflit,
 } from "./projetsVoirieConflits";
@@ -219,7 +219,9 @@ describe("erreurs typees du lot", () => {
     expect(e.code).toBe(code);
     expect(e.genre).toBe(genre);
     expect(e.message).toMatch(motif);
-    expect(e.message).not.toContain("texte du serveur");
+    // Seule la separation des taches reprend le texte du serveur, et le dit (« Précision du serveur ») : c'est lui qui sait qui peut déroger.
+    if (code === "SEPARATION_DES_TACHES") expect(e.message).toContain("Précision du serveur : texte du serveur");
+    else expect(e.message).not.toContain("texte du serveur");
     expect(e.message).toMatch(/Rien n'a été modifié|Rechargez|revenez|choisissez|Vérifiez|Utilisez/i);
   });
   it("503 PROJET_OCCUPE, 503 SERVICE_OCCUPE, 504 ANALYSE_TROP_LONGUE : expliques", () => {
@@ -251,5 +253,62 @@ describe("erreurs typees du lot", () => {
     const e = classerErreurConflit(err(409, "AUTRE_CODE"));
     expect(e.genre).toBe("conflit");
     expect(e.message).toBe("texte du serveur");
+  });
+});
+
+describe("erreurs : separation des taches, limite de frequence", () => {
+  const avecCorps = (status: number, data: unknown, headers?: Record<string, string>) => Object.assign(new Error(String(status)), { response: { status, data, headers } });
+
+  it("SEPARATION_DES_TACHES : message en clair + precision du serveur (qui peut deroger) ; sans texte serveur, le message seul", () => {
+    const e = classerErreurConflit(avecCorps(409, { error: "Plusieurs comptes habilités existent : seul un administrateur peut déroger à la séparation des tâches.", code: "SEPARATION_DES_TACHES" }));
+    expect(e.code).toBe("SEPARATION_DES_TACHES");
+    expect(e.message).toMatch(/^Séparation des tâches : la personne qui a proposé/);
+    expect(e.message).toMatch(/Précision du serveur : Plusieurs comptes habilités existent/);
+    expect(e.message).toMatch(/gestionnaire seulement s'il est le seul compte habilité/);
+    expect(classerErreurConflit(avecCorps(409, { code: "SEPARATION_DES_TACHES" })).message).not.toMatch(/Précision du serveur/);
+  });
+  it("une precision n'est ajoutee que pour la separation des taches (les autres codes gardent leur message en clair seul)", () => {
+    expect(classerErreurConflit(avecCorps(409, { error: "texte brut", code: "DECISION_DEJA_TRANCHEE" })).message).not.toMatch(/texte brut|Précision/);
+  });
+  it("429 : message en clair, delai Retry-After lu (secondes entieres), texte du serveur repris, code conserve ; sans delai : « dans un instant »", () => {
+    const e = classerErreurConflit(avecCorps(429, { error: "Une analyse par minute.", code: "TROP_RAPPROCHEE" }, { "retry-after": "30" }));
+    expect(e.status).toBe(429);
+    expect(e.code).toBe("TROP_RAPPROCHEE");
+    expect(e.genre).toBe("serveur");
+    expect(e.message).toMatch(/Trop de demandes en peu de temps/);
+    expect(e.message).toMatch(/Une analyse par minute\./);
+    expect(e.message).toMatch(/Réessayez dans 30 secondes/);
+    expect(classerErreurConflit(avecCorps(429, {}, { "retry-after": "1" })).message).toMatch(/dans 1 seconde\./);
+    expect(classerErreurConflit(avecCorps(429, {}, { "retry-after": "Wed, 21 Oct 2026 07:28:00 GMT" })).message).toMatch(/Réessayez dans un instant/);
+    expect(classerErreurConflit(avecCorps(429, {})).message).toMatch(/Réessayez dans un instant/);
+  });
+});
+
+describe("champs masques, avertissements de secours, aide de decision tranchee, limites des filtres", () => {
+  const base = { type: "PROXIMITE" as const, geometrieMasquee: false, concessionnaire: null, objet: null, mesure: { longueurChausseeM: null, longueurEmpriseM: null, distanceMinM: null, nbCroisements: null, longueurPieceM: null } };
+
+  it("mesure : entierement absente = masquee (si le serveur la masque) ou non fournie ; un zero du serveur est une mesure", () => {
+    expect(mesureAbsente(base)).toBe(true);
+    expect(mesureAbsente({ mesure: { ...base.mesure, distanceMinM: 0 } })).toBe(false);
+    expect(libelleMesureAbsente({ geometrieMasquee: true })).toBe("Mesure masquée pour votre compte");
+    expect(libelleMesureAbsente({ geometrieMasquee: false })).toBe("Mesure non fournie");
+  });
+  it("concessionnaire : « aucun » seulement pour une couverture insuffisante ; ailleurs masque ou non renseigne", () => {
+    expect(libelleConcessionnaire({ ...base, type: "COUVERTURE_INSUFFISANTE" })).toBe("aucun concessionnaire (zone sans jeu réseau)");
+    expect(libelleConcessionnaire({ ...base, geometrieMasquee: true })).toBe("concessionnaire masqué pour votre compte");
+    expect(libelleConcessionnaire(base)).toBe("concessionnaire non renseigné");
+    expect(libelleConcessionnaire({ ...base, concessionnaire: { nom: "Opérateur A" } })).toBe("Opérateur A");
+    expect(libelleConcessionnaire({ ...base, concessionnaire: { nom: null } })).toBe("Concessionnaire sans nom");
+  });
+  it("avertissements de secours : les trois phrases du backend ; limites de saisie : axe 300, recherche 100", () => {
+    expect(AVERTISSEMENTS_DE_SECOURS).toHaveLength(3);
+    expect(AVERTISSEMENTS_DE_SECOURS.join(" ")).toMatch(/signal de vérification.*vertical non évalué.*ne prouve pas l'absence de réseau/);
+    expect(AXE_MAX).toBe(300);
+    expect(RECHERCHE_MAX).toBe(100);
+  });
+  it("aide : une decision tranchee ne s'annule ni ne se modifie, elle se remplace par une nouvelle proposition", () => {
+    expect(AIDE_DECISION_TRANCHEE).toMatch(/ne peut être ni annulée ni modifiée/);
+    expect(AIDE_DECISION_TRANCHEE).toMatch(/remplacée par une nouvelle proposition/);
+    expect(AIDE_DECISION_TRANCHEE).toMatch(/Confirmé/);
   });
 });

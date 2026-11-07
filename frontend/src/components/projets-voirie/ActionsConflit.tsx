@@ -7,7 +7,7 @@ import type {
   ConflitFiche, CorpsApprobation, CorpsAttribution, CorpsDecision, CorpsPreuve, CorpsRegle, CorpsStatut, DecisionConflit, RegleConflit, TransitionPossible,
 } from "../../lib/projetsVoirieConflitsApi";
 import {
-  AVERTISSEMENT_COUTS, JUSTIFICATION_MIN, LIBELLE_MOTIF_REEXAMEN, LIBELLE_OPTION_DECISION, LIBELLE_REGLE_GENERALE, LIBELLE_RISQUE, LIBELLE_TYPE_PREUVE, MENTION_RECOLEMENT, OPTIONS_DECISION, RAPPEL_SEPARATION, RISQUES_CONFLIT,
+  AIDE_DECISION_TRANCHEE, AVERTISSEMENT_COUTS, JUSTIFICATION_MIN, LIBELLE_MOTIF_REEXAMEN, LIBELLE_OPTION_DECISION, LIBELLE_REGLE_GENERALE, LIBELLE_RISQUE, LIBELLE_TYPE_PREUVE, MENTION_RECOLEMENT, OPTIONS_DECISION, RAPPEL_SEPARATION, RISQUES_CONFLIT,
   TYPES_PREUVE, classerErreurConflit, erreursDecision, erreursRegle, justificationValide, lireMontant, libelleTransition,
   type OptionDecision, type RisqueConflit, type SaisieDecision, type SaisieRegle, type TypePreuve,
 } from "../../lib/projetsVoirieConflits";
@@ -53,23 +53,42 @@ function Cadre({ titre, description, enCours, erreur, peutValider, libelleValide
   );
 }
 
-/** Execute l'ecriture ; en cas d'echec, garde le formulaire ouvert avec l'erreur typee. */
+/**
+ * Execute l'ecriture ; en cas d'echec, garde le formulaire ouvert avec l'erreur typee. `separationOpposee` devient vrai quand le serveur a repondu
+ * SEPARATION_DES_TACHES et le reste : le champ de derogation qu'il a fait apparaitre ne disparait pas pendant le nouvel envoi.
+ */
 function useEnvoi(onFermer: () => void) {
   const [enCours, setEnCours] = useState(false);
   const [erreur, setErreur] = useState<ErreurPv | null>(null);
+  const [separationOpposee, setSeparationOpposee] = useState(false);
   async function envoyer(f: () => Promise<unknown>) {
     setEnCours(true); setErreur(null);
-    try { await f(); onFermer(); } catch (e) { setErreur(classerErreurConflit(e)); } finally { setEnCours(false); }
+    try { await f(); onFermer(); } catch (e) {
+      const c = classerErreurConflit(e);
+      if (c.code === "SEPARATION_DES_TACHES") setSeparationOpposee(true);
+      setErreur(c);
+    } finally { setEnCours(false); }
   }
-  return { enCours, erreur, envoyer };
+  return { enCours, erreur, envoyer, separationOpposee };
 }
 
-function ChampDerogation({ valeur, onChange, obligatoire }: { valeur: string; onChange: (v: string) => void; obligatoire: boolean }) {
+/**
+ * Champ de derogation a la separation des taches. `reservee` : le serveur n'accepte que celle d'un administrateur (cloture, approbation d'une
+ * regle). Sinon (decision), c'est LE SERVEUR qui dit qui peut deroger : on n'affirme pas le role a sa place.
+ */
+function ChampDerogation({ valeur, onChange, obligatoire, reservee = false }: { valeur: string; onChange: (v: string) => void; obligatoire: boolean; reservee?: boolean }) {
   const id = useId();
   return (
     <div className="rounded border border-purple-300 bg-purple-50 p-2">
-      <label htmlFor={id} className="block text-sm font-medium text-gray-900">Dérogation à la séparation des tâches (réservée aux administrateurs){obligatoire ? " : motif obligatoire ici" : ", facultative"}</label>
-      <p className="text-xs text-gray-800">À renseigner seulement pour approuver ce que vous avez vous-même proposé, ou s&apos;il n&apos;existe aucun autre compte habilité. Elle est tracée dans l&apos;historique et dans l&apos;audit.</p>
+      <label htmlFor={id} className="block text-sm font-medium text-gray-900">Dérogation à la séparation des tâches{reservee ? " (réservée aux administrateurs)" : ""}{obligatoire ? " : motif obligatoire ici" : ", facultative"}</label>
+      {reservee ? (
+        <p className="text-xs text-gray-800">À renseigner seulement pour approuver ce que vous avez vous-même proposé, ou s&apos;il n&apos;existe aucun autre compte habilité. Elle est tracée dans l&apos;historique et dans l&apos;audit.</p>
+      ) : (
+        <p className="text-xs text-gray-800">
+          Pour trancher une décision que vous avez vous-même proposée. Le serveur décide si votre compte peut déroger : toujours un administrateur ; un gestionnaire seulement s&apos;il est le seul compte habilité
+          et que la décision n&apos;est pas un déplacement de réseau. La dérogation est motivée, tracée dans l&apos;historique et dans l&apos;audit.
+        </p>
+      )}
       <textarea id={id} value={valeur} onChange={(e) => onChange(e.target.value)} rows={2} maxLength={1000} className={CHAMP} />
       {valeur.trim() !== "" && <Compteur id={`${id}-n`} texte={valeur} />}
     </div>
@@ -143,7 +162,7 @@ export function DialogueTransition({ fiche, transition, estAdmin, enLigne, onFer
           <span>Une décision « Déplacer le réseau » est approuvée. Je confirme que <strong>le récolement reste à valider</strong> : il n&apos;est pas géré dans cet outil et cette clôture ne le remplace pas. ({MENTION_RECOLEMENT})</span>
         </label>
       )}
-      {derogationVisible && <ChampDerogation valeur={derogation} onChange={setDerogation} obligatoire={erreur?.code === "SEPARATION_DES_TACHES"} />}
+      {derogationVisible && <ChampDerogation valeur={derogation} onChange={setDerogation} obligatoire={erreur?.code === "SEPARATION_DES_TACHES"} reservee />}
     </Cadre>
   );
 }
@@ -354,13 +373,17 @@ export function DialogueApprobation({ decision, verdict, userId, estAdmin, enLig
   const id = useId();
   const [motif, setMotif] = useState("");
   const [derogation, setDerogation] = useState("");
-  const { enCours, erreur, envoyer } = useEnvoi(onFermer);
+  const { enCours, erreur, envoyer, separationOpposee } = useEnvoi(onFermer);
   const proposeParMoi = !!userId && decision.proposePar?.id === userId;
   const approuver = verdict === "approuver";
   const deplacement = decision.option === "DEPLACER_RESEAU";
-  const derogationVisible = approuver && estAdmin && (proposeParMoi || erreur?.code === "SEPARATION_DES_TACHES");
-  const derogationExigee = derogationVisible && proposeParMoi;
-  const peutValider = justificationValide(motif) && derogationOk(derogation) && (!derogationExigee || derogation.trim() !== "");
+  // La separation s'applique de la meme facon a l'approbation et au refus (le serveur la verifie dans les deux cas). Le champ apparait :
+  //  - d'emblee pour un administrateur qui tranche SA proposition (sa derogation est toujours recevable) ;
+  //  - pour tout autre compte, SEULEMENT quand le serveur oppose SEPARATION_DES_TACHES (on ne devine pas qui peut deroger : un gestionnaire
+  //    seul habilite le peut, hors deplacement de reseau). Il reste ensuite affiche, et l'envoi est rejoue avec la derogation.
+  const derogationVisible = (estAdmin && proposeParMoi) || separationOpposee;
+  const peutValider = justificationValide(motif) && derogationOk(derogation) && (!derogationVisible || derogation.trim() !== "");
+  const lui = approuver ? "l'approuver" : "la refuser";
 
   return (
     <Cadre
@@ -368,7 +391,15 @@ export function DialogueApprobation({ decision, verdict, userId, estAdmin, enLig
       description={<>
         <p>{approuver ? "L'approbation est un acte humain consigné dans l'historique : elle ne déclenche aucun déplacement ni aucun ordre." : "Le refus est consigné dans l'historique avec votre motif."}</p>
         <p role="note" className="rounded border border-gray-300 bg-gray-50 p-2 text-xs text-gray-800">{RAPPEL_SEPARATION}</p>
-        {approuver && proposeParMoi && <p role="note" className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">Vous avez proposé cette décision{deplacement ? " de déplacement de réseau" : ""} : {estAdmin ? "seule une dérogation motivée d'un administrateur permet de l'approuver vous-même." : "un autre compte habilité doit l'approuver."}</p>}
+        <p role="note" data-testid="aide-decision-tranchee" className="rounded border border-gray-300 bg-gray-50 p-2 text-xs text-gray-800">{AIDE_DECISION_TRANCHEE}</p>
+        {proposeParMoi && (
+          <p role="note" className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+            Vous avez proposé cette décision{deplacement ? " de déplacement de réseau" : ""} :{" "}
+            {estAdmin
+              ? `seule une dérogation motivée permet de ${lui} vous-même.`
+              : `un autre compte habilité doit en principe ${lui}. Si vous essayez quand même, le serveur dit si votre compte peut déroger (par exemple si vous êtes le seul compte habilité) : un champ de dérogation apparaît alors.`}
+          </p>
+        )}
       </>}
       enCours={enCours} erreur={erreur} peutValider={peutValider} libelleValider={approuver ? "Approuver la décision" : "Refuser la décision"} libelleEnCours="Enregistrement…"
       onFermer={onFermer} enLigne={enLigne}
@@ -379,7 +410,7 @@ export function DialogueApprobation({ decision, verdict, userId, estAdmin, enLig
         <textarea id={`${id}-m`} value={motif} onChange={(e) => setMotif(e.target.value)} rows={3} maxLength={2000} disabled={enCours} aria-describedby={`${id}-mn`} className={CHAMP} />
         <Compteur id={`${id}-mn`} texte={motif} />
       </div>
-      {derogationVisible && <ChampDerogation valeur={derogation} onChange={setDerogation} obligatoire={derogationExigee} />}
+      {derogationVisible && <ChampDerogation valeur={derogation} onChange={setDerogation} obligatoire />}
     </Cadre>
   );
 }
@@ -473,7 +504,7 @@ export function DialogueApprobationRegle({ regle, userId, enLigne, onFermer, onV
         <textarea id={`${id}-j`} value={justification} onChange={(e) => setJustification(e.target.value)} rows={3} maxLength={2000} disabled={enCours} aria-describedby={`${id}-jn`} className={CHAMP} />
         <Compteur id={`${id}-jn`} texte={justification} />
       </div>
-      {derogationVisible && <ChampDerogation valeur={derogation} onChange={setDerogation} obligatoire={auteur} />}
+      {derogationVisible && <ChampDerogation valeur={derogation} onChange={setDerogation} obligatoire={auteur} reservee />}
     </Cadre>
   );
 }
