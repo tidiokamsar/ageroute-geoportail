@@ -2,6 +2,25 @@
 
 Date : 01/11/2026. Références : cahier des charges v2.0 (28/10/2026), prompt maître V2, décision architecturale 1 (import SIG progressif), `LOT-RC-00-RAPPORT.md`, `LOT-RC-01B-GDAL-RAPPORT.md`, revue de sécurité du 01/11/2026. Branche de base : `feat/reseaux-integration`.
 
+## 0. État au 08/11/2026 (mise à jour, le reste du document garde sa date)
+
+| Lot | Contenu | État |
+|---|---|---|
+| Vague 0 | Socle, revue de sécurité, corrections M1 à M4 | Fait, revu |
+| RC-3 | Dossiers de conflit (backend et interface), revue, corrections | Fait, revu |
+| A1 | KMZ, CSV/TSV/TXT, GPX, CRS en liste blanche, inventaire, mapping, delta, retour arrière | Fait, revu, corrigé |
+| A2 | Assistant d'import en 7 étapes | Fait, testé sur API simulée, non essayé contre le vrai backend |
+| B1 | Réseaux physiques et circuits logiques, classes de précision (backend) | Fait, revu, corrigé |
+| B3 | Workflow concessionnaire, rôles, récolement (backend) | Fait, revu, corrigé |
+| UI-B | Interface des réseaux et du workflow | Interrompu, branche `feat/ui-reseaux-workflow` non vérifiée |
+| B2 | GDAL branché, asynchrone (GeoPackage, Shapefile ZIP, DXF) | Interrompu, branche `feat/gdal-branche` non vérifiée |
+| C1 | Tests de bout en bout Playwright | Non commencé |
+| C2 | Pilote sur copie de données | Non commencé, exige l'autorisation de manipuler les vrais fichiers hors production |
+| C3 | Deuxième revue de sécurité (vagues 1 et 2) | Revue de la vague 1 faite ; à refaire sur UI-B et B2 |
+| Vague 4 | Formats d'ingénierie, 3D, exploitation | Non commencé, sur besoin confirmé |
+
+Déploiement : D1 (socle) et D2 (conflits, import, réseaux, workflow) sont préparés ensemble, 5 migrations, ordre dans `DEPLOIEMENT-MODULE.md`. D3 (GDAL, interface réseaux et workflow) reste à faire.
+
 ## 1. Où on en est
 
 Fait : audit et preuve de CRS (RC-0) ; socle (RC-1 et RC-2 partiels : projets, jeux en quarantaine, KML et GeoJSON, carte, analyse 2D indicative, export CSV d'agrégats, interface) ; chaîne GDAL isolée testée en banc (RC-1 bis, non branchée) ; revue de sécurité indépendante (0 critique, 4 majeurs en cours de correction, 9 mineurs). Rien du module n'est encore en production.
