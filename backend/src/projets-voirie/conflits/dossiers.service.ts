@@ -24,6 +24,8 @@ import { tracerConsultation } from "../consultation";
 import { celluleCsv } from "../analyse.service";
 import { ErreurMetier, introuvable } from "../erreurs";
 import { limiteurAnalyses } from "../limiteurs";
+import { recolementObligatoire } from "../workflow/config";
+import { dernierRecolementValide, exigerRecolementValide } from "../workflow/cloture.depot";
 import type { Acteur } from "../projets.service";
 import * as depot from "./conflits.depot";
 import { decoderCurseurConflit as decoderCurseurConflitNoyau, encoderCurseurConflit } from "./curseurs.noyau";
@@ -380,10 +382,20 @@ export async function modifierConflit(acteur: Acteur, projetId: string, cid: str
 // Transition de statut
 // ------------------------------------------------------------------------------------------------
 
-export interface DemandeStatut { vers: StatutConflit; justification?: string; derogation?: string; recolementAValider?: boolean }
+/** `recolementId` (lot B3) : recolement VALIDE de ce dossier qui dispense de la mention « recolement a valider » a la cloture (CONTRAT-WORKFLOW.md, section 7). */
+export interface DemandeStatut { vers: StatutConflit; justification?: string; derogation?: string; recolementAValider?: boolean; recolementId?: string }
 
 export async function changerStatut(acteur: Acteur, projetId: string, cid: string, d: DemandeStatut) {
+  if (d.recolementId !== undefined && d.vers !== "CLOTURE") {
+    throw new ErreurMetier(422, "CHAMPS_INVALIDES", "recolementId ne s'emploie qu'a la cloture d'un dossier (vers: CLOTURE).");
+  }
   return sousVerrou(projetId, cid, async (tx, ligne) => {
+    // Recolement valide designe (ou, avec le reglage « obligatoire », le dernier recolement valide du dossier) : lecture seule, dans la transaction.
+    let recolementValideId: string | null = null;
+    if (d.vers === "CLOTURE") {
+      if (d.recolementId !== undefined) { await exigerRecolementValide(tx, projetId, cid, d.recolementId); recolementValideId = d.recolementId; }
+      else if (recolementObligatoire()) recolementValideId = await dernierRecolementValide(tx, projetId, cid);
+    }
     const [nbPreuves, approuvees, passageTraitement, passageConfirme] = await Promise.all([
       tx.conflitPreuve.count({ where: { conflitId: cid } }),
       tx.decisionConflit.findMany({ where: { conflitId: cid, statut: "APPROUVEE" }, select: { id: true, option: true, proposeParId: true, approuveLe: true } }),
@@ -395,6 +407,7 @@ export async function changerStatut(acteur: Acteur, projetId: string, cid: strin
       de: ligne.statut, vers: d.vers, role: acteur.role, acteurId: acteur.id, justification: d.justification, nbPreuves,
       decisionsApprouvees: approuvees as DecisionApprouvee[], dernierPassageConfirmeLe: passageConfirme?.createdAt ?? null, recolementAValider: d.recolementAValider,
       proposeurClotureId: passageTraitement?.acteurId ?? null, derogation: d.derogation,
+      recolementValide: recolementValideId !== null, recolementObligatoire: recolementObligatoire(),
     });
     if (!v.ok) throw new ErreurMetier(v.status, v.code, v.message);
     const avant = await tx.conflitProjet.findUniqueOrThrow({ where: { id: cid }, select: { aReexaminer: true, motifReexamen: true } });
@@ -406,13 +419,14 @@ export async function changerStatut(acteur: Acteur, projetId: string, cid: strin
         donnees: {
           ...(v.derogation ? { derogationSeparation: v.derogation } : {}),
           ...(v.recolementMentionne ? { recolementAValider: true } : {}),
+          ...(v.recolementValideUtilise && recolementValideId ? { recolementId: recolementValideId } : {}),
           ...(avant.aReexaminer ? { reexamenAcquitte: avant.motifReexamen } : {}),
         },
       },
     });
     await logAuditTransactionnelle(tx, {
       userId: acteur.id, action: "UPDATE", entityType: "ConflitProjet", entityId: cid,
-      before: { statut: ligne.statut }, after: { statut: d.vers, justification: v.justification, derogationSeparation: v.derogation, recolementAValider: v.recolementMentionne || undefined },
+      before: { statut: ligne.statut }, after: { statut: d.vers, justification: v.justification, derogationSeparation: v.derogation, recolementAValider: v.recolementMentionne || undefined, recolementId: v.recolementValideUtilise ? recolementValideId ?? undefined : undefined },
       ipAddress: acteur.ip,
     });
     return { conflit: await conflitCourt(tx, cid, acteur.role) };

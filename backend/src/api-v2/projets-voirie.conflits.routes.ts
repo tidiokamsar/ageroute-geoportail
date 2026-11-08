@@ -160,7 +160,7 @@ export function monterRoutesConflits(router: Router, o: OutilsRoutes): void {
 
   const corpsStatut = z.object({
     vers: z.enum(STATUTS_CONFLIT), justification: z.string().trim().max(2000).optional(), derogation: z.string().trim().max(2000).optional(),
-    recolementAValider: z.boolean().optional(),
+    recolementAValider: z.boolean().optional(), recolementId: uuid.optional(),
   }).strict();
   router.post("/:id/conflits/:cid/statut", ecriture, gardeProjet, enveloppe(async (req, res) => {
     const p = corpsStatut.safeParse(req.body);
