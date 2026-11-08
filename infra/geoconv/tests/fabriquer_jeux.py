@@ -154,7 +154,7 @@ def fabriquer_valides():
         "couches": {"axes": {"nb": 20, "reprojete": True, "crs_epsg": 4326, "premier_sommet": list(vers_wgs(x0, y0)),
                              "types": {"LineString": 20}, "origine_crs": "fichier", "epsg_source": 32629},
                     "regards": {"nb": 5, "reprojete": False, "crs_epsg": 4326, "types": {"Point": 5}}},
-        "nb_couches": 2, "avert": ["COUCHE_SANS_GEOMETRIE_IGNOREE"], "inventaire_pilote": "GPKG"})
+        "nb_couches": 2, "avert": ["COUCHE_SANS_GEOMETRIE_IGNOREE"], "inventaire_pilote": "GPKG", "dxf_null": True})
 
     # V02 Shapefile ZIP complet avec .prj, dans un sous-dossier, avec un readme ignore
     sh = os.path.join(t, "shp"); os.mkdir(sh)
@@ -193,8 +193,10 @@ def fabriquer_valides():
     open(p, "wb").write(txt2.encode("latin-1"))
     job("v03-dxf", "dxf", lire(p), attendu={
         "statut": "termine", "avert": ["CRS_ABSENT"], "inventaire_pilote": "DXF", "unites_dxf": 6,
-        "couches": {"entities": {"nb": 11, "reprojete": False, "crs_null": True, "premier_sommet": [x0, y0],
-                                 "coordonnees": "brutes", "origine_crs": None}}})
+        "couches": {"entities": {"nb": 8, "reprojete": False, "crs_null": True, "premier_sommet": [x0, y0],
+                                 "coordonnees": "brutes", "origine_crs": None}},
+        # les 3 POINT du fichier ne sont pas une entite supportee : ignores ET comptes
+        "dxf": {"ignorees": {"POINT": 3}, "blocs": {"definitions": 0, "entitesDansBlocs": 0}}})
     dxf_valide = lire(p)
 
     # V04 Shapefile ZIP SANS .prj : valide, coordonnees brutes, crs null
@@ -232,7 +234,7 @@ def fabriquer_valides():
     # V11 DXF + EPSG explicite : reprojete
     job("v11-dxf-epsg", "dxf", dxf_valide, demande={"epsg_source": 32629}, attendu={
         "statut": "termine", "avert": ["CRS_FOURNI_PAR_LA_DEMANDE"],
-        "couches": {"entities": {"nb": 11, "reprojete": True, "crs_epsg": 4326, "premier_sommet": list(vers_wgs(x0, y0)), "origine_crs": "demande"}}})
+        "couches": {"entities": {"nb": 8, "reprojete": True, "crs_epsg": 4326, "premier_sommet": list(vers_wgs(x0, y0)), "origine_crs": "demande"}}})
     # V12 DXF tel qu'ecrit par GDAL, sans patch : l'unite lue est celle de l'en-tete
     # V13 extension mensongere MAIS contenu valide : DXF nomme .gpkg => accepte avec avertissement
     job("v13-dxf-nomme-gpkg", "gpkg", dxf_valide, attendu={"statut": "termine", "avert": ["EXTENSION_INCOHERENTE"]})
@@ -244,9 +246,8 @@ def fabriquer_valides():
     for k in range(3):
         bs(0, "LINE"); bs(8, "0"); bd(10, x0 + k); bd(20, y0); bd(30, 0.0); bd(11, x0 + 100 + k); bd(21, y0 + 50); bd(31, 0.0)
     bs(0, "ENDSEC"); bs(0, "EOF")
-    job("v15-dxf-binaire", "dxf", bytes(out), attendu={
-        "statut": "termine", "avert": ["CRS_ABSENT", "UNITES_ABSENTES"], "inventaire_pilote": "DXF",
-        "couches": {"entities": {"nb": 3, "reprojete": False, "crs_null": True, "premier_sommet": [x0, y0], "coordonnees": "brutes"}}})
+    # Le DXF binaire n'est plus pris en charge (le pre-filtre d'entites ne lit que le texte) : refus type avant GDAL.
+    job("v15-dxf-binaire-refuse", "dxf", bytes(out), attendu={"statut": "echec", "code": "DXF_BINAIRE_NON_PRIS_EN_CHARGE"})
     # V14 GeoPackage en 4326 : pas de reprojection
     p14 = os.path.join(t, "v14.gpkg")
     ds = ogr.GetDriverByName("GPKG").CreateDataSource(p14)
@@ -255,6 +256,142 @@ def fabriquer_valides():
     job("v14-gpkg-wgs84", "gpkg", lire(p14), attendu={
         "statut": "termine", "couches": {"points": {"nb": 4, "reprojete": False, "crs_epsg": 4326, "premier_sommet": [LON0, LAT0]}}})
     return t
+
+
+# ----------------------------------------------------------------------------- DXF : entites supportees, ignorees, calques
+def g(code, val):
+    return f"{code:3d}\n{val}\n"
+
+
+def dxf_en_tete(version="AC1015", insunits=6, page=None):
+    t = g(0, "SECTION") + g(2, "HEADER")
+    if version:
+        t += g(9, "$ACADVER") + g(1, version)
+    if page:
+        t += g(9, "$DWGCODEPAGE") + g(3, page)
+    if insunits is not None:
+        t += g(9, "$INSUNITS") + g(70, insunits)
+    return t + g(0, "ENDSEC")
+
+
+def dxf_ligne(calque, p, q, handle=None, papier=False, marqueurs=True):
+    t = g(0, "LINE")
+    if handle:
+        t += g(5, handle)
+    if marqueurs:
+        t += g(100, "AcDbEntity")
+    if papier:
+        t += g(67, 1)
+    t += g(8, calque)
+    if marqueurs:
+        t += g(100, "AcDbLine")
+    return t + g(10, p[0]) + g(20, p[1]) + g(30, 0) + g(11, q[0]) + g(21, q[1]) + g(31, 0)
+
+
+def dxf_polyligne(calque, pts, en_3d=False, drapeaux=0, ferme=False):
+    t = g(0, "POLYLINE") + g(8, calque) + g(66, 1) + g(70, (8 if en_3d else 0) | (1 if ferme else 0) | drapeaux) + g(10, 0) + g(20, 0) + g(30, 0)
+    for p in pts:
+        t += g(0, "VERTEX") + g(8, calque) + g(10, p[0]) + g(20, p[1]) + g(30, p[2] if len(p) > 2 else 0) + g(70, 32 if en_3d else 0)
+    return t + g(0, "SEQEND") + g(8, calque)
+
+
+def dxf_lwpoly(calque, sommets, ferme=False):
+    t = g(0, "LWPOLYLINE") + g(100, "AcDbEntity") + g(8, calque) + g(100, "AcDbPolyline") + g(90, len(sommets)) + g(70, 1 if ferme else 0)
+    for v in sommets:
+        t += g(10, v[0]) + g(20, v[1])
+        if len(v) > 2:
+            t += g(42, v[2])
+    return t
+
+
+def dxf_complet(entites, entete=None, blocs=""):
+    t = entete if entete is not None else dxf_en_tete()
+    if blocs:
+        t += g(0, "SECTION") + g(2, "BLOCKS") + blocs + g(0, "ENDSEC")
+    return t + g(0, "SECTION") + g(2, "ENTITIES") + entites + g(0, "ENDSEC") + g(0, "EOF")
+
+
+def fabriquer_dxf():
+    x0, y0 = vers_utm(LON0, LAT0)
+    X, Y = x0, y0
+    # d01 : fichier mixte, 2 calques ; 5 entites supportees, 8 ignorees (dont une en espace papier), 1 bloc
+    e = dxf_ligne("AXES", (X, Y), (X + 100, Y + 50), handle="A1")
+    e += dxf_ligne("AXES", (X + 100, Y + 50), (X + 200, Y + 60), handle="A2")
+    e += dxf_lwpoly("AXES", [(X, Y + 100), (X + 80, Y + 100, 0.5), (X + 160, Y + 100)])
+    e += dxf_polyligne("RESEAU", [(X, Y + 200), (X + 50, Y + 210), (X + 100, Y + 200)])
+    e += dxf_polyligne("RESEAU", [(X, Y + 300, 5), (X + 50, Y + 310, 6), (X + 100, Y + 300, 7)], en_3d=True)
+    e += g(0, "TEXT") + g(8, "RESEAU") + g(10, X) + g(20, Y + 10) + g(30, 0) + g(40, 2.5) + g(1, "Regard R1")
+    e += g(0, "MTEXT") + g(8, "RESEAU") + g(10, X) + g(20, Y + 20) + g(30, 0) + g(40, 2.5) + g(1, "Note")
+    e += g(0, "POINT") + g(8, "RESEAU") + g(10, X + 5) + g(20, Y + 5) + g(30, 0)
+    e += g(0, "CIRCLE") + g(8, "RESEAU") + g(10, X + 20) + g(20, Y + 20) + g(30, 0) + g(40, 5)
+    e += g(0, "ARC") + g(8, "AXES") + g(10, X + 40) + g(20, Y + 40) + g(30, 0) + g(40, 5) + g(50, 0) + g(51, 90)
+    e += g(0, "INSERT") + g(8, "RESEAU") + g(2, "BLK1") + g(10, X + 300) + g(20, Y + 300) + g(30, 0)
+    e += (g(0, "HATCH") + g(8, "AXES") + g(10, 0) + g(20, 0) + g(30, 0) + g(210, 0) + g(220, 0) + g(230, 1) + g(2, "SOLID") + g(70, 1) + g(71, 0) + g(91, 1)
+          + g(92, 1) + g(93, 4)
+          + "".join(g(72, 1) + g(10, X + a[0]) + g(20, Y + a[1]) + g(11, X + b[0]) + g(21, Y + b[1])
+                    for a, b in [((0, 0), (30, 0)), ((30, 0), (30, 30)), ((30, 30), (0, 30)), ((0, 30), (0, 0))]))
+    e += dxf_ligne("AXES", (X + 7000, Y), (X + 7100, Y), papier=True)
+    blocs = (g(0, "BLOCK") + g(8, "0") + g(2, "BLK1") + g(70, 0) + g(10, 0) + g(20, 0) + g(30, 0) + g(3, "BLK1")
+             + dxf_ligne("0", (0, 0), (10, 0)) + g(0, "ENDBLK") + g(8, "0"))
+    d01 = dxf_complet(e, blocs=blocs).encode("latin-1")
+    dxf_attendu = {
+        "lues": {"LINE": 2, "LWPOLYLINE": 1, "POLYLINE": 1, "3DPOLYLINE": 1},
+        "ignorees": {"TEXT": 1, "MTEXT": 1, "POINT": 1, "CIRCLE": 1, "ARC": 1, "INSERT": 1, "HATCH": 1, "ESPACE_PAPIER": 1},
+        "blocs": {"definitions": 1, "entitesDansBlocs": 1},
+        "calques": [{"nom": "AXES", "lues": 3, "ignorees": 3}, {"nom": "RESEAU", "lues": 2, "ignorees": 5}],
+        "nbEntitesTotal": 13,
+    }
+    job("d01-dxf-mixte-epsg", "dxf", d01, demande={"epsg_source": 32629}, attendu={
+        "statut": "termine", "avert": ["CRS_FOURNI_PAR_LA_DEMANDE", "DXF_ENTITES_IGNOREES", "DXF_BLOCS_IGNORES"], "inventaire_pilote": "DXF", "unites_dxf": 6,
+        "couches": {"entities": {"nb": 5, "reprojete": True, "crs_epsg": 4326, "premier_sommet": list(vers_wgs(x0, y0)), "origine_crs": "demande", "epsg_source": 32629}},
+        "dxf": dxf_attendu, "layers": {"AXES": 3, "RESEAU": 2}, "sommets_min": 14})
+    job("d02-dxf-mixte-sans-crs", "dxf", d01, attendu={
+        "statut": "termine", "avert": ["CRS_ABSENT", "DXF_ENTITES_IGNOREES", "DXF_BLOCS_IGNORES"],
+        "couches": {"entities": {"nb": 5, "reprojete": False, "crs_null": True, "coordonnees": "brutes", "premier_sommet": [x0, y0], "origine_crs": None}},
+        "dxf": dxf_attendu, "layers": {"AXES": 3, "RESEAU": 2}})
+    # d03 : uniquement des entites ignorees
+    e3 = (g(0, "TEXT") + g(8, "T") + g(10, X) + g(20, Y) + g(30, 0) + g(40, 2) + g(1, "a")
+          + g(0, "CIRCLE") + g(8, "C") + g(10, X) + g(20, Y) + g(30, 0) + g(40, 5)
+          + g(0, "INSERT") + g(8, "C") + g(2, "BLK1") + g(10, X) + g(20, Y) + g(30, 0))
+    job("d03-dxf-aucune-entite-supportee", "dxf", dxf_complet(e3).encode("latin-1"), attendu={
+        "statut": "echec", "code": "DXF_SANS_ENTITE_SUPPORTEE",
+        "dxf": {"lues": {}, "ignorees": {"TEXT": 1, "CIRCLE": 1, "INSERT": 1}, "calques": [{"nom": "C", "lues": 0, "ignorees": 2}, {"nom": "T", "lues": 0, "ignorees": 1}]}})
+    # d04 : style R12 (ni marqueurs 100, ni handles, ni en-tete), LINE et POLYLINE
+    e4 = dxf_ligne("0", (X, Y), (X + 50, Y + 5), marqueurs=False) + dxf_polyligne("0", [(X, Y + 10), (X + 20, Y + 15)])
+    r12 = g(0, "SECTION") + g(2, "ENTITIES") + e4 + g(0, "ENDSEC") + g(0, "EOF")
+    job("d04-dxf-r12", "dxf", r12.encode("latin-1"), demande={"epsg_source": 32629}, attendu={
+        "statut": "termine", "couches": {"entities": {"nb": 2, "reprojete": True, "premier_sommet": list(vers_wgs(X, Y))}},
+        "dxf": {"lues": {"LINE": 1, "POLYLINE": 1}, "ignorees": {}, "calques": [{"nom": "0", "lues": 2, "ignorees": 0}]}, "layers": {"0": 2}})
+    # d05 : calque accentue en cp1252 (octet E9) avec $DWGCODEPAGE ANSI_1252, AC1015
+    e5 = dxf_ligne("Réseau", (X, Y), (X + 50, Y + 5))
+    d05 = dxf_complet(e5, entete=dxf_en_tete(version="AC1015", page="ANSI_1252")).encode("cp1252")
+    assert b"R\xe9seau" in d05
+    job("d05-dxf-calque-cp1252", "dxf", d05, demande={"epsg_source": 32629}, attendu={
+        "statut": "termine", "couches": {"entities": {"nb": 1}}, "layers": {"Réseau": 1},
+        "dxf": {"codepage": "ANSI_1252", "calques": [{"nom": "Réseau", "lues": 1, "ignorees": 0}]}})
+    # d06 : caractere de controle dans un nom de calque ; 1001 calques distincts
+    e6 = dxf_ligne("CAL\x01Q", (X, Y), (X + 50, Y + 5))
+    job("d06a-dxf-calque-caractere-controle", "dxf", dxf_complet(e6).encode("latin-1"), demande={"epsg_source": 32629}, attendu={
+        "statut": "termine", "couches": {"entities": {"nb": 1}}, "layers": {"CAL?Q": 1},
+        "dxf": {"calques": [{"nom": "CAL?Q", "lues": 1, "ignorees": 0}]}})
+    e6b = "".join(dxf_ligne(f"C{i}", (X + i, Y), (X + i + 1, Y + 1), marqueurs=False) for i in range(1001))
+    job("d06b-dxf-1001-calques", "dxf", dxf_complet(e6b).encode("latin-1"), attendu={"statut": "echec", "code": "DXF_TROP_DE_CALQUES"})
+    # d07 : LWPOLYLINE fermee (drapeau 70 = 1), 3 sommets
+    e7 = dxf_lwpoly("AXES", [(X, Y), (X + 50, Y), (X + 50, Y + 50)], ferme=True)
+    job("d07-dxf-lwpolyline-fermee", "dxf", dxf_complet(e7).encode("latin-1"), attendu={
+        "statut": "termine", "couches": {"entities": {"nb": 1}}, "dxf": {"lues": {"LWPOLYLINE": 1}}})
+    # d09 : maillage POLYLINE (drapeau 16) ignore, une LINE conservee
+    e9 = dxf_polyligne("RESEAU", [(X, Y, 0), (X + 1, Y, 0), (X + 1, Y + 1, 0)], drapeaux=16) + dxf_ligne("AXES", (X, Y), (X + 5, Y + 5))
+    job("d09-dxf-maillage-polyligne-ignore", "dxf", dxf_complet(e9).encode("latin-1"), attendu={
+        "statut": "termine", "couches": {"entities": {"nb": 1}},
+        "dxf": {"lues": {"LINE": 1}, "ignorees": {"POLYLINE_MAILLAGE": 1}}})
+    # d08 : structure cassee : jamais ERREUR_INTERNE
+    base = "  0\nSECTION\n  2\nENTITIES\n".encode()
+    job("d08a-dxf-nombre-impair-de-lignes", "dxf", base + b"  0\nLINE\n  8\n0\n 10\n", attendu={"statut": "echec", "code": "FICHIER_INVALIDE"})
+    job("d08b-dxf-code-non-numerique", "dxf", base + b"  0\nLINE\nABC\n0\n 10\n5\n", attendu={"statut": "echec", "code": "FICHIER_INVALIDE"})
+    job("d08c-dxf-sans-eof", "dxf", base + dxf_ligne("0", (X, Y), (X + 5, Y)).encode() + b"  0\nENDSEC\n", attendu={"statut": "echec", "code": "FICHIER_INVALIDE"})
+    job("d08d-dxf-coordonnee-nan", "dxf", dxf_complet(dxf_ligne("0", ("nan", Y), (X + 5, Y))).encode(), attendu={"statut": "echec", "code": "FICHIER_INVALIDE"})
+    job("d08e-dxf-groupe-vide", "dxf", base + b"  0\nLINE\n  8\n0\n 10\n\n 20\n1\n  0\nENDSEC\n  0\nEOF\n", attendu={"statut": "echec", "code": "FICHIER_INVALIDE"})
 
 
 # ----------------------------------------------------------------------------- invalides
@@ -335,8 +472,8 @@ def fabriquer_invalides():
     # DXF vide (0 octet), DXF coquille sans entite, DXF binaire tronque
     job("i10-dxf-vide-0o", "dxf", b"", attendu={"statut": "echec", "code": "FICHIER_VIDE"})
     coquille = b"  0\nSECTION\n  2\nHEADER\n  0\nENDSEC\n  0\nSECTION\n  2\nENTITIES\n  0\nENDSEC\n  0\nEOF\n"
-    job("i11-dxf-sans-entite", "dxf", coquille, attendu={"statut": "echec", "codes": ["AUCUN_OBJET", "AUCUNE_COUCHE"]})
-    job("i12-dxf-binaire-tronque", "dxf", b"AutoCAD Binary DXF\r\n\x1a\x00" + b"\x00" * 20, attendu={"statut": "echec", "codes": ["SOURCE_ILLISIBLE", "AUCUN_OBJET", "AUCUNE_COUCHE", "FORMAT_NON_RECONNU"]})
+    job("i11-dxf-sans-entite", "dxf", coquille, attendu={"statut": "echec", "code": "DXF_SANS_ENTITE_SUPPORTEE"})
+    job("i12-dxf-binaire-tronque", "dxf", b"AutoCAD Binary DXF\r\n\x1a\x00" + b"\x00" * 20, attendu={"statut": "echec", "code": "DXF_BINAIRE_NON_PRIS_EN_CHARGE"})
     # extensions mensongeres
     job("i13-html-nomme-gpkg", "gpkg", b"<!DOCTYPE html><html><body>pas un gpkg</body></html>", attendu={"statut": "echec", "code": "FORMAT_NON_RECONNU"})
     job("i14-pdf-nomme-zip", "zip", b"%PDF-1.7\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n", attendu={"statut": "echec", "code": "FORMAT_NON_RECONNU"})
@@ -513,10 +650,11 @@ def fabriquer_malveillants():
         l += ["0", "ENDSEC", "0", "SECTION", "2", "ENTITIES", "0", "INSERT", "8", "0", "2", "B0", "10", "0", "20", "0", "30", "0", "0", "ENDSEC", "0", "EOF"]
         return ("\n".join(l) + "\n").encode()
     job("m27-dxf-bombe-blocs", "dxf", dxf_bombe(8, 10), demande={"limites": {"delai_s": 20}},
-        attendu={"statut": "echec", "code": "DELAI_DEPASSE", "duree_max_ms": 40000})
+        attendu={"statut": "echec", "code": "DXF_SANS_ENTITE_SUPPORTEE", "duree_max_ms": 5000,
+                 "dxf": {"lues": {}, "ignorees": {"INSERT": 1}, "blocs": {"definitions": 8, "entitesDansBlocs": 71}}})
     # DXF avec une ligne de 20 Mo sans fin de ligne
     job("m28-dxf-ligne-geante", "dxf", b"  0\nSECTION\n  2\nHEADER\n  9\n$X\n  1\n" + b"A" * (20 * 1024 * 1024) + b"\n  0\nENDSEC\n  0\nEOF\n",
-        attendu={"statut": "echec", "code": "SOURCE_ILLISIBLE", "duree_max_ms": 30000})
+        attendu={"statut": "echec", "code": "FICHIER_INVALIDE", "duree_max_ms": 30000})
 
 
 # ----------------------------------------------------------------------------- volumineux
@@ -581,6 +719,7 @@ if __name__ == "__main__":
     os.makedirs(ENTREE, exist_ok=True)
     os.makedirs(SORTIE, exist_ok=True)
     fabriquer_valides()
+    fabriquer_dxf()
     fabriquer_invalides()
     fabriquer_malveillants()
     fabriquer_volumineux()
