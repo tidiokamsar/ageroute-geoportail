@@ -328,9 +328,16 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
     "POST /api/v2/projets-voirie/:id/conflits/:cid/decisions": ["ADMIN", "GESTIONNAIRE"],
     "POST /api/v2/projets-voirie/:id/conflits/:cid/decisions/:did/approuver": ["ADMIN", "GESTIONNAIRE"],
     "POST /api/v2/projets-voirie/:id/conflits/:cid/decisions/:did/refuser": ["ADMIN", "GESTIONNAIRE"],
+    // Formats d'import ouverts, CRS, mapping, versions (lot A1) : wizard reserve aux roles qui deposent ; lectures comprises (elles portent sur la quarantaine).
+    "GET /api/v2/projets-voirie/:id/import/options": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/import/inventaire": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/import/apercu": ["ADMIN", "GESTIONNAIRE"],
+    "GET /api/v2/projets-voirie/:id/jeux/:jeuId/delta": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/jeux/:jeuId/revue-suppressions": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/jeux/:jeuId/retour-arriere": ["ADMIN", "GESTIONNAIRE"],
   };
 
-  it("expose exactement les 15 routes du socle et les 16 des dossiers de conflit, ni plus (aucun export de geometrie, aucune route d'ordre ou de deplacement), ni moins", () => {
+  it("expose exactement les 15 routes du socle, les 16 des dossiers de conflit et les 6 de l'import (lot A1), ni plus (aucun export de geometrie, aucune route d'ordre ou de deplacement), ni moins", () => {
     expect(pv.map(cle).sort()).toEqual([
       "DELETE /api/v2/projets-voirie/:id", "DELETE /api/v2/projets-voirie/:id/jeux/:jeuId",
       "GET /api/v2/projets-voirie", "GET /api/v2/projets-voirie/:id", "GET /api/v2/projets-voirie/:id/analyse",
@@ -346,6 +353,9 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
       "PATCH /api/v2/projets-voirie/:id/conflits/:cid", "POST /api/v2/projets-voirie/:id/conflits/:cid/statut", "POST /api/v2/projets-voirie/:id/conflits/:cid/preuves",
       "POST /api/v2/projets-voirie/:id/conflits/:cid/decisions", "POST /api/v2/projets-voirie/:id/conflits/:cid/decisions/:did/approuver",
       "POST /api/v2/projets-voirie/:id/conflits/:cid/decisions/:did/refuser",
+      // Formats d'import ouverts, CRS, mapping, versions (lot A1, contrat CONTRAT-IMPORT.md)
+      "GET /api/v2/projets-voirie/:id/import/options", "POST /api/v2/projets-voirie/:id/import/inventaire", "POST /api/v2/projets-voirie/:id/import/apercu",
+      "GET /api/v2/projets-voirie/:id/jeux/:jeuId/delta", "POST /api/v2/projets-voirie/:id/jeux/:jeuId/revue-suppressions", "POST /api/v2/projets-voirie/:id/jeux/:jeuId/retour-arriere",
     ].sort());
     // Aucune route ne cree d'ordre, de deplacement ni de decision automatique.
     expect(pv.filter((l) => /ordre|deplac|ordonn/i.test(l.chemin))).toEqual([]);

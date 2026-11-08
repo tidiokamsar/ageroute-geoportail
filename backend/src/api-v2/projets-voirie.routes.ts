@@ -13,6 +13,7 @@ import { analyser, exporterCsv } from "../projets-voirie/analyse.service";
 import { carte } from "../projets-voirie/carte.service";
 import { reserverReception } from "../projets-voirie/limiteurs";
 import { monterRoutesConflits } from "./projets-voirie.conflits.routes";
+import { champsImport, monterRoutesImport, optionsDepuis } from "./projets-voirie.import.routes";
 import { deposerJeu } from "../projets-voirie/import.service";
 import {
   creerConcessionnaire, creerProjet, decider, decoderCurseur, ficheProjet, listerConcessionnaires, listerJeux, listerProjets,
@@ -249,7 +250,7 @@ const champsDepot = z.object({
   precisionVerticaleM: optionnel(z.coerce.number().positive().max(100_000)),
   methode: optionnel(z.string().trim().min(1).max(200)),
   dateConstat: optionnel(jourIso),
-}).strict();
+}).merge(champsImport).strict();
 
 const requeteDepot = z.object({ simuler: booleenRequete }).strict();
 
@@ -261,6 +262,8 @@ projetsVoirieV2Router.post("/:id/jeux", ecriture, gardeProjet, placeDeReception,
   if (!req.file) { res.status(400).json({ error: "Fichier manquant (champ multipart « fichier »)", code: "FICHIER_MANQUANT" }); return; }
   const r = await deposerJeu({
     acteur: acteurDe(req), projetId: req.params.id, fichier: req.file.buffer, nomFichier: req.file.originalname, champs: c.data, simuler: q.data.simuler,
+    // Lot A1 : couche, CRS, colonnes CSV, mapping, confirmation, empreinte attendue (CONTRAT-IMPORT.md).
+    options: optionsDepuis(c.data), sha256Attendu: c.data.sha256Attendu,
   });
   res.status(r.simulation ? 200 : 201).json(r);
 }));
@@ -363,3 +366,9 @@ projetsVoirieV2Router.get("/:id/analyse/export.csv", ecriture, gardeProjet, enve
 // ------------------------------------------------------------------------------------------------
 
 monterRoutesConflits(projetsVoirieV2Router, { ecriture, administrateur, gardeProjet, acteurDe, enveloppe, refuser, UUID });
+
+// ------------------------------------------------------------------------------------------------
+// Formats d'import ouverts, CRS, mapping, delta et retour arriere (lot A1) : memes gardes, meme ordre (voir projets-voirie.import.routes.ts).
+// ------------------------------------------------------------------------------------------------
+
+monterRoutesImport(projetsVoirieV2Router, { ecriture, gardeProjet, acteurDe, enveloppe, refuser, placeDeReception, recevoir });

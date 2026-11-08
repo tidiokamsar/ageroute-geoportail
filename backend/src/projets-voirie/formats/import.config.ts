@@ -13,8 +13,10 @@
  *   PROJETS_VOIRIE_DELAI_APERCU_MS                   defaut 30 000             (1 000 a 300 000)
  */
 
+import { sommetsParFichierMax, sommetsParObjetMax } from "../config";
 import { TAILLE_MAX_OCTETS } from "../lecture.types";
 import type { LimitesCsv } from "./csv.noyau";
+import type { LimitesImport } from "./lecture-import.noyau";
 import type { LimitesZip } from "./zip.noyau";
 
 function borne(nom: string, defaut: number, min: number, max: number): number {
@@ -61,3 +63,11 @@ export const delaiApercuMs = () => borne("PROJETS_VOIRIE_DELAI_APERCU_MS", 30_00
 export const SOMMETS_ECHANTILLON_MAX = 500;
 /** Elements de la liste de rejets, de problemes et d'exemples renvoyes au plus. */
 export const LISTE_MAX = 50;
+
+/** Toutes les limites de lecture du lot A1, lues dans l'environnement a chaque appel (un reglage change sans redemarrage des tests). */
+export const limitesImport = (): LimitesImport => ({
+  lecture: { sommetsParObjet: sommetsParObjetMax(), sommetsParFichier: sommetsParFichierMax() },
+  zip: limitesZip(),
+  csv: limitesCsv(),
+  crsAutorises: crsSourceAutorises(),
+});
