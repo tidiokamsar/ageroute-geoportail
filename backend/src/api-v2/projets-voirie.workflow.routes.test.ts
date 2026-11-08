@@ -274,6 +274,27 @@ describe("referent concessionnaire : confine au workflow, au projet et au conces
     }
   });
 
+  it("m7 (revue vague 1) : TOUTE route du module hors /workflow, enumeree dans la pile du routeur (import, reseau, delta, revue, retour arriere...), repond 403 COMPTE_REFERENT_RESTREINT sans rien appeler", async () => {
+    type Couche = { route?: { path: string; methods: Record<string, boolean> } };
+    const routes = (projetsVoirieV2Router.stack as Couche[]).filter((c) => c.route).flatMap((c) =>
+      Object.keys(c.route!.methods).filter((m) => c.route!.methods[m]).map((m) => ({ m, chemin: c.route!.path })));
+    // Les parametres de chemin prennent un UUID valide : la garde repond avant toute validation, mais le test ne doit pas dependre de cet ordre.
+    const remplir = (chemin: string) => chemin.replace(/:id/g, P1).replace(/:[A-Za-z]+/g, uuid(77));
+    const horsWorkflow = routes.map((r) => ({ ...r, url: remplir(r.chemin) })).filter((r) => !r.url.split("/").includes("workflow"));
+    // Garde-fou : une enumeration qui ne trouve presque rien passerait a vide. Les routes du workflow, elles, sont exclues par un critere independant de la garde (segment `workflow` du chemin).
+    expect(routes.length).toBeGreaterThan(horsWorkflow.length);
+    expect(horsWorkflow.length, "routes du module hors /workflow").toBeGreaterThanOrEqual(47);
+    for (const chemin of ["/:id/import/inventaire", "/:id/import/apercu", "/:id/jeux/:jeuId/delta", "/:id/jeux/:jeuId/revue-suppressions", "/:id/jeux/:jeuId/retour-arriere", "/:id/reseau/objets", "/:id/reseau/relations", "/:id/reseau/comptage", "/:id/reseau/associations/proposer"]) {
+      expect(horsWorkflow.some((r) => r.chemin === chemin), `enumeree : ${chemin}`).toBe(true);
+    }
+    for (const r of horsWorkflow) {
+      const rep = await (request(app) as unknown as Record<string, (u: string) => request.Test>)[r.m](`${BASE}${r.url}`).set("Authorization", `Bearer ${jeton("REF")}`).send(r.m === "get" ? undefined : {});
+      expect(rep.status, `${r.m.toUpperCase()} ${r.chemin}`).toBe(403);
+      expect(rep.body.code, `${r.m.toUpperCase()} ${r.chemin}`).toBe("COMPTE_REFERENT_RESTREINT");
+    }
+    expect(w.appels).toEqual([]);
+  });
+
   it("le meme compte sans rattachement n'est pas touche : un lecteur ordinaire lit le socle (200)", async () => {
     expect((await avec(request(app).get(`${BASE}/${P1}/conflits`), "LECT")).status).toBe(200);
     expect(appelsDe("listerConflits")).toHaveLength(1);

@@ -70,6 +70,9 @@ describe("analyserEnregistrements : RFC 4180 borne", () => {
   it("bornes : lignes, colonnes, cellule", () => {
     expect(code(() => analyserEnregistrements("a,b\n1,2\n3,4\n5,6\n", ",", { ...opts, lignesMax: 2 }))).toBe("CSV_TROP_DE_LIGNES");
     expect(code(() => analyserEnregistrements("a,b,c,d\n", ",", { ...opts, colonnesMax: 3 }))).toBe("CSV_TROP_DE_COLONNES");
+    // O5 : plafond du nombre total de cellules (vides comprises).
+    expect(code(() => analyserEnregistrements("a,b\n1,2\n3,4\n", ",", { ...opts, cellulesMax: 5 }))).toBe("CSV_TROP_DE_CELLULES");
+    expect(analyserEnregistrements("a,b\n1,2\n3,4\n", ",", { ...opts, cellulesMax: 6 }).lignes).toHaveLength(3);
     expect(code(() => analyserEnregistrements(`a,b\n${"x".repeat(1001)},2\n`, ",", opts))).toBe("CSV_CELLULE_TROP_LONGUE");
     expect(code(() => analyserEnregistrements(`a,b\n"${"x".repeat(1001)}",2\n`, ",", opts))).toBe("CSV_CELLULE_TROP_LONGUE");
   });

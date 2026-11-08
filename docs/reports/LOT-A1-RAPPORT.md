@@ -20,7 +20,7 @@ Un seul agent (ce lot), sans sous-agent : le lot est un enchaînement de dépend
 | 6 | Quarantaine, delta, idempotence, rollback | **fait et testé** (statuts du socle inchangés, `sha256` => 409 `JEU_DEJA_CHARGE` conservé ; delta détaillé ajoutés/modifiés/retirés/identiques ; **les suppressions ne sont jamais appliquées sans revue humaine** : 409 `SUPPRESSIONS_A_REVOIR` à l'autorisation, revue auditée ; retour arrière d'une version, sans perte, audité) |
 | 7 | Conservation du fichier d'origine | **fait et testé** derrière `PROJETS_VOIRIE_CONSERVER_ORIGINAL` (défaut `non` = comportement du socle : empreinte et taille seules) ; décision de rétention à prendre (section 9) |
 | 8 | Traitement hors processus | **non construit, par décision** : aucune file ni worker réutilisable dans le dépôt (`backend/src/jobs/` = deux planificateurs `setInterval`) ; plafonds stricts synchrones, budgets de temps du socle respectés ; contrat d'un futur job documenté (`CONTRAT-IMPORT.md` section 13) |
-| 9 | Contrat d'API | **fait** : `CONTRAT-IMPORT.md` commité en premier ; `API.md` et `CONTROLE-ACCES.md` mis à jour ; `CONTRAT.md` annoté |
+| 9 | Contrat d'API | **fait** : `CONTRAT-IMPORT.md` commité en premier ; `API.md` et `docs/securite/CONTROLE-ACCES.md` mis à jour ; `CONTRAT.md` annoté |
 
 ## 3. Routes (6 ajoutées, toutes `ADMIN` et `GESTIONNAIRE`, lectures comprises)
 

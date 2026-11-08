@@ -286,6 +286,24 @@ describe("couches et inventaire", () => {
     const hors = inventorier(detecter(Buffer.from(kml(pm("X", ligne("100,10 101,10")))), "r.kml", {}, LIM));
     expect(hors.couches[0].nbObjets).toBe(1);
   });
+  it("O6 (revue vague 1) : la liste des couches de l'inventaire est bornee a 200, le total et la troncature sont annonces ; une couche au-dela reste choisissable", () => {
+    const dossiers = (n: number) => kml(Array.from({ length: n }, (_, i) => `<Folder><name>D${i}</name>${pm(`P${i}`, ligne(`-10.1,9.${(i % 90) + 100} -10.09,9.2`))}</Folder>`).join(""));
+    const grand = inventorier(detecter(Buffer.from(dossiers(250)), "r.kml", {}, LIM));
+    expect(grand.couches).toHaveLength(200);
+    expect(grand.couches[0].id).toBe("c0");
+    expect(grand.couches[199].id).toBe("c199");
+    expect(grand.nbCouches).toBe(250);
+    expect(grand.couchesTronquees).toBe(true);
+    expect(grand.avertissements).toContainEqual(expect.objectContaining({ code: "COUCHES_TRONQUEES", nb: 250 }));
+    expect(grand.avertissements).toContainEqual(expect.objectContaining({ code: "COUCHES_MULTIPLES", nb: 250 }));
+    const exact = inventorier(detecter(Buffer.from(dossiers(200)), "r.kml", {}, LIM));
+    expect(exact.couches).toHaveLength(200);
+    expect(exact.couchesTronquees).toBe(false);
+    expect(exact.avertissements.find((a) => a.code === "COUCHES_TRONQUEES")).toBeUndefined();
+    const petit = inventorier(detecter(Buffer.from(KML_COUCHES), "r.kml", {}, LIM));
+    expect(petit).toMatchObject({ nbCouches: 4, couchesTronquees: false });
+    expect(lire(dossiers(250), "r.kml", { couche: "c249" }).objets.map((o) => o.nom)).toEqual(["P249"]);
+  });
   it("import d'une couche choisie : seuls ses objets sont lus ; sans choix, tout (avertissement COUCHES_MULTIPLES) ; couche inconnue : COUCHE_INTROUVABLE", () => {
     const r = lire(KML_COUCHES, "r.kml", { couche: "c1" });
     expect(r.objets.map((o) => o.nom)).toEqual(["F1", "F2"]);
@@ -310,6 +328,40 @@ describe("couches et inventaire", () => {
     expect(inv.suggestionsMapping).toEqual({ nom: "Libelle", identifiant: "Code" });
     // Non applique : sans mapping, aucun objet n'a de nom.
     expect(lire("Libelle;X;Y\nA;380000;1015000\n", "p.csv", { csv: { colonneX: "X", colonneY: "Y" }, epsgSource: 32629 }).objets[0].nom).toBeNull();
+  });
+});
+
+describe("m2 (revue vague 1) : un tableau CSV en UTF-16 avec BOM est lu comme un CSV", () => {
+  const TEXTE = "Libellé;Code;X;Y\nRegard é;R1;380000;1015000\nRegard B;R2;380100;1015100\n";
+  const le = (t: string) => Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(t, "utf16le")]);
+  const be = (t: string) => Buffer.concat([Buffer.from([0xfe, 0xff]), Buffer.from(Buffer.from(t, "utf16le")).swap16()]);
+
+  it("UTF-16LE et UTF-16BE avec BOM : format CSV, encodage reconnu, accents conserves, sans devinette de CRS (CRS_REQUIS)", () => {
+    for (const [b, enc] of [[le(TEXTE), "utf-16le"], [be(TEXTE), "utf-16be"]] as const) {
+      const d = detecter(b, "export-tableur.csv", {}, LIM);
+      expect(d.format).toBe("CSV");
+      const inv = inventorier(d);
+      expect(inv.csv).toMatchObject({ delimiteur: ";", encodage: enc, bom: true, nbLignes: 2 });
+      expect(inv.csv!.colonnes.map((c) => c.nom)).toEqual(["Libellé", "Code", "X", "Y"]);
+      expect(inv.csv!.colonnes[0].exemples).toEqual(["Regard é", "Regard B"]);
+      expect(code(() => lire(b, "export-tableur.csv", { csv: { colonneX: "X", colonneY: "Y" } }))).toBe("CRS_REQUIS");
+      const r = lire(b, "export-tableur.csv", { csv: { colonneX: "X", colonneY: "Y" }, epsgSource: 32629 });
+      expect(r.objets).toHaveLength(2);
+      expect(r.objets[0].geometrie).toEqual({ type: "Point", coordinates: [-10, 9.2] });
+    }
+  });
+
+  it("l'UTF-16 qui est du KML, du GeoJSON ou du GPX reste lu comme tel (aucune regression)", () => {
+    expect(lire(le(KML_UN), "a.kml").format).toBe("KML");
+    expect(lire(be(KML_UN), "a.kml").format).toBe("KML");
+    expect(lire(le(geojson([feat({}, [-10.1, 9.2])])), "a.geojson").format).toBe("GEOJSON");
+    expect(lire(le("<gpx version=\"1.1\"><wpt lat=\"9.2\" lon=\"-10.1\"/></gpx>"), "a.gpx").format).toBe("GPX");
+  });
+
+  it("UTF-16 blanc : FICHIER_VIDE ; UTF-16 qui n'est pas un tableau : FORMAT_NON_SUPPORTE (jamais une exception non typee) ; HTML en UTF-16 : CONTENU_NON_RECONNU", () => {
+    expect(code(() => detecter(le("   \n  "), "a.csv", {}, LIM))).toBe("FICHIER_VIDE");
+    expect(code(() => detecter(le("bonjour tout le monde"), "a.csv", {}, LIM))).toBe("FORMAT_NON_SUPPORTE");
+    expect(code(() => detecter(le("<html><body>x</body></html>"), "a.csv", {}, LIM))).toBe("CONTENU_NON_RECONNU");
   });
 });
 

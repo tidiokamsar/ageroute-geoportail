@@ -780,6 +780,26 @@ async function main() {
   verifier("11. filtres : priorite des taches non filtrable (400) ; statut inconnu : 400 ; curseur forge : 400 CURSEUR_INVALIDE", (await get(`${W(PID_Q)}/taches?priorite=HAUTE`)).status === 400 && (await get(`${W(PID_Q)}/taches?statut=INCONNU`)).status === 400
     && (await get(`${W(PID_Q)}/taches?curseur=zzz`)).body.code === "CURSEUR_INVALIDE");
 
+  // ---------------------------------------------------------------- 11 bis. Revue de la vague 1, m6 : le verrou du workflow n'est pas independant de celui du projet
+  // Une ecriture du workflow insere dans une table fille de `projets_voirie` : la cle etrangere prend FOR KEY SHARE sur la ligne du projet, que le verrou FOR UPDATE
+  // d'un depot, d'une autorisation ou d'une ecriture du lot B1 contredit. L'ecriture ATTEND puis repond 503 PROJET_OCCUPE ; le client reessaie.
+  const PID_L = await projet("WF-VERROU");
+  process.env.PROJETS_VOIRIE_VERROU_MS = "500";
+  let relacher!: () => void;
+  const fin = new Promise<void>((r) => { relacher = r; });
+  const tient = prisma.$transaction(async (tx: typeof prisma) => { await tx.$queryRawUnsafe(`SELECT "id" FROM "projets_voirie" WHERE "id" = $1 FOR UPDATE`, PID_L); await fin; }, { timeout: 30_000, maxWait: 10_000 });
+  await new Promise((r) => setTimeout(r, 400));
+  const t0v = Date.now();
+  const bloquee = await dem(PID_L, CA, "Demande pendant un verrou long du projet");
+  const dureeAttente = Date.now() - t0v;
+  relacher();
+  await tient;
+  delete process.env.PROJETS_VOIRIE_VERROU_MS;
+  const reessai = await dem(PID_L, CA, "Demande apres la fin du verrou long");
+  verifier(`11 bis. m6 : une ecriture du workflow pendant un verrou FOR UPDATE du projet (depot, autorisation, ecriture B1) ATTEND le delai de verrou (${dureeAttente} ms pour 500) puis repond 503 PROJET_OCCUPE, sans rien ecrire ; le reessai du client passe (201)`,
+    bloquee.status === 503 && bloquee.body.code === "PROJET_OCCUPE" && dureeAttente >= 400 && reessai.status === 201
+    && (await compter(`SELECT count(*) n FROM demandes_concessionnaire WHERE "projetId" = $1`, PID_L)) === 1, [bloquee.status, bloquee.body, reessai.status]);
+
   // ================================================================ 12. Base : declencheurs et contraintes
   const SIX = TABLES_WORKFLOW;
   const trunc = await Promise.all(SIX.map((t) => essaiAnnule(async (tx) => { await tx.$queryRawUnsafe(`TRUNCATE "${t}" CASCADE`); })));

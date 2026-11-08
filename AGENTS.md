@@ -57,6 +57,14 @@ Docker + Traefik). Voir `README.md` pour la stack et l'installation.
   de préproduction seulement, la chaîne de conversion GDAL isolée (`infra/geoconv/`, non
   référencée par le déploiement). Les données des concessionnaires sont confidentielles :
   jamais dans le dépôt, jamais dans une route publique, fixtures synthétiques seulement.
+- **Vague 1 du module (08/11/2026, fusionnée dans `main`)** : s'ajoutent les dossiers de
+  conflit, l'import KMZ/CSV/GPX avec choix du CRS et assistant en 7 étapes, les réseaux
+  physiques et circuits logiques, le workflow concessionnaire. Production relevée le
+  08/11/2026 : 94 migrations, module absent ; **5 migrations en attente** (voir
+  `infra/deployer-console.sh`, `ATTENDUES_EN_ATTENTE=5`). Ordre de déploiement :
+  `docs/projets-voirie/DEPLOIEMENT-MODULE.md` (migrations avant le code). Non fait et non
+  vérifié : interface des réseaux et du workflow (`feat/ui-reseaux-workflow`), branchement
+  GDAL (`feat/gdal-branche`) : ne pas les fusionner sans tests ni revue.
 - **L'état exact de la production se vérifie au moment du déploiement**, jamais depuis
   ce fichier : `infra/deployer-console.sh` relève les migrations appliquées, les
   compteurs et l'état de santé avant tout geste. Ne rien déduire d'une ancienne

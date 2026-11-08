@@ -27,7 +27,7 @@ Contrôle territorial : repose sur `perimetres_comptes` comme les autres routes 
 | `POST /concessionnaires` | écriture | 201 `{ concessionnaire }` |
 | `POST /:id/jeux` | écriture | 201 (dépôt) ou 200 (`?simuler=true`) `{ simulation, jeu, resume, avertissements, delta, remplace }` |
 | `GET /:id/jeux` | lecture | `{ jeux: [ jeu ] }`, du plus récent au plus ancien : tous statuts sauf `RETIRE` pour `ADMIN` et `GESTIONNAIRE`, **seulement `AUTORISE` pour un lecteur** |
-| `DELETE /:id/jeux/:jeuId` | écriture | `{ jeu }` (statut `RETIRE`, les objets restent en base) |
+| `DELETE /:id/jeux/:jeuId` | écriture | `{ jeu }` (statut `RETIRE`, les objets restent en base) ; 409 `DEPOT_EN_ATTENTE` si le jeu est `AUTORISE` et qu'une nouvelle version de même clé l'attend (CONTRAT-IMPORT.md 14.1) |
 | `POST /:id/jeux/:jeuId/autoriser` | écriture | `{ jeu, remplaces: [ids] }` |
 | `POST /:id/jeux/:jeuId/rejeter` | écriture | `{ jeu, remplaces: [] }` |
 | `GET /:id/carte` | lecture | couches d'affichage (section Carte) |
@@ -184,7 +184,7 @@ Axe A;Societe des Eaux Synthetique;EAU_POTABLE;r2.kml;1;AUTORISE;inconnue;PROXIM
 | 409 | `STATUT_INCOMPATIBLE` | autoriser / rejeter un jeu qui n'est pas en contrôle, retirer un jeu déjà retiré |
 | 409 | `CODE_DEJA_UTILISE`, `CONCESSIONNAIRE_DEJA_CONNU` | unicité |
 | 413 | `FICHIER_TROP_GROS` | plus de 25 Mo |
-| 415 | `FORMAT_NON_SUPPORTE` | KMZ, ZIP, Shapefile, DXF, DWG, GPX, CSV... (« prévu au lot suivant »), texte qui n'est ni XML ni JSON |
+| 415 | `FORMAT_NON_SUPPORTE` | GeoPackage, Shapefile (y compris dans un ZIP), DXF, DWG (formats non branchés, voir `MATRICE-FORMATS.md`), contenu texte qui n'est ni du KML, du GeoJSON, du GPX ni un tableau délimité. KMZ, GPX et CSV sont lus (`CONTRAT-IMPORT.md`, sections 4 à 6) |
 | 422 | `CONTENU_NON_RECONNU` | HTML, PDF, exécutable, image, binaire, octets NUL |
 | 422 | `FICHIER_VIDE`, `TROP_D_OBJETS` (> 50 000), `GEOMETRIE_INVALIDE`, `HORS_GUINEE` | contenu refusé |
 | 422 | `XML_INVALIDE`, `DTD_REFUSEE`, `ENTITE_REFUSEE`, `XML_TROP_PROFOND`, `XML_TROP_VOLUMINEUX`, `JSON_INVALIDE`, `JSON_TROP_PROFOND`, `ENCODAGE_NON_SUPPORTE`, `CRS_NON_SUPPORTE` | document illisible ou dangereux |
@@ -194,7 +194,7 @@ Axe A;Societe des Eaux Synthetique;EAU_POTABLE;r2.kml;1;AUTORISE;inconnue;PROXIM
 | 422 | `TROP_DE_SOMMETS` | plus de 100 000 sommets dans un objet, ou 2 000 000 dans le fichier |
 | 422 | `ANALYSE_TROP_VOLUMINEUSE` | trop de sommets autorisés pour calculer l'analyse |
 | 503 | `SERVICE_OCCUPE` (+ `Retry-After`) | plus de 2 dépôts, 4 téléversements (2 par compte), 3 analyses ou 6 cartes simultanés dans le processus |
-| 503 | `PROJET_OCCUPE` | le verrou du projet n'a pas été obtenu en 5 s (autre dépôt, autorisation ou retrait en cours) |
+| 503 | `PROJET_OCCUPE` | le verrou du projet n'a pas été obtenu en 5 s (autre dépôt, autorisation ou retrait en cours ; vaut aussi pour les écritures du workflow et de B1, qui attendent un dépôt ou une proposition en cours). Rien n'a été écrit : **réessayer** après quelques secondes (`CONTRAT-WORKFLOW.md`, 9 bis) |
 | 504 | `ANALYSE_TROP_LONGUE`, `CARTE_TROP_LONGUE`, `DEPOT_TROP_LONG` | la base a coupé la requête (délais ci-dessous) ; jamais un 500 |
 | 500 | | erreur interne, message générique sans détail |
 
@@ -214,7 +214,7 @@ Exemples réels :
 - Géométrie invalide au sens PostGIS (anneau qui se croise) : **réparée** (`ST_MakeValid`) et signalée.
 - Un `Placemark` à géométries de familles différentes donne un objet par famille.
 - XML lu par un lecteur minimal sans dépendance : ni DTD, ni entité hors des cinq prédéfinies, imbrication limitée à 100 niveaux ; JSON limité à 64 niveaux.
-- CRS : WGS 84 uniquement ; aucune transformation silencieuse ; un `crs` GeoJSON autre que CRS84 / EPSG:4326 est refusé.
+- CRS : KML, KMZ et GPX sont en WGS 84 par définition du format ; un GeoJSON déclarant un autre CRS, et tout CSV, exigent un `epsgSource` choisi par l'utilisateur dans une liste blanche (`PROJETS_VOIRIE_CRS_SOURCE_AUTORISES`, défaut 4326, 32628, 32629), transformé par PostGIS ; aucune transformation silencieuse (`CONTRAT-IMPORT.md`, section 5).
 
 ## Réglages serveur (variables d'environnement)
 
@@ -567,7 +567,7 @@ Le banc a vérifié sommet par sommet, contre un oracle indépendant (séries de
 ### Inventaire d'un CSV
 
 ```json
-{ "format": "CSV", "detection": { "methode": "contenu", "extensionDeclaree": "csv", "extensionCoherente": true }, "archive": null, "couches": [],
+{ "format": "CSV", "detection": { "methode": "contenu", "extensionDeclaree": "csv", "extensionCoherente": true }, "archive": null, "couches": [], "nbCouches": 0, "couchesTronquees": false,
   "csv": { "delimiteur": ";", "delimiteurDetecte": true, "encodage": "utf-8", "encodageDetecte": true, "bom": true, "separateurDecimal": ",", "separateurDecimalDetecte": true, "nbLignes": 13,
            "colonnes": [ { "nom": "axe", "exemples": ["A", "B", "C"] }, { "nom": "x", "exemples": ["380250,357", "380030,541", "379810,723"] } ],
            "echantillon": [ ["A", "6", "380250,357", "1016150,670", "Kissidougou"] ] },

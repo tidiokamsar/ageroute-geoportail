@@ -45,6 +45,17 @@ describe("CSV : volumes et pathologies", () => {
     expect(code(() => detecter(b, "p.csv", OPT_CSV, lim))).toBe("CSV_TROP_DE_LIGNES");
   });
 
+  it("O5 (revue vague 1) : des millions de cellules vides (30 000 lignes de 200 colonnes) : CSV_TROP_DE_CELLULES, vite et sans memoire demesuree", () => {
+    const ligne = ";".repeat(199);
+    const b = Buffer.from(Array.from({ length: 30_000 }, () => ligne).join("\n"));
+    const t0 = performance.now();
+    const rss0 = process.memoryUsage().rss;
+    expect(code(() => detecter(b, "p.csv", OPT_CSV, LIM))).toBe("CSV_TROP_DE_CELLULES");
+    expect(performance.now() - t0).toBeLessThan(4000);
+    // Borne large (poste charge) : sans le plafond de cellules, la lecture de ce fichier de 6 Mo tenait plusieurs centaines de Mo.
+    expect(process.memoryUsage().rss - rss0).toBeLessThan(400 * 1024 * 1024);
+  }, 30_000);
+
   it("une seule ligne de 3 millions de delimiteurs : CSV_TROP_DE_COLONNES immediatement", () => {
     const t0 = performance.now();
     expect(code(() => detecter(Buffer.from(`${";".repeat(3_000_000)}\n1;2\n`), "p.csv", { csv: { delimiteur: ";" } }, LIM))).toBe("CSV_TROP_DE_COLONNES");

@@ -53,8 +53,8 @@ describe("vue d'une relation", () => {
   const relation = (o: Partial<LigneRelation> = {}): LigneRelation => ({
     id: "r1", projetId: "p1", typeRelation: "PORTE_PAR", statut: "PROPOSEE", origine: "AUTOMATIQUE", proposition: { toleranceM: 2 }, decideLe: null, justificationDecision: null,
     decidePar: null, creePar: "Personne A", createdAt: new Date(), updatedAt: new Date(),
-    sourceObjetId: "1", sourceNom: "Circuit", sourceJeuId: "j1", sourceStatutJeu: "AUTORISE", sourceGeom: "LIGNE", sourceNature: "CIRCUIT_LOGIQUE", sourceType: null,
-    cibleObjetId: "2", cibleNom: "Gaine", cibleJeuId: "j2", cibleStatutJeu: "AUTORISE", cibleGeom: "LIGNE", cibleNature: "ACTIF_PHYSIQUE", cibleType: "GAINE", ...o,
+    sourceObjetId: "1", sourceNom: "Circuit", sourceJeuId: "j1", sourceStatutJeu: "AUTORISE", sourceConfidentialite: "CONFIDENTIEL_CONCESSIONNAIRE", sourceGeom: "LIGNE", sourceNature: "CIRCUIT_LOGIQUE", sourceType: null,
+    cibleObjetId: "2", cibleNom: "Gaine", cibleJeuId: "j2", cibleStatutJeu: "AUTORISE", cibleConfidentialite: "INTERNE", cibleGeom: "LIGNE", cibleNature: "ACTIF_PHYSIQUE", cibleType: "GAINE", ...o,
   });
   it("une proposition n'a pas de decision ; seul un compte qui decide recoit les actions possibles", () => {
     expect(vueRelation(relation(), true)).toMatchObject({ decision: null, actionsPossibles: ["valider", "refuser"], statut: "PROPOSEE" });

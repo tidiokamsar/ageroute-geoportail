@@ -55,6 +55,8 @@ export const limitesCsv = (): LimitesCsv => ({
   lignesMax: borne("PROJETS_VOIRIE_CSV_LIGNES_MAX", 500_000, 100, 5_000_000),
   colonnesMax: 200,
   celluleMax: 10_000,
+  // O5 : 24 Mo de cellules vides tenaient ~536 Mo de memoire ; 5 000 000 de cellules au plus (defaut a valider par le DSI, borne de protection).
+  cellulesMax: borne("PROJETS_VOIRIE_CSV_CELLULES_MAX", 5_000_000, 10_000, 100_000_000),
 });
 
 export const tailleEchantillon = () => borne("PROJETS_VOIRIE_APERCU_ECHANTILLON", 20, 1, 100);

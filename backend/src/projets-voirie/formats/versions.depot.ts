@@ -6,7 +6,7 @@
  * le dernier evenement de revue du jeu, et ne vaut que pour l'ensemble retire EXACT sur lequel la revue a porte (empreinte du delta).
  */
 
-import type { Prisma } from "@prisma/client";
+import type { Prisma, RoleJeuProjet } from "@prisma/client";
 import { ErreurMetier } from "../erreurs";
 import { calculerDeltaDetaille, cleDe, type DeltaDetaille, type ObjetDelta } from "./delta-detaille.noyau";
 
@@ -51,6 +51,29 @@ export async function deltaEntreJeux(tx: Tx, nouveau: { id: string; colonneId: s
     chargerObjetsDelta(tx, ancien.id, colonne?.ancien ?? null),
   ]);
   return { ...calculerDeltaDetaille(n, a), cleComparaison: colonne ? "identifiant" : "nom" };
+}
+
+/** Cle d'un jeu pour retrouver la version qu'il remplace (ou remplacera). */
+export interface CleJeuVersion { id: string; projetId: string; role: RoleJeuProjet; concessionnaireId: string | null; remplaceId: string | null }
+export interface JeuReference { id: string; version: number; statut: string; resume: unknown }
+
+/**
+ * Le jeu CONTRE LEQUEL se calculent et se revoient les suppressions d'un jeu en controle (revue de la vague 1, M1) :
+ *   1. le jeu AUTORISE de meme cle (projet, role, concessionnaire), hors lui-meme : celui qu'une autorisation remplacerait ;
+ *   2. A DEFAUT, le jeu que ce depot devait remplacer (`remplaceId`), MEME s'il a ete retire ou remplace depuis. Sans cela, retirer le jeu
+ *      autorise (DELETE) avant d'autoriser le depot en attente faisait disparaitre la reference, donc la revue : les suppressions passaient
+ *      sans revue. Les objets d'un jeu retire restent en base (suppression logique), le delta reste calculable.
+ * `null` : role AUTRE (pas de versions), ou premier depot de sa cle.
+ */
+export async function jeuDeReferenceSuppressions(tx: Tx, jeu: CleJeuVersion): Promise<JeuReference | null> {
+  if (jeu.role === "AUTRE") return null;
+  const select = { id: true, version: true, statut: true, resume: true } as const;
+  const autorise = await tx.jeuDonneesProjet.findFirst({
+    where: { projetId: jeu.projetId, role: jeu.role, concessionnaireId: jeu.concessionnaireId, statut: "AUTORISE", id: { not: jeu.id } }, select,
+  });
+  if (autorise) return autorise;
+  if (!jeu.remplaceId || jeu.remplaceId === jeu.id) return null;
+  return tx.jeuDonneesProjet.findFirst({ where: { id: jeu.remplaceId, projetId: jeu.projetId }, select });
 }
 
 const TYPES_REVUE = ["SUPPRESSIONS_ACCEPTEES", "SUPPRESSIONS_REFUSEES"] as const;

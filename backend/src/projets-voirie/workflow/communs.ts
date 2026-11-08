@@ -5,7 +5,15 @@
  * TOUTE ECRITURE du workflow passe par `transactionProjet` : delais cote base (comme le depot du socle), verification que le projet existe et
  * n'est pas retire (404 pour tous, nationaux compris : le controle territorial laisse passer un compte national sans rien lire), puis un VERROU
  * CONSULTATIF PROPRE AU WORKFLOW du projet : les ecritures d'un meme projet se serialisent (transactions courtes), ce qui rend exacts les
- * plafonds et la cadence sans bloquer les depots ni les analyses (verrous differents).
+ * plafonds et la cadence.
+ *
+ * CE VERROU N'EST PAS INDEPENDANT DE CELUI DES DEPOTS (revue de la vague 1, m6). Le depot, l'autorisation, le retrait, la revue des suppressions, les
+ * ecritures du lot B1 (association, descripteur, relation) et les regles de conflit prennent `SELECT ... FOR UPDATE` sur la ligne de `projets_voirie`
+ * (`verrouillerProjet`) ; or tout INSERT dans une table du workflow (cle etrangere vers le projet) prend FOR KEY SHARE sur cette meme ligne, que FOR UPDATE
+ * contredit. Une ecriture du workflow ATTEND donc la fin d'un depot ou d'une proposition d'association (20 a 60 s), puis, passe le delai de verrou
+ * (PROJETS_VOIRIE_VERROU_MS, 5 s), repond 503 PROJET_OCCUPE sans rien ecrire : le client doit REESSAYER. Seule l'analyse de conflits, qui n'utilise qu'un
+ * verrou consultatif, ne bloque pas le workflow. Prouve par le banc workflow-roles (section 11 bis). Ne pas reintroduire d'ecriture longue sous
+ * `verrouillerProjet` sans le savoir.
  */
 
 import type { Prisma } from "@prisma/client";

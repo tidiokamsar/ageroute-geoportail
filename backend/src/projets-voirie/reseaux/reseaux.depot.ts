@@ -163,17 +163,17 @@ export async function descripteursDesObjets(tx: TxLecture, objetIds: readonly st
 export interface LigneRelation {
   id: string; projetId: string; typeRelation: string; statut: string; origine: string; proposition: unknown;
   decideLe: Date | null; justificationDecision: string | null; decidePar: string | null; creePar: string | null; createdAt: Date; updatedAt: Date;
-  sourceObjetId: string; sourceNom: string | null; sourceJeuId: string; sourceStatutJeu: string; sourceGeom: string; sourceNature: string; sourceType: string | null;
-  cibleObjetId: string; cibleNom: string | null; cibleJeuId: string; cibleStatutJeu: string; cibleGeom: string; cibleNature: string; cibleType: string | null;
+  sourceObjetId: string; sourceNom: string | null; sourceJeuId: string; sourceStatutJeu: string; sourceConfidentialite: string; sourceGeom: string; sourceNature: string; sourceType: string | null;
+  cibleObjetId: string; cibleNom: string | null; cibleJeuId: string; cibleStatutJeu: string; cibleConfidentialite: string; cibleGeom: string; cibleNature: string; cibleType: string | null;
 }
 
 const SELECT_RELATION = Prisma.sql`
   r."id" AS "id", r."projetId" AS "projetId", r."typeRelation"::text AS "typeRelation", r."statut"::text AS "statut", r."origine"::text AS "origine",
   r."proposition" AS "proposition", r."decideLe" AS "decideLe", r."justificationDecision" AS "justificationDecision", ud."nomComplet" AS "decidePar", uc."nomComplet" AS "creePar",
   r."createdAt" AS "createdAt", r."updatedAt" AS "updatedAt",
-  r."sourceObjetId"::text AS "sourceObjetId", os."nom" AS "sourceNom", os."jeuId" AS "sourceJeuId", js."statut"::text AS "sourceStatutJeu", os."typeGeom"::text AS "sourceGeom",
+  r."sourceObjetId"::text AS "sourceObjetId", os."nom" AS "sourceNom", os."jeuId" AS "sourceJeuId", js."statut"::text AS "sourceStatutJeu", js."confidentialite"::text AS "sourceConfidentialite", os."typeGeom"::text AS "sourceGeom",
   COALESCE(ds."nature", js."natureObjets")::text AS "sourceNature", ds."typeObjet" AS "sourceType",
-  r."cibleObjetId"::text AS "cibleObjetId", oc."nom" AS "cibleNom", oc."jeuId" AS "cibleJeuId", jc."statut"::text AS "cibleStatutJeu", oc."typeGeom"::text AS "cibleGeom",
+  r."cibleObjetId"::text AS "cibleObjetId", oc."nom" AS "cibleNom", oc."jeuId" AS "cibleJeuId", jc."statut"::text AS "cibleStatutJeu", jc."confidentialite"::text AS "cibleConfidentialite", oc."typeGeom"::text AS "cibleGeom",
   COALESCE(dc."nature", jc."natureObjets")::text AS "cibleNature", dc."typeObjet" AS "cibleType"`;
 
 const FROM_RELATION = Prisma.sql`
@@ -257,7 +257,7 @@ export async function verrouillerRelation(tx: TxEcriture, projetId: string, relI
 // Comptage par nature
 // ------------------------------------------------------------------------------------------------
 
-export interface DemandeComptage { projetId: string; jeuxIds: readonly string[]; statutsJeu: readonly string[] }
+export interface DemandeComptage { projetId: string; jeuxIds: readonly string[] }
 
 const BASE_COMPTAGE = (d: DemandeComptage) => Prisma.sql`
   base AS MATERIALIZED (
@@ -314,7 +314,7 @@ export async function mesurerComptage(tx: TxLecture, d: DemandeComptage): Promis
         FROM "reseau_relations" r
         JOIN "projets_voirie_objets" oc ON oc."id" = r."cibleObjetId"
         JOIN "projets_voirie_jeux" jc ON jc."id" = oc."jeuId"
-       WHERE r."projetId" = ${d.projetId} AND r."typeRelation" = 'PORTE_PAR' AND jc."statut"::text = ANY(${[...d.statutsJeu]}::text[])
+       WHERE r."projetId" = ${d.projetId} AND r."typeRelation" = 'PORTE_PAR' AND jc."statut"::text = 'AUTORISE'
          AND r."sourceObjetId" IN (SELECT b."id" FROM base b WHERE b."nature" = 'CIRCUIT_LOGIQUE')
        GROUP BY r."sourceObjetId")
     SELECT (SELECT count(*) FROM base b WHERE b."nature" = 'CIRCUIT_LOGIQUE')::int AS "circuits",
@@ -482,17 +482,18 @@ export interface LigneCible { objetId: string; nature: string | null; natureJeu:
 
 /**
  * Nature effective et supports physiques des objets d'une liste de dossiers : nombre de relations PORTE_PAR VALIDEES et PROPOSEES dont la
- * CIBLE est lisible (`statutsJeu`) : un support d'un jeu retire ou en quarantaine n'est jamais compte pour un lecteur.
+ * CIBLE appartient a un jeu AUTORISE, POUR TOUS LES ROLES (revue de la vague 1, m3) : un support d'un jeu en controle, rejete, remplace ou retire n'est
+ * jamais compte, que le compte soit lecteur ou decideur (un meme dossier ne donne pas deux chiffres selon le role).
  */
-export async function cibles(tx: TxLecture, objetIds: readonly string[], statutsJeu: readonly string[]): Promise<LigneCible[]> {
+export async function cibles(tx: TxLecture, objetIds: readonly string[]): Promise<LigneCible[]> {
   const ids = [...new Set(objetIds.filter((i) => ID_OBJET.test(i)))];
   if (ids.length === 0) return [];
   return tx.$queryRaw<LigneCible[]>`
     SELECT o."id"::text AS "objetId", d."nature"::text AS "nature", j."natureObjets"::text AS "natureJeu",
            (SELECT count(*) FROM "reseau_relations" r JOIN "projets_voirie_objets" oc ON oc."id" = r."cibleObjetId" JOIN "projets_voirie_jeux" jc ON jc."id" = oc."jeuId"
-             WHERE r."sourceObjetId" = o."id" AND r."typeRelation" = 'PORTE_PAR' AND r."statut" = 'VALIDEE' AND jc."statut"::text = ANY(${[...statutsJeu]}::text[]))::int AS "valides",
+             WHERE r."sourceObjetId" = o."id" AND r."typeRelation" = 'PORTE_PAR' AND r."statut" = 'VALIDEE' AND jc."statut"::text = 'AUTORISE')::int AS "valides",
            (SELECT count(*) FROM "reseau_relations" r JOIN "projets_voirie_objets" oc ON oc."id" = r."cibleObjetId" JOIN "projets_voirie_jeux" jc ON jc."id" = oc."jeuId"
-             WHERE r."sourceObjetId" = o."id" AND r."typeRelation" = 'PORTE_PAR' AND r."statut" = 'PROPOSEE' AND jc."statut"::text = ANY(${[...statutsJeu]}::text[]))::int AS "proposes"
+             WHERE r."sourceObjetId" = o."id" AND r."typeRelation" = 'PORTE_PAR' AND r."statut" = 'PROPOSEE' AND jc."statut"::text = 'AUTORISE')::int AS "proposes"
       FROM "projets_voirie_objets" o
       JOIN "projets_voirie_jeux" j ON j."id" = o."jeuId"
       LEFT JOIN "reseau_objets_descripteurs" d ON d."objetId" = o."id"

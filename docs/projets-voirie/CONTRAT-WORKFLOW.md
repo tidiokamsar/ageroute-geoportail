@@ -214,6 +214,12 @@ Listes : `limite` de 1 à 100 (défaut 25), curseur opaque (mêmes règles que R
 
 Délais côté base : ceux du socle (`PROJETS_VOIRIE_DELAI_DEPOT_MS`, `PROJETS_VOIRIE_VERROU_MS`).
 
+### 9 bis. Verrous du projet et nouvelle tentative du client (revue de la vague 1, m6)
+
+Le verrou consultatif du workflow sérialise les écritures du workflow entre elles, mais **il n'est pas indépendant du verrou des dépôts** : le dépôt, l'autorisation, le rejet, le retrait, la revue des suppressions et le retour arrière (lot A1), les écritures du lot B1 (propositions d'association, descripteurs, relations) et les règles de conflit prennent `FOR UPDATE` sur la ligne du projet, et toute insertion dans une table du workflow (clé étrangère vers le projet) prend `FOR KEY SHARE` sur cette même ligne. Conséquence, mesurée par le banc `workflow-roles` (section 11 bis) : une écriture du workflow **attend** la fin du dépôt ou de la proposition en cours (jusqu'à 20 à 60 s pour les plus longues opérations), puis, passé `PROJETS_VOIRIE_VERROU_MS` (5 s par défaut), répond **503 `PROJET_OCCUPE` sans rien écrire**. Seule l'analyse de conflits (verrou consultatif propre) ne bloque pas le workflow.
+
+**Le client doit réessayer** (après quelques secondes) sur 503 `PROJET_OCCUPE` ; aucune écriture n'a eu lieu, un réessai ne crée pas de doublon. Le même 503 est rendu par les écritures du socle et de B1 pendant un dépôt. Décision possible, non prise : un verrou de projet partagé plus fin (par table), ou une file d'attente côté serveur.
+
 ## 10. Décisions à prendre par le DSI
 
 1. La correspondance de la section 2, notamment l'absence d'un attribut « responsable de validation » distinct du rôle.
@@ -223,3 +229,13 @@ Délais côté base : ceux du socle (`PROJETS_VOIRIE_DELAI_DEPOT_MS`, `PROJETS_V
 5. Stockage de pièces jointes (références et empreintes seulement aujourd'hui) ; dépôt de jeux par un référent (non ouvert).
 6. Dérogation à la séparation des tâches par un `ADMIN` pour lui-même (comme RC-3) : autoriser ou exiger un second `ADMIN`.
 7. Révoquer un rattachement : faut-il retirer automatiquement la clé de module (non fait : geste d'administration séparé).
+
+## 11. Constats de la revue de la vague 1, documentés (ajouts)
+
+Aucun de ces constats n'est corrigé par la livraison de correction de la vague 1 : ce sont des décisions de gouvernance ou des comportements hérités du socle, consignés ici pour qu'ils soient connus.
+
+- **Verrou du projet et nouvelle tentative** : voir 9 bis (correction du commentaire et de la documentation, test de banc).
+- **O8** : la dérogation d'un `ADMIN` à la séparation des tâches pour lui-même (comme RC-3) est déjà documentée en 10, point 6.
+- **O9** : `GET /api/audit` rend les valeurs `before` et `after` des entités du workflow (rattachements, demandes, tâches, récolements) à tout compte, même `LECTEUR`, qui a la clé de module `projets-voirie` et connaît l'identifiant de l'entité (UUID). Comportement hérité du journal d'audit commun, fermé aux comptes rattachés (`COMPTE_REFERENT_RESTREINT`) ; l'historique du workflow porte des noms d'agents et des motifs internes. Décision DSI : restreindre la lecture de ces types aux rôles qui décident.
+- **O10, ordre de déploiement** : voir `DEPLOIEMENT-MODULE.md` (migrations avant le code ; retirer la clé de module aux référents avant toute descente de la migration du workflow, car la descente supprime les rattachements).
+- **O11** : les 409 `STATUT_INCOMPATIBLE` (retrait d'un jeu déjà retiré, décision sur un jeu qui n'est plus en contrôle) rendent le `statut` du jeu, y compris `RETIRE`, aux comptes qui décident (`ADMIN`, `GESTIONNAIRE`), comme le socle ; les autres comptes reçoivent la même 404 qu'un jeu inconnu. `jeuMasque: true` (demandes, récolements) dit seulement qu'un jeu lié existe mais n'est pas lisible pour ce compte, sans son statut.
