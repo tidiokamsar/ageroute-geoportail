@@ -82,7 +82,7 @@ async function vues(lignes: RecolementProjetVoirie[], acteur: ActeurWorkflow, ct
 export interface FiltresRecolements { statuts?: StatutRecolement[]; conflitId?: string; jeuId?: string }
 
 function clauses(projetId: string, ctx: ContexteLecture, f: FiltresRecolements, avecStatut: boolean): Prisma.RecolementProjetVoirieWhereInput[] {
-  const and: Prisma.RecolementProjetVoirieWhereInput[] = [{ projetId }, ...(clausesVisibilite(filtreRecolements(ctx), { renseignee: "soumisLe" }, true) as Prisma.RecolementProjetVoirieWhereInput[])];
+  const and: Prisma.RecolementProjetVoirieWhereInput[] = [{ projetId }, ...(clausesVisibilite(filtreRecolements(ctx), { statutNon: "BROUILLON" }, true) as Prisma.RecolementProjetVoirieWhereInput[])];
   if (avecStatut && f.statuts?.length) and.push({ statut: { in: f.statuts } });
   if (f.conflitId) and.push({ conflitId: f.conflitId });
   if (f.jeuId) and.push({ jeuId: f.jeuId });
@@ -112,7 +112,7 @@ export async function ficheRecolement(acteur: ActeurWorkflow, projetId: string, 
   await exigerProjetActif(projetId);
   const r = await prisma.recolementProjetVoirie.findFirst({ where: { id, projetId } });
   const ctx = contexteDe(acteur, projetId);
-  if (!r || !ligneVisible(filtreRecolements(ctx), { concessionnaireId: r.concessionnaireId, conflitId: r.conflitId, partage: r.soumisLe !== null })) throw RECOLEMENT_INTROUVABLE();
+  if (!r || !ligneVisible(filtreRecolements(ctx), { concessionnaireId: r.concessionnaireId, conflitId: r.conflitId, partage: r.statut !== "BROUILLON" })) throw RECOLEMENT_INTROUVABLE();
   const [[recolement], preuves, historique] = await Promise.all([
     vues([r], acteur, ctx), lirePreuves(acteur, ctx, "RECOLEMENT", id), historiqueVisible(ctx) ? lireHistorique("RECOLEMENT", id) : Promise.resolve(undefined),
   ]);

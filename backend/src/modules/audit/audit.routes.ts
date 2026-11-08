@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middleware/auth.middleware";
-import { MODULE_PAR_ENTITE, modulesAutorisesDe, moduleAutorise } from "../../lib/access";
+import { MODULE_PAR_ENTITE, compteRattache, modulesAutorisesDe, moduleAutorise } from "../../lib/access";
 
 export const auditRouter = Router();
 
@@ -54,6 +54,11 @@ auditRouter.get("/", requireAuth, async (req, res, next) => {
       const modules = await modulesAutorisesDe(req.user!);
       if (!moduleAutorise(modules, moduleRequis)) {
         res.status(403).json({ error: "Accès à ce module non autorisé pour votre compte" });
+        return;
+      }
+      // Lot B3 : un referent concessionnaire (compte rattache) ne lit pas l'historique des entites du module Projets de voirie.
+      if (moduleRequis === "projets-voirie" && (await compteRattache(req.user!))) {
+        res.status(403).json({ error: "Ce compte est rattaché à un concessionnaire : l'historique du module ne lui est pas ouvert", code: "COMPTE_REFERENT_RESTREINT" });
         return;
       }
     }

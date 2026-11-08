@@ -509,3 +509,62 @@ Journaux en **ajout seul** (UPDATE et DELETE refusés, code 23001) : `conflits_p
 - Les dossiers conservent pour toujours le lien vers le jeu de réseau d'origine et sa géométrie courante (suppression logique) : la politique de conservation d'un tiers qui retire son accord (m6 de la revue) reste à décider.
 - **Revue indépendante RC-3 (07/11/2026)** : M1, M2, m1, m3 à m8 et m11 sont corrigés ; voir `CONTRAT-CONFLITS.md`, section 9, points 17 (complément) et 19 à 34, pour les règles exactes, les limites connues (`resume` des analyses non filtré, séparation des tâches d'un ADMIN envers lui-même, annulation d'une décision, jokers LIKE...) et les décisions à prendre. Lecture de la liste, de la fiche et de la comparaison : un délai côté base n'est posé que pour l'export CSV (les autres lectures sont paginées).
 - Le 504 de l'analyse persistée réutilise le mécanisme du socle (`statement_timeout` posé par étape) ; il est prouvé par le banc avec une table verrouillée et un délai de 1 s, pas avec un calcul réellement trop long.
+
+## Workflow concessionnaire, référents et récolement (lot B3)
+
+Contrat : `docs/projets-voirie/CONTRAT-WORKFLOW.md` (rôles du cahier, matrice des droits, états, séparation des tâches). **La correspondance des rôles et la matrice des droits sont une proposition provisoire, en attente de la décision du DSI.** Les exemples de réponses réelles sont écrits par le banc `backend/tests-integration/workflow-roles.integration.mts` (`WORKFLOW_EXEMPLES=<fichier>`), données 100 % synthétiques.
+
+**Principes.** L'application **n'envoie aucun message** : l'envoi d'une demande à un concessionnaire est fait hors application par une personne, qui l'**enregistre** (date, canal, référence, interlocuteur). Une preuve est une **référence et une empreinte** (aucun fichier n'est stocké ; le stockage de pièces jointes n'est pas décidé). Recevoir une réponse, valider un récolement, clore une tâche **ne modifient ni le référentiel, ni un jeu, ni un conflit**. Tout est audité (`ReferentConcessionnaire`, `DemandeConcessionnaire`, `TacheProjetVoirie`, `RecolementProjetVoirie`), sans géométrie. L'historique de chaque objet est en ajout seul.
+
+**Gardes, dans l'ordre** : jeton, clé de module `projets-voirie`, octet NUL (400), **restriction du compte rattaché** (403 `COMPTE_REFERENT_RESTREINT` hors `/workflow/...`), identifiants UUID (400 `IDENTIFIANT_INVALIDE` pour `:demandeId`, `:tacheId`, `:recolementId`, `:rattachementId`), projet désigné (404 `PROJET_INTROUVABLE` identique s'il est inexistant, retiré, hors périmètre territorial, ou, pour un référent, s'il n'y est pas rattaché), droit de la matrice (403 `ACTION_NON_AUTORISEE`, champ `action`), validation du corps (400), service (qui ne rend que les lignes visibles du profil : un élément d'un autre concessionnaire répond 404 `DEMANDE_INTROUVABLE`, `TACHE_INTROUVABLE`, `RECOLEMENT_INTROUVABLE`).
+
+### Routes
+
+| Route | Droit (défaut) | Réponse |
+|---|---|---|
+| `GET /workflow/mon-profil` | tout compte du module | `{ role, profil, referent, rattachements: [{ id, projet: {id, code, nom}, concessionnaire: {id, nom} }], droits, matrice, socle, correspondanceCahier, provisoire: true, avertissements }` |
+| `GET /:id/workflow/referents` | `referent.lire` (ADMIN, GESTIONNAIRE) | `{ rattachements }` (actifs et révoqués, avec compte, concessionnaire, motif, auteur) |
+| `POST /:id/workflow/referents` | `referent.gerer` (ADMIN) | 201 `{ rattachement }` ; corps `{ userId, concessionnaireId, motif }` |
+| `POST /:id/workflow/referents/:rattachementId/revoquer` | ADMIN | `{ rattachement, avertissements }` ; corps `{ motif }` |
+| `GET /:id/workflow/jeux` | `workflow.lire` | `{ jeux }` : métadonnées seules (id, rôle, concessionnaire, version, nom de fichier, format, date, nombre d'objets, classe de précision, statut) ; référent : jeux **AUTORISE** de son concessionnaire |
+| `GET /:id/workflow/conflits` | `workflow.lire` | `{ conflits, curseurSuivant }` : vue concessionnaire sans géométrie ni mesure (`id, type, axe, statut, concessionnaire, objet, decisionRetenue`) ; filtres `statut`, `type`, `limite`, `curseur` ; référent : dossiers **confirmés** de son concessionnaire |
+| `GET /:id/workflow/demandes` | `workflow.lire` | `{ demandes, compteurs, curseurSuivant }` ; filtres `statut` (liste), `concessionnaireId`, `echeanceDepassee`, `limite`, `curseur` |
+| `POST /:id/workflow/demandes` | `demande.ecrire` | 201 `{ demande }` (`BROUILLON`) ; corps `{ concessionnaireId, objet, description?, echeance? }` |
+| `GET /:id/workflow/demandes/:demandeId` | `workflow.lire` | `{ demande, preuves, historique?, transitionsPossibles }` |
+| `PATCH /:id/workflow/demandes/:demandeId` | `demande.ecrire` | `{ demande, modifie }` ; corps `{ objet?, description?, echeance?, jeuRecuId?, justification? }` |
+| `POST /:id/workflow/demandes/:demandeId/statut` | `demande.ecrire` | `{ demande }` ; corps `{ vers: "ENVOYEE", canalEnvoi, dateEnvoi, referenceEnvoi?, interlocuteur? }`, `{ vers: "RECUE", dateReception, jeuRecuId?, note? }` ou `{ vers: "CLOTUREE" ou "ANNULEE", justification }` |
+| `POST /:id/workflow/demandes/:demandeId/preuves` | `preuve.ajouter` | 201 `{ preuve }` ; corps `{ type, texte, reference?, nomFichier?, sha256?, tailleOctets?, partagee? }` |
+| `GET /:id/workflow/taches` | `workflow.lire` ou `tache.executer` | `{ taches, compteurs, curseurSuivant }` ; filtres `statut`, `responsableId`, `conflitId`, `demandeId`, `concessionnaireId`, `echeanceDepassee` ; un agent de terrain ne reçoit que ses tâches |
+| `POST /:id/workflow/taches` | `tache.gerer` | 201 `{ tache }` ; corps `{ titre, description?, responsableId, echeance?, priorite?, validationRequise?, conflitId?, demandeId?, concessionnaireId?, partagee? }` |
+| `GET /:id/workflow/taches/:tacheId` | `workflow.lire` ou `tache.executer` | `{ tache, preuves, historique?, transitionsPossibles }` |
+| `PATCH /:id/workflow/taches/:tacheId` | `tache.gerer` | `{ tache, modifie }` ; `justification` exigée pour changer `responsableId` |
+| `POST /:id/workflow/taches/:tacheId/statut` | `tache.executer` (le noyau exige `tache.gerer` hors du responsable) | `{ tache }` ; corps `{ vers, justification?, derogation? }` |
+| `POST /:id/workflow/taches/:tacheId/preuves` | `preuve.ajouter` | 201 `{ preuve }` |
+| `GET /:id/workflow/recolements` | `workflow.lire` | `{ recolements, compteurs, curseurSuivant }` ; filtres `statut`, `conflitId`, `jeuId` |
+| `POST /:id/workflow/recolements` | `recolement.ecrire` | 201 `{ recolement }` ; corps `{ conflitId?, jeuId?, objet, constat?, ecarts?, dateRecolement? }` |
+| `GET /:id/workflow/recolements/:recolementId` | `workflow.lire` | `{ recolement, preuves, historique?, transitionsPossibles }` |
+| `PATCH /:id/workflow/recolements/:recolementId` | `recolement.ecrire` | `{ recolement, modifie }` ; brouillon seulement ; `justification` obligatoire ; `revision` +1, avant/après historisés |
+| `POST /:id/workflow/recolements/:recolementId/statut` | `recolement.ecrire` (valider, rejeter : `recolement.valider`, ADMIN par défaut) | `{ recolement }` ; corps `{ vers: "SOUMIS", "BROUILLON", "VALIDE" ou "REJETE", justification, derogation? }` |
+| `POST /:id/workflow/recolements/:recolementId/preuves` | `preuve.ajouter` | 201 `{ preuve }` |
+
+L'historique (`historique`) n'est rendu qu'aux décideurs (ADMIN, GESTIONNAIRE) : liste de `{ id, action, ancienStatut, nouveauStatut, justification, acteur, acteurProfil, donnees: { avant, apres, ... }, createdAt }`.
+
+### Clôture d'un conflit appuyée sur un récolement (extension de RC-3)
+
+`POST /:id/conflits/:cid/statut` accepte `recolementId` (UUID d'un récolement `VALIDE` de ce dossier) à la clôture : il dispense de la mention `recolementAValider`, et l'historique de la clôture porte `recolementId`. Sans lui, comportement de RC-3 inchangé. Erreurs : 404 `RECOLEMENT_INTROUVABLE`, 409 `RECOLEMENT_NON_VALIDE`, 422 `CHAMPS_INVALIDES` (`recolementId` hors clôture). Réglage `PROJETS_VOIRIE_RECOLEMENT_OBLIGATOIRE=1` : la clôture d'un déplacement décidé exige un récolement validé (le dernier est retenu sans `recolementId`). Voir `CONTRAT-CONFLITS.md`, section 9, point 35.
+
+### Codes d'erreur ajoutés par ce lot
+
+400 `COMPTE_INCONNU`, `REFERENCE_INVALIDE`, `CURSEUR_INVALIDE`, `CHAMPS_INVALIDES` ; 403 `COMPTE_REFERENT_RESTREINT` (aussi sur `GET /api/audit` pour les entités du module), `ACTION_NON_AUTORISEE` ; 404 `DEMANDE_INTROUVABLE`, `TACHE_INTROUVABLE`, `RECOLEMENT_INTROUVABLE`, `RATTACHEMENT_INTROUVABLE`, `CONCESSIONNAIRE_INTROUVABLE` ; 409 `TRANSITION_INTERDITE`, `STATUT_INCOMPATIBLE`, `SEPARATION_DES_TACHES`, `PREUVE_REQUISE`, `RECOLEMENT_EN_COURS`, `RATTACHEMENT_DEJA_ACTIF`, `RATTACHEMENT_DEJA_REVOQUE`, `RECOLEMENT_NON_VALIDE` ; 422 `JUSTIFICATION_REQUISE`, `DATE_INVALIDE`, `RESPONSABLE_NON_HABILITE`, `COMPTE_NON_ELIGIBLE`, `COMPTE_SANS_MODULE`, `CONCESSIONNAIRE_INCOHERENT`, `LIEN_INVALIDE`, `CONFLIT_NON_ELIGIBLE`, `CHAMPS_INCOMPLETS`, `QUOTA_ATTEINT` ; 429 `CADENCE_CREATION` (avec `retryAfterS` et `Retry-After`) ; 503 `PROJET_OCCUPE`.
+
+### Réglages serveur du workflow (variables d'environnement, bornées)
+
+`PROJETS_VOIRIE_WORKFLOW_CREATIONS_PAR_MINUTE` (30 ; 1 à 600), `PROJETS_VOIRIE_WORKFLOW_DEMANDES_MAX` (2000 ; 100 à 100 000), `PROJETS_VOIRIE_WORKFLOW_TACHES_MAX` (5000 ; 100 à 100 000), `PROJETS_VOIRIE_WORKFLOW_RECOLEMENTS_MAX` (500 ; 10 à 10 000), `PROJETS_VOIRIE_WORKFLOW_PREUVES_MAX` (200 ; 10 à 5 000), `PROJETS_VOIRIE_WORKFLOW_MATRICE` (JSON, voir `CONTRAT-WORKFLOW.md` 3.3), `PROJETS_VOIRIE_RECOLEMENT_OBLIGATOIRE` (`1` pour activer). Une valeur illisible redonne le défaut. Les délais côté base sont ceux du socle (`PROJETS_VOIRIE_DELAI_DEPOT_MS`, `PROJETS_VOIRIE_VERROU_MS`).
+
+### Ce qui n'est pas fait, décisions hors contrat, limites connues
+
+- Pas d'interface (lot suivant). Pas de dépôt de jeu par un référent (la réception reste un acte d'AGEROUTE). Pas de stockage de pièces jointes (références et empreintes seulement). Pas d'envoi de message, par construction.
+- Un référent reste un `LECTEUR` : il conserve les lectures ouvertes de la Console qui ne demandent aucune clé de module (patrimoine routier). Seules les routes du module `projets-voirie` et l'audit de ses entités lui sont fermées. Révoquer un rattachement ne retire pas la clé de module (voir l'avertissement de la réponse).
+- Les clés étrangères des six tables sont dans la migration seulement (aucune relation Prisma, pour ne pas modifier les modèles existants) : l'outil de dérive du schéma les listera comme écarts documentés.
+- Le motif de rejet d'un récolement et le motif de clôture d'une demande sont **internes** : le référent voit l'état et la date, pas le motif.
+- Observateurs et auditeurs : pas de lecture du workflow par défaut ; ouvrable par configuration en vue de projet (sans historique, sans tâche ni récolement liés à un conflit) ; l'auditeur lit le journal par `GET /api/audit`.

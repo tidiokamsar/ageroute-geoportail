@@ -48,10 +48,15 @@ async function lireCible(tx: Tx, acteur: ActeurWorkflow, projetId: string, objet
     if (d) { c = { statut: d.statut, responsableId: null, concessionnaireId: d.concessionnaireId, conflitId: null, partage: d.envoyeLe !== null }; visible = ligneVisible(filtreDemandes(ctx), c); }
   } else if (objetType === "TACHE") {
     const t = await tx.tacheProjetVoirie.findFirst({ where: { id: objetId, projetId } });
-    if (t) { c = { statut: t.statut, responsableId: t.responsableId, concessionnaireId: t.concessionnaireId, conflitId: t.conflitId, partage: t.partagee }; visible = ligneVisible(filtreTaches(ctx), c); }
+    if (t) {
+      c = { statut: t.statut, responsableId: t.responsableId, concessionnaireId: t.concessionnaireId, conflitId: t.conflitId, partage: t.partagee };
+      // Meme regle que la lecture d'une tache (taches.service.ts) : le filtre de projet pour qui lit le workflow ; un agent de terrain, ses propres taches.
+      const lecteur = autorise(matriceEffective().matrice, "workflow.lire", acteur.profil);
+      visible = (lecteur && ligneVisible(filtreTaches(ctx), c)) || (acteur.profil === "INSPECTEUR" && t.responsableId === acteur.id);
+    }
   } else {
     const r = await tx.recolementProjetVoirie.findFirst({ where: { id: objetId, projetId } });
-    if (r) { c = { statut: r.statut, responsableId: null, concessionnaireId: r.concessionnaireId, conflitId: r.conflitId, partage: r.soumisLe !== null }; visible = ligneVisible(filtreRecolements(ctx), c); }
+    if (r) { c = { statut: r.statut, responsableId: null, concessionnaireId: r.concessionnaireId, conflitId: r.conflitId, partage: r.statut !== "BROUILLON" }; visible = ligneVisible(filtreRecolements(ctx), c); }
   }
   // Un compte qui ne fait que lire (observateur) ne voit pas l'objet mais n'a de toute facon pas `preuve.ajouter` : la garde de route l'a deja refuse.
   if (!c || !visible) throw introuvable(libelle, code);

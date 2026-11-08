@@ -13,7 +13,7 @@ import { perimetreDe } from "../../territoire/territoire.service";
 import { logAuditTransactionnelle } from "../../utils/audit";
 import { ErreurMetier, introuvable } from "../erreurs";
 import type { Acteur } from "../projets.service";
-import { lever, nomsDe, personneDe, transactionProjet, type ActeurWorkflow, type Rattachement } from "./communs";
+import { exigerProjetActif, lever, nomsDe, personneDe, transactionProjet, type ActeurWorkflow, type Rattachement } from "./communs";
 import { matriceEffective } from "./config";
 import { ACTIONS, CORRESPONDANCE_CAHIER, DROITS_SOCLE, droitsDe, profilEffectif } from "./profils.noyau";
 import { exigerJustification } from "./validation.noyau";
@@ -46,6 +46,7 @@ async function nomsConcessionnaires(ids: readonly string[]): Promise<Map<string,
 }
 
 export async function listerReferents(projetId: string) {
+  await exigerProjetActif(projetId);
   const l = await prisma.referentConcessionnaire.findMany({ where: { projetId }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 500 });
   const [noms, conc] = await Promise.all([nomsDe(l.flatMap((r) => [r.userId, r.creeParId, r.revoqueParId])), nomsConcessionnaires(l.map((r) => r.concessionnaireId))]);
   return { rattachements: l.map((r) => vueRattachement(r, noms, conc)) };

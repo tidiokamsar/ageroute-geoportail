@@ -31,7 +31,7 @@ export interface FiltreVisibilite {
   exigeConcessionnaire: boolean;
   /** La ligne ne doit pas etre liee a un conflit. */
   sansConflit: boolean;
-  /** Demande : envoyee (`envoyeLe` renseigne). Recolement : soumis (`soumisLe` renseigne). Tache : `partagee`. */
+  /** Demande : envoyee (`envoyeLe` renseigne). Recolement : autre que BROUILLON. Tache : `partagee`. */
   exigePartage: boolean;
 }
 
@@ -58,7 +58,7 @@ export function filtreTaches(c: ContexteLecture): FiltreVisibilite {
   }
 }
 
-/** Recolements : un referent ne voit que ceux de son concessionnaire, une fois soumis ; les autres lecteurs, ceux qui ne sont pas lies a un conflit. */
+/** Recolements : un referent ne voit que ceux de son concessionnaire une fois soumis (jamais un brouillon, meme rouvert apres un rejet) ; les autres lecteurs, ceux qui ne sont pas lies a un conflit. */
 export function filtreRecolements(c: ContexteLecture): FiltreVisibilite {
   switch (sorteDe(c)) {
     case "DECIDEUR": return TOUT;
