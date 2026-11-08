@@ -15,7 +15,7 @@ import { ErreurLecture } from "../lecture.types";
 import type { Bbox, FormatFichier } from "../lecture.types";
 
 export const EPSG_CIBLE = 4326;
-export type OrigineCrs = "norme_du_format" | "choisi_par_utilisateur";
+export type OrigineCrs = "norme_du_format" | "choisi_par_utilisateur" | "declare_dans_le_fichier";
 
 export interface MetaCrs {
   epsg: number;
@@ -111,4 +111,53 @@ export function metaDepuisSpatialRef(l: { srid: number; srtext: string | null; p
     unite = u === undefined || u === "m" ? "metre" : u === "us-ft" ? "pied US" : u === "ft" ? "pied" : u;
   }
   return { epsg: l.srid, nom: m ? m[1] : `EPSG:${l.srid}`, unite, geographique };
+}
+
+/**
+ * CRS d'un fichier CONVERTI par la chaine GDAL (lot B2) : le conteneur a deja transforme les coordonnees vers WGS 84 a partir du CRS qu'il a lu (GeoPackage,
+ * .prj) ou que l'utilisateur a confirme (`epsg_source`) ; ici on decide si CE CRS peut etre ADMIS, avec les memes regles que les autres formats :
+ *   - jamais devine : sans CRS connu (coordonnees brutes), `CRS_REQUIS` ; un CRS sans code EPSG est refuse (`CRS_NON_SUPPORTE`) ;
+ *   - Shapefile : la confirmation de l'utilisateur est TOUJOURS exigee (le .prj est lu, il ne vaut pas confirmation) ;
+ *   - GeoPackage : un CRS declare EPSG:4326 est admis tel quel ; un CRS declare projete exige la confirmation du MEME code (comme un GeoJSON) ;
+ *   - DXF : le CRS vient toujours de la demande (un DXF n'a pas de georeferencement) ;
+ *   - un CRS confirme different du CRS declare est refuse (`CRS_CONFLIT`) : un CRS declare ne se surcharge pas ; un CRS projete doit etre dans la liste blanche.
+ * `confirme` = l'option de la requete, a defaut le choix fait a la creation du job ; deux valeurs differentes sont un conflit.
+ */
+export function choisirCrsConverti(
+  format: "GPKG" | "SHAPEFILE" | "DXF",
+  source: { origine: "fichier" | "demande"; epsg: number | null; nom: string | null } | null,
+  coordonnees: "wgs84" | "brutes",
+  dejaConfirme: number | undefined,
+  optionRequete: number | undefined,
+  autorises: readonly number[],
+): ChoixCrs {
+  if (dejaConfirme !== undefined && optionRequete !== undefined && dejaConfirme !== optionRequete) {
+    throw new ErreurLecture("CRS_CONFLIT", `EPSG:${optionRequete} est demande mais la conversion a ete faite avec EPSG:${dejaConfirme} : relancez une conversion avec le bon epsgSource`);
+  }
+  const confirme = optionRequete ?? dejaConfirme;
+  if (coordonnees === "brutes" || source === null) {
+    throw new ErreurLecture("CRS_REQUIS", "le fichier n'a pas de systeme de coordonnees : il n'est jamais devine. Creez un nouveau job de conversion avec epsgSource");
+  }
+  if (source.epsg === null) {
+    throw new ErreurLecture("CRS_NON_SUPPORTE", "le systeme de coordonnees du fichier n'a pas de code EPSG identifiable : seuls les codes EPSG de la liste blanche sont admis");
+  }
+  if (source.origine === "demande") {
+    if (confirme !== undefined && confirme !== source.epsg) throw new ErreurLecture("CRS_CONFLIT", `EPSG:${confirme} est demande mais la conversion a ete faite avec EPSG:${source.epsg}`);
+    if (source.epsg !== EPSG_CIBLE) verifierListeBlanche(source.epsg, autorises);
+    return { epsg: source.epsg, origine: "choisi_par_utilisateur", transformer: false };
+  }
+  // CRS declare par le fichier
+  const declare = source.epsg;
+  if (format === "SHAPEFILE" && confirme === undefined) {
+    throw new ErreurLecture("CRS_REQUIS", `le .prj du Shapefile declare EPSG:${declare} : confirmez-le (epsgSource=${declare}), un .prj ne vaut pas confirmation`);
+  }
+  if (confirme !== undefined && confirme !== declare) {
+    throw new ErreurLecture("CRS_CONFLIT", `le fichier declare EPSG:${declare} mais EPSG:${confirme} est confirme : un CRS declare ne se surcharge pas`);
+  }
+  if (declare === EPSG_CIBLE && confirme === undefined) return { epsg: EPSG_CIBLE, origine: "declare_dans_le_fichier", transformer: false };
+  if (confirme === undefined) {
+    throw new ErreurLecture("CRS_REQUIS", `le fichier declare EPSG:${declare} : confirmez-le en envoyant epsgSource=${declare} (liste blanche : ${autorises.join(", ")})`);
+  }
+  if (declare !== EPSG_CIBLE) verifierListeBlanche(declare, autorises);
+  return { epsg: declare, origine: "choisi_par_utilisateur", transformer: false };
 }

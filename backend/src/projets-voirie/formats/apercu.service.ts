@@ -17,7 +17,8 @@ import type { Avertissement, ObjetLu } from "../lecture.types";
 import { META_WGS84 } from "./crs.noyau";
 import { resoudreCrs, transformerSommets, versionProj } from "./crs.service";
 import { LISTE_MAX, SOMMETS_ECHANTILLON_MAX, delaiApercuMs, limitesImport, tailleEchantillon } from "./import.config";
-import { detecter, inventorier, preparer, type InventaireFichier, type OptionsImport, type ResultatImport } from "./lecture-import.noyau";
+import { detecter, detecterConvertie, inventaireConverti, inventorier, preparer, type InventaireFichier, type OptionsImport, type ResultatImport } from "./lecture-import.noyau";
+import type { ConversionValidee } from "../gdal/conversion.noyau";
 import { classerRaison, construireEchantillon, type ObjetEchantillon, type Probleme } from "./validation.noyau";
 
 export const limiteurApercus = new Limiteur(2, 10_000);
@@ -26,10 +27,14 @@ export interface DemandeFichier {
   fichier: Buffer;
   nomFichier: string;
   options: OptionsImport;
+  /** Lot B2 : resultat VALIDE d'une conversion GDAL (job). `fichier` est alors vide : l'empreinte et la taille sont celles du fichier d'origine du job. */
+  conversion?: ConversionValidee;
 }
 
 const empreinteFichier = (b: Buffer) => createHash("sha256").update(b).digest("hex");
-const descriptionFichier = (d: DemandeFichier) => ({ nom: d.nomFichier.slice(0, 255), tailleOctets: d.fichier.length, sha256: empreinteFichier(d.fichier) });
+const descriptionFichier = (d: DemandeFichier) => (d.conversion
+  ? { nom: d.nomFichier.slice(0, 255), tailleOctets: d.conversion.source.octets, sha256: d.conversion.source.sha256 }
+  : { nom: d.nomFichier.slice(0, 255), tailleOctets: d.fichier.length, sha256: empreinteFichier(d.fichier) });
 
 export interface ReponseInventaire extends InventaireFichier {
   fichier: { nom: string; tailleOctets: number; sha256: string };
@@ -37,6 +42,7 @@ export interface ReponseInventaire extends InventaireFichier {
 
 /** Inventaire : AUCUNE coordonnee n'est controlee, aucune base n'est lue. */
 export function inventaireFichier(d: DemandeFichier): ReponseInventaire {
+  if (d.conversion) return { fichier: descriptionFichier(d), ...inventaireConverti(d.conversion) };
   const limites = limitesImport();
   const detection = detecter(d.fichier, d.nomFichier, d.options, limites, { inventaire: true });
   return { fichier: descriptionFichier(d), ...inventorier(detection) };
@@ -112,7 +118,7 @@ function nbSommets(objets: readonly ObjetLu[]): number {
 
 export async function apercuFichier(d: DemandeFichier): Promise<ReponseApercu> {
   const limites = limitesImport();
-  const detection = detecter(d.fichier, d.nomFichier, d.options, limites);
+  const detection = d.conversion ? detecterConvertie(d.conversion, d.options) : detecter(d.fichier, d.nomFichier, d.options, limites);
   const prep = preparer(detection, d.options, limites);
   // Sans transformation, la lecture est complete avant toute connexion : un fichier refuse ne consomme ni transaction ni place.
   let resultat: ResultatImport | null = prep.besoinTransformation ? null : prep.terminer(META_WGS84, null);

@@ -3,6 +3,7 @@ import { env } from "./config/env";
 import { prisma } from "./lib/prisma";
 import { startSnapshotScheduler } from "./jobs/snapshot-indicateurs";
 import { startAlertesScheduler } from "./jobs/alertes-contractuelles";
+import { demarrerTraiteur } from "./projets-voirie/gdal/traiteur";
 
 // JSON.stringify ne sait pas serialiser BigInt nativement (montantGnf, recettesMensuellesGnf...).
 // Le frontend attend une chaine pour ces champs (precision GNF potentiellement > Number.MAX_SAFE_INTEGER).
@@ -23,6 +24,8 @@ const server = app.listen(env.PORT, () => {
   console.log(`Documentation Swagger : http://localhost:${env.PORT}/api/docs`);
   startSnapshotScheduler();
   startAlertesScheduler();
+  // Conversion GDAL (lot B2) : sondage BORNE des jobs, jamais cree si PROJETS_VOIRIE_GDAL est desactive (defaut) ; aucune dependance au conteneur au demarrage.
+  if (demarrerTraiteur()) console.log("Conversion GDAL : sondage des jobs demarre");
 });
 
 async function shutdown(signal: string) {
