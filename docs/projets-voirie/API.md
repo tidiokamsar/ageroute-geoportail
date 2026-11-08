@@ -194,7 +194,7 @@ Axe A;Societe des Eaux Synthetique;EAU_POTABLE;r2.kml;1;AUTORISE;inconnue;PROXIM
 | 422 | `TROP_DE_SOMMETS` | plus de 100 000 sommets dans un objet, ou 2 000 000 dans le fichier |
 | 422 | `ANALYSE_TROP_VOLUMINEUSE` | trop de sommets autorisés pour calculer l'analyse |
 | 503 | `SERVICE_OCCUPE` (+ `Retry-After`) | plus de 2 dépôts, 4 téléversements (2 par compte), 3 analyses ou 6 cartes simultanés dans le processus |
-| 503 | `PROJET_OCCUPE` | le verrou du projet n'a pas été obtenu en 5 s (autre dépôt, autorisation ou retrait en cours) |
+| 503 | `PROJET_OCCUPE` | le verrou du projet n'a pas été obtenu en 5 s (autre dépôt, autorisation ou retrait en cours ; vaut aussi pour les écritures du workflow et de B1, qui attendent un dépôt ou une proposition en cours). Rien n'a été écrit : **réessayer** après quelques secondes (`CONTRAT-WORKFLOW.md`, 9 bis) |
 | 504 | `ANALYSE_TROP_LONGUE`, `CARTE_TROP_LONGUE`, `DEPOT_TROP_LONG` | la base a coupé la requête (délais ci-dessous) ; jamais un 500 |
 | 500 | | erreur interne, message générique sans détail |
 

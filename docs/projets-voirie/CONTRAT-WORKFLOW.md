@@ -214,6 +214,12 @@ Listes : `limite` de 1 à 100 (défaut 25), curseur opaque (mêmes règles que R
 
 Délais côté base : ceux du socle (`PROJETS_VOIRIE_DELAI_DEPOT_MS`, `PROJETS_VOIRIE_VERROU_MS`).
 
+### 9 bis. Verrous du projet et nouvelle tentative du client (revue de la vague 1, m6)
+
+Le verrou consultatif du workflow sérialise les écritures du workflow entre elles, mais **il n'est pas indépendant du verrou des dépôts** : le dépôt, l'autorisation, le rejet, le retrait, la revue des suppressions et le retour arrière (lot A1), les écritures du lot B1 (propositions d'association, descripteurs, relations) et les règles de conflit prennent `FOR UPDATE` sur la ligne du projet, et toute insertion dans une table du workflow (clé étrangère vers le projet) prend `FOR KEY SHARE` sur cette même ligne. Conséquence, mesurée par le banc `workflow-roles` (section 11 bis) : une écriture du workflow **attend** la fin du dépôt ou de la proposition en cours (jusqu'à 20 à 60 s pour les plus longues opérations), puis, passé `PROJETS_VOIRIE_VERROU_MS` (5 s par défaut), répond **503 `PROJET_OCCUPE` sans rien écrire**. Seule l'analyse de conflits (verrou consultatif propre) ne bloque pas le workflow.
+
+**Le client doit réessayer** (après quelques secondes) sur 503 `PROJET_OCCUPE` ; aucune écriture n'a eu lieu, un réessai ne crée pas de doublon. Le même 503 est rendu par les écritures du socle et de B1 pendant un dépôt. Décision possible, non prise : un verrou de projet partagé plus fin (par table), ou une file d'attente côté serveur.
+
 ## 10. Décisions à prendre par le DSI
 
 1. La correspondance de la section 2, notamment l'absence d'un attribut « responsable de validation » distinct du rôle.
