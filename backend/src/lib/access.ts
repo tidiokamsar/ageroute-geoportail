@@ -123,3 +123,19 @@ export const MODULE_PAR_ENTITE: Record<string, ModuleKey | null> = {
   User: null,
   AppSetting: null,
 };
+
+/**
+ * Types d'entite journalises que ce compte peut voir dans un flux qui melange plusieurs modules (revue de la vague 1, m5 : `GET /api/dashboard/activity`).
+ *
+ * `null` = aucune restriction (ADMIN). Sinon la liste des types dont le module est autorise au compte, avec les memes regles que le journal d'audit
+ * (`GET /api/audit`) : un type absent de `MODULE_PAR_ENTITE` ou reserve a l'ADMIN (module `null`) n'est jamais montre (echec ferme), et un compte RATTACHE a
+ * un concessionnaire (referent, lot B3) ne voit aucun type du module Projets de voirie, meme s'il en porte la cle.
+ */
+export async function typesEntiteVisibles(user: CompteAuthentifie): Promise<string[] | null> {
+  const modules = await modulesAutorisesDe(user);
+  if (modules === null) return null;
+  const rattache = modules.has("projets-voirie") ? await compteRattache(user) : false;
+  return Object.entries(MODULE_PAR_ENTITE)
+    .filter(([, m]) => m !== null && modules.has(m) && !(m === "projets-voirie" && rattache))
+    .map(([type]) => type);
+}

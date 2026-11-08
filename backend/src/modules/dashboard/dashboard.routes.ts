@@ -2,6 +2,7 @@ import { Router } from "express";
 import { prisma } from "../../lib/prisma";
 import { requireAuth } from "../../middleware/auth.middleware";
 import { requireModuleAccess } from "../../middleware/module-access.middleware";
+import { typesEntiteVisibles } from "../../lib/access";
 import { Prisma } from "@prisma/client";
 import { longueurReseau, WHERE_RESEAU_CLASSE } from "../../lib/reseau";
 import { estimerPourDecision } from "../../engines/decision.estimation";
@@ -191,9 +192,15 @@ dashboardRouter.get("/kpis", requireAuth, requireModuleAccess("dashboard"), asyn
 
 // Flux d'activite recente (qui a fait quoi) pour donner un vrai air de "tableau de
 // bord" vivant a la page d'accueil, plutot que des stats figees.
-dashboardRouter.get("/activity", requireAuth, requireModuleAccess("dashboard"), async (_req, res, next) => {
+//
+// Revue de la vague 1, m5 : ce flux melange tous les types d'entite ; il n'en montre que ceux des modules AUTORISES au compte (memes regles que
+// `GET /api/audit`, voir `typesEntiteVisibles`) : un compte qui n'a que la cle « dashboard » ne lit plus les actions ni les auteurs des autres modules, et un
+// compte rattache a un concessionnaire (referent) ne voit rien du module Projets de voirie. Un ADMIN voit tout, comme avant.
+dashboardRouter.get("/activity", requireAuth, requireModuleAccess("dashboard"), async (req, res, next) => {
   try {
+    const types = await typesEntiteVisibles(req.user!);
     const rows = await prisma.auditLog.findMany({
+      where: types === null ? undefined : { entityType: { in: types } },
       include: { user: { select: { nomComplet: true } } },
       orderBy: { createdAt: "desc" },
       take: 10,

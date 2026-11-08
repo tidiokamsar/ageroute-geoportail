@@ -195,7 +195,7 @@ Classes : **publique** (sans jeton, par conception), **gardée** (rôle, module,
 | DELETE | `/api/inspections/:id/photos/:filename` | ADMIN/GESTIONNAIRE/INSPECTEUR | inspections | - | INSPECTEUR : ses inspections seulement (404 sinon) | écriture d'inspection | gardée |
 | DELETE | `/api/inspections/:id` | ADMIN/GESTIONNAIRE | inspections | - | GESTIONNAIRE+ (archivage, suppression logique) ; audit | écriture d'inspection | gardée |
 | GET | `/api/dashboard/kpis` | - | dashboard | - | module par route | agrégats nationaux (`/kpis` reste national : D-11) | gardée |
-| GET | `/api/dashboard/activity` | - | dashboard | - | module par route | agrégats nationaux (`/kpis` reste national : D-11) | gardée |
+| GET | `/api/dashboard/activity` | - | dashboard | - | module par route | agrégats nationaux (`/kpis` reste national : D-11) ; **flux d'audit filtré par modules autorisés (`typesEntiteVisibles`), jamais le module Projets de voirie pour un compte rattaché (revue vague 1, m5)** | gardée |
 | GET | `/api/dashboard/alertes` | - | alertes | - | module par route | agrégats nationaux (`/kpis` reste national : D-11) | gardée |
 | GET | `/api/dashboard/rapport-regions` | - | rapports | - | AD-7 : seules les régions du compte sont interrogées | synthèse par région | corrigée (AD-7) |
 | GET | `/api/dashboard/decision` | - | décision | - | AD-7 : refusée (403 `PERIMETRE_NATIONAL_REQUIS`) à un compte rattaché à une région ; totaux nationaux, route dépréciée (CONTRAT-AD.md section 4) | agrégats nationaux (budget, bailleurs, tronçons à prioriser) | gardée (AD-7) |
