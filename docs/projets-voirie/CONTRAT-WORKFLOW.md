@@ -229,3 +229,13 @@ Le verrou consultatif du workflow sérialise les écritures du workflow entre el
 5. Stockage de pièces jointes (références et empreintes seulement aujourd'hui) ; dépôt de jeux par un référent (non ouvert).
 6. Dérogation à la séparation des tâches par un `ADMIN` pour lui-même (comme RC-3) : autoriser ou exiger un second `ADMIN`.
 7. Révoquer un rattachement : faut-il retirer automatiquement la clé de module (non fait : geste d'administration séparé).
+
+## 11. Constats de la revue de la vague 1, documentés (ajouts)
+
+Aucun de ces constats n'est corrigé par la livraison de correction de la vague 1 : ce sont des décisions de gouvernance ou des comportements hérités du socle, consignés ici pour qu'ils soient connus.
+
+- **Verrou du projet et nouvelle tentative** : voir 9 bis (correction du commentaire et de la documentation, test de banc).
+- **O8** : la dérogation d'un `ADMIN` à la séparation des tâches pour lui-même (comme RC-3) est déjà documentée en 10, point 6.
+- **O9** : `GET /api/audit` rend les valeurs `before` et `after` des entités du workflow (rattachements, demandes, tâches, récolements) à tout compte, même `LECTEUR`, qui a la clé de module `projets-voirie` et connaît l'identifiant de l'entité (UUID). Comportement hérité du journal d'audit commun, fermé aux comptes rattachés (`COMPTE_REFERENT_RESTREINT`) ; l'historique du workflow porte des noms d'agents et des motifs internes. Décision DSI : restreindre la lecture de ces types aux rôles qui décident.
+- **O10, ordre de déploiement** : voir `DEPLOIEMENT-MODULE.md` (migrations avant le code ; retirer la clé de module aux référents avant toute descente de la migration du workflow, car la descente supprime les rattachements).
+- **O11** : les 409 `STATUT_INCOMPATIBLE` (retrait d'un jeu déjà retiré, décision sur un jeu qui n'est plus en contrôle) rendent le `statut` du jeu, y compris `RETIRE`, aux comptes qui décident (`ADMIN`, `GESTIONNAIRE`), comme le socle ; les autres comptes reçoivent la même 404 qu'un jeu inconnu. `jeuMasque: true` (demandes, récolements) dit seulement qu'un jeu lié existe mais n'est pas lisible pour ce compte, sans son statut.
