@@ -22,6 +22,8 @@ import {
 import * as depot from "./analyse.depot";
 import { ErreurMetier, introuvable } from "./erreurs";
 import type { Acteur } from "./projets.service";
+import { descripteursDesObjets } from "./reseaux/reseaux.depot";
+import { classeEffective, natureEffective } from "./reseaux/types.noyau";
 import { INCLURE_JEU } from "./vues";
 
 export const OBJETS_PAR_AXE_MAX = 100;
@@ -127,7 +129,6 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
   const projection = `EPSG:${mesures.epsg}`;
   const jeuxParId = new Map(retenus.map((j) => [j.id, j] as const));
   const classeDe = (j: JeuLu): ClasseLue => (j.classePrecision as ClasseLue) ?? null;
-  const qualifDe = (jeuId: string): Qualification => qualificationDe(classeDe(jeuxParId.get(jeuId)!));
   const nomConc = (j: JeuLu) => j.concessionnaire?.nom ?? "";
 
   // --- Par jeu (union des bandes de tous les axes) ---
@@ -170,6 +171,14 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
     jeuxIds: js.map((j) => j.id), statut: js.some((j) => j.statut !== "AUTORISE") ? "CONTROLE" : "AUTORISE",
   })).sort((a, b) => b.longueurTraceFusionneM - a.longueurTraceFusionneM || a.nom.localeCompare(b.nom));
 
+  // Lot B1 : jamais un total qui melange les natures. Granularite du JEU : la nature declaree pour le jeu (natureObjets) ; INCONNUE reste a part.
+  const parNatureJeux = new Map<string, JeuLu[]>();
+  for (const j of reseaux) parNatureJeux.set(j.natureObjets, [...(parNatureJeux.get(j.natureObjets) ?? []), j]);
+  const reseauxParNature = [...parNatureJeux.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([nature, js]) => ({
+    nature, nbJeux: js.length, nbObjets: js.reduce((x, j) => x + j.nbObjets, 0), libelleNbObjets: LIBELLES.nbObjets,
+    longueurSommeM: r2(js.reduce((x, j) => x + j.longueurTotaleM, 0)), longueurTraceFusionneM: r2(js.reduce((x, j) => x + j.longueurTraceFusionneM, 0)),
+  }));
+
   const conflitsConc = [...parConc.entries()].map(([id, js]) => {
     const s = sommes(js);
     const classes = [...new Set(js.map((j) => j.classePrecision ?? "inconnue"))];
@@ -197,17 +206,29 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
     a.c += m.chausseeM; a.e += m.empriseM; a.x += m.croisements; a.jeux.add(m.jeu);
     metriquesAxe.set(m.axeId, a);
   }
+  // Lot B1 : nature et classe de precision EFFECTIVES (objet, sinon jeu, sinon inconnue) des objets listes ; les totaux restent a la granularite du jeu.
+  const objetsTries = new Map(mesures.liste.axes.map((a) => [
+    a.id, [...(objetsParAxe.get(a.id) ?? [])].sort((p, q) => q.empriseM - p.empriseM || q.chausseeM - p.chausseeM || p.objetId.localeCompare(q.objetId)),
+  ] as const));
+  const descripteurs = await descripteursDesObjets(prisma, [...objetsTries.values()].flatMap((l) => l.slice(0, OBJETS_PAR_AXE_MAX).map((o) => o.objetId)));
   const parAxe = mesures.liste.axes.map((a) => {
     const m = metriquesAxe.get(a.id);
-    const objets = (objetsParAxe.get(a.id) ?? []).sort((p, q) => q.empriseM - p.empriseM || q.chausseeM - p.chausseeM || p.objetId.localeCompare(q.objetId));
+    const objets = objetsTries.get(a.id) ?? [];
     return {
       axe: a.axe, axeId: a.id, longueurM: r2(a.longueurM),
       chausseeM: r2(m?.c ?? 0), empriseM: r2(m?.e ?? 0), empriseHorsChausseeM: r2(Math.max(0, (m?.e ?? 0) - (m?.c ?? 0))), croisements: m?.x ?? 0,
       concessionnaires: [...new Set([...(m?.jeux ?? [])].map((id) => nomConc(jeuxParId.get(id)!)))].sort(),
-      objets: objets.slice(0, OBJETS_PAR_AXE_MAX).map((o) => ({
-        jeuId: o.jeu, objetId: o.objetId, nom: o.nom, qualification: qualifDe(o.jeu),
-        chausseeM: r2(o.chausseeM), empriseM: r2(o.empriseM), croisements: o.croisements,
-      })),
+      objets: objets.slice(0, OBJETS_PAR_AXE_MAX).map((o) => {
+        const d = descripteurs.get(o.objetId);
+        const jeuObjet = jeuxParId.get(o.jeu)!;
+        const nature = natureEffective(d?.nature, d?.natureJeu ?? jeuObjet.natureObjets);
+        const classe = classeEffective(d?.classe, d ? d.classeJeu : jeuObjet.classePrecision);
+        return {
+          jeuId: o.jeu, objetId: o.objetId, nom: o.nom,
+          nature: nature.nature, origineNature: nature.origine, classePrecision: classe.classe, qualification: qualificationDe(classe.classe),
+          chausseeM: r2(o.chausseeM), empriseM: r2(o.empriseM), croisements: o.croisements,
+        };
+      }),
       objetsTronques: objets.length > OBJETS_PAR_AXE_MAX || parObjetTronque,
       ...etiquette,
     };
@@ -239,17 +260,23 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
     inclureNonAutorises: d.inclureNonAutorises,
     parametres: { largeurEmpriseM: empr, largeurChausseeM: chau, statut: statutParametres, projection, surcharge },
     libelles: { ...LIBELLES },
+    natures: {
+      granularite: "JEU",
+      libelle: "Les totaux par nature (infrastructure physique, circuit logique, équipement, inconnue) sont ceux de la nature DÉCLARÉE pour chaque jeu ; la nature et la classe de précision d'un objet précisées par un descripteur ne figurent que dans la liste des objets de chaque axe. Un conflit avec un simple circuit logique n'est pas un conflit avec une infrastructure physique.",
+    },
     axes: { nb: mesures.liste.axes.length, longueurM: r2(mesures.liste.longueurFusionneeM), jeuxIds: axesIds },
     jeux: jeuxReponse,
     reseaux: {
       parType: [...parType.values()].map((t) => ({ ...t, longueurTraceFusionneM: r2(t.longueurTraceFusionneM), libelleNbObjets: LIBELLES.nbObjets })).sort((a, b) => b.longueurTraceFusionneM - a.longueurTraceFusionneM),
       parConcessionnaire: reseauxConc,
+      parNature: reseauxParNature,
     },
     conflits: {
       total: {
         ...sommes(reseaux), croisements: totalCroisements,
         axesTouches: new Set(mesures.parAxe.map((m) => m.axeId)).size, objetsTouches,
         parQualification: { CONFLIT_POTENTIEL: parQualif("CONFLIT_POTENTIEL"), PROXIMITE_A_VERIFIER: parQualif("PROXIMITE_A_VERIFIER") },
+        parNature: Object.fromEntries([...parNatureJeux.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([nature, js]) => [nature, { ...sommes(js), ...etiquette }])),
         ...etiquette,
       },
       parAxe,

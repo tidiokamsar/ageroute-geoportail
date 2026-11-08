@@ -18,6 +18,7 @@ const ROUTES = join(SRC, "api-v2", "projets-voirie.routes.ts");
 const ROUTES_CONFLITS = join(SRC, "api-v2", "projets-voirie.conflits.routes.ts");
 const ROUTES_IMPORT = join(SRC, "api-v2", "projets-voirie.import.routes.ts");
 const ROUTES_WORKFLOW = join(SRC, "api-v2", "projets-voirie.workflow.routes.ts");
+const ROUTES_RESEAUX = join(SRC, "api-v2", "projets-voirie.reseaux.routes.ts");
 
 function sources(dossier: string): string[] {
   const sortie: string[] = [];
@@ -38,6 +39,8 @@ const TABLES_DU_MODULE = [
   "projets_voirie_import_evenements", "projets_voirie_fichiers_origine",
   // Workflow concessionnaire (lot B3).
   "referents_concessionnaire", "demandes_concessionnaire", "taches_projet_voirie", "recolements_projet_voirie", "preuves_workflow_projet", "workflow_projet_historique",
+  // Reseaux physiques et circuits logiques (lot B1) : descripteurs d objets et relations. Les objets (`projets_voirie_objets`) restent immuables.
+  "reseau_objets_descripteurs", "reseau_relations",
 ];
 const DELEGUES_DU_MODULE = [
   "projetVoirie", "jeuDonneesProjet", "objetProjet", "concessionnaireReseau", "auditLog",
@@ -47,7 +50,7 @@ const DELEGUES_DU_MODULE = [
   "referentConcessionnaire", "demandeConcessionnaire", "tacheProjetVoirie", "recolementProjetVoirie", "preuveWorkflowProjet", "historiqueWorkflowProjet",
 ];
 
-const fichiersDuModule = [...sources(MODULE), ROUTES, ROUTES_CONFLITS, ROUTES_IMPORT, ROUTES_WORKFLOW];
+const fichiersDuModule = [...sources(MODULE), ROUTES, ROUTES_CONFLITS, ROUTES_IMPORT, ROUTES_WORKFLOW, ROUTES_RESEAUX];
 
 describe("le module n'ecrit que dans ses propres tables", () => {
   it("le module contient du code a verifier (garde contre une lecture qui ne trouve rien)", () => {
@@ -108,6 +111,7 @@ describe("rien d'autre dans le code ne lit les donnees du module (jamais d'API p
     join("api-v2", "projets-voirie.conflits.routes.ts"),
     join("api-v2", "projets-voirie.import.routes.ts"),
     join("api-v2", "projets-voirie.workflow.routes.ts"),
+    join("api-v2", "projets-voirie.reseaux.routes.ts"),
     // Cle de module.
     join("lib", "modules.ts"),
   ]);

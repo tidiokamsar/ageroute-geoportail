@@ -116,6 +116,10 @@ export const MODULE_PAR_ENTITE: Record<string, ModuleKey | null> = {
   DemandeConcessionnaire: "projets-voirie",
   TacheProjetVoirie: "projets-voirie",
   RecolementProjetVoirie: "projets-voirie",
+  // Reseaux physiques et circuits logiques (lot B1) : descripteurs d objets, relations et propositions d associations. Aucune geometrie dans l audit.
+  ReseauObjetDescripteur: "projets-voirie",
+  ReseauRelation: "projets-voirie",
+  AssociationsReseau: "projets-voirie",
   User: null,
   AppSetting: null,
 };

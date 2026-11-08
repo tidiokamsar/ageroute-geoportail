@@ -27,6 +27,8 @@ import { limiteurAnalyses } from "../limiteurs";
 import { ErreurMetier, introuvable } from "../erreurs";
 import { SOMMETS_AXES_ANALYSE_MAX, SOMMETS_RESEAU_ANALYSE_MAX } from "../analyse.service";
 import type { Acteur } from "../projets.service";
+import { descripteursDesObjets } from "../reseaux/reseaux.depot";
+import { classeEffective } from "../reseaux/types.noyau";
 import { verifierCadence } from "./cadence.noyau";
 import { cellule, empreinteMesure, finaliserCandidats, type CandidatBrut, type ConflitCalcule } from "./classification.noyau";
 import * as depot from "./conflits.depot";
@@ -209,12 +211,16 @@ async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: Pr
   }
 
   const jeuParId = new Map(jeux.map((j) => [j.id, j] as const));
+  // Lot B1 (extension minimale, CONTRAT-CONFLITS.md section 9, point 36) : la classe de precision d'un objet est celle que son descripteur DECLARE, sinon
+  // celle de son jeu, sinon inconnue (jamais deduite). Sans descripteur, rien ne change. Une classe qui change fait marquer le dossier a reexaminer
+  // (NOUVELLE_VERSION_DONNEES) par le rejeu existant, sans jamais toucher un verdict humain.
+  const descripteurs = await budget.etape(() => descripteursDesObjets(tx, lignes.map((l) => l.oid)), "descripteurs");
   const bruts: CandidatBrut[] = [
     ...lignes.map((l): CandidatBrut => {
       const j = jeuParId.get(l.jeu)!;
       return {
         type: l.type, axe: l.axe, jeuReseauId: l.jeu, objetId: l.oid, concessionnaireId: j.concessionnaireId, nomObjet: l.nom, empreinteObjet: l.emp,
-        classePrecision: j.classePrecision, mesure: mesureDe(l), cellule: [l.cx, l.cy], geomHex: l.g,
+        classePrecision: classeEffective(descripteurs.get(l.oid)?.classe, j.classePrecision).classe, mesure: mesureDe(l), cellule: [l.cx, l.cy], geomHex: l.g,
       };
     }),
     ...sansCouverture.map((c): CandidatBrut => ({

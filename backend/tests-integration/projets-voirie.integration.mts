@@ -19,7 +19,8 @@
 import { ouvrirBancClone } from "./lib/banc-clone.mts";
 import { verifier, conclure, proche } from "./lib/verdict.ts";
 
-const banc = await ouvrirBancClone("essai_projets_voirie");
+// Lot B1 : la carte et l analyse lisent les descripteurs d objets (migration 20261101200000), que le banc applique au clone si `replay` ne la porte pas.
+const banc = await ouvrirBancClone("essai_projets_voirie", { migrations: ["20261101200000_reseaux_physiques_logiques"] });
 const { prisma } = await banc.imp("lib/prisma");
 const { createApp } = await banc.imp("app");
 const { signAccessToken } = await banc.imp("utils/jwt");

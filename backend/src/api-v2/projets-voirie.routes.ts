@@ -16,6 +16,7 @@ import { monterRoutesConflits } from "./projets-voirie.conflits.routes";
 import { champsImport, monterRoutesImport, optionsDepuis } from "./projets-voirie.import.routes";
 import { monterRoutesWorkflow } from "./projets-voirie.workflow.routes";
 import { gardeReferent } from "../projets-voirie/workflow/garde";
+import { monterRoutesReseaux } from "./projets-voirie.reseaux.routes";
 import { deposerJeu } from "../projets-voirie/import.service";
 import {
   creerConcessionnaire, creerProjet, decider, decoderCurseur, ficheProjet, listerConcessionnaires, listerJeux, listerProjets,
@@ -380,3 +381,8 @@ monterRoutesImport(projetsVoirieV2Router, { ecriture, gardeProjet, acteurDe, env
 // ------------------------------------------------------------------------------------------------
 
 monterRoutesWorkflow(projetsVoirieV2Router, { gardeProjet, acteurDe, enveloppe, refuser, UUID });
+// Reseaux physiques et circuits logiques (lot B1) : descripteurs d objets, relations, propositions d associations, comptage par nature.
+// Memes gardes, meme ordre (voir projets-voirie.reseaux.routes.ts).
+// ------------------------------------------------------------------------------------------------
+
+monterRoutesReseaux(projetsVoirieV2Router, { ecriture, gardeProjet, acteurDe, enveloppe, refuser, UUID });
