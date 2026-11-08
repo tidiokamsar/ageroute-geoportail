@@ -69,7 +69,7 @@ export interface DemandeDepot {
 
 /** Ce que renvoie le depot en plus du socle : delta detaille, suppressions a revoir, validation geometrique. */
 export interface Suppressions { statut: "AUCUNE" | "A_REVOIR"; nb: number }
-export interface ValidationGeometrique { nbProblemes: number; problemes: Probleme[]; tronque: boolean }
+export interface ValidationGeometrique { nbProblemes: number; problemes: Probleme[]; tronque: boolean; elementsEcartes: ResultatImport["ecartes"] }
 export interface DeltaVue { ajoutes: number; modifies: number; retires: number; identiques: number }
 
 /** Au plus deux depots simultanes par processus : un depot garde une connexion de la base pendant toute sa transaction. */
@@ -349,7 +349,7 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
     suppressions = { statut: dj.retires > 0 ? "A_REVOIR" : "AUCUNE", nb: dj.retires };
   }
   const conservation = modeConservationOriginal();
-  const validationGeometrique: ValidationGeometrique = { nbProblemes: bilan.reparees, problemes: bilan.problemes, tronque: bilan.reparees > bilan.problemes.length };
+  const validationGeometrique: ValidationGeometrique = { nbProblemes: bilan.reparees, problemes: bilan.problemes, tronque: bilan.reparees > bilan.problemes.length, elementsEcartes: lecture.ecartes };
 
   const resume = {
     nbObjets: mesures.nbObjets,

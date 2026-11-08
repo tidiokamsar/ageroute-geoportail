@@ -59,6 +59,8 @@ lancer "inspection-terrain.integration.mts"
 lancer "projets-voirie.integration.mts"
 # Dossiers de conflit (lot RC-3) : clone `essai_conflits_pv` ; applique lui-meme la migration 20261031100000 au clone si `replay` ne la porte pas.
 lancer "conflits-projets-voirie.integration.mts"
+# Formats d'import ouverts, CRS, mapping, versions (lot A1) : clone `essai_import_formats` ; exige la migration 20261101100000 dans `replay`.
+lancer "import-formats.integration.mts"
 
 printf '\n%s\n' "Resultat des bancs d'integration"
 printf '%s\n' "${lignes[@]}"

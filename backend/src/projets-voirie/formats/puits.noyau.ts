@@ -21,7 +21,7 @@ export interface Puits {
   elementIgnore(nom: string): void;
   elementLu(): void;
   /** `couche` : identifiant de couche propre au lecteur (chemin de dossier KML, `waypoints`, `routes`, `traces`) ; `undefined` : couche unique. */
-  ajouter(nom: string | null, attributs: Record<string, unknown>, formes: FormesBrutes, couche?: string): void;
+  ajouter(nom: string | null, attributs: Record<string, unknown>, formes: FormesBrutes, couche?: string, numero?: number): void;
 }
 
 const familles = (f: FormesBrutes): { LIGNE: number; POINT: number; POLYGONE: number } => ({
@@ -73,7 +73,7 @@ export class Inventaire implements Puits {
   liste(): CoucheInventoriee[] { return [...this.couches.values()]; }
 }
 
-interface Enregistre { nom: string | null; attributs: Record<string, unknown>; formes: FormesBrutes; couche?: string }
+interface Enregistre { nom: string | null; attributs: Record<string, unknown>; formes: FormesBrutes; couche?: string; numero: number }
 
 /** Coordonnees brutes d'un fichier, a plat, dans l'ordre de `rejouer`. `invalide[i]` : valeur illisible (remplacee par 0 a l'envoi). */
 export interface SommetsBruts { x: Float64Array; y: Float64Array; invalide: Uint8Array }
@@ -84,6 +84,8 @@ const COORDONNEE_MAX = 1e9;
 export class Enregistreur implements Puits {
   private readonly elements: Enregistre[] = [];
   private sommetsFichier = 0;
+  /** Elements lus jusqu'ici : le numero d'un element ecarte doit rester celui du FICHIER, meme si l'element est rejoue plus tard. */
+  private lusLocal = 0;
   private readonly sommetsObjetMax: number;
   private readonly sommetsFichierMax: number;
 
@@ -94,7 +96,7 @@ export class Enregistreur implements Puits {
 
   compter(code: CodeAvertissement, n?: number): void { this.cible.compter(code, n); }
   elementIgnore(nom: string): void { this.cible.elementIgnore(nom); }
-  elementLu(): void { this.cible.elementLu(); }
+  elementLu(): void { this.lusLocal++; this.cible.elementLu(); }
 
   ajouter(nom: string | null, attributs: Record<string, unknown>, formes: FormesBrutes, couche?: string): void {
     let sommets = formes.points.length;
@@ -104,7 +106,7 @@ export class Enregistreur implements Puits {
     this.sommetsFichier += sommets;
     if (this.sommetsFichier > this.sommetsFichierMax) throw new ErreurLecture("TROP_DE_SOMMETS", `le fichier depasse ${this.sommetsFichierMax} sommets : decoupez-le`);
     if (this.elements.length >= OBJETS_MAX) throw new ErreurLecture("TROP_D_OBJETS", `plus de ${OBJETS_MAX} objets dans le fichier : decoupez-le`);
-    this.elements.push({ nom, attributs, formes, couche });
+    this.elements.push({ nom, attributs, formes, couche, numero: this.lusLocal });
   }
 
   get nbElements(): number { return this.elements.length; }
@@ -146,7 +148,7 @@ export class Enregistreur implements Puits {
       sortie.points = f.points.map(suivant);
       sortie.lignes = f.lignes.map((l) => l.map(suivant));
       sortie.polygones = f.polygones.map((p) => p.map((a) => a.map(suivant)));
-      this.cible.ajouter(e.nom, e.attributs, sortie, e.couche);
+      this.cible.ajouter(e.nom, e.attributs, sortie, e.couche, e.numero);
     }
   }
 }

@@ -97,6 +97,8 @@ async function main() {
 
   console.log("\n== Lot A1 : formats d'import ouverts, CRS, mapping, versions : banc PostGIS ==");
   const etatInitial = await instantane();
+  /** Reponses reelles, ecrites dans le fichier de IMPORT_EXEMPLES s'il est demande (docs/projets-voirie/API.md). */
+  const exemples: Record<string, unknown> = {};
 
   // ---------------------------------------------------------------- 0. Fixtures : projet, concessionnaires
   const cree = await envoyer("post", "", { code: "KISSI-A1", nom: "Voirie A1", regionId: R1 });
@@ -137,6 +139,8 @@ async function main() {
   const plan = csvPlanUtm();
   const apPlan = await apercu(PID, plan, OPTIONS_PLAN, "plan-axes.csv");
   const crs = apPlan.body.resume?.crs;
+  exemples["apercu_plan_utm"] = apPlan.body;
+  exemples["options"] = opt.body;
   verifier("3. apercu du plan UTM 29N (virgule decimale, BOM, ordre melange) : 200, 3 lignes (une par axe), format CSV, delimiteur et decimale detectes",
     apPlan.status === 200 && apPlan.body.format === "CSV" && apPlan.body.resume.nbObjets === 3 && apPlan.body.resume.parTypeGeom.LIGNE === 3
     && apPlan.body.resume.import.csv.delimiteur === ";" && apPlan.body.resume.import.csv.separateurDecimal === "," && apPlan.body.resume.import.csv.mode === "lignes", apPlan.body.resume);
@@ -181,7 +185,10 @@ async function main() {
   const avecConfirm = await apercu(PID, planMixte, { ...OPTIONS_PLAN, confirmerHorsZone: "true" }, "plan.csv");
   verifier("3. avec confirmerHorsZone, l'axe hors zone est ecarte (jamais stocke) et signale ; la plausibilite le dit",
     avecConfirm.status === 200 && avecConfirm.body.resume.nbObjets === 3 && avecConfirm.body.resume.crs.plausibilite.statut === "PARTIELLEMENT_HORS_ZONE"
-    && avecConfirm.body.resume.crs.plausibilite.confirmee === true && avecConfirm.body.avertissements.some((a: { code: string }) => a.code === "ELEMENTS_HORS_GUINEE"), avecConfirm.body.avertissements);
+    && avecConfirm.body.resume.crs.plausibilite.confirmee === true && avecConfirm.body.avertissements.some((a: { code: string }) => a.code === "ELEMENTS_HORS_GUINEE")
+    && avecConfirm.body.validationGeometrique.elementsEcartes.length === 1 && avecConfirm.body.validationGeometrique.elementsEcartes[0].code === "COORDONNEES_HORS_ZONE"
+    && avecConfirm.body.validationGeometrique.elementsEcartes[0].nom === "Z" && avecConfirm.body.validationGeometrique.elementsEcartes[0].element === 4
+    && !/900000|5000000/.test(JSON.stringify(avecConfirm.body.validationGeometrique)), avecConfirm.body.validationGeometrique);
 
   // ---------------------------------------------------------------- 4. Depot du plan UTM et superposition au KML WGS 84
   const sim = await depot(PID, plan, { role: "AXES_TRAVAUX", ...OPTIONS_PLAN }, "plan-axes.csv", true);
@@ -198,6 +205,7 @@ async function main() {
   verifier("4. l'audit du depot conserve le CRS (source, cible, methode, plausibilite) et le mode CSV, sans geometrie (moins de 4 ko)",
     auditPlan.crs.epsgSource === 32629 && auditPlan.crs.plausibilite === "CONFORME" && auditPlan.import.csv?.mode === "lignes"
     && (await sql<{ m: number }>(`SELECT max(length(after::text))::int m FROM audit_logs WHERE "entityType" = 'JeuDonneesProjet'`))[0].m < 4096, auditPlan);
+  exemples["depot_plan_utm"] = dPlan.body;
   const redepot = await depot(PID, plan, { role: "AXES_TRAVAUX", ...OPTIONS_PLAN }, "plan-axes.csv");
   verifier("4. idempotence : le meme fichier redepose donne 409 JEU_DEJA_CHARGE avec le jeuId existant, aucun objet en double", redepot.status === 409 && redepot.body.code === "JEU_DEJA_CHARGE" && redepot.body.jeuId === JEU_PLAN
     && (await nbObjets(JEU_PLAN)) === 3);
@@ -230,6 +238,8 @@ async function main() {
   verifier("5. inventaire d'un KMZ : format KMZ detecte par le contenu, entrees listees (l'image n'est pas lue), couches Fibre (2) et Eau (1), choix de couche conseille",
     inv.status === 200 && inv.body.format === "KMZ" && inv.body.archive.kmlPrincipal === "doc.kml" && inv.body.archive.entrees.some((x: { nom: string; type: string }) => x.nom === "images/icone.png" && x.type === "image")
     && inv.body.couches.map((c: { nom: string; nbObjets: number }) => `${c.nom}:${c.nbObjets}`).join() === "Fibre:2,Eau:1" && inv.body.avertissements.some((a: { code: string }) => a.code === "COUCHES_MULTIPLES"), inv.body);
+  exemples["inventaire_kmz"] = inv.body;
+  exemples["inventaire_csv"] = (await inventaire(PID, plan, {}, "plan-axes.csv")).body;
   const apCouche = await apercu(PID, kmzAvecDossiers, { couche: "c1" }, "reseau.kmz");
   verifier("5. apercu d'une seule couche du KMZ : seuls les objets de la couche choisie (Eau : 1 objet) ; couche inconnue : 422 COUCHE_INTROUVABLE",
     apCouche.status === 200 && apCouche.body.resume.nbObjets === 1 && apCouche.body.couche.nom === "Eau" && (await apercu(PID, kmzAvecDossiers, { couche: "c9" }, "r.kmz")).body.code === "COUCHE_INTROUVABLE", apCouche.body.couche);
@@ -341,7 +351,9 @@ async function main() {
   verifier("10. depot de la version 2 : delta = 1 ajoute, 1 MODIFIE (meme identifiant R1, geometrie et nom differents), 1 retire (R2), 0 identique ; remplace la version 1 ; suppressions A_REVOIR",
     dV2.status === 201 && dV2.body.delta.ajoutes === 1 && dV2.body.delta.modifies === 1 && dV2.body.delta.retires === 1 && dV2.body.delta.identiques === 0
     && dV2.body.remplace.jeuId === JEU_V1 && dV2.body.suppressions.statut === "A_REVOIR" && dV2.body.suppressions.nb === 1, dV2.body);
+  exemples["depot_version_2"] = dV2.body;
   const dl = (await get(`/${PID}/jeux/${JEU_V2}/delta`)).body;
+  exemples["delta"] = dl;
   verifier("10. GET delta : cle de comparaison `identifiant`, echantillons (le retire est R2 par son nom), statut A_REVOIR, aucune geometrie",
     dl.cleComparaison === "identifiant" && dl.echantillons.retires[0].nom === "Regard 2" && dl.echantillons.modifies[0].cle === "R1" && dl.echantillons.modifies[0].nomApres === "Regard 1 (deplace)"
     && dl.suppressions.statut === "A_REVOIR" && !/coordinates/.test(JSON.stringify(dl)) && dl.comparaison.jeuId === JEU_V1, dl);
@@ -353,6 +365,7 @@ async function main() {
   verifier("10. revue REFUSER : justification d'au moins 10 caracteres (400), puis statut REFUSEES ; l'autorisation repond alors 409 SUPPRESSIONS_REFUSEES",
     revueCourte.status === 400 && revueRefus.status === 200 && revueRefus.body.suppressions.statut === "REFUSEES" && revueRefus.body.suppressions.revue.par.nomComplet === "Sekou Gestionnaire"
     && (await autoriser(PID, JEU_V2)).body.code === "SUPPRESSIONS_REFUSEES", revueRefus.body.suppressions);
+  exemples["revue_suppressions"] = revueRefus.body;
   const revueOk = await envoyer("post", `/${PID}/jeux/${JEU_V2}/revue-suppressions`, { decision: "ACCEPTER", justification: "R2 a ete depose, confirme par le concessionnaire" }, T.chef2);
   verifier("10. une nouvelle revue remplace la precedente (la derniere fait foi, toutes sont conservees) : ACCEPTEES par un autre compte",
     revueOk.status === 200 && revueOk.body.suppressions.statut === "ACCEPTEES" && (await compter(`SELECT count(*) n FROM projets_voirie_import_evenements WHERE "jeuId" = $1`, JEU_V2)) === 2, revueOk.body);
@@ -383,6 +396,10 @@ async function main() {
     attente.status === 201 && (await envoyer("post", `/${PID}/jeux/${JEU_V2}/retour-arriere`, { justification: "retour a la version validee" })).body.jeuId === attente.body.jeu.id);
   await envoyer("post", `/${PID}/jeux/${attente.body.jeu.id}/rejeter`, { justification: "depot de test, rejete pour l'essai" });
   const retour = await envoyer("post", `/${PID}/jeux/${JEU_V2}/retour-arriere`, { justification: "La version 2 supprimait R2 a tort : retour a la version 1" });
+  exemples["retour_arriere"] = retour.body;
+  exemples["erreur_crs_incoherent"] = (await apercu(PID, plan, { ...sansCrs, epsgSource: "4326" }, "p.csv")).body;
+  exemples["erreur_confirmation"] = sansConfirm.body;
+  exemples["erreur_suppressions_a_revoir"] = refusAuto.body;
   verifier("11. RETOUR ARRIERE : la version 1 repasse AUTORISE, la version 2 REMPLACE ; une seule AUTORISE", retour.status === 200 && retour.body.jeuRestaure.id === JEU_V1 && retour.body.jeuRestaure.statut === "AUTORISE"
     && retour.body.jeuRetire.statut === "REMPLACE" && (await statutJeu(JEU_V1)) === "AUTORISE" && (await statutJeu(JEU_V2)) === "REMPLACE"
     && (await compter(`SELECT count(*) n FROM projets_voirie_jeux WHERE "concessionnaireId" = $1 AND statut = 'AUTORISE'`, CONC_B)) === 1, retour.body);
@@ -461,6 +478,7 @@ async function main() {
   verifier("13. 20 000 points stockes : trois points temoins (premier, milieu, dernier) retrouvent leurs coordonnees UTM d'origine a 1 cm pres apres aller-retour par la base",
     echantillonUtm.length === 3 && echantillonUtm.every((p, i) => proche(p.e, attendus[i].e, 0.01 + 0.0005) && proche(p.n, attendus[i].n, 0.01 + 0.0005)), echantillonUtm);
   void utmVersLonLat;
+  if (process.env.IMPORT_EXEMPLES) (await import("node:fs")).writeFileSync(process.env.IMPORT_EXEMPLES, JSON.stringify(exemples, null, 2));
 }
 
 try {

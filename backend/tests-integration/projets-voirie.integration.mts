@@ -613,7 +613,7 @@ async function main() {
   // ---------------------------------------------------------------- 16. Aucune ecriture dans le referentiel officiel
   const etatFinal = await instantane();
   const bouges = Object.keys(etatFinal).filter((t) => etatInitial[t] !== etatFinal[t]).sort();
-  const autorises = new Set(["audit_logs", "projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau"]);
+  const autorises = new Set(["audit_logs", "projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau", "projets_voirie_import_evenements", "projets_voirie_fichiers_origine"]);
   verifier("16. apres tout le banc (depots, autorisations, retraits, exports, lectures), SEULES les tables du module et audit_logs ont change : troncons, ouvrages, portions, chantiers, defauts... intacts",
     bouges.every((t) => autorises.has(t)) && bouges.includes("projets_voirie_objets"), bouges);
   verifier("16. ... et le referentiel est bien present dans l'instantane (le test n'est pas vide)", ["troncons", "ouvrages", "portions", "chantiers", "defauts", "users", "regions"].every((t) => t in etatFinal));

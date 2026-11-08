@@ -187,7 +187,7 @@ describe("inventaire et apercu : fichier et options", () => {
     for (const chemin of [`/${P_R1}/import/inventaire`, `/${P_R1}/import/apercu`]) {
       expect((await envoi(chemin, {}, null)).body.code).toBe("FICHIER_MANQUANT");
       for (const champs of [{ epsgSource: "abc" }, { epsgSource: "12" }, { epsgSource: "32629.5" }, { sha256Attendu: "xyz" }, { delimiteur: ";;" }, { encodage: "ebcdic" }, { separateurDecimal: ";" },
-        { confirmerHorsZone: "peut-etre" }, { colonneX: "x".repeat(201) }, { inconnu: "x" }, { mapping: "x".repeat(4001) }]) {
+        { confirmerHorsZone: "peut-etre" }, { colonneX: "x".repeat(201) }, { inconnu: "x" }, { mapping: "x".repeat(4001) }] as Record<string, string>[]) {
         const r = await envoi(chemin, champs);
         expect(r.status, `${chemin} ${JSON.stringify(champs)}`).toBe(400);
         expect(r.body.code).toBe("CHAMPS_INVALIDES");

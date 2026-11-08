@@ -99,7 +99,7 @@ export interface ReponseApercu {
   couche: { id: string; nom: string } | null;
   resume: Record<string, unknown>;
   statistiques: Record<string, unknown>;
-  validationGeometrique: { nbProblemes: number; problemes: Probleme[]; tronque: boolean };
+  validationGeometrique: { nbProblemes: number; problemes: Probleme[]; tronque: boolean; elementsEcartes: ResultatImport["ecartes"] };
   echantillon: { taille: number; total: number; objets: ObjetEchantillon[] };
   mapping: { applique: Record<string, string>; propositionsJeu: ResultatImport["propositionsJeu"]; avertissements: Avertissement[] };
   avertissements: Avertissement[];
@@ -150,7 +150,7 @@ export async function apercuFichier(d: DemandeFichier): Promise<ReponseApercu> {
       nbObjets: res.resume.nbObjets, parTypeGeom: res.resume.parTypeGeom, longueurTotaleM: Math.round(geo.longueurTotaleM * 100) / 100,
       doublonsInternes: doublons, sommets, geometriesAReparer: geo.geometriesAReparer, geometriesVides: geo.geometriesVides,
     },
-    validationGeometrique: { nbProblemes: geo.geometriesAReparer, problemes: geo.problemes, tronque: geo.tronque },
+    validationGeometrique: { nbProblemes: geo.geometriesAReparer, problemes: geo.problemes, tronque: geo.tronque, elementsEcartes: res.ecartes },
     echantillon: { taille: Math.min(taille, res.objets.length), total: res.objets.length, objets: construireEchantillon(res.objets, taille, aProbleme, SOMMETS_ECHANTILLON_MAX) },
     mapping: {
       applique: { ...res.importInfo.mapping }, propositionsJeu: res.propositionsJeu,

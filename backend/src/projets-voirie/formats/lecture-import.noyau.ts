@@ -289,8 +289,17 @@ export interface InfoImportLecture {
   rejetsTronques: boolean;
 }
 
+/** Element ecarte, avec un message fixe (jamais de coordonnee recopiee). */
+export interface ElementEcarteVue { element: number; nom: string | null; code: string; message: string }
+const MESSAGES_ECARTES: Record<string, string> = {
+  COORDONNEES_HORS_ZONE: "Coordonnees hors de l'emprise de la Guinee (ou hors de la plage des degres) : l'element est ecarte et jamais stocke.",
+  GEOMETRIE_INVALIDE: "Geometrie inexploitable (ligne de moins de deux points, anneau degenere, coordonnee illisible) : l'element est ecarte.",
+};
+
 export interface ResultatImport {
   format: FormatFichier;
+  /** Elements ecartes, 50 au plus (le nombre exact est dans les avertissements ELEMENTS_HORS_GUINEE et GEOMETRIES_INVALIDES_IGNOREES). */
+  ecartes: ElementEcarteVue[];
   crs: InfoCrsImport;
   objets: ObjetLu[];
   avertissements: Avertissement[];
@@ -428,6 +437,7 @@ export function preparer(d: Detection, opts: OptionsImport, lim: LimitesImport):
       };
       return {
         format: d.format, crs, objets: res.objets, avertissements, resume: res.resume,
+        ecartes: reel.ecartes.map((x) => ({ element: x.element, nom: x.nom, code: x.code, message: MESSAGES_ECARTES[x.code] })),
         importInfo: {
           couche, entreeKml: d.entreeKml,
           csv: csv ? {

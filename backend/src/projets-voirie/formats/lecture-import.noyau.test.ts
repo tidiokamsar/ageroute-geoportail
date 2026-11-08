@@ -69,7 +69,7 @@ describe("detection par le contenu, jamais par l'extension", () => {
 
   it("fichier vide ou de blancs : FICHIER_VIDE ; trop gros : FICHIER_TROP_GROS", () => {
     expect(code(() => lire(Buffer.alloc(0), "a.csv"))).toBe("FICHIER_VIDE");
-    expect(code(() => lire("   \n  ", "a.json"))).toBe("CSV" === "x" ? "" : code(() => lire("   \n  ", "a.json")));
+    expect(code(() => lire("   \n  ", "a.json"))).toBe("FICHIER_VIDE");
     expect(code(() => detecter(Buffer.alloc(26 * 1024 * 1024, 0x61), "a.csv", {}, LIM))).toBe("FICHIER_TROP_GROS");
   });
 
@@ -217,6 +217,22 @@ describe("CRS : choisi par l'utilisateur, jamais devine", () => {
     expect(r.resume.nbObjets).toBe(2);
     expect(r.crs.plausibilite).toMatchObject({ statut: "PARTIELLEMENT_HORS_ZONE", nbElementsHorsZone: 1, confirmationRequise: true, confirmee: true });
     expect(r.avertissements).toContainEqual(expect.objectContaining({ code: "ELEMENTS_HORS_GUINEE", nb: 1 }));
+    // Rapport par element ecarte : numero dans le fichier, code, message fixe sans coordonnee.
+    expect(r.ecartes).toEqual([expect.objectContaining({ element: 2, code: "COORDONNEES_HORS_ZONE" })]);
+    expect(JSON.stringify(r.ecartes)).not.toMatch(/900000|5000000|900100/);
+  });
+
+  it("rapport des elements ecartes d'un KML : hors Guinee et geometrie inexploitable, numero d'element et nom, borne a 50", () => {
+    const corps = pm("Bon", ligne("-10.1,9.2 -10.09,9.2")) + pm("Loin", ligne("-30,9.2 -29.9,9.2")) + pm("Court", ligne("-10.1,9.3")) + pm("Autre bon", ligne("-10.1,9.4 -10.09,9.4"));
+    const r = lire(kml(corps), "r.kml");
+    expect(r.ecartes).toEqual([
+      expect.objectContaining({ element: 2, nom: "Loin", code: "COORDONNEES_HORS_ZONE" }),
+      expect.objectContaining({ element: 3, nom: "Court", code: "GEOMETRIE_INVALIDE" }),
+    ]);
+    const beaucoup = Array.from({ length: 80 }, (_, i) => pm(`L${i}`, ligne("-30,9.2 -29.9,9.2"))).join("") + pm("Bon", ligne("-10.1,9.2 -10.09,9.2"));
+    const b = lire(kml(beaucoup), "r.kml");
+    expect(b.ecartes).toHaveLength(50);
+    expect(b.avertissements).toContainEqual(expect.objectContaining({ code: "ELEMENTS_HORS_GUINEE", nb: 80 }));
   });
 
   it("un CSV en WGS 84 (4326 choisi) suit la meme regle de confirmation ; un KML garde le comportement historique (ecarte, avertit, sans confirmation)", () => {

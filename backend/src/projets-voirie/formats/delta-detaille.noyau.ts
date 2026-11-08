@@ -17,7 +17,7 @@ export interface ObjetDelta {
   cle: string | null;
   nom: string | null;
   empreinte: string;
-  /** Position dans le fichier (nouveaux) ou identifiant en base (anciens), pour les echantillons. */
+  /** Identifiant de l'objet en base (les deux versions se lisent en base), pour les echantillons. */
   ref: string | number;
 }
 
@@ -28,7 +28,7 @@ export interface DeltaDetaille {
   identiques: number;
   clesAmbigues: number;
   echantillons: {
-    ajoutes: { ordre: number | string; nom: string | null }[];
+    ajoutes: { objetId: number | string; nom: string | null }[];
     modifies: { cle: string; nomAvant: string | null; nomApres: string | null }[];
     retires: { objetId: number | string; nom: string | null }[];
   };
@@ -77,7 +77,7 @@ export function calculerDeltaDetaille(nouveaux: readonly ObjetDelta[], anciens: 
   return {
     ajoutes: ajoutes.length, modifies: modifies.length, retires: retires.length, identiques, clesAmbigues,
     echantillons: {
-      ajoutes: ajoutes.slice(0, ECHANTILLON_DELTA_MAX).map((o) => ({ ordre: o.ref, nom: o.nom })),
+      ajoutes: ajoutes.slice(0, ECHANTILLON_DELTA_MAX).map((o) => ({ objetId: o.ref, nom: o.nom })),
       modifies: modifies.slice(0, ECHANTILLON_DELTA_MAX).map((m) => ({ cle: m.apres.cle!, nomAvant: m.avant.nom, nomApres: m.apres.nom })),
       retires: retires.slice(0, ECHANTILLON_DELTA_MAX).map((o) => ({ objetId: o.ref, nom: o.nom })),
     },
