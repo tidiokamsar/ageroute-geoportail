@@ -14,15 +14,61 @@ Docker + Traefik). Voir `README.md` pour la stack et l'installation.
 ## État du dépôt
 
 - Ce dépôt a été créé le **1er septembre 2026** à partir de la copie de
-  développement, qui est **en avance sur la production** : 21 routes applicatives
-  contre 13 déployées.
-- **Non déployées à ce jour** : sync hors-ligne + PWA (`lib/offlineSync.ts`,
-  `hooks/useOfflineSync.ts`, `public/sw.js`), API publique
-  (`backend/src/modules/public/`), et les pages Marchés, Ordres de travaux,
-  Décision, Sécurité, Administration, Rapport bailleur, Inspection terrain,
-  Embed carte.
-- Il n'existe **aucun historique Git antérieur** : le commit initial est un
-  instantané, pas une reconstruction de l'historique réel.
+  développement. Il n'existe **aucun historique Git antérieur** : le commit initial
+  est un instantané, pas une reconstruction de l'historique réel.
+- **Ce que l'on sait déployé** (la production n'est pas vérifiable depuis ce dépôt) :
+  - deux déploiements consignés dans `AUTONOMOUS_EXECUTION_TRACKER.md` (T-10) : le
+    21/10/2026 (commit `7411664`) et le 22/10/2026 à 11 h 46 (commit `0703c6a`, 72
+    migrations au total après lui) ;
+  - le relevé de production du 23/10/2026 donnait **79 migrations appliquées**
+    (tracker, T-41) ; le dépôt (`HEAD`) en porte 82 et le script
+    `infra/deployer-console.sh` a ensuite été réglé à zéro migration en attente
+    (commit `970e17b`, 23/10) : cela suppose que les trois dernières ont été
+    appliquées, mais **aucun document daté ne consigne ce déploiement**, ni son
+    commit ;
+  - `docker-compose.yml` dit que les pages Base documentaire, Inspection terrain et
+    Ordres de travaux sont en production ; `PROJECT_STATUS.md` (14/10) relevait déjà
+    la PWA (`/sw.js`) et l'API publique (`/api/public/carte/geo`) en production.
+- **Ce que l'on sait non déployé** (derniers constats de `TEST_EVIDENCE.md` du
+  25/10/2026 et de `docs/pilotage/`) : la route entre deux villes, l'APK servi
+  derrière l'authentification (exige de modifier `docker-compose.yml` et `nginx.conf`
+  sur le serveur), les phases SMART FIELD récentes (observation rapide, photo
+  d'observation, historique par section) et tout ce qui a été commité après le dernier
+  déploiement consigné. Cette liste n'est pas exhaustive.
+- **Branche d'intégration `integration/depuis-vendredi`** (27/10/2026, locale, non
+  poussée) : elle réunit en une seule branche testable les lignes de travail parallèles
+  ouvertes depuis le 23/10 : `lot/03-map-matching` (Lots 0 et 1 : session hors ligne,
+  sécurité serveur, imports, e2e), `fusion/observation-terre` (Aide à la décision,
+  Observation de la Terre, relevés envoyés), `origin/lot/17-consignes-dt`,
+  `origin/lot/18-bdri-troncons` (page Tronçons, registre d'anomalies, chantiers
+  multi-tronçons, fiche d'inspection) et `origin/fix/geoportail-tabulation-traces`
+  (qui porte l'autre lignée de l'Aide à la décision, lot 6, et la tabulation des
+  cartes). Le dépôt y compte **94 migrations**. Relevé de production du 28/10/2026
+  (après le déploiement du commit `747ac38`) : 84 appliquées, toutes présentes dans
+  cette branche, donc **10 migrations en attente**
+  (voir le commentaire de `ATTENDUES_EN_ATTENTE` dans `infra/deployer-console.sh`) ;
+  le script refuse tout autre nombre. Deux couples d'horodatages sont identiques
+  (`20261027100000`, `20261027110000`) : ils se rejouent dans l'ordre du nom de dossier.
+  Rien n'est déployé depuis cette branche.
+- **Branche `feat/reseaux-integration`** (01/11/2026, issue de `integration/depuis-vendredi`
+  déployée le 28/10/2026 au commit `b0f17ca`) : ajoute le module « Projets de voirie et
+  réseaux » (clé de module `projets-voirie`, routes `/api/v2/projets-voirie`, migration
+  `20261030100000_projets_voirie_reseaux`, **1 migration en attente**, 95 au total) et, à titre
+  de préproduction seulement, la chaîne de conversion GDAL isolée (`infra/geoconv/`, non
+  référencée par le déploiement). Les données des concessionnaires sont confidentielles :
+  jamais dans le dépôt, jamais dans une route publique, fixtures synthétiques seulement.
+- **Vague 1 du module (08/11/2026, fusionnée dans `main`)** : s'ajoutent les dossiers de
+  conflit, l'import KMZ/CSV/GPX avec choix du CRS et assistant en 7 étapes, les réseaux
+  physiques et circuits logiques, le workflow concessionnaire. Production relevée le
+  08/11/2026 : 94 migrations, module absent ; **5 migrations en attente** (voir
+  `infra/deployer-console.sh`, `ATTENDUES_EN_ATTENTE=5`). Ordre de déploiement :
+  `docs/projets-voirie/DEPLOIEMENT-MODULE.md` (migrations avant le code). Non fait et non
+  vérifié : interface des réseaux et du workflow (`feat/ui-reseaux-workflow`), branchement
+  GDAL (`feat/gdal-branche`) : ne pas les fusionner sans tests ni revue.
+- **L'état exact de la production se vérifie au moment du déploiement**, jamais depuis
+  ce fichier : `infra/deployer-console.sh` relève les migrations appliquées, les
+  compteurs et l'état de santé avant tout geste. Ne rien déduire d'une ancienne
+  mention « déployé » ou « non déployé ».
 
 ## Règles impératives
 

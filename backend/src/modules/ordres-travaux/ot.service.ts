@@ -1,7 +1,8 @@
 import { prisma } from "../../lib/prisma";
 import { nextNumeroOT } from "../../lib/numero";
-import { logAudit } from "../../utils/audit";
+import { construireAudit, logAuditTransactionnelle } from "../../utils/audit";
 import { ApiError } from "../../middleware/error.middleware";
+import { Prisma } from "@prisma/client";
 import type { StatutOT, Role } from "@prisma/client";
 
 // Seuil au-delà duquel un OT devrait devenir un chantier/marché (paramétrable plus tard
@@ -42,6 +43,8 @@ async function pushHistorique(otId: string, action: string, userId: string | nul
 async function list(params: {
   page?: number; pageSize?: number; statut?: string; priorite?: string;
   region?: string; assigneA?: string; type?: string; search?: string; aTraiter?: boolean; userId?: string;
+  /** Regions visibles du compte (A10) ; `null` ou absent = toutes. Un OT sans region n'est jamais visible d'un compte regional. */
+  regions?: readonly number[] | null;
 }) {
   const page = Math.max(1, params.page ?? 1);
   const pageSize = Math.min(100, params.pageSize ?? 20);
@@ -49,6 +52,7 @@ async function list(params: {
   if (params.statut) where.statut = params.statut;
   if (params.priorite) where.priorite = params.priorite;
   if (params.region) where.region = { nom: params.region };
+  if (params.regions) where.regionId = { in: [...params.regions] };
   if (params.assigneA) where.assigneAId = params.assigneA;
   if (params.type) where.typeIntervention = params.type;
   if (params.search) where.OR = [
@@ -95,21 +99,30 @@ async function create(data: Record<string, unknown>, userId: string, _role: Role
     regionId = t?.regionId;
   }
 
-  const created = await prisma.ordreTravaux.create({
-    data: {
-      ...rest,
-      regionId,
-      numero,
-      coutEstimeGnf: coutEstimeGnf != null ? BigInt(Math.round(Number(coutEstimeGnf))) : undefined,
-      // INSPECTEUR crée toujours en brouillon (validation par un gestionnaire ensuite)
-      statut: "BROUILLON",
-      creeParId: userId,
-    } as never,
-    include,
+  const created = await prisma.$transaction(async (tx) => {
+    const ligne = await tx.ordreTravaux.create({
+      data: {
+        ...rest,
+        regionId,
+        numero,
+        coutEstimeGnf: coutEstimeGnf != null ? BigInt(Math.round(Number(coutEstimeGnf))) : undefined,
+        // INSPECTEUR crée toujours en brouillon (validation par un gestionnaire ensuite)
+        statut: "BROUILLON",
+        creeParId: userId,
+      } as never,
+      include,
+    });
+    await logAuditTransactionnelle(tx, {
+      userId, action: "CREATE", entityType: "OrdreTravaux", entityId: ligne.id,
+      after: { numero, titre: ligne.titre },
+    });
+    return ligne;
   });
 
+  // L'historique metier reste HORS de la transaction, comme avant. Ce n'est pas l'audit :
+  // c'est la frise que l'utilisateur lit sur la fiche. L'y faire entrer rendrait une
+  // creation impossible si cette table tombait, et cet arbitrage n'a pas ete rendu.
   await pushHistorique(created.id, "Création", userId, { nouveauStatut: "BROUILLON" });
-  await logAudit({ userId, action: "CREATE", entityType: "OrdreTravaux", entityId: created.id, after: { numero, titre: created.titre } });
 
   const suggestionConversion = created.coutEstimeGnf != null && created.coutEstimeGnf > SEUIL_CONVERSION_GNF;
   return { ...created, suggestionConversion };
@@ -122,16 +135,29 @@ async function update(id: string, data: Record<string, unknown>, userId: string)
     throw new ApiError(400, `OT ${before.statut.toLowerCase()} — modification impossible`);
   }
   const { coutEstimeGnf, coutReelGnf, ...rest } = data;
-  const updated = await prisma.ordreTravaux.update({
-    where: { id },
-    data: {
-      ...rest,
-      coutEstimeGnf: coutEstimeGnf != null ? BigInt(Math.round(Number(coutEstimeGnf))) : undefined,
-      coutReelGnf: coutReelGnf != null ? BigInt(Math.round(Number(coutReelGnf))) : undefined,
-    } as never,
-    include,
+  /**
+   * `before` et `after` portent `coutEstimeGnf` et `coutReelGnf`, tous deux en BigInt.
+   * Cet audit echouait donc vraisemblablement en silence, comme celui des decomptes :
+   * `JSON.stringify` leve sur un BigInt, et `logAudit` avalait l'erreur.
+   *
+   * `normaliserPourJson` ferme ce cas. Sans elle, passer en transaction aurait transforme
+   * un audit perdu en modification d'ordre de travaux impossible.
+   */
+  const updated = await prisma.$transaction(async (tx) => {
+    const ligne = await tx.ordreTravaux.update({
+      where: { id },
+      data: {
+        ...rest,
+        coutEstimeGnf: coutEstimeGnf != null ? BigInt(Math.round(Number(coutEstimeGnf))) : undefined,
+        coutReelGnf: coutReelGnf != null ? BigInt(Math.round(Number(coutReelGnf))) : undefined,
+      } as never,
+      include,
+    });
+    await logAuditTransactionnelle(tx, {
+      userId, action: "UPDATE", entityType: "OrdreTravaux", entityId: id, before, after: ligne,
+    });
+    return ligne;
   });
-  await logAudit({ userId, action: "UPDATE", entityType: "OrdreTravaux", entityId: id, before, after: updated });
   return updated;
 }
 
@@ -143,10 +169,31 @@ async function assigner(id: string, data: { assigneAId: string; priorite?: strin
   const cible = await prisma.user.findFirst({ where: { id: data.assigneAId, actif: true } });
   if (!cible) throw new ApiError(404, "Utilisateur cible introuvable ou inactif");
 
-  const updated = await prisma.ordreTravaux.update({
-    where: { id },
-    data: { assigneAId: data.assigneAId, priorite: data.priorite as never, dateEcheance: data.dateEcheance, statut: "ASSIGNE" },
-    include,
+  // L'assignation decide QUI doit intervenir : elle etait tracee seulement dans la frise
+  // metier (otHistorique), qui n'est pas le journal d'audit. La trace d'audit, avec
+  // l'ancien et le nouveau responsable, rejoint la transaction de la mutation.
+  const updated = await prisma.$transaction(async (tx) => {
+    const ligne = await tx.ordreTravaux.update({
+      where: { id },
+      data: { assigneAId: data.assigneAId, priorite: data.priorite as never, dateEcheance: data.dateEcheance, statut: "ASSIGNE" },
+      include,
+    });
+    await logAuditTransactionnelle(tx, {
+      userId, action: "UPDATE", entityType: "OrdreTravaux", entityId: id,
+      before: {
+        statut: before.statut,
+        assigneAId: before.assigneAId,
+        priorite: before.priorite,
+        dateEcheance: before.dateEcheance,
+      },
+      after: {
+        statut: "ASSIGNE",
+        assigneAId: data.assigneAId,
+        priorite: ligne.priorite,
+        dateEcheance: ligne.dateEcheance,
+      },
+    });
+    return ligne;
   });
   await pushHistorique(id, `Assigné à ${cible.nomComplet}`, userId, { ancienStatut: before.statut, nouveauStatut: "ASSIGNE" });
   return updated;
@@ -168,9 +215,16 @@ async function changeStatut(id: string, statut: StatutOT, commentaire: string | 
   if (statut === "EN_COURS" && !before.dateDebutReel) patch.dateDebutReel = new Date();
   if (statut === "TERMINE") patch.dateFinReelle = new Date();
 
-  const updated = await prisma.ordreTravaux.update({ where: { id }, data: patch as never, include });
+  const [updated] = await prisma.$transaction([
+    prisma.ordreTravaux.update({ where: { id }, data: patch as never, include }),
+    // L'ancien statut est repris : sans lui, la trace dit ou l'on va sans dire d'ou l'on
+    // vient, et une transition interdite devient indetectable apres coup.
+    construireAudit({
+      userId, action: "UPDATE", entityType: "OrdreTravaux", entityId: id,
+      before: { statut: before.statut }, after: { statut },
+    }),
+  ]);
   await pushHistorique(id, `Statut : ${before.statut} → ${statut}`, userId, { ancienStatut: before.statut, nouveauStatut: statut, commentaire });
-  await logAudit({ userId, action: "UPDATE", entityType: "OrdreTravaux", entityId: id, after: { statut } });
   return updated;
 }
 
@@ -201,20 +255,32 @@ async function convertirChantier(id: string, userId: string) {
       },
     });
     await tx.ordreTravaux.update({ where: { id }, data: { statut: "CONVERTI_CHANTIER", chantierId: created.id } });
+    // L'audit rejoint la transaction qui existait DEJA : il etait le seul des trois a
+    // rester dehors, si bien qu'un chantier pouvait naitre d'un ordre de travaux sans
+    // qu'aucune trace ne relie les deux.
+    await logAuditTransactionnelle(tx, {
+      userId, action: "CREATE", entityType: "Chantier", entityId: created.id,
+      after: { fromOt: ot.numero, otId: id },
+    });
     return created;
   });
 
   await pushHistorique(id, `Converti en chantier ${chantier.id}`, userId, { ancienStatut: ot.statut, nouveauStatut: "CONVERTI_CHANTIER" });
-  await logAudit({ userId, action: "CREATE", entityType: "Chantier", entityId: chantier.id, after: { fromOt: ot.numero } });
   return { chantierId: chantier.id };
 }
 
 async function addPhoto(otId: string, fileName: string, type: string, lat: number | undefined, lon: number | undefined, userId: string) {
   await getById(otId);
-  const created = await prisma.otPhoto.create({
-    data: { otId, fileName, type: type as never, lat, lon, priseParId: userId },
+  const created = await prisma.$transaction(async (tx) => {
+    const ligne = await tx.otPhoto.create({
+      data: { otId, fileName, type: type as never, lat, lon, priseParId: userId },
+    });
+    await logAuditTransactionnelle(tx, {
+      userId, action: "CREATE", entityType: "OtPhoto", entityId: ligne.id,
+      after: { otId, fileName, type },
+    });
+    return ligne;
   });
-  await logAudit({ userId, action: "CREATE", entityType: "OtPhoto", entityId: created.id, after: { otId, fileName, type } });
   return created;
 }
 
@@ -229,27 +295,35 @@ async function removePhoto(otId: string, photoId: string, userId: string) {
     select: { id: true, fileName: true, type: true, ot: { select: { deletedAt: true } } },
   });
   if (!photo || photo.ot.deletedAt) throw new ApiError(404, "Photo introuvable");
-  await prisma.otPhoto.update({ where: { id: photoId }, data: { deletedAt: new Date() } });
-  await logAudit({ userId, action: "DELETE", entityType: "OtPhoto", entityId: photoId, before: { otId, fileName: photo.fileName, type: photo.type } });
+  // Une preuve d'execution qui disparait sans trace est le cas qu'il faut tenir le plus
+  // fermement : c'est elle qui atteste que les travaux ont eu lieu.
+  await prisma.$transaction([
+    prisma.otPhoto.update({ where: { id: photoId }, data: { deletedAt: new Date() } }),
+    construireAudit({ userId, action: "DELETE", entityType: "OtPhoto", entityId: photoId, before: { otId, fileName: photo.fileName, type: photo.type } }),
+  ]);
 }
 
 async function remove(id: string, userId: string) {
   const before = await prisma.ordreTravaux.findFirst({ where: { id, deletedAt: null } });
   if (!before) throw new ApiError(404, "Ordre de travaux introuvable");
-  await prisma.ordreTravaux.update({ where: { id }, data: { deletedAt: new Date() } });
-  await logAudit({ userId, action: "DELETE", entityType: "OrdreTravaux", entityId: id, before });
+  await prisma.$transaction([
+    prisma.ordreTravaux.update({ where: { id }, data: { deletedAt: new Date() } }),
+    construireAudit({ userId, action: "DELETE", entityType: "OrdreTravaux", entityId: id, before }),
+  ]);
 }
 
 // KPI du module pour le tableau de bord exécutif
-async function stats() {
-  const notDeleted = { deletedAt: null };
+async function stats(regions?: readonly number[] | null) {
+  // Compte regional (A10) : les chiffres ne portent que sur ses regions, jamais sur le national.
+  const notDeleted = regions ? { deletedAt: null, regionId: { in: [...regions] } } : { deletedAt: null };
+  const filtreRegionSql = regions ? Prisma.sql`AND ot."regionId" IN (${Prisma.join([...regions])})` : Prisma.empty;
   const [ouverts, parPriorite, parRegion, termines, avecPhotosApres] = await Promise.all([
     prisma.ordreTravaux.count({ where: { ...notDeleted, statut: { in: ["BROUILLON", "ASSIGNE", "EN_COURS", "SUSPENDU"] } } }),
     prisma.ordreTravaux.groupBy({ by: ["priorite"], where: { ...notDeleted, statut: { in: ["ASSIGNE", "EN_COURS", "SUSPENDU"] } }, _count: { _all: true } }),
     prisma.$queryRaw<{ region: string; nb: bigint }[]>`
       SELECT COALESCE(r.nom, 'Non renseignée') AS region, count(*) AS nb
       FROM ordres_travaux ot LEFT JOIN regions r ON r.id = ot."regionId"
-      WHERE ot."deletedAt" IS NULL AND ot.statut IN ('BROUILLON','ASSIGNE','EN_COURS','SUSPENDU')
+      WHERE ot."deletedAt" IS NULL AND ot.statut IN ('BROUILLON','ASSIGNE','EN_COURS','SUSPENDU') ${filtreRegionSql}
       GROUP BY 1 ORDER BY nb DESC`,
     prisma.ordreTravaux.findMany({
       where: { ...notDeleted, statut: "TERMINE", dateFinReelle: { not: null } },

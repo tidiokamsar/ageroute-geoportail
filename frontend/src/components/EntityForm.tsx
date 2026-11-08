@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useId } from "react";
 import { useForm } from "react-hook-form";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../lib/api";
@@ -30,20 +30,27 @@ interface Props {
   onDirtyChange?: (dirty: boolean) => void;
 }
 
+// Le message NOMME le champ : un lecteur d'ecran annonce l'alerte hors de son contexte, et
+// « Ce champ est requis » ne dit pas lequel. Le champ est aussi relie a son message par
+// aria-describedby, mais l'alerte doit se suffire a elle-meme.
 const CLIENT_ERROR_MESSAGES: Record<string, string> = {
-  required: "Ce champ est requis.",
-  pattern: "Le format de ce champ est invalide.",
-  min: "La valeur est trop petite.",
-  max: "La valeur est trop grande.",
-  minLength: "Ce champ est trop court.",
-  maxLength: "Ce champ est trop long.",
+  required: "est requis.",
+  pattern: "a un format invalide.",
+  min: "a une valeur trop petite.",
+  max: "a une valeur trop grande.",
+  minLength: "est trop court.",
+  maxLength: "est trop long.",
 };
 
-function clientErrorMessage(type?: string): string {
-  return (type && CLIENT_ERROR_MESSAGES[type]) ?? "Ce champ est invalide.";
+// Champs rendus par un composant (carte, recherche) : pas de controle natif a relier a l'etiquette.
+const CHAMPS_COMPOSES: FieldConfig["type"][] = ["point", "troncon", "ouvrage"];
+
+export function clientErrorMessage(label: string, type?: string): string {
+  return `Le champ « ${label} » ${(type && CLIENT_ERROR_MESSAGES[type]) ?? "est invalide."}`;
 }
 
 export function EntityForm({ fields, defaultValues, onSubmit, submitting, serverError, serverFieldErrors, onDirtyChange }: Props) {
+  const idBase = useId();
   const { register, handleSubmit, reset, watch, setValue, formState: { errors, isDirty } } = useForm({ defaultValues });
   useEffect(() => { onDirtyChange?.(isDirty); }, [isDirty, onDirtyChange]);
   const { data: regions } = useQuery({
@@ -82,15 +89,27 @@ export function EntityForm({ fields, defaultValues, onSubmit, submitting, server
     <form
       onSubmit={handleSubmit((values) => onSubmit(sanitize(values)))}
       className="space-y-3"
+      // Sans noValidate, l'attribut `required` des champs texte fait bloquer la soumission par
+      // le navigateur AVANT react-hook-form : le message accessible ci-dessous n'apparaissait
+      // jamais pour ces champs.
+      noValidate
     >
       {serverError && (
-        <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
+        <div role="alert" className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">
           {serverError}
         </div>
       )}
-      {fields.map((field) => (
+      {fields.map((field) => {
+        const champId = `${idBase}-${field.name}`;
+        const erreurId = `${champId}-erreur`;
+        const messageClient = errors[field.name] ? clientErrorMessage(field.label, errors[field.name]?.type as string | undefined) : null;
+        const messageServeur = serverFieldErrors?.[field.name]?.join(" ") ?? null;
+        const message = messageClient ?? messageServeur;
+        // Attributs communs aux champs natifs : etiquette liee, invalidite et lien vers le message.
+        const aria = { id: champId, "aria-invalid": message ? true : undefined, "aria-describedby": message ? erreurId : undefined } as const;
+        return (
         <div key={field.name}>
-          <label className="block text-xs font-medium text-gray-600 mb-1">{field.label}</label>
+          <label htmlFor={CHAMPS_COMPOSES.includes(field.type) ? undefined : champId} className="block text-xs font-medium text-gray-600 mb-1">{field.label}</label>
           {field.type === "point" ? (
             <>
               <MapPointPicker
@@ -128,7 +147,7 @@ export function EntityForm({ fields, defaultValues, onSubmit, submitting, server
               onChange={(id) => setValue(field.name, id)}
             />
           ) : field.type === "select" ? (
-            <Select {...register(field.name, { required: field.required })}>
+            <Select {...aria} {...register(field.name, { required: field.required })}>
               <option value="">—</option>
               {field.options?.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -137,7 +156,7 @@ export function EntityForm({ fields, defaultValues, onSubmit, submitting, server
               ))}
             </Select>
           ) : field.type === "region" ? (
-            <Select {...register(field.name, { required: field.required, valueAsNumber: true })}>
+            <Select {...aria} {...register(field.name, { required: field.required, valueAsNumber: true })}>
               <option value="">—</option>
               {regions?.map((r) => (
                 <option key={r.id} value={r.id}>
@@ -146,7 +165,7 @@ export function EntityForm({ fields, defaultValues, onSubmit, submitting, server
               ))}
             </Select>
           ) : field.type === "bailleur" ? (
-            <Select {...register(field.name, { required: field.required, valueAsNumber: true })}>
+            <Select {...aria} {...register(field.name, { required: field.required, valueAsNumber: true })}>
               <option value="">—</option>
               {bailleurs?.map((b) => (
                 <option key={b.id} value={b.id}>
@@ -156,6 +175,7 @@ export function EntityForm({ fields, defaultValues, onSubmit, submitting, server
             </Select>
           ) : (
             <Input
+              {...aria}
               type={field.type}
               step={field.type === "number" ? "any" : undefined}
               required={field.required}
@@ -165,17 +185,14 @@ export function EntityForm({ fields, defaultValues, onSubmit, submitting, server
               })}
             />
           )}
-          {errors[field.name] ? (
-            <p className="mt-1 text-xs text-red-600">
-              {clientErrorMessage(errors[field.name]?.type as string | undefined)}
+          {message && (
+            <p id={erreurId} role="alert" className="mt-1 text-xs text-red-600">
+              {message}
             </p>
-          ) : (
-            serverFieldErrors?.[field.name] && (
-              <p className="mt-1 text-xs text-red-600">{serverFieldErrors[field.name].join(" ")}</p>
-            )
           )}
         </div>
-      ))}
+        );
+      })}
       <Button type="submit" disabled={submitting} className="w-full mt-2">
         {submitting ? "Enregistrement..." : "Enregistrer"}
       </Button>

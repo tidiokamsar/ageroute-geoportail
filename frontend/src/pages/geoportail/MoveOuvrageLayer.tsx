@@ -1,11 +1,25 @@
 import { useRef, useState } from "react";
 import { Marker, Tooltip } from "react-leaflet";
 import L from "leaflet";
+import marqueur from "leaflet/dist/images/marker-icon.png";
+import marqueur2x from "leaflet/dist/images/marker-icon-2x.png";
+import ombre from "leaflet/dist/images/marker-shadow.png";
 import { toast } from "../../lib/toast";
 import { parseApiError } from "../../lib/errors";
 import { useEntityMutations } from "../../hooks/useEntity";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "../../components/ui/Button";
+
+/**
+ * Icone du marqueur, donnee EXPLICITEMENT (meme motif que `MapPointPicker`). Le marqueur par defaut de Leaflet devine son dossier
+ * d'images en lisant l'URL de `.leaflet-default-icon-path` dans la feuille de style ; une fois la feuille empaquetee par Vite
+ * (feuille locale), cette URL est une donnee integree (`data:`) et la devinette echoue (marqueur invisible). Les valeurs sont
+ * celles de `L.Icon.Default`.
+ */
+const ICONE_POINT = new L.Icon({
+  iconUrl: marqueur, iconRetinaUrl: marqueur2x, shadowUrl: ombre,
+  iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [1, -34], tooltipAnchor: [16, -28], shadowSize: [41, 41],
+});
 
 /**
  * D9 — repositionnement terrain d'un ouvrage.
@@ -49,6 +63,7 @@ export function MoveOuvrageLayer({
     <>
       <Marker
         position={positionRef.current}
+        icon={ICONE_POINT}
         draggable
         autoPan
         zIndexOffset={1000}
@@ -71,7 +86,7 @@ export function MoveOuvrageLayer({
           <p className="text-[11px] text-gray-500 mt-1">
             Position actuelle : {positionRef.current.lat.toFixed(5)}, {positionRef.current.lng.toFixed(5)}
           </p>
-          <p className="text-[11px] text-gray-400 mt-1">
+          <p className="text-[11px] text-gray-500 mt-1">
             {enregistre
               ? "Enregistré ✓ — l'écriture est journalisée (audit)."
               : "Glissez le marqueur à l'endroit exact vu sur l'imagerie, puis enregistrez."}

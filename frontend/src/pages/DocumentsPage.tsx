@@ -29,11 +29,11 @@ function formatSize(bytes: number): string {
 function FileTypeIcon({ fileName, mimeType }: { fileName: string; mimeType: string }) {
   const ext = fileName.split(".").pop()?.toLowerCase() ?? "";
   if (mimeType.startsWith("image/") || ["jpg", "jpeg", "png", "webp"].includes(ext)) {
-    return <ImageIcon className="h-4 w-4 text-purple-500" />;
+    return <ImageIcon className="h-4 w-4 text-purple-700" />;
   }
-  if (ext === "pdf") return <FileText className="h-4 w-4 text-red-500" />;
-  if (["doc", "docx"].includes(ext)) return <FileSpreadsheet className="h-4 w-4 text-blue-500" />;
-  return <FileIcon className="h-4 w-4 text-gray-400" />;
+  if (ext === "pdf") return <FileText className="h-4 w-4 text-red-600" />;
+  if (["doc", "docx"].includes(ext)) return <FileSpreadsheet className="h-4 w-4 text-blue-700" />;
+  return <FileIcon className="h-4 w-4 text-gray-500" />;
 }
 
 function FilterSelect({ value, onChange, children }: {
@@ -53,7 +53,7 @@ function FilterSelect({ value, onChange, children }: {
       >
         {children}
       </select>
-      <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+      <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-500" />
     </div>
   );
 }
@@ -145,7 +145,7 @@ export function DocumentsPage() {
       {/* Ligne 1 : recherche + bouton ajouter */}
       <div className="flex items-center gap-2 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -191,13 +191,13 @@ export function DocumentsPage() {
 
       {/* Count */}
       <div className="flex items-center justify-end px-1">
-        <span className="text-sm text-gray-400">
+        <span className="text-sm text-gray-500">
           {(data?.total ?? 0).toLocaleString("fr-FR")} document{(data?.total ?? 0) !== 1 ? "s" : ""}
         </span>
       </div>
 
-      <div className="rounded-xl bg-white shadow-sm border border-gray-100 overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="rounded-xl bg-white shadow-sm border border-gray-100 overflow-x-auto">
+        <table className="w-full min-w-[36rem] text-sm">
           <thead className="bg-gray-50/80 text-gray-500 text-xs uppercase">
             <tr>
               <th className="text-left px-4 py-3 w-8"></th>
@@ -220,9 +220,9 @@ export function DocumentsPage() {
               ))}
             {!isLoading && data?.data.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-12 text-center text-gray-400">
+                <td colSpan={7} className="px-4 py-12 text-center text-gray-500">
                   <div className="flex flex-col items-center gap-2">
-                    <Inbox className="h-8 w-8 text-gray-300" />
+                    <Inbox className="h-8 w-8 text-gray-500" />
                     <span>Aucun document.</span>
                   </div>
                 </td>
@@ -241,12 +241,12 @@ export function DocumentsPage() {
                     <button
                       onClick={() => downloadViaApi(`/documents/${d.id}/download`, d.fileName)}
                       title="Télécharger"
-                      className="h-7 w-7 flex items-center justify-center rounded-md text-gray-400 hover:text-navy hover:bg-navy/5 transition-colors"
+                      className="h-7 w-7 flex items-center justify-center rounded-md text-gray-500 hover:text-navy hover:bg-navy/5 transition-colors"
                     >
                       <Download className="h-3.5 w-3.5" />
                     </button>
                     {writable && (
-                      <button onClick={() => handleDelete(d.id)} title="Supprimer" className="h-7 w-7 flex items-center justify-center rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50 transition-colors">
+                      <button onClick={() => handleDelete(d.id)} title="Supprimer" className="h-7 w-7 flex items-center justify-center rounded-md text-gray-500 hover:text-red-500 hover:bg-red-50 transition-colors">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     )}
@@ -267,8 +267,8 @@ export function DocumentsPage() {
         <form onSubmit={handleSubmit} className="space-y-3">
           {error && <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{error}</div>}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Titre</label>
-            <input
+            <label htmlFor="documents-page-champ-3" className="block text-xs font-medium text-gray-600 mb-1">Titre</label>
+            <input id="documents-page-champ-3"
               value={titre}
               onChange={(e) => setTitre(e.target.value)}
               required
@@ -276,16 +276,16 @@ export function DocumentsPage() {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
-            <Select value={type} onChange={(e) => setType(e.target.value as DocumentType)}>
+            <label htmlFor="documents-page-champ-1" className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+            <Select id="documents-page-champ-1" value={type} onChange={(e) => setType(e.target.value as DocumentType)}>
               {Object.entries(TYPE_LABELS).map(([k, label]) => (
                 <option key={k} value={k}>{label}</option>
               ))}
             </Select>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Année</label>
-            <input
+            <label htmlFor="documents-page-champ-4" className="block text-xs font-medium text-gray-600 mb-1">Année</label>
+            <input id="documents-page-champ-4"
               value={annee}
               onChange={(e) => setAnnee(e.target.value)}
               type="number"
@@ -293,12 +293,12 @@ export function DocumentsPage() {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Tronçon concerné</label>
-            <TronconPicker value={tronconId} onChange={setTronconId} />
+            <label htmlFor="documents-page-champ-2" className="block text-xs font-medium text-gray-600 mb-1">Tronçon concerné</label>
+            <TronconPicker id="documents-page-champ-2" value={tronconId} onChange={setTronconId} />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Fichier (pdf, doc, image)</label>
-            <input
+            <label htmlFor="documents-page-champ-5" className="block text-xs font-medium text-gray-600 mb-1">Fichier (pdf, doc, image)</label>
+            <input id="documents-page-champ-5"
               type="file"
               accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
               onChange={(e) => setFile(e.target.files?.[0] ?? null)}

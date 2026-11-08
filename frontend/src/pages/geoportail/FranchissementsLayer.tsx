@@ -231,7 +231,7 @@ function FicheFranchissement({
         </p>
       )}
 
-      <p className="mt-2 border-t border-gray-100 pt-1.5 text-[10px] leading-snug text-gray-400">
+      <p className="mt-2 border-t border-gray-100 pt-1.5 text-[10px] leading-snug text-gray-500">
         Source OpenStreetMap 2023, validée par AGEROUTE. Proposition — l'ajout crée un
         ouvrage tracé au journal d'audit.
       </p>

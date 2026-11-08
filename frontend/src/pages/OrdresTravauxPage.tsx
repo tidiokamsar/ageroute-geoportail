@@ -36,7 +36,7 @@ const STATUT_META: Record<StatutOT, { label: string; pill: string }> = {
   EN_COURS: { label: "En cours", pill: "bg-blue-100 text-blue-700" },
   SUSPENDU: { label: "Suspendu", pill: "bg-amber-100 text-amber-700" },
   TERMINE: { label: "Terminé", pill: "bg-green-100 text-green-700" },
-  ANNULE: { label: "Annulé", pill: "bg-gray-100 text-gray-400" },
+  ANNULE: { label: "Annulé", pill: "bg-gray-100 text-gray-600" },
   CONVERTI_CHANTIER: { label: "Converti en chantier", pill: "bg-purple-100 text-purple-700" },
 };
 
@@ -97,7 +97,7 @@ function OtPhotoThumb({ fileName, onDelete, canRemove }: { fileName: string; onD
 
   return (
     <div className="relative group rounded-lg overflow-hidden border border-gray-200 bg-gray-50 aspect-square">
-      {src ? <img src={src} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-300 text-xs">…</div>}
+      {src ? <img src={src} alt="" className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-gray-500 text-xs">…</div>}
       {canRemove && (
         <button onClick={onDelete} className="absolute top-1 right-1 bg-red-600/90 text-white rounded-full w-5 h-5 text-xs leading-none opacity-0 group-hover:opacity-100 transition">×</button>
       )}
@@ -176,18 +176,18 @@ function OtDetailModal({ ot, onClose }: { ot: OrdreTravaux; onClose: () => void 
         <div className="flex items-center gap-2 flex-wrap">
           <StatutPill s={current.statut} />
           <PrioritePill p={current.priorite} />
-          <span className="text-xs text-gray-400">{TYPE_LABEL[current.typeIntervention]}</span>
+          <span className="text-xs text-gray-500">{TYPE_LABEL[current.typeIntervention]}</span>
         </div>
 
         {current.description && <p className="text-sm text-gray-600">{current.description}</p>}
 
         <div className="grid grid-cols-2 gap-3 text-xs">
-          <div><span className="text-gray-400">Région</span><p className="font-medium text-navy">{current.region?.nom ?? "—"}</p></div>
-          <div><span className="text-gray-400">Tronçon</span><p className="font-medium text-navy">{current.troncon?.code ?? "—"}</p></div>
-          <div><span className="text-gray-400">Assigné à</span><p className="font-medium text-navy">{current.assigneA?.nomComplet ?? "Non assigné"}</p></div>
-          <div><span className="text-gray-400">Échéance</span><p className="font-medium text-navy">{fmtDate(current.dateEcheance)}</p></div>
-          <div><span className="text-gray-400">Coût estimé</span><p className="font-medium text-navy">{fmtGnf(current.coutEstimeGnf)}</p></div>
-          <div><span className="text-gray-400">Coût réel</span><p className="font-medium text-navy">{fmtGnf(current.coutReelGnf)}</p></div>
+          <div><span className="text-gray-500">Région</span><p className="font-medium text-navy">{current.region?.nom ?? "—"}</p></div>
+          <div><span className="text-gray-500">Tronçon</span><p className="font-medium text-navy">{current.troncon?.code ?? "—"}</p></div>
+          <div><span className="text-gray-500">Assigné à</span><p className="font-medium text-navy">{current.assigneA?.nomComplet ?? "Non assigné"}</p></div>
+          <div><span className="text-gray-500">Échéance</span><p className="font-medium text-navy">{fmtDate(current.dateEcheance)}</p></div>
+          <div><span className="text-gray-500">Coût estimé</span><p className="font-medium text-navy">{fmtGnf(current.coutEstimeGnf)}</p></div>
+          <div><span className="text-gray-500">Coût réel</span><p className="font-medium text-navy">{fmtGnf(current.coutReelGnf)}</p></div>
         </div>
 
         {current.coutEstimeGnf && Number(current.coutEstimeGnf) > 50_000_000 && current.statut !== "CONVERTI_CHANTIER" && (
@@ -259,7 +259,7 @@ function OtDetailModal({ ot, onClose }: { ot: OrdreTravaux; onClose: () => void 
           </div>
           {(["AVANT", "PENDANT", "APRES"] as TypePhotoOT[]).map((t) => photosByType[t] && photosByType[t]!.length > 0 && (
             <div key={t}>
-              <p className="text-[10px] text-gray-400 uppercase mb-1">{t === "AVANT" ? "Avant" : t === "PENDANT" ? "Pendant" : "Après"}</p>
+              <p className="text-[10px] text-gray-500 uppercase mb-1">{t === "AVANT" ? "Avant" : t === "PENDANT" ? "Pendant" : "Après"}</p>
               <div className="grid grid-cols-4 gap-2">
                 {photosByType[t]!.map((p) => (
                   <OtPhotoThumb key={p.id} fileName={p.fileName} canRemove={canWrite(user?.role)} onDelete={() => deletePhoto.mutate(p.id)} />
@@ -267,7 +267,7 @@ function OtDetailModal({ ot, onClose }: { ot: OrdreTravaux; onClose: () => void 
               </div>
             </div>
           ))}
-          {(current.photos ?? []).length === 0 && <p className="text-xs text-gray-400 italic">Aucune photo.</p>}
+          {(current.photos ?? []).length === 0 && <p className="text-xs text-gray-500 italic">Aucune photo.</p>}
         </div>
 
         {/* Historique */}
@@ -278,7 +278,7 @@ function OtDetailModal({ ot, onClose }: { ot: OrdreTravaux; onClose: () => void 
               <div key={h.id} className="text-xs border-l-2 border-navy/20 pl-2.5 py-0.5">
                 <span className="font-medium text-navy">{h.action}</span>
                 {h.commentaire && <span className="text-gray-500"> — {h.commentaire}</span>}
-                <p className="text-[10px] text-gray-400">{h.user?.nomComplet ?? "Système"} · {new Date(h.createdAt).toLocaleString("fr-FR")}</p>
+                <p className="text-[10px] text-gray-500">{h.user?.nomComplet ?? "Système"} · {new Date(h.createdAt).toLocaleString("fr-FR")}</p>
               </div>
             ))}
           </div>
@@ -348,7 +348,7 @@ export function OrdresTravauxPage() {
       id: "photos",
       header: "Photos",
       cell: ({ row: { original: o } }) => (
-        <span className="inline-flex items-center gap-1 text-xs text-gray-400"><Camera className="h-3 w-3" /> {o._count?.photos ?? 0}</span>
+        <span className="inline-flex items-center gap-1 text-xs text-gray-500"><Camera className="h-3 w-3" /> {o._count?.photos ?? 0}</span>
       ),
     },
   ];
@@ -358,7 +358,7 @@ export function OrdresTravauxPage() {
       endpoint="ordres-travaux"
       title="Ordres de travaux"
       subtitle="Interventions courtes entre l'alerte et le chantier"
-      pageIcon={<Wrench className="h-4 w-4 text-amber-600" />}
+      pageIcon={<Wrench className="h-4 w-4 text-amber-700" />}
       searchPlaceholder="Rechercher un OT…"
       columns={columns}
       fields={otFields}

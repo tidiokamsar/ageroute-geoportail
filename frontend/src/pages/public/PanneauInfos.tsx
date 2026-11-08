@@ -114,7 +114,7 @@ export function PanneauInfos({
             </span>
           </span>
           <ChevronDown
-            className={"h-4 w-4 shrink-0 text-slate-400 transition-transform " + (deplie ? "" : "rotate-180")}
+            className={"h-4 w-4 shrink-0 text-slate-500 transition-transform " + (deplie ? "" : "rotate-180")}
             aria-hidden
           />
         </button>
@@ -187,7 +187,7 @@ export function PanneauInfos({
                         </span>
                       )}
                     </span>
-                    <span className="shrink-0 tabular-nums text-slate-400">{e.pct} %</span>
+                    <span className="shrink-0 tabular-nums text-slate-500">{e.pct} %</span>
                   </label>
                 </li>
               ))}
@@ -212,7 +212,7 @@ export function PanneauInfos({
                         <span className="min-w-0 flex-1 truncate text-slate-600">
                           {CLASSE_LABELS[c.classe] ?? c.classe}
                         </span>
-                        <span className="shrink-0 tabular-nums text-slate-400">
+                        <span className="shrink-0 tabular-nums text-slate-500">
                           {c.km.toLocaleString("fr-FR")} km
                         </span>
                       </label>
@@ -231,7 +231,7 @@ export function PanneauInfos({
                 Numéros des routes
               </Case>
               {couches.noms && zoomInsuffisantPourNoms && (
-                <p className="pb-1 pl-5 text-[11px] italic leading-snug text-slate-400">
+                <p className="pb-1 pl-5 text-[11px] italic leading-snug text-slate-500">
                   Zoomez pour les faire apparaître.
                 </p>
               )}
@@ -244,7 +244,7 @@ export function PanneauInfos({
                 qu'un. L'afficher laisserait croire qu'un chantier termine est visible
                 quelque part, et ferait chercher ce qui n'y est pas. */}
             {couches.chantiers && (
-              <p className="mb-1 pl-5 text-[11px] leading-snug text-slate-400">
+              <p className="mb-1 pl-5 text-[11px] leading-snug text-slate-500">
                 Seuls les chantiers en cours sont cartographiés. Les travaux achevés,
                 planifiés ou suspendus restent au registre.
               </p>
@@ -260,7 +260,7 @@ export function PanneauInfos({
               Ouvrages d'art
             </Case>
             {couches.ouvrages && (
-              <p className="ml-7 text-[10px] leading-snug text-slate-400">
+              <p className="ml-7 text-[10px] leading-snug text-slate-500">
                 Ponts, dalots, buses… — positions héritées, non vérifiées
               </p>
             )}
@@ -270,7 +270,7 @@ export function PanneauInfos({
               Rues et voirie locale
             </Case>
             {couches.voirie && (
-              <p className="ml-7 text-[10px] leading-snug text-slate-400">
+              <p className="ml-7 text-[10px] leading-snug text-slate-500">
                 {!voirie.zoomSuffisant
                   ? "Rapprochez la vue pour afficher les rues — 262 656 voies, chargées à l'échelle d'une ville."
                   : voirie.chargement
@@ -283,7 +283,7 @@ export function PanneauInfos({
               Franchissements (propositions)
             </Case>
             {couches.pontsOsm && (
-              <p className="ml-7 text-[10px] leading-snug text-slate-400">
+              <p className="ml-7 text-[10px] leading-snug text-slate-500">
                 Ponts repérés hors inventaire AGEROUTE — à valider sur le terrain
               </p>
             )}

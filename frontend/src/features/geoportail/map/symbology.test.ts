@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import fs from "fs";
 import path from "path";
@@ -36,8 +38,11 @@ function contraste(a: string, b: string): number {
 }
 
 const BLANC = "#ffffff";
-/** Le fond applicatif reel, pas un blanc theorique (--background dans index.css). */
-const FOND_APP = "#f4f6f8";
+/**
+ * Le fond applicatif reel, pas un blanc theorique : LU dans `index.css` (--background), pour que ce
+ * test suive la charte au lieu d'en garder une copie (#f4f6f8 jusqu'au 22/10/2026, #f8f9fb depuis).
+ */
+const FOND_APP = /--background:\s*(#[0-9a-fA-F]{6})/.exec(readFileSync(join(__dirname, "..", "..", "..", "index.css"), "utf8"))![1];
 
 describe("La formule de contraste est celle de WCAG, pas une approximation", () => {
   it("donne 21:1 entre noir et blanc", () => {

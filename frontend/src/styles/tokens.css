@@ -27,7 +27,8 @@
  *
  * DEUX TEINTES CORRIGEES MEME EN TRAIT
  *
- * Les seuils se mesurent contre le fond REEL, #f4f6f8, pas contre un blanc theorique.
+ * Les seuils se mesurent contre le fond REEL (--background : #f4f6f8 jusqu'au 22/10/2026,
+ * #f8f9fb depuis, plus clair donc contrastes au moins egaux), pas contre un blanc theorique.
  * L'ecart est faible et decisif : #B88700 donne 3,23:1 sur blanc et 2,98:1 sur le fond
  * applicatif, #8A8F98 donne 3,25:1 sur blanc et 2,999:1 sur le fond. Les deux
  * echouaient la ou la couleur est reellement posee, et un arrondi a deux decimales le

@@ -60,7 +60,7 @@ function SmtpTab() {
     onError: (err) => toast.error(parseApiError(err).message),
   });
 
-  if (isLoading) return <p className="text-gray-400 text-sm py-6 text-center">Chargement...</p>;
+  if (isLoading) return <p className="text-gray-500 text-sm py-6 text-center">Chargement...</p>;
 
   return (
     <div className="space-y-4">
@@ -71,20 +71,20 @@ function SmtpTab() {
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Hôte SMTP</label>
-            <Input value={host} onChange={(e) => setHost(e.target.value)} placeholder="smtp.gmail.com" />
+            <label htmlFor="administration-page-champ-1" className="block text-xs font-medium text-gray-600 mb-1">Hôte SMTP</label>
+            <Input id="administration-page-champ-1" value={host} onChange={(e) => setHost(e.target.value)} placeholder="smtp.gmail.com" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Port</label>
-            <Input type="number" value={port} onChange={(e) => setPort(Number(e.target.value))} placeholder="587" />
+            <label htmlFor="administration-page-champ-2" className="block text-xs font-medium text-gray-600 mb-1">Port</label>
+            <Input id="administration-page-champ-2" type="number" value={port} onChange={(e) => setPort(Number(e.target.value))} placeholder="587" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Utilisateur</label>
-            <Input value={user} onChange={(e) => setUser(e.target.value)} placeholder="notifications@ageroute.gov.gn" />
+            <label htmlFor="administration-page-champ-3" className="block text-xs font-medium text-gray-600 mb-1">Utilisateur</label>
+            <Input id="administration-page-champ-3" value={user} onChange={(e) => setUser(e.target.value)} placeholder="notifications@ageroute.gov.gn" />
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">
-              Mot de passe {config?.hasPassword && <span className="text-green-600 font-normal">(déjà enregistré)</span>}
+              Mot de passe {config?.hasPassword && <span className="text-green-700 font-normal">(déjà enregistré)</span>}
             </label>
             <Input
               type="password"
@@ -94,8 +94,8 @@ function SmtpTab() {
             />
           </div>
           <div className="md:col-span-2">
-            <label className="block text-xs font-medium text-gray-600 mb-1">Adresse d'expédition</label>
-            <Input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="BDRI AGEROUTE <no-reply@ageroute.gov.gn>" />
+            <label htmlFor="administration-page-champ-4" className="block text-xs font-medium text-gray-600 mb-1">Adresse d'expédition</label>
+            <Input id="administration-page-champ-4" value={from} onChange={(e) => setFrom(e.target.value)} placeholder="BDRI AGEROUTE <no-reply@ageroute.gov.gn>" />
           </div>
           <label className="flex items-center gap-2 md:col-span-2 text-sm text-gray-600">
             <input type="checkbox" checked={secure} onChange={(e) => setSecure(e.target.checked)} className="rounded border-gray-300 text-navy focus:ring-navy/30" />
@@ -119,7 +119,7 @@ function SmtpTab() {
           </Button>
         </div>
         {test.isSuccess && (
-          <p className="mt-2 text-xs text-green-600 flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> Email envoyé avec succès.</p>
+          <p className="mt-2 text-xs text-green-700 flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> Email envoyé avec succès.</p>
         )}
       </Card>
     </div>
@@ -164,6 +164,10 @@ function BailleursTab() {
   function openEdit(b: Bailleur) { setEditing(b); setNom(b.nom); setType(b.type); setError(null); setModalOpen(true); }
   function closeModal() { setModalOpen(false); setEditing(null); }
 
+  // Saisie differente de ce qui est enregistre (ou du formulaire vierge a l'ajout) : fermer
+  // demande alors confirmation.
+  const sale = () => (editing ? nom !== editing.nom || type !== editing.type : nom !== "" || type !== "autre");
+
   const TYPE_LABEL: Record<string, string> = { etat: "État", multilateral: "Multilatéral", bilateral: "Bilatéral", autre: "Autre" };
 
   return (
@@ -173,22 +177,22 @@ function BailleursTab() {
         <Button onClick={openAdd}><Plus className="h-4 w-4 mr-1" /> Ajouter</Button>
       </div>
       {isLoading ? (
-        <p className="text-sm text-gray-400 py-6 text-center">Chargement...</p>
+        <p className="text-sm text-gray-500 py-6 text-center">Chargement...</p>
       ) : (
         <div className="space-y-1.5">
           {(bailleurs ?? []).map((b) => (
             <div key={b.id} className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2.5">
               <div>
                 <p className="text-sm font-medium text-navy">{b.nom}</p>
-                <p className="text-xs text-gray-400">{TYPE_LABEL[b.type] ?? b.type} · {b._count?.marches ?? 0} marché(s)</p>
+                <p className="text-xs text-gray-500">{TYPE_LABEL[b.type] ?? b.type} · {b._count?.marches ?? 0} marché(s)</p>
               </div>
               <div className="flex items-center gap-1">
-                <button onClick={() => openEdit(b)} className="h-7 w-7 flex items-center justify-center rounded-md text-gray-400 hover:text-navy hover:bg-navy/5">
+                <button onClick={() => openEdit(b)} className="h-7 w-7 flex items-center justify-center rounded-md text-gray-500 hover:text-navy hover:bg-navy/5">
                   <Pencil className="h-3.5 w-3.5" />
                 </button>
                 <button
                   onClick={async () => { if (await confirm(`Supprimer "${b.nom}" ?`, { danger: true })) remove.mutate(b.id); }}
-                  className="h-7 w-7 flex items-center justify-center rounded-md text-gray-400 hover:text-red-500 hover:bg-red-50"
+                  className="h-7 w-7 flex items-center justify-center rounded-md text-gray-500 hover:text-red-500 hover:bg-red-50"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
@@ -198,16 +202,16 @@ function BailleursTab() {
         </div>
       )}
 
-      <Modal open={modalOpen} onClose={closeModal} title={editing ? `Modifier — ${editing.nom}` : "Nouveau bailleur"}>
+      <Modal open={modalOpen} onClose={closeModal} title={editing ? `Modifier — ${editing.nom}` : "Nouveau bailleur"} sale={sale}>
         <div className="space-y-3">
           {error && <div className="rounded-md bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700">{error}</div>}
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Nom</label>
-            <Input value={nom} onChange={(e) => setNom(e.target.value)} />
+            <label htmlFor="administration-page-champ-5" className="block text-xs font-medium text-gray-600 mb-1">Nom</label>
+            <Input id="administration-page-champ-5" value={nom} onChange={(e) => setNom(e.target.value)} />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
-            <select value={type} onChange={(e) => setType(e.target.value)} className="w-full rounded-md border border-gray-200 px-3 py-1.5 text-sm">
+            <label htmlFor="administration-page-champ-6" className="block text-xs font-medium text-gray-600 mb-1">Type</label>
+            <select id="administration-page-champ-6" value={type} onChange={(e) => setType(e.target.value)} className="w-full rounded-md border border-gray-200 px-3 py-1.5 text-sm">
               <option value="etat">État</option>
               <option value="multilateral">Multilatéral</option>
               <option value="bilateral">Bilatéral</option>

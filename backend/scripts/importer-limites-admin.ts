@@ -154,7 +154,11 @@ async function main() {
           SOURCE, e.validOn, JSON.stringify(e.geometry),
         ),
       ),
-      { timeout: 120_000 },
+      // Aucune option ici : la forme TABLEAU de $transaction n'accepte que
+      // `isolationLevel`. Les `timeout` / `maxWait` qui figuraient a cet endroit
+      // n'avaient AUCUN effet, et typecheck:scripts le signalait sans etre lu : ce
+      // script n'est pas couvert par la verification du backend. Les requetes d'un
+      // tableau partent en une seule transaction serveur, sans delai client a regler.
     );
     ecrites += lot.length;
   }

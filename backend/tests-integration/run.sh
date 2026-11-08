@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+# Lance les bancs d'integration PostGIS. Voir README.md.
+#   DATABASE_URL=postgresql://utilisateur:motdepasse@127.0.0.1:5434/replay bash tests-integration/run.sh
+# La garde (lib/garde.ts) refuse toute base qui n'est pas locale ET nommee replay ou essai_<nom>.
+set -u
+cd "$(dirname "$0")/.."
+
+BANCS=(trace metadonnees geometries-invalides contour deviation graphe info-route patrouilles teledetection veille metre tuiles chemin historique photos-observation qualite-detecteurs)
+echec=0
+lignes=()
+
+lancer() { # $1 = fichier
+  if npx tsx "tests-integration/$1" > "/tmp/integration-$1.log" 2>&1; then
+    lignes+=("$(printf '%-44s %s' "$1" "$(grep -E 'verifications reussies' "/tmp/integration-$1.log" | tail -1 || true)")")
+  else
+    lignes+=("$(printf '%-44s %s' "$1" "ECHEC (voir /tmp/integration-$1.log)")")
+    echec=1
+  fi
+}
+
+for b in "${BANCS[@]}"; do lancer "$b.integration.ts"; done
+lancer "curseur.integration.mts"
+lancer "programmation.integration.mts"
+lancer "ppe.integration.mts"
+lancer "outbox.integration.mts"
+lancer "tableau-de-bord.integration.mts"
+lancer "aide-decision-kpi.integration.mts"
+lancer "roulage.integration.mts"
+lancer "roulage-consultation.integration.mts"
+lancer "sync.integration.mts"
+lancer "conflits-sync.integration.mts"
+lancer "import.integration.mts"
+lancer "imports-api.integration.mts"
+lancer "metre-defaut.integration.mts"
+lancer "contour-terrain.integration.mts"
+lancer "taches-internes.integration.mts"
+lancer "coherence.integration.mts"
+lancer "extension-unaccent.integration.mts"
+lancer "qualite-geometries.integration.mts"
+lancer "territoire.integration.mts"
+lancer "controle-acces.integration.mts"
+lancer "aide-decision-securite.integration.mts"
+lancer "session-appareil.integration.mts"
+lancer "info-route-delai.integration.mts"
+lancer "incident-hors-ligne.integration.mts"
+lancer "correspondances.integration.mts"
+lancer "aide-decision-scenarios.integration.mts"
+lancer "aide-decision-contractuel.integration.mts"
+lancer "aide-decision-priorites.integration.mts"
+lancer "aide-decision-baremes-exports.integration.mts"
+# Exige les migrations 20261028* sur la base cible (voir README : « Bancs qui exigent des migrations recentes »).
+lancer "eo-workflow.integration.ts"
+# Crée et détruit son propre clone `essai_eo_api` (DATABASE_URL pointe sur replay) ; applique lui-même les migrations 20261028*.
+lancer "eo-api.integration.mts"
+lancer "registre.integration.mts"
+lancer "sections.integration.mts"
+lancer "inspection-terrain.integration.mts"
+# Projets de voirie et reseaux : clone `essai_projets_voirie` ; exige la migration 20261030100000 dans `replay` (95 migrations).
+lancer "projets-voirie.integration.mts"
+# Dossiers de conflit (lot RC-3) : clone `essai_conflits_pv` ; applique lui-meme la migration 20261031100000 au clone si `replay` ne la porte pas.
+lancer "conflits-projets-voirie.integration.mts"
+# Formats d'import ouverts, CRS, mapping, versions (lot A1) : clone `essai_import_formats` ; exige la migration 20261101100000 dans `replay`.
+lancer "import-formats.integration.mts"
+# Workflow concessionnaire, referents et recolement (lot B3) : clone `essai_workflow_pv` ; applique lui-meme la migration 20261101300000 au clone si `replay` ne la porte pas.
+lancer "workflow-roles.integration.mts"
+# Reseaux physiques et circuits logiques (lot B1) : clone `essai_reseau_pl` ; applique lui-meme la migration 20261101200000 au clone si `replay` ne la porte pas.
+lancer "reseau-physique-logique.integration.mts"
+# Volume des reseaux (lot B1) : clone `essai_reseau_volume`, 3 000 circuits et 3 000 gaines par defaut (RESEAUX_VOLUME pour changer).
+lancer "reseau-physique-logique-volume.integration.mts"
+
+printf '\n%s\n' "Resultat des bancs d'integration"
+printf '%s\n' "${lignes[@]}"
+echo "Chaque banc nomme ses verifications et sort en code 1 si une seule est fausse (lib/verdict.ts fait aussi echouer un banc qui n'en fait aucune ; curseur tient son propre decompte). Detail : /tmp/integration-<banc>.log."
+exit $echec

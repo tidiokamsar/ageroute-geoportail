@@ -25,6 +25,7 @@ export const VILLES: Ville[] = [
   { nom: "Boffa", lat: 10.18, lon: -13.03, region: "Boké" },
   { nom: "Fria", lat: 10.37, lon: -13.68, region: "Boké" },
   { nom: "Gaoual", lat: 11.75, lon: -14.22, region: "Boké" },
+  { nom: "Sangarédi", lat: 11.10, lon: -13.77, region: "Boké" }, // 11°06′N 13°46′W (Wikipédia, vérifié le 25/10/2026)
   { nom: "Koundara", lat: 12.34, lon: -13.31, region: "Boké" },
   { nom: "Kindia", lat: 10.06, lon: -12.86, region: "Kindia" },
   { nom: "Coyah", lat: 9.71, lon: -13.39, region: "Kindia" },
@@ -40,7 +41,7 @@ export const VILLES: Ville[] = [
   { nom: "Koubia", lat: 11.47, lon: -11.56, region: "Labé" },
   { nom: "Mali", lat: 12.13, lon: -11.97, region: "Labé" },
   { nom: "Faranah", lat: 10.03, lon: -10.74, region: "Faranah" },
-  { nom: "Dabola", lat: 10.00, lon: -11.11, region: "Faranah" },
+  { nom: "Dabola", lat: 10.75, lon: -11.12, region: "Faranah" },
   { nom: "Dinguiraye", lat: 10.72, lon: -10.72, region: "Faranah" },
   { nom: "Kankan", lat: 10.38, lon: -9.31, region: "Kankan" },
   { nom: "Kouroussa", lat: 10.66, lon: -9.89, region: "Kankan" },

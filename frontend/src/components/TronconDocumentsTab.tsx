@@ -114,9 +114,9 @@ export function TronconDocumentsTab({ tronconId, canWrite }: { tronconId: string
       )}
 
       {isLoading ? (
-        <p className="text-gray-400">Chargement...</p>
+        <p className="text-gray-500">Chargement...</p>
       ) : data?.data.length === 0 ? (
-        <p className="text-gray-400">Aucun document.</p>
+        <p className="text-gray-500">Aucun document.</p>
       ) : (
         <ul className="space-y-1">
           {data?.data.map((d) => (

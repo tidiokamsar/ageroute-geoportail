@@ -17,9 +17,29 @@ describe("hasModuleAccess — même règle que le serveur", () => {
     expect(hasModuleAccess([], "ADMIN", "marches")).toBe(true);
   });
 
-  it("une liste vide vaut absence de restriction — comportement historique", () => {
-    expect(hasModuleAccess([], "LECTEUR", "marches")).toBe(true);
-    expect(hasModuleAccess(undefined, "GESTIONNAIRE", "marches")).toBe(true);
+  it("une liste vide vaut AUCUN module pour un non-ADMIN (serveur : backend/src/lib/access.ts, correction du 05/09/2026)", () => {
+    // E2E-EO-3 : le client lisait « vide = tout autorise » alors que le serveur refuse tout. Un compte dont personne n'a
+    // encore choisi les modules voyait donc tous les menus et ne recevait que des refus.
+    for (const role of ["GESTIONNAIRE", "INSPECTEUR", "LECTEUR"]) {
+      for (const m of MODULES) expect(hasModuleAccess([], role, m.key), `${role} ${m.key}`).toBe(false);
+    }
+  });
+
+  it("une liste absente (profil sans le champ) vaut aucun module : on echoue ferme, comme le serveur pour un compte inconnu", () => {
+    expect(hasModuleAccess(undefined, "GESTIONNAIRE", "marches")).toBe(false);
+    expect(hasModuleAccess(undefined, undefined, "marches")).toBe(false);
+    expect(hasModuleAccess([], undefined, "dashboard")).toBe(false);
+  });
+
+  it("ADMIN reste le seul role exempte, y compris liste absente", () => {
+    expect(hasModuleAccess(undefined, "ADMIN", "teledetection")).toBe(true);
+    for (const role of ["GESTIONNAIRE", "INSPECTEUR", "LECTEUR", "admin", ""]) expect(hasModuleAccess([], role, "teledetection")).toBe(false);
+  });
+
+  it("l'acces a un module ne depend que de la presence de sa cle (pas de prefixe, pas de casse)", () => {
+    expect(hasModuleAccess(["teledetection"], "LECTEUR", "teledetection")).toBe(true);
+    expect(hasModuleAccess(["tele"], "LECTEUR", "teledetection")).toBe(false);
+    expect(hasModuleAccess(["Teledetection"], "LECTEUR", "teledetection")).toBe(false);
   });
 
   it("une liste renseignée restreint à ce qu'elle contient", () => {

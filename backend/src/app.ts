@@ -1,3 +1,4 @@
+import { tuilesRouter } from "./tuiles/tuiles.routes";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -19,6 +20,7 @@ import { dashboardRouter } from "./modules/dashboard/dashboard.routes";
 import { voirieLocaleRouter } from "./modules/voirie-locale/voirie-locale.routes";
 import { marchesRouter } from "./modules/marches/marches.routes";
 import { adminSettingsRouter } from "./modules/admin/settings.routes";
+import { gouvernanceRouter } from "./modules/admin/gouvernance.routes";
 import { otRouter } from "./modules/ordres-travaux/ot.routes";
 import { usersRouter } from "./modules/users/users.routes";
 import { auditRouter } from "./modules/audit/audit.routes";
@@ -28,11 +30,13 @@ import { searchRouter } from "./modules/search/search.routes";
 import { documentsRouter } from "./modules/documents/documents.routes";
 import { photosRouter } from "./modules/photos/photos.routes";
 import { publicRouter } from "./modules/public/public.routes";
+import { apiV2Router } from "./api-v2";
 import { healthRouter } from "./modules/health/health.routes";
 import { errorHandler, notFoundHandler } from "./middleware/error.middleware";
 import { requireAuth } from "./middleware/auth.middleware";
 import { requireRole } from "./middleware/rbac.middleware";
 import { verifyOrigin } from "./middleware/origin.middleware";
+import { limiteurRefresh, limiteurApiV2 } from "./middleware/rate-limit.middleware";
 import cookieParser from "cookie-parser";
 import fs from "fs";
 import { UPLOAD_DIR } from "./middleware/upload-document.middleware";
@@ -103,6 +107,11 @@ export function createApp() {
     "/api/auth/2fa/login-verify",
     rateLimit({ windowMs: 15 * 60 * 1000, max: 10, message: { error: "Trop de tentatives, reessayez plus tard" } })
   );
+  // Rejeu en boucle d'un jeton de rafraichissement : voir middleware/rate-limit.middleware.ts.
+  app.use(
+    "/api/auth/refresh",
+    limiteurRefresh({ max: env.RATE_LIMIT_REFRESH_MAX, fenetreMs: env.RATE_LIMIT_REFRESH_FENETRE_MIN * 60 * 1000 })
+  );
 
   // Sonde d'etat : voir modules/health. Elle repondait "ok" sans rien verifier,
   // donc "ok" meme base arretee.
@@ -132,6 +141,9 @@ export function createApp() {
   app.use("/api/dashboard", dashboardRouter);
   app.use("/api", marchesRouter);
   app.use("/api/admin", adminSettingsRouter);
+  // Designation des validateurs : hors du routeur d'administration, car la Direction
+  // Technique en porte le droit sans etre administrateur. Voir gouvernance.routes.
+  app.use("/api/gouvernance", gouvernanceRouter);
   app.use("/api/ordres-travaux", otRouter);
   app.use("/api/users", usersRouter);
   app.use("/api/audit", auditRouter);
@@ -140,7 +152,19 @@ export function createApp() {
   app.use("/api/search", searchRouter);
   app.use("/api/documents", documentsRouter);
   app.use("/api/photos", photosRouter);
+  // Tuiles vectorielles AVANT le routeur public : elles ont leur propre plafond de debit, plus
+  // large (un ecran de carte en demande une vingtaine a chaque deplacement).
+  app.use("/api/public/tuiles", tuilesRouter);
   app.use("/api/public", publicRouter);
+
+  /**
+   * API v2. La V1 ci-dessus reste intacte : elle sert la carte publique, la console
+   * interne et la carte embarquee de DigitalRoad, hebergee sur un domaine SharePoint
+   * qu'on ne redeploie pas au meme rythme. Les pages migrent une par une.
+   */
+  // Plafond global genereux, configurable : il doit laisser passer la file de synchronisation
+  // d'un agent de terrain (voir middleware/rate-limit.middleware.ts).
+  app.use("/api/v2", limiteurApiV2({ max: env.RATE_LIMIT_V2_MAX, fenetreMs: env.RATE_LIMIT_V2_FENETRE_SEC * 1000 }), apiV2Router);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

@@ -16,5 +16,11 @@ export default defineConfig({
     // presentation, et la carte elle-meme reste couverte par les verifications
     // manuelles en navigateur.
     exclude: ["node_modules", "dist", "**/*.spec.ts"],
+    // 30 s et non les 5 s par defaut, comme le backend. Constate le 22/10/2026 : sous la charge de la
+    // suite complete (42 fichiers en parallele, poste partage), 1 a 7 tests de pages passaient de
+    // 0,5 s a plus de 6 s et expiraient, alors qu'ils passent tous isoles. Le plafond reste utile : il
+    // attrape une attente infinie, pas une lenteur due a la machine.
+    testTimeout: 30_000,
+    hookTimeout: 30_000,
   },
 });

@@ -1,0 +1,381 @@
+{
+ "_fixture": {
+  "capturee": "2026-10-25",
+  "reel": true,
+  "source": "cdse-stac",
+  "description": "item radar complet",
+  "capturee_par": "agent sources reelles (copie conservee dans le scratchpad de la session)",
+  "requete": {
+   "methode": "POST",
+   "url": "https://stac.dataspace.copernicus.eu/v1/search",
+   "corps": {
+    "collections": [
+     "sentinel-1-grd"
+    ],
+    "bbox": [
+     -14.39,
+     10.83,
+     -14.19,
+     11.03
+    ],
+    "datetime": "2026-10-01T00:00:00Z/2026-10-25T23:59:59Z",
+    "limit": 2
+   }
+  },
+  "reduction": "actifs limites aux bandes (toutes resolutions), SCL, TCI, Product, vignette (S2) ou vv, vh, Product, vignette (S1) ; champs d'actif limites a href, type, title, roles, gsd, file:size ; liens limites a next et self ; stac_extensions retire ; jeton de page du lien next remplace. Proprietes et geometrie intactes."
+ },
+ "reponse": {
+  "type": "FeatureCollection",
+  "numberReturned": 2,
+  "links": [
+   {
+    "rel": "next",
+    "type": "application/geo+json",
+    "method": "POST",
+    "href": "https://stac.dataspace.copernicus.eu/v1/search",
+    "body": {
+     "collections": [
+      "sentinel-1-grd"
+     ],
+     "bbox": [
+      -14.39,
+      10.83,
+      -14.19,
+      11.03
+     ],
+     "datetime": "2026-10-01T00:00:00Z/2026-10-25T23:59:59Z",
+     "limit": 2,
+     "token": "(jeton de page retire)"
+    }
+   }
+  ],
+  "features": [
+   {
+    "id": "S1C_IW_GRDH_1SDV_20261019T064209_20261019T064232_009950_013D62_F584_COG",
+    "bbox": [
+     -14.884932,
+     9.102054,
+     -12.367113,
+     10.914685
+    ],
+    "type": "Feature",
+    "links": [
+     {
+      "rel": "self",
+      "type": "application/geo+json",
+      "href": "https://stac.dataspace.copernicus.eu/v1/collections/sentinel-1-grd/items/S1C_IW_GRDH_1SDV_20261019T064209_20261019T064232_009950_013D62_F584_COG"
+     }
+    ],
+    "assets": {
+     "vh": {
+      "href": "s3://eodata/Sentinel-1/SAR/IW_GRDH_1S-COG/2026/10/19/S1C_IW_GRDH_1SDV_20261019T064209_20261019T064232_009950_013D62_F584_COG.SAFE/measurement/s1c-iw-grd-vh-20261019t064209-20261019t064232-009950-013d62-002-cog.tiff",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "title": "VH: Vertical transmit, horizontal receive",
+      "roles": [
+       "data"
+      ],
+      "file:size": 447205022
+     },
+     "vv": {
+      "href": "s3://eodata/Sentinel-1/SAR/IW_GRDH_1S-COG/2026/10/19/S1C_IW_GRDH_1SDV_20261019T064209_20261019T064232_009950_013D62_F584_COG.SAFE/measurement/s1c-iw-grd-vv-20261019t064209-20261019t064232-009950-013d62-001-cog.tiff",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "title": "VV: Vertical transmit, vertical receive",
+      "roles": [
+       "data"
+      ],
+      "file:size": 518547022
+     },
+     "Product": {
+      "href": "https://download.dataspace.copernicus.eu/odata/v1/Products(d59b6a73-175e-467c-b590-5bc830051685)/$value",
+      "type": "application/zip",
+      "title": "Zipped product",
+      "roles": [
+       "data",
+       "metadata",
+       "archive"
+      ],
+      "file:size": 972068026
+     },
+     "thumbnail": {
+      "href": "https://datahub.creodias.eu/odata/v1/Assets(1a110776-76df-4068-abc6-05dfac773bc0)/$value",
+      "type": "image/png",
+      "title": "Thumbnail",
+      "roles": [
+       "thumbnail"
+      ],
+      "file:size": 95131
+     }
+    },
+    "geometry": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        -12.642806,
+        9.102054
+       ],
+       [
+        -12.367113,
+        10.469355
+       ],
+       [
+        -14.619221,
+        10.914685
+       ],
+       [
+        -14.884932,
+        9.550969
+       ],
+       [
+        -12.642806,
+        9.102054
+       ]
+      ]
+     ]
+    },
+    "collection": "sentinel-1-grd",
+    "properties": {
+     "created": "2026-10-19T13:26:59.841975Z",
+     "expires": "2262-01-01T00:00:00.000000Z",
+     "updated": "2026-10-19T15:35:49.142179Z",
+     "_private": {
+      "visible": true,
+      "product_name": "S1C_IW_GRDH_1SDV_20261019T064209_20261019T064232_009950_013D62_F584_COG.SAFE",
+      "product_size": 972058770,
+      "product_uuid": "d59b6a73-175e-467c-b590-5bc830051685"
+     },
+     "datetime": "2026-10-19T06:42:09.576658Z",
+     "platform": "sentinel-1c",
+     "published": "2026-10-19T15:35:49.142179Z",
+     "instruments": [
+      "sar"
+     ],
+     "auth:schemes": {
+      "s3": {
+       "type": "s3"
+      },
+      "oidc": {
+       "type": "openIdConnect",
+       "openIdConnectUrl": "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/.well-known/openid-configuration"
+      }
+     },
+     "end_datetime": "2026-10-19T06:42:32.164118Z",
+     "product:type": "IW_GRDH_1S",
+     "view:azimuth": 192.0217963999573,
+     "constellation": "sentinel-1",
+     "start_datetime": "2026-10-19T06:42:09.576658Z",
+     "sat:orbit_cycle": 61,
+     "sat:orbit_state": "descending",
+     "storage:schemes": {
+      "cdse-s3": {
+       "type": "custom-s3",
+       "class": "hot",
+       "title": "Copernicus Data Space Ecosystem S3",
+       "platform": "https://eodata.dataspace.copernicus.eu",
+       "description": "This endpoint provides access to EO data which is stored on the object storage of both CloudFerro Cloud and OpenTelekom Cloud (OTC). See the [documentation](https://documentation.dataspace.copernicus.eu/APIs/S3.html) for more information, including how to get credentials.",
+       "requester_pays": false
+      },
+      "creodias-s3": {
+       "type": "custom-s3",
+       "class": "hot",
+       "title": "CREODIAS S3",
+       "platform": "https://eodata.cloudferro.com",
+       "description": "Comprehensive Earth Observation Data (EODATA) archive offered by CREODIAS as a commercial part of CDSE, designed to provide users with access to a vast repository of satellite data without predefined quota limits.",
+       "requester_pays": true
+      }
+     },
+     "eopf:datatake_id": "81250",
+     "processing:level": "L1",
+     "sar:polarizations": [
+      "VV",
+      "VH"
+     ],
+     "processing:version": "01.00",
+     "product:timeliness": "PT24H",
+     "sar:frequency_band": "C",
+     "sat:absolute_orbit": 9950,
+     "sat:relative_orbit": 52,
+     "processing:datetime": "2026-10-19T15:28:29.488246Z",
+     "processing:facility": "Copernicus Data Space Ecosystem-CloudFerro",
+     "processing:software": {
+      "eometadatatool": "0"
+     },
+     "sar:instrument_mode": "IW",
+     "eopf:origin_datetime": "2026-10-19T13:26:59.841975Z",
+     "sar:center_frequency": 5.405,
+     "view:incidence_angle": 39.02242714503787,
+     "sar:pixel_spacing_range": 10,
+     "sar:observation_direction": "right",
+     "sar:pixel_spacing_azimuth": 10,
+     "product:timeliness_category": "Fast-24h",
+     "eopf:instrument_configuration_id": 5,
+     "sat:platform_international_designator": "2024-235A"
+    },
+    "stac_version": "1.1.0"
+   },
+   {
+    "id": "S1C_IW_GRDH_1SDV_20261019T064140_20261019T064209_009950_013D62_855B_COG",
+    "bbox": [
+     -14.619203,
+     10.469444,
+     -11.99862,
+     12.680503
+    ],
+    "type": "Feature",
+    "links": [
+     {
+      "rel": "self",
+      "type": "application/geo+json",
+      "href": "https://stac.dataspace.copernicus.eu/v1/collections/sentinel-1-grd/items/S1C_IW_GRDH_1SDV_20261019T064140_20261019T064209_009950_013D62_855B_COG"
+     }
+    ],
+    "assets": {
+     "vh": {
+      "href": "s3://eodata/Sentinel-1/SAR/IW_GRDH_1S-COG/2026/10/19/S1C_IW_GRDH_1SDV_20261019T064140_20261019T064209_009950_013D62_855B_COG.SAFE/measurement/s1c-iw-grd-vh-20261019t064140-20261019t064209-009950-013d62-002-cog.tiff",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "title": "VH: Vertical transmit, horizontal receive",
+      "roles": [
+       "data"
+      ],
+      "file:size": 648870862
+     },
+     "vv": {
+      "href": "s3://eodata/Sentinel-1/SAR/IW_GRDH_1S-COG/2026/10/19/S1C_IW_GRDH_1SDV_20261019T064140_20261019T064209_009950_013D62_855B_COG.SAFE/measurement/s1c-iw-grd-vv-20261019t064140-20261019t064209-009950-013d62-001-cog.tiff",
+      "type": "image/tiff; application=geotiff; profile=cloud-optimized",
+      "title": "VV: Vertical transmit, vertical receive",
+      "roles": [
+       "data"
+      ],
+      "file:size": 745013734
+     },
+     "Product": {
+      "href": "https://download.dataspace.copernicus.eu/odata/v1/Products(51887363-da1c-40cd-bdc6-3e287ddd23c8)/$value",
+      "type": "application/zip",
+      "title": "Zipped product",
+      "roles": [
+       "data",
+       "metadata",
+       "archive"
+      ],
+      "file:size": 1401863899
+     },
+     "thumbnail": {
+      "href": "https://datahub.creodias.eu/odata/v1/Assets(db29b776-dd0a-4d3e-bc78-6332cab9f325)/$value",
+      "type": "image/png",
+      "title": "Thumbnail",
+      "roles": [
+       "thumbnail"
+      ],
+      "file:size": 91455
+     }
+    },
+    "geometry": {
+     "type": "Polygon",
+     "coordinates": [
+      [
+       [
+        -12.367093,
+        10.469444
+       ],
+       [
+        -11.99862,
+        12.239559
+       ],
+       [
+        -14.266044,
+        12.680503
+       ],
+       [
+        -14.619203,
+        10.914775
+       ],
+       [
+        -12.367093,
+        10.469444
+       ]
+      ]
+     ]
+    },
+    "collection": "sentinel-1-grd",
+    "properties": {
+     "created": "2026-10-19T13:29:45.120522Z",
+     "expires": "2262-01-01T00:00:00.000000Z",
+     "updated": "2026-10-19T15:41:02.468635Z",
+     "_private": {
+      "visible": true,
+      "product_name": "S1C_IW_GRDH_1SDV_20261019T064140_20261019T064209_009950_013D62_855B_COG.SAFE",
+      "product_size": 1401854643,
+      "product_uuid": "51887363-da1c-40cd-bdc6-3e287ddd23c8"
+     },
+     "datetime": "2026-10-19T06:41:40.293528Z",
+     "platform": "sentinel-1c",
+     "published": "2026-10-19T15:41:02.468635Z",
+     "instruments": [
+      "sar"
+     ],
+     "auth:schemes": {
+      "s3": {
+       "type": "s3"
+      },
+      "oidc": {
+       "type": "openIdConnect",
+       "openIdConnectUrl": "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/.well-known/openid-configuration"
+      }
+     },
+     "end_datetime": "2026-10-19T06:42:09.575168Z",
+     "product:type": "IW_GRDH_1S",
+     "view:azimuth": 192.0403550956513,
+     "constellation": "sentinel-1",
+     "start_datetime": "2026-10-19T06:41:40.293528Z",
+     "sat:orbit_cycle": 61,
+     "sat:orbit_state": "descending",
+     "storage:schemes": {
+      "cdse-s3": {
+       "type": "custom-s3",
+       "class": "hot",
+       "title": "Copernicus Data Space Ecosystem S3",
+       "platform": "https://eodata.dataspace.copernicus.eu",
+       "description": "This endpoint provides access to EO data which is stored on the object storage of both CloudFerro Cloud and OpenTelekom Cloud (OTC). See the [documentation](https://documentation.dataspace.copernicus.eu/APIs/S3.html) for more information, including how to get credentials.",
+       "requester_pays": false
+      },
+      "creodias-s3": {
+       "type": "custom-s3",
+       "class": "hot",
+       "title": "CREODIAS S3",
+       "platform": "https://eodata.cloudferro.com",
+       "description": "Comprehensive Earth Observation Data (EODATA) archive offered by CREODIAS as a commercial part of CDSE, designed to provide users with access to a vast repository of satellite data without predefined quota limits.",
+       "requester_pays": true
+      }
+     },
+     "eopf:datatake_id": "81250",
+     "processing:level": "L1",
+     "sar:polarizations": [
+      "VV",
+      "VH"
+     ],
+     "processing:version": "01.00",
+     "product:timeliness": "PT24H",
+     "sar:frequency_band": "C",
+     "sat:absolute_orbit": 9950,
+     "sat:relative_orbit": 52,
+     "processing:datetime": "2026-10-19T15:30:57.409477Z",
+     "processing:facility": "Copernicus Data Space Ecosystem-CloudFerro",
+     "processing:software": {
+      "eometadatatool": "0"
+     },
+     "sar:instrument_mode": "IW",
+     "eopf:origin_datetime": "2026-10-19T13:29:45.120522Z",
+     "sar:center_frequency": 5.405,
+     "view:incidence_angle": 39.07602624529267,
+     "sar:pixel_spacing_range": 10,
+     "sar:observation_direction": "right",
+     "sar:pixel_spacing_azimuth": 10,
+     "product:timeliness_category": "Fast-24h",
+     "eopf:instrument_configuration_id": 5,
+     "sat:platform_international_designator": "2024-235A"
+    },
+    "stac_version": "1.1.0"
+   }
+  ]
+ }
+}

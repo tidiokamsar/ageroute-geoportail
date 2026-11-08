@@ -123,7 +123,11 @@ async function main() {
           `ouvrage_osm:${r.cle}`, nonRenseignee.id, maintenant,
         ),
       ),
-      { timeout: 300_000 },
+      // Aucune option ici : la forme TABLEAU de $transaction n'accepte que
+      // `isolationLevel`. Les `timeout` / `maxWait` qui figuraient a cet endroit
+      // n'avaient AUCUN effet, et typecheck:scripts le signalait sans etre lu : ce
+      // script n'est pas couvert par la verification du backend. Les requetes d'un
+      // tableau partent en une seule transaction serveur, sans delai client a regler.
     );
 
     /**

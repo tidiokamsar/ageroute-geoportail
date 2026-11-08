@@ -43,6 +43,22 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
     res.status(400).json({ error: "Paramètre de requête invalide" });
     return;
   }
+  // Erreurs du lecteur de corps (body-parser / http-errors) : JSON mal forme (entity.parse.failed),
+  // corps trop gros (entity.too.large), encodage non supporte... Elles portent un statut 4xx et
+  // `expose: true`. Avant : 500 sans code. Le message d'origine n'est jamais renvoye tel quel.
+  const http = err as { status?: unknown; type?: unknown; expose?: unknown };
+  if (typeof http.status === "number" && http.status >= 400 && http.status < 500 && http.expose === true) {
+    if (http.type === "entity.too.large") {
+      res.status(413).json({ error: "Corps de requete trop volumineux", code: "CORPS_TROP_GROS" });
+      return;
+    }
+    if (http.type === "entity.parse.failed") {
+      res.status(400).json({ error: "Corps de requete illisible (JSON invalide)", code: "JSON_INVALIDE" });
+      return;
+    }
+    res.status(http.status).json({ error: "Requete invalide", code: "REQUETE_INVALIDE" });
+    return;
+  }
   console.error(err);
   res.status(500).json({ error: "Erreur interne du serveur" });
 }

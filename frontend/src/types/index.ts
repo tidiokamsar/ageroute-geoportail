@@ -35,10 +35,22 @@ export interface User {
   derniereConnexion?: string | null;
   totpEnabled?: boolean;
   modulesAutorises?: string[];
+  /**
+   * Droit de DESIGNER un validateur (paragraphe 35 du cahier).
+   *
+   * Porte par le compte et non par un role : « Direction Technique » est un profil, et
+   * les profils ne persistent pas. Six profils sur onze sont GESTIONNAIRE, donc un
+   * controle de role donnerait ce droit a presque tout le monde.
+   */
+  peutDeleguerValidation?: boolean;
   createdAt: string;
 }
 
 export interface Troncon {
+  /** Rendu par la liste : le tronçon a-t-il un tracé ? (la carte ne montre que ceux qui en ont un) */
+  aGeometrie?: boolean;
+  /** Rendu par la liste : longueur du tracé (géodésique), distincte de la longueur déclarée. */
+  longueurGeometriqueKm?: number | null;
   id: string;
   code: string;
   nom: string;
@@ -234,6 +246,9 @@ export interface Inspection {
   defautsConstates?: string | null;
   recommandations?: string | null;
   photos?: string[];
+  /** Lot F : avis d'un responsable (A_VALIDER, VALIDE, REJETE, A_CORRIGER) ; absent pour les inspections antérieures. */
+  statutValidation?: string | null;
+  constatDefauts?: string | null;
 }
 
 export interface Document {
@@ -305,6 +320,12 @@ export interface DashboardKpis {
   tronconsParEtat: { etat: EtatPatrimoine; total: number }[];
   ouvragesParEtat: { etat: EtatPatrimoine; total: number }[];
   chantiersParStatut: { statut: StatutChantier; total: number }[];
+  /** Le dénominateur, dit d'abord : réseau classé SAISI, pas le réseau national annoncé. */
+  perimetre?: { code: string; libelle: string; avertissement: string };
+  /** Portions homogènes validées : la vérité de l'état (D6). Zéro = états d'import seulement. */
+  portions?: { validees: number; kmValides: number; avertissement: string | null };
+  /** Ce que l'on sait réellement des valeurs : observé, importé non vérifié, dérivé, en conflit, inconnu. */
+  qualite?: { parStatut: { statut: string; total: number }[]; total: number };
 }
 
 export interface ActivityEntry {

@@ -6,7 +6,15 @@ import { setPointGeom, getPointLatLon, deriveGeomFromTroncon } from "../../lib/g
 import { ApiError } from "../../middleware/error.middleware";
 import { pointNoirCreateSchema } from "./points-noirs.schema";
 
-const base = createCrudService(prisma.pointNoir, "PointNoir", { region: true, troncon: true });
+/**
+ * Migre a l'audit transactionnel (ADR 11). La mutation et sa trace reussissent ou sont
+ * annulees ensemble.
+ */
+const base = createCrudService(prisma.pointNoir, "PointNoir", {
+  include: { region: true, troncon: true },
+  delegueTransactionnel: (tx) => (tx as typeof prisma).pointNoir,
+  controleTerritorial: true,
+});
 
 function extractLatLon(data: { lat?: number; lon?: number } & Record<string, unknown>) {
   const { lat, lon, ...rest } = data;
@@ -33,12 +41,14 @@ async function update(id: string, data: { lat?: number; lon?: number } & Record<
   return updated;
 }
 
-async function geolocateFromTroncon(id: string) {
+async function geolocateFromTroncon(id: string, userId: string, ipAddress?: string) {
   const item = await base.getById(id) as { tronconId?: string | null; pk?: number | null };
   if (!item.tronconId || item.pk == null) {
     throw new ApiError(400, "Ce point noir doit avoir un tronçon rattaché et un PK pour être géolocalisé automatiquement.");
   }
-  const ok = await deriveGeomFromTroncon("points_noirs", id, item.tronconId, item.pk);
+  const ok = await deriveGeomFromTroncon("points_noirs", id, item.tronconId, item.pk, {
+    userId, entityType: "PointNoir", ipAddress,
+  });
   if (!ok) throw new ApiError(400, "Géolocalisation impossible : tracé du tronçon indisponible.");
   return getPointLatLon("points_noirs", id);
 }

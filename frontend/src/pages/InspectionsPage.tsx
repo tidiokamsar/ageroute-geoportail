@@ -7,6 +7,7 @@ import { Modal } from "../components/ui/Modal";
 import { Button } from "../components/ui/Button";
 import { EtatBadge } from "../components/ui/Badge";
 import { PhotoGallery } from "../components/PhotoGallery";
+import { AvisInspectionModal, LIBELLE_AVIS } from "../components/AvisInspectionModal";
 import { canWrite, useAuth } from "../lib/auth";
 import { inspectionFields } from "../lib/fieldConfigs";
 import type { Inspection, EtatPatrimoine } from "../types";
@@ -21,6 +22,7 @@ export function InspectionsPage() {
   const { user } = useAuth();
   const [etatFilter, setEtatFilter] = useState("");
   const [photosInspection, setPhotosInspection] = useState<Inspection | null>(null);
+  const [avis, setAvis] = useState<Inspection | null>(null);
 
   const columns: ColumnDef<Inspection, unknown>[] = [
     {
@@ -40,7 +42,7 @@ export function InspectionsPage() {
           return (
             <div className="min-w-0">
               <span className="text-sm font-semibold text-navy">{i.troncon.code}</span>
-              <span className="ml-1.5 text-xs text-gray-400">{i.troncon.nom}</span>
+              <span className="ml-1.5 text-xs text-gray-500">{i.troncon.nom}</span>
             </div>
           );
         }
@@ -48,13 +50,13 @@ export function InspectionsPage() {
           return (
             <div className="min-w-0 flex items-center gap-1.5">
               <span className="text-sm font-semibold text-gray-800">{i.ouvrage.nom}</span>
-              <span className="inline-flex items-center rounded-md bg-gray-100 px-1.5 py-0.5 text-xs text-gray-500">
+              <span className="inline-flex items-center rounded-md bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600">
                 {i.ouvrage.type}
               </span>
             </div>
           );
         }
-        return <span className="text-sm text-gray-300">—</span>;
+        return <span className="text-sm text-gray-500">—</span>;
       },
     },
     {
@@ -73,10 +75,15 @@ export function InspectionsPage() {
       id: "defauts",
       header: "Défauts",
       cell: ({ row: { original: i } }) => {
-        if (!i.defautsConstates) return <span className="text-sm text-gray-300">—</span>;
+        if (!i.defautsConstates) return <span className="text-sm text-gray-500">—</span>;
         const truncated = i.defautsConstates.length > 60 ? i.defautsConstates.slice(0, 60) + "…" : i.defautsConstates;
         return <span className="text-sm text-gray-600" title={i.defautsConstates}>{truncated}</span>;
       },
+    },
+    {
+      id: "avis",
+      header: "Avis",
+      cell: ({ row: { original: i } }) => <span className="text-xs text-gray-700">{i.statutValidation ? LIBELLE_AVIS[i.statutValidation] ?? i.statutValidation : "non demandé"}</span>,
     },
   ];
 
@@ -104,6 +111,7 @@ export function InspectionsPage() {
       }
       rowExtraActions={[
         { label: "Photos", onClick: (i) => setPhotosInspection(i) },
+        { label: "Avis", onClick: (i) => setAvis(i), visible: () => canWrite(user?.role) },
       ]}
       headerExtra={
         <Button variant="secondary" size="sm" onClick={() => navigate("/inspections/terrain")}>
@@ -111,6 +119,12 @@ export function InspectionsPage() {
         </Button>
       }
     >
+      {avis && (
+        <AvisInspectionModal
+          inspection={{ id: avis.id, inspecteurId: avis.inspecteurId, statutValidation: avis.statutValidation, libelle: avis.troncon?.code ?? avis.ouvrage?.nom ?? "inspection" }}
+          onClose={() => setAvis(null)}
+        />
+      )}
       {photosInspection && (
         <Modal
           open

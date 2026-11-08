@@ -12,7 +12,7 @@ Les sauvegardes sont chiffrées en AES-256-CBC. Sans la clé, **elles ne valent 
 La clé se trouve sur le serveur `gec` :
 
 ```
-/home/agergec/.bdri/cle-sauvegarde     droits 600, propriétaire agergec
+$HOME/.bdri/cle-sauvegarde     droits 600, propriétaire du compte de service
 ```
 
 **Elle n'est copiée nulle part ailleurs.** C'est délibéré pour la copie distante — la
@@ -20,7 +20,7 @@ placer à côté des archives qu'elle protège annulerait le chiffrement — mai
 une faille tant qu'aucune copie n'existe sous une autre forme :
 
 > **Si le serveur `gec` est détruit aujourd'hui, les archives déposées sur
-> `102.211.199.132` sont irrécupérables.**
+> `<hote-depot>` sont irrécupérables.**
 
 ### Ce qu'il faut faire
 
@@ -49,7 +49,7 @@ accéder en cas d'absence. Ce n'est pas une question technique.
 | Emplacement | Contenu | Rétention |
 |---|---|---|
 | `gec:~/sauvegardes-bdri/` | Copie locale, chiffrée | 14 jours |
-| `agerdb@102.211.199.132:~/ageroute-depots/bdri-sauvegardes/` | Copie hors serveur, chiffrée | Selon la politique du serveur distant |
+| `<utilisateur>@<hote-depot>:~/ageroute-depots/bdri-sauvegardes/` | Copie hors serveur, chiffrée | Selon la politique du serveur distant |
 
 Trois fichiers par sauvegarde :
 

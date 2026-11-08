@@ -12,23 +12,28 @@ import { ImportExportBar } from "../components/ImportExportBar";
 import { AuditHistoryModal } from "../components/AuditHistoryModal";
 import { EntityDetailModal } from "../components/EntityDetailModal";
 import { useAuth, canWrite, canDelete } from "../lib/auth";
+import { api } from "../lib/api";
+import { toast } from "../lib/toast";
 import { parseApiError } from "../lib/errors";
 import { useConfirm } from "../hooks/useConfirm";
 
 // Composant dropdown filtre réutilisable (pattern TronconsPage)
-export function FilterSelect({ value, onChange, children }: {
+export function FilterSelect({ value, onChange, children, label }: {
   value: string; onChange: (v: string) => void; children: React.ReactNode;
+  /** Nom accessible du filtre (lecteur d'écran) : la première option ne suffit pas à le nommer. */
+  label?: string;
 }) {
   return (
     <div className="relative">
       <select
+        aria-label={label}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         className="appearance-none rounded-lg border border-gray-200 bg-white px-3 py-1.5 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-navy/20"
       >
         {children}
       </select>
-      <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-400" />
+      <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gray-500" />
     </div>
   );
 }
@@ -40,10 +45,14 @@ interface Props<T extends { id: string }> {
   fields: FieldConfig[];
   searchPlaceholder?: string;
   importExport?: boolean;
+  /** Import SIMULÉ avant écriture (le serveur doit accepter `?simulation=true`, comme les tronçons). */
+  importSimulation?: boolean;
   /** Nom de l'entite cote audit_logs (ex "Troncon") pour afficher l'historique. */
   auditEntityType?: string;
+  /** Table (liste blanche serveur) pour exporter LA SÉLECTION en CSV / GeoJSON. */
+  exportTable?: string;
   /** Boutons d'action supplementaires par ligne (ex "Fiche" pour les troncons, "Photos" pour les ouvrages). */
-  rowExtraActions?: { label: string; onClick: (row: T) => void }[];
+  rowExtraActions?: { label: string; onClick: (row: T) => void; /** Masque l'action pour une ligne (ex. « Carte » sans tracé). */ visible?: (row: T) => boolean }[];
   /** JSX de filtres horizontaux à afficher en ligne 2 sous la barre de recherche.
    *  L'état des filtres appartient à la page appelante ; voir extraParams. */
   filters?: React.ReactNode;
@@ -70,7 +79,46 @@ interface Props<T extends { id: string }> {
   onRowsLoaded?: (rows: T[]) => void;
 }
 
-export function EntityListPage<T extends { id: string }>({ endpoint, title, columns, fields, searchPlaceholder, importExport, auditEntityType, rowExtraActions, filters, extraParams, rowFilter, pageIcon, subtitle, defaultSortBy, headerExtra, children, aboveList, onRowsLoaded }: Props<T>) {
+/**
+ * Exporter LA sélection — le geste métier : « ces 40 ouvrages critiques de Kindia »,
+ * en CSV pour le tableur (point-virgule, BOM : Excel francophone l'ouvre proprement),
+ * en GeoJSON pour le SIG. Ce qui est coché est ce qui part : les identifiants voyagent,
+ * jamais des filtres recréés.
+ */
+function ExportSelection({ table, ids, onDone }: { table: string; ids: string[]; onDone: () => void }) {
+  const [enCours, setEnCours] = useState<string | null>(null);
+
+  async function exporter(format: "csv" | "geojson") {
+    setEnCours(format);
+    try {
+      const res = await api.post(`/v2/export/selection`, { table, format, ids }, { responseType: "blob" });
+      const url = URL.createObjectURL(res.data as Blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `selection-${table}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      onDone();
+    } catch (err) {
+      toast.error(parseApiError(err).message);
+    } finally {
+      setEnCours(null);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <Button variant="secondary" size="sm" disabled={enCours !== null} onClick={() => { void exporter("csv"); }}>
+        ⬇ CSV ({ids.length})
+      </Button>
+      <Button variant="secondary" size="sm" disabled={enCours !== null} onClick={() => { void exporter("geojson"); }}>
+        ⬇ GeoJSON
+      </Button>
+    </div>
+  );
+}
+
+export function EntityListPage<T extends { id: string }>({ endpoint, title, columns, fields, searchPlaceholder, importExport, importSimulation, auditEntityType, exportTable, rowExtraActions, filters, extraParams, rowFilter, pageIcon, subtitle, defaultSortBy, headerExtra, children, aboveList, onRowsLoaded }: Props<T>) {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const [page, setPage] = useState(1);
@@ -155,10 +203,10 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
     cell: ({ row }) =>
       archived ? (
         <div className="flex items-center gap-1 justify-end">
-          {rowExtraActions?.map((action) => (
+          {rowExtraActions?.filter((action) => !action.visible || action.visible(row.original)).map((action) => (
             <button
               key={action.label}
-              className="px-2 py-1 rounded text-xs text-gray-400 hover:text-navy hover:bg-gray-100"
+              className="px-2 py-1 rounded text-xs text-gray-500 hover:text-navy hover:bg-gray-100"
               onClick={() => action.onClick(row.original)}
             >
               {action.label}
@@ -168,7 +216,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
             <button
               onClick={() => bulkRestore.mutate([row.original.id])}
               title="Restaurer"
-              className="p-1.5 rounded text-gray-400 hover:text-green-600 hover:bg-green-50"
+              className="p-1.5 rounded text-gray-500 hover:text-green-600 hover:bg-green-50"
             >
               <RotateCcw className="h-3.5 w-3.5" />
             </button>
@@ -179,7 +227,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
           {canWrite(user?.role) && (
             <button
               title="Modifier"
-              className="p-1.5 rounded text-gray-400 hover:text-navy hover:bg-gray-100"
+              className="p-1.5 rounded text-gray-500 hover:text-navy hover:bg-gray-100"
               onClick={() => {
                 setEditing(row.original);
                 setFormError(null);
@@ -193,7 +241,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
           {canDelete(user?.role) && (
             <button
               title="Archiver"
-              className="p-1.5 rounded text-gray-400 hover:text-red-500 hover:bg-red-50"
+              className="p-1.5 rounded text-gray-500 hover:text-red-500 hover:bg-red-50"
               onClick={async () => {
                 if (await confirm("Archiver cet élément ?", { danger: true })) remove.mutate(row.original.id);
               }}
@@ -201,10 +249,10 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
               <Archive className="h-3.5 w-3.5" />
             </button>
           )}
-          {rowExtraActions?.map((action) => (
+          {rowExtraActions?.filter((action) => !action.visible || action.visible(row.original)).map((action) => (
             <button
               key={action.label}
-              className="px-2 py-1 rounded text-xs text-gray-400 hover:text-navy hover:bg-gray-100"
+              className="px-2 py-1 rounded text-xs text-gray-500 hover:text-navy hover:bg-gray-100"
               onClick={() => action.onClick(row.original)}
             >
               {action.label}
@@ -213,7 +261,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
           {auditEntityType && (
             <button
               title="Historique"
-              className="p-1.5 rounded text-gray-400 hover:text-navy hover:bg-gray-100"
+              className="p-1.5 rounded text-gray-500 hover:text-navy hover:bg-gray-100"
               onClick={() => setHistoryId(row.original.id)}
             >
               <Clock className="h-3.5 w-3.5" />
@@ -275,7 +323,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
             {archived ? "← Actifs" : "Voir les archivés"}
           </Button>
           {!archived && headerExtra}
-          {importExport && !archived && <ImportExportBar endpoint={endpoint} filenamePrefix={endpoint} />}
+          {importExport && !archived && <ImportExportBar endpoint={endpoint} filenamePrefix={endpoint} exportParams={{ search: search || undefined, ...extraParams }} simulation={importSimulation} />}
           {!archived && canWrite(user?.role) && (
             <Button
               onClick={() => {
@@ -309,7 +357,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
           />
           Tout sélectionner
         </label>
-        <span className="text-sm text-gray-400">
+        <span className="text-sm text-gray-500">
           {(data?.total ?? 0).toLocaleString("fr-FR")} élément{(data?.total ?? 0) !== 1 ? "s" : ""}
         </span>
       </div>
@@ -318,6 +366,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
       {selected.size > 0 && (
         <div className="flex items-center justify-between rounded-lg bg-navy/5 border border-navy/10 px-4 py-2">
           <span className="text-sm text-navy font-medium">{selected.size} élément(s) sélectionné(s)</span>
+          {exportTable && <ExportSelection table={exportTable} ids={Array.from(selected)} onDone={() => setSelected(new Set())} />}
           {archived ? (
             <Button variant="secondary" size="sm" onClick={handleBulkRestore} disabled={bulkRestore.isPending}>
               <RotateCcw className="h-3.5 w-3.5 mr-1" /> Restaurer
@@ -413,7 +462,7 @@ export function EntityListPage<T extends { id: string }>({ endpoint, title, colu
                   },
                 ]
               : []),
-            ...(rowExtraActions ?? []).map((action) => ({
+            ...(rowExtraActions ?? []).filter((action) => !action.visible || action.visible(viewingRow)).map((action) => ({
               label: action.label,
               onClick: () => { action.onClick(viewingRow); setViewingRow(null); },
             })),

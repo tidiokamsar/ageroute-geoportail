@@ -31,4 +31,27 @@ describe("errorHandler — mapping des erreurs (P2-02)", () => {
     expect(res.status).toHaveBeenCalledWith(500);
     expect(res.json).toHaveBeenCalledWith({ error: "Erreur interne du serveur" });
   });
+
+  it("JSON mal forme (body-parser) devient 400 avec un code, pas 500", () => {
+    const res = fakeRes();
+    const err = Object.assign(new SyntaxError("Unexpected token"), { status: 400, type: "entity.parse.failed", expose: true });
+    errorHandler(err, {} as never, res, vi.fn() as never);
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: "JSON_INVALIDE" }));
+  });
+
+  it("corps trop gros devient 413 avec un code", () => {
+    const res = fakeRes();
+    const err = Object.assign(new Error("request entity too large"), { status: 413, type: "entity.too.large", expose: true });
+    errorHandler(err, {} as never, res, vi.fn() as never);
+    expect(res.status).toHaveBeenCalledWith(413);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: "CORPS_TROP_GROS" }));
+  });
+
+  it("une erreur 4xx non exposee reste un 500 generique", () => {
+    const res = fakeRes();
+    const err = Object.assign(new Error("interne"), { status: 400, expose: false });
+    errorHandler(err, {} as never, res, vi.fn() as never);
+    expect(res.status).toHaveBeenCalledWith(500);
+  });
 });

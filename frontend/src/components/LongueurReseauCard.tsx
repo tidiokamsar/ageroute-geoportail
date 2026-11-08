@@ -64,7 +64,7 @@ export function LongueurReseauCard({
           <p className="text-2xl font-black leading-none">
             {km(reseau.metier.totalKm)} <span className="text-base font-semibold text-white/70">km</span>
           </p>
-          <p className="mt-1 text-[11px] uppercase tracking-wider text-white/50">Longueur renseignée</p>
+          <p className="mt-1 text-[11px] uppercase tracking-wider text-white/60">Longueur renseignée</p>
         </div>
 
         {aGeometrie && (
@@ -72,14 +72,14 @@ export function LongueurReseauCard({
             <p className="text-2xl font-black leading-none text-white/90">
               {km(reseau.geometrique.totalKm)} <span className="text-base font-semibold text-white/60">km</span>
             </p>
-            <p className="mt-1 text-[11px] uppercase tracking-wider text-white/50">
+            <p className="mt-1 text-[11px] uppercase tracking-wider text-white/60">
               Calculé depuis la géométrie
             </p>
           </div>
         )}
       </div>
 
-      <p className="mt-1.5 text-[11px] text-white/45">
+      <p className="mt-1.5 text-[11px] text-white/60">
         Longueur saisie sur {reseau.metier.tronconsRenseignes} tronçons sur{" "}
         {reseau.metier.tronconsTotal} ({reseau.metier.couverturePct.toFixed(0)} %)
       </p>
@@ -87,7 +87,7 @@ export function LongueurReseauCard({
           comme une saisie, et l'indicateur de couverture monterait en important de
           la donnee externe au lieu de mesurer le travail de renseignement. */}
       {voirieRattachee != null && voirieRattachee > 0 && (
-        <p className="mt-0.5 text-[11px] text-white/45">
+        <p className="mt-0.5 text-[11px] text-white/60">
           + {voirieRattachee.toLocaleString("fr-FR")} tronçons de voirie rattachée au
           registre{ouvragesRepris ? ` et ${ouvragesRepris.toLocaleString("fr-FR")} franchissements repris` : ""},
           hors réseau classé — comptés à part.
@@ -116,7 +116,7 @@ export function LongueurReseauCard({
             <div className="mt-3 rounded-lg bg-black/25 p-3 text-left">
               <table className="w-full text-[11.5px] tabular-nums">
                 <thead>
-                  <tr className="text-white/50">
+                  <tr className="text-white/60">
                     <th className="pb-1.5 text-left font-medium">Classe</th>
                     <th className="pb-1.5 text-right font-medium">Tronçons</th>
                     <th className="pb-1.5 text-right font-medium">Saisie</th>
@@ -149,7 +149,7 @@ export function LongueurReseauCard({
                 </tbody>
               </table>
 
-              <p className="mt-2.5 flex items-start gap-1.5 text-[10.5px] leading-snug text-white/50">
+              <p className="mt-2.5 flex items-start gap-1.5 text-[10.5px] leading-snug text-white/60">
                 <Info className="mt-px h-3 w-3 shrink-0" aria-hidden="true" />
                 <span>
                   La longueur saisie est la donnée métier, celle qui figure aux marchés. La

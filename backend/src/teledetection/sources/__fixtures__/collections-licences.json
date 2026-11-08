@@ -1,0 +1,188 @@
+{
+ "_fixture": {
+  "capturee": "2026-10-25",
+  "reel": true,
+  "source": "earth-search et cdse-stac",
+  "description": "licence, fournisseurs et liens de licence des collections interrogees",
+  "requete": {
+   "methode": "GET",
+   "url": "https://earth-search.aws.element84.com/v1/collections/{id} et https://stac.dataspace.copernicus.eu/v1/collections",
+   "corps": null
+  },
+  "reduction": "champs id, title, license, providers et liens license / cite-as seulement"
+ },
+ "reponse": {
+  "earth-search:sentinel-2-l2a": {
+   "id": "sentinel-2-l2a",
+   "title": "Sentinel-2 Level-2A",
+   "license": "proprietary",
+   "providers": [
+    {
+     "name": "ESA",
+     "roles": [
+      "producer"
+     ],
+     "url": "https://earth.esa.int/web/guest/home"
+    },
+    {
+     "name": "Sinergise",
+     "roles": [
+      "processor"
+     ],
+     "url": "https://registry.opendata.aws/sentinel-2/"
+    },
+    {
+     "name": "AWS",
+     "roles": [
+      "host"
+     ],
+     "url": "http://sentinel-pds.s3-website.eu-central-1.amazonaws.com/"
+    },
+    {
+     "name": "Element 84",
+     "roles": [
+      "processor"
+     ],
+     "url": "https://element84.com"
+    }
+   ],
+   "liens": [
+    {
+     "rel": "cite-as",
+     "href": "https://doi.org/10.5270/S2_-742ikth"
+    },
+    {
+     "rel": "license",
+     "href": "https://sentinel.esa.int/documents/247904/690755/Sentinel_Data_Legal_Notice"
+    }
+   ]
+  },
+  "earth-search:landsat-c2-l2": {
+   "id": "landsat-c2-l2",
+   "title": "Landsat Collection 2 Level-2",
+   "license": "proprietary",
+   "providers": [
+    {
+     "name": "NASA",
+     "roles": [
+      "producer",
+      "licensor"
+     ],
+     "url": "https://landsat.gsfc.nasa.gov/"
+    },
+    {
+     "name": "USGS",
+     "roles": [
+      "producer",
+      "processor",
+      "licensor"
+     ],
+     "url": "https://www.usgs.gov/landsat-missions/landsat-collection-2-level-2-science-products"
+    },
+    {
+     "name": "AWS",
+     "roles": [
+      "host"
+     ],
+     "url": "http://sentinel-pds.s3-website.eu-central-1.amazonaws.com/"
+    },
+    {
+     "name": "Element 84",
+     "roles": [
+      "processor"
+     ],
+     "url": "https://element84.com"
+    }
+   ],
+   "liens": [
+    {
+     "rel": "cite-as",
+     "href": "https://doi.org/10.5066/P9IAXOVV"
+    },
+    {
+     "rel": "cite-as",
+     "href": "https://doi.org/10.5066/P9C7I13B"
+    },
+    {
+     "rel": "cite-as",
+     "href": "https://doi.org/10.5066/P9OGBGM6"
+    },
+    {
+     "rel": "license",
+     "href": "https://www.usgs.gov/core-science-systems/hdds/data-policy"
+    }
+   ]
+  },
+  "earth-search:sentinel-1-grd": {
+   "id": "sentinel-1-grd",
+   "title": "Sentinel-1 Level-1C Ground Range Detected (GRD)",
+   "license": "proprietary",
+   "providers": [
+    {
+     "url": "https://earth.esa.int/web/guest/home",
+     "name": "ESA",
+     "roles": [
+      "producer",
+      "processor",
+      "licensor"
+     ]
+    },
+    {
+     "name": "AWS",
+     "roles": [
+      "host"
+     ],
+     "url": "https://registry.opendata.aws/sentinel-1"
+    },
+    {
+     "name": "Element 84",
+     "roles": [
+      "processor"
+     ],
+     "url": "https://element84.com"
+    }
+   ],
+   "liens": [
+    {
+     "rel": "license",
+     "href": "https://sentinel.esa.int/documents/247904/690755/Sentinel_Data_Legal_Notice"
+    }
+   ]
+  },
+  "cdse-stac:sentinel-2-l1c": {
+   "id": "sentinel-2-l1c",
+   "title": "Sentinel-2 Level-1C",
+   "license": "other",
+   "providers": [
+    {
+     "url": "https://sentinels.copernicus.eu/web/sentinel/copernicus/sentinel-2",
+     "name": "ESA",
+     "roles": [
+      "producer"
+     ]
+    },
+    {
+     "url": "https://commission.europa.eu/",
+     "name": "European Commission",
+     "roles": [
+      "licensor"
+     ]
+    },
+    {
+     "url": "https://cloudferro.com/",
+     "name": "CloudFerro",
+     "roles": [
+      "host",
+      "processor"
+     ]
+    }
+   ],
+   "liens": [
+    {
+     "rel": "license",
+     "href": "https://sentinels.copernicus.eu/documents/247904/690755/Sentinel_Data_Legal_Notice"
+    }
+   ]
+  }
+ }
+}

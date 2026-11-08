@@ -7,6 +7,7 @@ import { EntityListPage, FilterSelect } from "./EntityListPage";
 import { Card, KpiCard } from "../components/ui/Card";
 import { api } from "../lib/api";
 import { chantierFields } from "../lib/fieldConfigs";
+import { ChantierSectionsModal } from "../components/ChantierSectionsModal";
 import type { Chantier, Region } from "../types";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -92,6 +93,7 @@ export function ChantiersPage() {
   const navigate = useNavigate();
   const [regionFilter, setRegionFilter] = useState("");
   const [statutFilter, setStatutFilter] = useState("");
+  const [sections, setSections] = useState<Chantier | null>(null);
 
   const { data: stats } = useChantierStats();
   const enRetardCount = stats?.enRetard ?? 0;
@@ -108,7 +110,7 @@ export function ChantiersPage() {
       cell: ({ row: { original: c } }) => (
         <div className="max-w-[200px]">
           <p className="truncate text-sm font-medium text-navy" title={c.intitule}>{c.intitule}</p>
-          {c.troncon && <p className="text-[11px] text-gray-400 truncate">{(c.troncon as { code?: string }).code}</p>}
+          {c.troncon && <p className="text-[11px] text-gray-500 truncate">{(c.troncon as { code?: string }).code}</p>}
         </div>
       ),
     },
@@ -140,7 +142,7 @@ export function ChantiersPage() {
       id: "echeance",
       header: "Échéance",
       cell: ({ row: { original: c } }) => (
-        <span className={`text-sm tabular-nums ${!c.dateFinPrevue ? "text-gray-300" : isEnRetard(c) ? "text-red-600 font-medium" : "text-gray-600"}`}>
+        <span className={`text-sm tabular-nums ${!c.dateFinPrevue ? "text-gray-500" : isEnRetard(c) ? "text-red-600 font-medium" : "text-gray-600"}`}>
           {fmtEcheance(c.dateFinPrevue)}
         </span>
       ),
@@ -149,10 +151,11 @@ export function ChantiersPage() {
 
   return (
     <EntityListPage<Chantier>
+      exportTable="chantiers"
       endpoint="chantiers"
       title="Chantiers"
       subtitle="Suivi des travaux routiers"
-      pageIcon={<HardHat className="h-4 w-4 text-orange-600" />}
+      pageIcon={<HardHat className="h-4 w-4 text-orange-700" />}
       searchPlaceholder="Rechercher un chantier…"
       columns={columns}
       fields={chantierFields}
@@ -177,6 +180,7 @@ export function ChantiersPage() {
       }
       rowExtraActions={[
         { label: "Carte", onClick: (c) => navigate(`/geoportail?select=chantier&id=${c.id}`) },
+        { label: "Tronçons", onClick: (c) => setSections(c) },
       ]}
       aboveList={
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -185,10 +189,10 @@ export function ChantiersPage() {
             <span className="absolute inset-y-0 left-0 w-1 rounded-l-lg" style={{ backgroundColor: "#dc2626" }} />
             <div className="flex items-start justify-between gap-2 pl-1.5">
               <div className="min-w-0">
-                <p className={`text-[11px] uppercase tracking-wide truncate ${enRetardCount > 0 ? "text-red-500" : "text-gray-400"}`}>En retard</p>
-                <p className={`mt-1 text-2xl md:text-3xl font-bold leading-tight ${enRetardCount > 0 ? "text-red-600" : "text-gray-300"}`}>{stats?.enRetard ?? "—"}</p>
+                <p className={`text-[11px] uppercase tracking-wide truncate ${enRetardCount > 0 ? "text-red-600" : "text-gray-500"}`}>En retard</p>
+                <p className={`mt-1 text-2xl md:text-3xl font-bold leading-tight ${enRetardCount > 0 ? "text-red-600" : "text-gray-500"}`}>{stats?.enRetard ?? "—"}</p>
               </div>
-              <span className={`shrink-0 flex items-center justify-center h-9 w-9 rounded-lg ${enRetardCount > 0 ? "bg-red-100 text-red-600" : "bg-gray-50 text-gray-300"}`}>
+              <span className={`shrink-0 flex items-center justify-center h-9 w-9 rounded-lg ${enRetardCount > 0 ? "bg-red-100 text-red-600" : "bg-gray-50 text-gray-500"}`}>
                 <AlertTriangle className="h-5 w-5" />
               </span>
             </div>
@@ -197,6 +201,8 @@ export function ChantiersPage() {
           <KpiCard label="Sans dates renseignées" value={stats?.sansDates ?? "—"} icon={<CalendarX className="h-5 w-5" />} accent="#9ca3af" sub={stats?.sansDates ? "calcul retard impossible" : undefined} />
         </div>
       }
-    />
+    >
+      {sections && <ChantierSectionsModal chantier={sections} onClose={() => setSections(null)} />}
+    </EntityListPage>
   );
 }

@@ -7,6 +7,7 @@ import {
 import { api } from "../lib/api";
 import { KpiCard, Card } from "../components/ui/Card";
 import { LongueurReseauCard } from "../components/LongueurReseauCard";
+import { IndicateursControles } from "../components/IndicateursControles";
 import { ETAT_COLORS } from "./geoportail/types";
 import type { ActivityEntry, DashboardKpis } from "../types";
 
@@ -109,7 +110,7 @@ export function DashboardPage() {
                 {data.longueurTotaleKm.toFixed(0)}{" "}
                 <span className="text-base font-semibold text-white/70">km</span>
               </p>
-              <p className="text-xs text-white/50 uppercase tracking-wider">Longueur renseignée</p>
+              <p className="text-xs text-white/60 uppercase tracking-wider">Longueur renseignée</p>
             </div>
           )}
         </div>
@@ -148,10 +149,50 @@ export function DashboardPage() {
         </Link>
       </div>
 
+      {/* ── Périmètre, portions validées, qualité des valeurs ──────────────────
+          Le tableau de bord ignorait les portions homogènes (la vérité de l'état, D6) et la
+          qualité des valeurs : il annonçait un état du réseau fondé sur des imports. Et il ne
+          disait pas son dénominateur. Les deux sont dits ici, avant les graphiques. */}
+      {data.perimetre && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="font-semibold">{data.perimetre.libelle}</p>
+          <p className="text-xs">{data.perimetre.avertissement}</p>
+        </div>
+      )}
+      {(data.portions || data.qualite) && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {data.portions && (
+            <Link to="/portions/validation">
+              <KpiCard
+                label="Portions validées (état constaté)"
+                value={data.portions.validees}
+                sub={data.portions.avertissement ?? `${data.portions.kmValides.toLocaleString("fr-FR")} km d'état constaté sur le terrain`}
+                icon={<Route className="h-5 w-5" />}
+                accent={data.portions.validees === 0 ? "#b45309" : "#15803d"}
+              />
+            </Link>
+          )}
+          {data.qualite && (
+            <Link to="/qualite">
+              <KpiCard
+                label="Valeurs observées sur le terrain"
+                value={data.qualite.parStatut.find((q) => q.statut === "OBSERVED")?.total ?? 0}
+                sub={`sur ${data.qualite.total.toLocaleString("fr-FR")} valeurs qualifiées — le reste est importé non vérifié, dérivé, en conflit ou inconnu`}
+                icon={<Gauge className="h-5 w-5" />}
+                accent="#0f766e"
+              />
+            </Link>
+          )}
+        </div>
+      )}
+
+      {/* Indicateurs du registre : périmètre affiché, rapprochement avec la requête de contrôle (A12). */}
+      <IndicateursControles />
+
       {/* ── Bandeau alerte ────────────────────────────────────────────────── */}
       {data.alertesCount > 0 && (
         <div className="flex items-center gap-3 rounded-xl border-l-4 border-l-red-500 border border-red-200 bg-red-50 px-4 py-3">
-          <AlertOctagon className="h-5 w-5 text-red-500 shrink-0" />
+          <AlertOctagon className="h-5 w-5 text-red-600 shrink-0" />
           <div className="flex-1">
             <p className="text-sm font-semibold text-red-800">
               {data.alertesCount} alerte(s) critique(s)
@@ -242,11 +283,11 @@ export function DashboardPage() {
               <h3 className="text-sm font-semibold text-gray-700">Activité récente</h3>
             </div>
             {!activity || activity.length === 0 ? (
-              <p className="text-sm text-gray-400">Aucune activité récente.</p>
+              <p className="text-sm text-gray-500">Aucune activité récente.</p>
             ) : (
               <ul className="max-h-[260px] overflow-y-auto">
                 {activity.map((a) => {
-                  const badge = ACTION_BADGE[a.action] ?? { cls: "bg-gray-100 text-gray-500", symbol: "·" };
+                  const badge = ACTION_BADGE[a.action] ?? { cls: "bg-gray-100 text-gray-600", symbol: "·" };
                   return (
                     <li key={a.id} className="flex items-start gap-2.5 py-1.5 border-b border-gray-50 last:border-0">
                       <span className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${badge.cls}`}>
@@ -258,7 +299,7 @@ export function DashboardPage() {
                           {ACTION_LABELS[a.action] ?? a.action}{" "}
                           {ENTITY_LABELS[a.entityType] ?? a.entityType}
                         </p>
-                        <p className="text-[10px] text-gray-400 mt-0.5">{timeAgo(a.createdAt)}</p>
+                        <p className="text-[10px] text-gray-500 mt-0.5">{timeAgo(a.createdAt)}</p>
                       </div>
                     </li>
                   );

@@ -31,7 +31,7 @@ export function GlobalSearch() {
   });
 
   return (
-    <div className="relative w-80">
+    <div className="relative w-full max-w-[20rem]">
       <Input
         value={q}
         placeholder="Recherche globale (route, ouvrage, chantier)..."
@@ -52,7 +52,7 @@ export function GlobalSearch() {
                 setOpen(false);
               }}
             >
-              <span className="text-[10px] uppercase text-gray-400 mr-2">{TYPE_LABELS[r.type] ?? r.type}</span>
+              <span className="text-[10px] uppercase text-gray-500 mr-2">{TYPE_LABELS[r.type] ?? r.type}</span>
               {r.label}
             </button>
           ))}
