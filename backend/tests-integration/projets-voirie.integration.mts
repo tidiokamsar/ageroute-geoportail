@@ -338,6 +338,13 @@ async function main() {
   const JEU_V3: string = dV3.body.jeu?.id;
   verifier("7. un fichier rejete peut etre redepose : nouvelle version 3 (la numerotation ne revient pas en arriere), remplace toujours la version 1",
     dV3.status === 201 && dV3.body.jeu.version === 3 && dV3.body.jeu.remplaceId === JEU_R1, dV3.body.jeu);
+  // Lot A1 : la version 3 retire un objet (L9) de la version autorisee : sans revue explicite des suppressions, l'autorisation est refusee.
+  const sansRevue = await autoriser(PID, JEU_V3);
+  verifier("7. lot A1 : autoriser une version qui RETIRE des objets sans revue des suppressions : 409 SUPPRESSIONS_A_REVOIR (aucune suppression n'est appliquee sans revue)",
+    sansRevue.status === 409 && sansRevue.body.code === "SUPPRESSIONS_A_REVOIR" && sansRevue.body.nb === 1
+    && (await sql<{ statut: string }>(`SELECT statut::text FROM projets_voirie_jeux WHERE id = $1`, JEU_R1))[0].statut === "AUTORISE", sansRevue.body);
+  const revue = await envoyer("post", `/${PID}/jeux/${JEU_V3}/revue-suppressions`, { decision: "ACCEPTER", justification: "L9 est hors emprise et retire par l'operateur" });
+  verifier("7. lot A1 : revue des suppressions acceptee (statut ACCEPTEES, acteur et justification conserves)", revue.status === 200 && revue.body.suppressions.statut === "ACCEPTEES" && revue.body.suppressions.nb === 1, revue.body);
   await autoriser(PID, JEU_V3);
   const statutsR1 = await sql<{ id: string; statut: string; version: number }>(`SELECT id, statut::text, version FROM projets_voirie_jeux WHERE "concessionnaireId" = $1 ORDER BY version`, CONC1);
   verifier("7. autoriser la version 3 passe la version 1 en REMPLACE ; la version 2 reste REJETE ; une seule AUTORISE ; les objets de la version 1 restent en base",
@@ -393,13 +400,13 @@ async function main() {
   await refus(Buffer.from("<!DOCTYPE html><html><body>pas un plan</body></html>"), "plan.kml", 422, "CONTENU_NON_RECONNU", "page HTML deguisee en KML");
   await refus(Buffer.from("%PDF-1.7\n1 0 obj"), "plan.geojson", 422, "CONTENU_NON_RECONNU", "PDF deguise en GeoJSON");
   await refus(Buffer.from([0x4d, 0x5a, 0x90, 0x00, 3, 0, 0, 0]), "x.kml", 422, "CONTENU_NON_RECONNU", "executable");
-  await refus(Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0, 0, 0]), "reseau.kmz", 415, "FORMAT_NON_SUPPORTE", "archive KMZ");
+  await refus(Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0, 0, 0]), "reseau.kmz", 422, "ARCHIVE_INVALIDE", "archive KMZ tronquee (le KMZ est lu depuis le lot A1 ; une archive illisible est refusee)");
   await refus(Buffer.from([0x00, 0x00, 0x27, 0x0a, 0, 0, 0, 0]), "troncons.shp", 415, "FORMAT_NON_SUPPORTE", "Shapefile");
   await refus(Buffer.from(`<?xml version="1.0"?><!DOCTYPE kml [<!ENTITY x SYSTEM "file:///etc/passwd">]><kml><Document><Placemark><name>&x;</name></Placemark></Document></kml>`), "xxe.kml", 422, "DTD_REFUSEE", "KML avec entite externe (XXE)");
   await refus(Buffer.from(JSON.stringify({ type: "Point", coordinates: [2.35, 48.85] })), "paris.geojson", 422, "HORS_GUINEE", "point hors de la Guinee");
   await refus(Buffer.from(JSON.stringify({ type: "Point", coordinates: [9.2, -10.1] })), "inverse.geojson", 422, "HORS_GUINEE", "latitude et longitude inversees");
   await refus(Buffer.from(JSON.stringify({ type: "FeatureCollection", features: [] })), "vide.geojson", 422, "FICHIER_VIDE", "FeatureCollection vide");
-  await refus(Buffer.from(JSON.stringify({ type: "FeatureCollection", crs: { type: "name", properties: { name: "EPSG:32629" } }, features: [] })), "utm.geojson", 422, "CRS_NON_SUPPORTE", "CRS projete declare");
+  await refus(Buffer.from(JSON.stringify({ type: "FeatureCollection", crs: { type: "name", properties: { name: "EPSG:32629" } }, features: [] })), "utm.geojson", 422, "CRS_REQUIS", "CRS projete declare dans le fichier, non confirme par epsgSource (lot A1)");
   await refus(Buffer.from("[".repeat(5000) + "]".repeat(5000)), "bombe.json", 415, "FORMAT_NON_SUPPORTE", "tableaux imbriques (pas un objet GeoJSON)");
   await refus(Buffer.from(`{"type":"Feature","properties":{"a":${"[".repeat(5000)}${"]".repeat(5000)}},"geometry":{"type":"Point","coordinates":[-10.1,9.2]}}`), "bombe2.json", 422, "JSON_TROP_PROFOND", "JSON trop imbrique");
   await refus(Buffer.concat([Buffer.from('{"type":"Point","coordinates":[-10.1,9.2],"x":"'), Buffer.from([0]), Buffer.from('"}')]), "nul.geojson", 422, "CONTENU_NON_RECONNU", "octet NUL");
@@ -486,7 +493,7 @@ async function main() {
   const audits = await sql<{ entite: string; action: string; n: number }>(`SELECT "entityType" entite, action::text, count(*)::int n FROM audit_logs WHERE "entityType" IN ('ProjetVoirie','JeuDonneesProjet','ConcessionnaireReseau','ExportProjetVoirie') GROUP BY 1, 2`);
   const a = (e: string, ac: string) => Number(audits.find((x) => x.entite === e && x.action === ac)?.n ?? 0);
   verifier("15. chaque ecriture est auditee : projets (creations, mises a jour, retrait), jeux (depots, autorisations, rejet, retrait), concessionnaires, export",
-    a("ProjetVoirie", "CREATE") === 4 && a("ProjetVoirie", "UPDATE") >= 3 && a("ProjetVoirie", "DELETE") === 1 && a("JeuDonneesProjet", "CREATE") === 8 && a("JeuDonneesProjet", "VALIDATE") === 5
+    a("ProjetVoirie", "CREATE") === 4 && a("ProjetVoirie", "UPDATE") >= 3 && a("ProjetVoirie", "DELETE") === 1 && a("JeuDonneesProjet", "CREATE") === 8 && a("JeuDonneesProjet", "VALIDATE") === 6
     && a("JeuDonneesProjet", "REJECT") === 1 && a("JeuDonneesProjet", "DELETE") === 1 && a("ConcessionnaireReseau", "CREATE") === 2 && a("ExportProjetVoirie", "CREATE") === 1, audits);
   verifier("15. l'audit des jeux ne contient aucune geometrie (taille des valeurs apres < 4 ko)", (await sql<{ m: number }>(`SELECT max(length(after::text))::int m FROM audit_logs WHERE "entityType" = 'JeuDonneesProjet'`))[0].m < 4096);
 
@@ -606,7 +613,7 @@ async function main() {
   // ---------------------------------------------------------------- 16. Aucune ecriture dans le referentiel officiel
   const etatFinal = await instantane();
   const bouges = Object.keys(etatFinal).filter((t) => etatInitial[t] !== etatFinal[t]).sort();
-  const autorises = new Set(["audit_logs", "projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau"]);
+  const autorises = new Set(["audit_logs", "projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau", "projets_voirie_import_evenements", "projets_voirie_fichiers_origine"]);
   verifier("16. apres tout le banc (depots, autorisations, retraits, exports, lectures), SEULES les tables du module et audit_logs ont change : troncons, ouvrages, portions, chantiers, defauts... intacts",
     bouges.every((t) => autorises.has(t)) && bouges.includes("projets_voirie_objets"), bouges);
   verifier("16. ... et le referentiel est bien present dans l'instantane (le test n'est pas vide)", ["troncons", "ouvrages", "portions", "chantiers", "defauts", "users", "regions"].every((t) => t in etatFinal));

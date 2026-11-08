@@ -14,6 +14,7 @@ import type { Bbox } from "./lecture.types";
 import { estDelaiDepasse, poserDelais } from "./bd";
 import { delaiDepotMs, delaiVerrouMs } from "./config";
 import { INCLURE_JEU, vueJeu, vueProjet } from "./vues";
+import { verifierSuppressionsRevues } from "./formats/versions.depot";
 
 export interface Acteur { id: string; role: string; ip?: string }
 
@@ -275,8 +276,10 @@ export async function decider(acteur: Acteur, projetId: string, jeuId: string, d
     let remplaces: string[] = [];
     if (decision === "AUTORISE" && jeu.role !== "AUTRE") {
       const anciens = await tx.jeuDonneesProjet.findMany({
-        where: { projetId, role: jeu.role, concessionnaireId: jeu.concessionnaireId, statut: "AUTORISE", id: { not: jeuId } }, select: { id: true },
+        where: { projetId, role: jeu.role, concessionnaireId: jeu.concessionnaireId, statut: "AUTORISE", id: { not: jeuId } }, select: { id: true, resume: true },
       });
+      // Lot A1 : les suppressions d'une nouvelle version ne sont JAMAIS appliquees sans revue humaine explicite (409 sinon).
+      for (const ancien of anciens) await verifierSuppressionsRevues(tx, { id: jeu.id, resume: jeu.resume }, ancien);
       remplaces = anciens.map((a) => a.id);
       // L'ancien jeu passe REMPLACE AVANT que le nouveau devienne AUTORISE (index unique partiel : un seul AUTORISE par cle).
       if (remplaces.length) await tx.jeuDonneesProjet.updateMany({ where: { id: { in: remplaces } }, data: { statut: "REMPLACE" } });

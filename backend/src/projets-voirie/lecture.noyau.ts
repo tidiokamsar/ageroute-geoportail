@@ -24,22 +24,26 @@ export const PROFONDEUR_JSON_MAX = 64;
 
 const PROCHAIN_LOT = "prevu au lot suivant ; dans ce lot seuls les formats KML et GeoJSON (WGS 84) sont pris en charge";
 
-function extensionDe(nom: string): string {
+export function extensionDe(nom: string): string {
   const m = /\.([A-Za-z0-9]{1,8})$/.exec(nom.trim());
   return m ? m[1].toLowerCase() : "";
 }
 
 const debutEgal = (b: Buffer, octets: number[]) => b.length >= octets.length && octets.every((o, i) => b[i] === o);
 
-/** Reconnait par la SIGNATURE (et non l'extension) les contenus binaires et les archives. */
-function contenuRefuse(b: Buffer, ext: string): ErreurLecture | null {
-  // Archives : aucune decompression dans ce lot.
-  if (debutEgal(b, [0x50, 0x4b, 0x03, 0x04]) || debutEgal(b, [0x50, 0x4b, 0x05, 0x06]) || debutEgal(b, [0x50, 0x4b, 0x07, 0x08])) {
+/**
+ * Reconnait par la SIGNATURE (et non l'extension) les contenus binaires et les archives.
+ * `admettreZip` (lot A1) : la signature ZIP n'est plus un refus (le KMZ est lu par `formats/zip.noyau.ts`) et les extensions `.kmz` et
+ * `.zip` ne decident plus de rien : le CONTENU decide.
+ */
+export function contenuRefuse(b: Buffer, ext: string, admettreZip = false): ErreurLecture | null {
+  // Archives : `lireFichier` ne decompresse rien (le lot A1 les lit ailleurs, sous plafonds).
+  if (!admettreZip && (debutEgal(b, [0x50, 0x4b, 0x03, 0x04]) || debutEgal(b, [0x50, 0x4b, 0x05, 0x06]) || debutEgal(b, [0x50, 0x4b, 0x07, 0x08]))) {
     return new ErreurLecture("FORMAT_NON_SUPPORTE", `archive (KMZ ou ZIP) : la lecture des archives est ${PROCHAIN_LOT}. Decompressez le fichier .kml et deposez-le directement.`);
   }
   if (b.length >= 4 && b.readInt32BE(0) === 9994) return new ErreurLecture("FORMAT_NON_SUPPORTE", `Shapefile : ${PROCHAIN_LOT}.`);
   if (/^AC10\d\d/.test(b.subarray(0, 6).toString("latin1"))) return new ErreurLecture("FORMAT_NON_SUPPORTE", `fichier DWG : ${PROCHAIN_LOT}.`);
-  if (["kmz", "zip", "shp", "shx", "dbf", "dxf", "dwg", "gpkg"].includes(ext)) {
+  if (["kmz", "zip", "shp", "shx", "dbf", "dxf", "dwg", "gpkg"].filter((x) => !(admettreZip && (x === "kmz" || x === "zip"))).includes(ext)) {
     return new ErreurLecture("FORMAT_NON_SUPPORTE", `format .${ext} : ${PROCHAIN_LOT}.`);
   }
   // Contenus qui ne sont pas des donnees geographiques.
@@ -104,20 +108,20 @@ export function profondeurJson(texte: string): number {
   return max;
 }
 
-const CRS_KML: InfoCrs = {
+export const CRS_KML: InfoCrs = {
   source: "WGS84 (EPSG:4326)",
   cible: "EPSG:4326",
   methode: "aucune transformation",
   justification: "La norme KML 2.2 (OGC 07-147r2) impose WGS 84 en longitude, latitude : les coordonnees sont lues telles quelles, sans reprojection.",
 };
-const CRS_GEOJSON: InfoCrs = {
+export const CRS_GEOJSON: InfoCrs = {
   source: "WGS84 (EPSG:4326)",
   cible: "EPSG:4326",
   methode: "aucune transformation",
   justification: "La RFC 7946 impose WGS 84 en longitude, latitude : les coordonnees sont lues telles quelles, sans reprojection. Un membre « crs » autre que WGS 84 est refuse.",
 };
 
-const REGEX_HTML = /^(?:<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>]|<script[\s>]|<iframe[\s>]|<svg[\s>]|<\?php)/i;
+export const REGEX_HTML = /^(?:<!doctype\s+html|<html[\s>]|<head[\s>]|<body[\s>]|<script[\s>]|<iframe[\s>]|<svg[\s>]|<\?php)/i;
 
 export function lireFichier(contenu: Buffer, nomFichier: string, limites?: LimitesLecture): ResultatLecture {
   if (contenu.length === 0) throw new ErreurLecture("FICHIER_VIDE", "le fichier est vide");

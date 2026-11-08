@@ -34,7 +34,7 @@ Contrôle territorial : repose sur `perimetres_comptes` comme les autres routes 
 | `GET /:id/analyse` | lecture | analyse indicative (section Analyse) |
 | `GET /:id/analyse/export.csv` | `ADMIN`, `GESTIONNAIRE` | `text/csv`, audité |
 
-Il n'existe **aucune** route d'export des géométries d'un jeu (ni GeoJSON, ni KML) ; un test de l'inventaire des accès fige la liste des routes (15 du socle ; les 16 routes des dossiers de conflit sont décrites dans la section « Dossiers de conflit (lot RC-3) »).
+Il n'existe **aucune** route d'export des géométries d'un jeu (ni GeoJSON, ni KML) ; un test de l'inventaire des accès fige la liste des routes (15 du socle ; les 16 routes des dossiers de conflit sont décrites dans la section « Dossiers de conflit (lot RC-3) » ; les 6 routes d'import du lot A1, dans la section « Import des formats ouverts, CRS, mapping et versions (lot A1) »).
 
 ### Créer un projet
 
@@ -509,3 +509,121 @@ Journaux en **ajout seul** (UPDATE et DELETE refusés, code 23001) : `conflits_p
 - Les dossiers conservent pour toujours le lien vers le jeu de réseau d'origine et sa géométrie courante (suppression logique) : la politique de conservation d'un tiers qui retire son accord (m6 de la revue) reste à décider.
 - **Revue indépendante RC-3 (07/11/2026)** : M1, M2, m1, m3 à m8 et m11 sont corrigés ; voir `CONTRAT-CONFLITS.md`, section 9, points 17 (complément) et 19 à 34, pour les règles exactes, les limites connues (`resume` des analyses non filtré, séparation des tâches d'un ADMIN envers lui-même, annulation d'une décision, jokers LIKE...) et les décisions à prendre. Lecture de la liste, de la fiche et de la comparaison : un délai côté base n'est posé que pour l'export CSV (les autres lectures sont paginées).
 - Le 504 de l'analyse persistée réutilise le mécanisme du socle (`statement_timeout` posé par étape) ; il est prouvé par le banc avec une table verrouillée et un délai de 1 s, pas avec un calcul réellement trop long.
+
+
+## Import des formats ouverts, CRS, mapping et versions (lot A1)
+
+Contrat : `docs/projets-voirie/CONTRAT-IMPORT.md` (fait foi pour les règles) ; les exemples ci-dessous sont des réponses réelles du banc `backend/tests-integration/import-formats.integration.mts` (données 100 % synthétiques, identifiants raccourcis, listes tronquées). Formats lus : KML, KMZ, GeoJSON, GPX, CSV/TSV/TXT. Toujours refusés en 415 : GeoPackage, Shapefile (y compris en ZIP), DXF, DWG (chaîne GDAL, lot à part).
+
+### Routes ajoutées (toutes `ADMIN` et `GESTIONNAIRE`, lectures comprises)
+
+| Route | Écrit en base ? | Réponse |
+|---|---|---|
+| `GET /:id/import/options` | non | formats, formats non pris en charge, limites, CRS source autorisés (nom et unité lus dans PostGIS), zone attendue, champs cibles du mapping, options CSV, mode de conservation de l'original |
+| `POST /:id/import/inventaire` (multipart `fichier` + options) | non | format détecté par le contenu, entrées d'archive, couches, colonnes CSV, CRS exigé ou déclaré, champs disponibles, suggestions de mapping |
+| `POST /:id/import/apercu` (multipart `fichier` + options) | non (transaction `READ ONLY`) | `resume` (dont `crs` et `import`), `statistiques`, `validationGeometrique`, `echantillon` borné, `mapping`, `avertissements` |
+| `GET /:id/jeux/:jeuId/delta` | non | delta détaillé, statut des suppressions, retour arrière possible, événements |
+| `POST /:id/jeux/:jeuId/revue-suppressions` | oui (événement et audit) | `{ jeu, suppressions, evenement }` |
+| `POST /:id/jeux/:jeuId/retour-arriere` | oui (deux jeux, événement, deux audits) | `{ jeuRestaure, jeuRetire, evenement }` |
+
+`POST /:id/jeux` (dépôt, `?simuler=true`) accepte en plus les champs d'options d'import (`couche`, `entreeKml`, `epsgSource`, `confirmerHorsZone`, `sha256Attendu`, `mapping`, `delimiteur`, `encodage`, `separateurDecimal`, `colonneX`, `colonneY`, `colonneWkt`, `colonneCle`, `colonneOrdre`) et répond en plus `suppressions` et `validationGeometrique` ; `delta` porte désormais `modifies`. `POST .../autoriser` répond 409 `SUPPRESSIONS_A_REVOIR` ou `SUPPRESSIONS_REFUSEES` pour une version qui retire des objets sans revue acceptée.
+
+### Aperçu d'un plan d'axes en UTM 29N (CSV, virgule décimale, ordre mélangé)
+
+`POST /:id/import/apercu`, champs `colonneX=x`, `colonneY=y`, `colonneCle=axe`, `colonneOrdre=ordre`, `epsgSource=32629` :
+
+```json
+{
+  "fichier": { "nom": "plan-axes.csv", "tailleOctets": 546, "sha256": "f4c8d843e272..." },
+  "format": "CSV",
+  "couche": null,
+  "resume": {
+    "nbObjets": 3, "libelleNbObjets": "circuits ou objets du fichier",
+    "parTypeGeom": { "LIGNE": 3, "POINT": 0, "POLYGONE": 0 }, "longueurTotaleM": 1914.1,
+    "bbox": [-10.1, 9.187, -10.09, 9.1945],
+    "crs": {
+      "source": "EPSG:32629 (WGS 84 / UTM zone 29N)", "cible": "EPSG:4326",
+      "methode": "ST_Transform (PostGIS, PROJ 7.2.1)",
+      "justification": "CRS EPSG:32629 (WGS 84 / UTM zone 29N) choisi par l'utilisateur (liste blanche) : ...",
+      "epsgSource": 32629, "epsgCible": 4326, "uniteSource": "metre", "uniteCible": "degre",
+      "origine": "choisi_par_utilisateur", "transformation": "ST_Transform", "versionProj": "7.2.1",
+      "plausibilite": { "zoneAttendue": { "nom": "Guinee", "bbox": [-15.2, 7.1, -7.5, 12.8] }, "empriseResultat": [-10.1, 9.187, -10.09, 9.1945],
+                        "nbElementsHorsZone": 0, "nbObjets": 3, "statut": "CONFORME", "confirmationRequise": false, "confirmee": false }
+    },
+    "import": { "couche": null, "entreeKml": null,
+                "csv": { "delimiteur": ";", "encodage": "utf-8", "separateurDecimal": ",", "mode": "lignes", "colonnes": { "x": "x", "y": "y", "cle": "axe", "ordre": "ordre" }, "nbLignes": 13, "nbLignesRejetees": 0 },
+                "mapping": {}, "rejets": [], "rejetsTronques": false }
+  },
+  "statistiques": { "nbObjets": 3, "parTypeGeom": { "LIGNE": 3, "POINT": 0, "POLYGONE": 0 }, "longueurTotaleM": 1914.1, "doublonsInternes": 0, "sommets": 13, "geometriesAReparer": 0, "geometriesVides": 0 },
+  "validationGeometrique": { "nbProblemes": 0, "problemes": [], "tronque": false, "elementsEcartes": [] },
+  "echantillon": { "taille": 3, "total": 3, "objets": [ { "ordre": 0, "nom": "A", "typeGeom": "LIGNE", "geometrie": { "type": "LineString", "coordinates": [[-10.1, 9.19], [-10.098, 9.1902], "..."] }, "simplifiee": false, "attributs": { "axe": "A", "commune": "Kissidougou", "nbPoints": "6" } } ] },
+  "mapping": { "applique": {}, "propositionsJeu": {}, "avertissements": [] },
+  "avertissements": [ { "code": "CRS_CHOISI_PAR_UTILISATEUR", "message": "Le CRS source (EPSG:32629) a ete choisi par l'utilisateur : il n'est pas verifie par le fichier." } ]
+}
+```
+
+Le banc a vérifié sommet par sommet, contre un oracle indépendant (séries de Krüger en JavaScript, sans PROJ), que `ST_Transform` rend les positions WGS 84 d'origine à moins de 1e-6 degré, et que la longueur calculée par la base égale la distance de Vincenty à 5 cm près.
+
+### Inventaire d'un CSV
+
+```json
+{ "format": "CSV", "detection": { "methode": "contenu", "extensionDeclaree": "csv", "extensionCoherente": true }, "archive": null, "couches": [],
+  "csv": { "delimiteur": ";", "delimiteurDetecte": true, "encodage": "utf-8", "encodageDetecte": true, "bom": true, "separateurDecimal": ",", "separateurDecimalDetecte": true, "nbLignes": 13,
+           "colonnes": [ { "nom": "axe", "exemples": ["A", "B", "C"] }, { "nom": "x", "exemples": ["380250,357", "380030,541", "379810,723"] } ],
+           "echantillon": [ ["A", "6", "380250,357", "1016150,670", "Kissidougou"] ] },
+  "crs": { "normeDuFormat": null, "declareDansLeFichier": null, "choixObligatoire": true },
+  "champsDisponibles": ["axe", "ordre", "x", "y", "commune"], "suggestionsMapping": {}, "avertissements": [] }
+```
+
+### Delta d'une version qui retire un objet, revue, retour arrière
+
+`GET /:id/jeux/:jeuId/delta` (version 2 en contrôle, remplaçant la version 1 autorisée) :
+
+```json
+{ "jeu": { "id": "2a5025fc-...", "version": 2, "statut": "CONTROLE", "role": "RESEAU_TIERS" },
+  "comparaison": { "jeuId": "6978b344-...", "version": 1, "statut": "AUTORISE" },
+  "delta": { "ajoutes": 1, "modifies": 1, "retires": 1, "identiques": 0 },
+  "cleComparaison": "identifiant", "clesAmbigues": 0,
+  "echantillons": { "ajoutes": [ { "objetId": "30", "nom": "Regard 3" } ],
+                    "modifies": [ { "cle": "R1", "nomAvant": "Regard 1", "nomApres": "Regard 1 (deplace)" } ],
+                    "retires": [ { "objetId": "24", "nom": "Regard 2" } ] },
+  "suppressions": { "statut": "A_REVOIR", "nb": 1, "revue": null },
+  "retourArriere": null, "evenements": [] }
+```
+
+Autoriser sans revue :
+
+```json
+{ "error": "Cette version retire 1 objet(s) de la version autorisee : une revue explicite des suppressions (acceptation justifiee) est exigee avant l'autorisation. Aucune suppression n'est appliquee sans revue.",
+  "code": "SUPPRESSIONS_A_REVOIR", "jeuId": "2a5025fc-...", "nb": 1 }
+```
+
+Retour arrière (`POST .../retour-arriere`, `{ "justification": "..." }`) :
+
+```json
+{ "jeuRestaure": { "id": "6978b344-...", "statut": "AUTORISE", "...": "..." }, "jeuRetire": { "statut": "REMPLACE", "...": "..." },
+  "evenement": { "id": "04b92547-...", "type": "RETOUR_ARRIERE", "le": "2026-11-08T00:41:43.860Z", "justification": "La version 2 supprimait R2 a tort : retour a la version 1" } }
+```
+
+### Erreurs de CRS et de zone (réponses réelles)
+
+```json
+{ "error": "le CRS declare est geographique (EPSG:4326, degres) mais les coordonnees atteignent 1016540 : ce sont probablement des metres d'un CRS projete (par exemple EPSG:32629 pour l'UTM 29N). Aucun CRS n'est devine : choisissez le bon epsgSource", "code": "CRS_INCOHERENT" }
+{ "error": "1 element(s) tombent hors de l'emprise de la Guinee apres application du CRS EPSG:32629 : verifiez le CRS choisi. Pour importer les autres elements en ecartant ceux-la, envoyez confirmerHorsZone=true.", "code": "CONFIRMATION_HORS_ZONE_REQUISE", "nbElementsHorsZone": 1, "nbObjets": 3 }
+```
+
+### Codes d'erreur ajoutés par le lot A1
+
+Voir `CONTRAT-IMPORT.md`, sections 5.4, 6 et 11 (archives `ARCHIVE_*`, `KMZ_*`, CSV, CRS, mapping, couches, suppressions, retour arrière). Statuts : 400 `MAPPING_INVALIDE`, `CONCESSIONNAIRE_REQUIS` ; 404 `JEU_INTROUVABLE` ; 409 `EMPREINTE_DIVERGENTE`, `CONFIRMATION_HORS_ZONE_REQUISE`, `SUPPRESSIONS_A_REVOIR`, `SUPPRESSIONS_REFUSEES`, `AUCUNE_SUPPRESSION`, `AUCUNE_VERSION_PRECEDENTE`, `VERSION_PRECEDENTE_INDISPONIBLE` ; 415 `FORMAT_NON_SUPPORTE` (GeoPackage, Shapefile, DXF, DWG, archive de Shapefile) ; 422 tous les autres codes de lecture ; 504 `APERCU_TROP_LONG`.
+
+### Réglages serveur ajoutés
+
+`PROJETS_VOIRIE_CRS_SOURCE_AUTORISES` (défaut `4326,32628,32629`), `PROJETS_VOIRIE_CONSERVER_ORIGINAL` (défaut `non`), `PROJETS_VOIRIE_ARCHIVE_ENTREES_MAX` (100), `PROJETS_VOIRIE_ARCHIVE_TAILLE_DECOMPRESSEE_MAX` (100 Mo), `PROJETS_VOIRIE_ARCHIVE_TAUX_MAX` (100), `PROJETS_VOIRIE_CSV_LIGNES_MAX` (500 000), `PROJETS_VOIRIE_APERCU_ECHANTILLON` (20), `PROJETS_VOIRIE_DELAI_APERCU_MS` (30 000). Même règle que le socle : une valeur absente, illisible ou hors bornes redonne le défaut. Détail et bornes : `CONTRAT-IMPORT.md`, section 12.
+
+### Ce que le lot A1 ne fait pas
+
+- GeoPackage, Shapefile, DXF, DWG, raster, IFC, LAS : hors lot (chaîne GDAL, `CHAINE-GDAL.md`).
+- Pas de traitement asynchrone : plafonds stricts et synchrones (25 Mo, 50 000 objets, 2 000 000 de sommets, 500 000 lignes CSV, 100 entrées d'archive), contrat d'un futur job dans `CONTRAT-IMPORT.md`, section 13.
+- CSV : pas de fichier sans en-tête, pas de séparateur de milliers, pas de délimiteur espace, pas de polygones construits depuis des points, pas de clés d'axe imbriquées ; la rupture de chaînage d'une ligne reconstruite n'est pas détectée.
+- Le fichier d'origine n'est conservé que si `PROJETS_VOIRIE_CONSERVER_ORIGINAL=oui`, et aucune route ne le relit.
+- Une version qui retire des objets ne peut pas les « conserver » sélectivement : accepter les suppressions, c'est accepter que la nouvelle version remplace l'ancienne telle quelle (l'ancienne reste en base, statut `REMPLACE`).

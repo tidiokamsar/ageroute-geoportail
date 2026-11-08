@@ -96,8 +96,19 @@ function nettoyerAttributs(o: Record<string, unknown>): Record<string, unknown> 
   return o;
 }
 
+/** Element ecarte (hors de la Guinee ou geometrie inexploitable) : rapport BORNE a 50 elements, le nombre exact est dans les avertissements. */
+export interface ElementEcarte {
+  /** Numero de l'element dans le fichier (1 = premier Placemark, Feature, point de passage ou ligne lue). */
+  element: number;
+  nom: string | null;
+  code: "COORDONNEES_HORS_ZONE" | "GEOMETRIE_INVALIDE";
+}
+export const ECARTES_MAX = 50;
+
 export class Collecteur {
   readonly objets: ObjetLu[] = [];
+  /** Elements ecartes, du premier au cinquantieme (voir ElementEcarte). */
+  readonly ecartes: ElementEcarte[] = [];
   private readonly c: Record<CodeAvertissement, number> = {
     ALTITUDE_IGNOREE: 0, ELEMENTS_HORS_GUINEE: 0, GEOMETRIES_INVALIDES_IGNOREES: 0, ANNEAUX_FERMES: 0, ELEMENTS_KML_IGNORES: 0,
     OBJETS_SANS_GEOMETRIE: 0, POINTS_REPETES_RETIRES: 0, TRACES_DOUBLES: 0, OBJETS_SANS_NOM: 0, GEOMETRIES_REPAREES: 0,
@@ -170,7 +181,7 @@ export class Collecteur {
    * Ajoute les objets d'un Placemark ou d'une Feature : un objet par famille de geometrie (points, lignes, polygones).
    * `nom` et `attributs` sont communs aux objets issus du meme element.
    */
-  ajouter(nom: string | null, attributs: Record<string, unknown>, formes: FormesBrutes): void {
+  ajouter(nom: string | null, attributs: Record<string, unknown>, formes: FormesBrutes, _couche?: string, numero?: number): void {
     // Plafond de sommets, compte sur la matiere BRUTE (avant tout traitement) : refus avant de construire quoi que ce soit de gros.
     let sommets = formes.points.length;
     for (const l of formes.lignes) sommets += l.length;
@@ -205,6 +216,9 @@ export class Collecteur {
 
     this.c.GEOMETRIES_INVALIDES_IGNOREES += invalides;
     this.c.ELEMENTS_HORS_GUINEE += dehors;
+    if ((invalides > 0 || dehors > 0) && this.ecartes.length < ECARTES_MAX) {
+      this.ecartes.push({ element: numero ?? this.lus, nom: nomPropre, code: dehors > 0 ? "COORDONNEES_HORS_ZONE" : "GEOMETRIE_INVALIDE" });
+    }
     this.c.ANNEAUX_FERMES += etat.fermes;
     if (etat.repetes) this.c.POINTS_REPETES_RETIRES += 1;
 
