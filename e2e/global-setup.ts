@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { chromium } from "@playwright/test";
 import { lireRun } from "./lib/donnees";
-import { DOSSIER_SORTIES, ORIGINE_WEB } from "./lib/env";
+import { DOSSIER_SORTIES, OPTIONS_LANCEMENT_NAVIGATEUR, ORIGINE_WEB } from "./lib/env";
 
 /**
  * Prechauffage de Vite. Le serveur de developpement transforme les modules A LA PREMIERE DEMANDE, et decouvre en route
@@ -16,6 +16,35 @@ async function calme(page: import("@playwright/test").Page): Promise<void> {
   await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => undefined);
 }
 
+/**
+ * Module « Projets de voirie et reseaux » : la page d'un projet (Leaflet) et l'assistant d'import sont charges a la demande ; sans ce passage,
+ * leur premiere transformation par Vite tombe dans le premier test qui les ouvre. Un projet jetable est cree par l'API avec le compte admin
+ * (code PREPARATION-VOIRIE, sans region ni jeu) puis la page et l'assistant sont ouverts une fois. Meilleur effort : une erreur est ignoree.
+ */
+async function prechaufferVoirie(page: import("@playwright/test").Page, run: ReturnType<typeof lireRun>): Promise<void> {
+  try {
+    const jeton = await page.evaluate(async ({ email, password }) => {
+      const r = await fetch("/api/auth/login", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password }) });
+      return ((await r.json()) as { accessToken?: string }).accessToken ?? null;
+    }, { email: run.comptes.admin.email, password: run.comptes.admin.motDePasse });
+    if (!jeton) return;
+    const id = await page.evaluate(async (t) => {
+      const r = await fetch("/api/v2/projets-voirie", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${t}` }, body: JSON.stringify({ code: "PREPARATION-VOIRIE", nom: "Preparation du navigateur" }) });
+      return ((await r.json()) as { projet?: { id: string } }).projet?.id ?? null;
+    }, jeton);
+    if (!id) return;
+    for (let i = 0; i < 2; i++) {
+      await page.goto(`/projets-voirie/${id}`, { waitUntil: "load" });
+      await calme(page);
+      await page.getByRole("button", { name: "Ajouter des données" }).click();
+      await page.getByRole("dialog", { name: "Ajouter des données au projet" }).waitFor();
+      await calme(page);
+    }
+  } catch (e) {
+    console.warn("Prechauffage du module voirie incomplet :", e instanceof Error ? e.message.split(String.fromCharCode(10))[0] : e);
+  }
+}
+
 export default async function globalSetup(): Promise<void> {
   const debut = Date.now();
   // Profils de navigateur oublies par un lancement precedent (voir lib/fixtures.ts) : balayes ici.
@@ -23,7 +52,7 @@ export default async function globalSetup(): Promise<void> {
   // Le projet « dev » n'est pas demande (`--project=build`) : pas de Vite a prechauffer.
   if (process.env.E2E_AVEC_DEV === "0") return;
   const run = lireRun();
-  const navigateur = await chromium.launch();
+  const navigateur = await chromium.launch({ ...OPTIONS_LANCEMENT_NAVIGATEUR });
   try {
     const context = await navigateur.newContext({
       baseURL: ORIGINE_WEB, serviceWorkers: "block", locale: "fr-FR",
@@ -36,19 +65,23 @@ export default async function globalSetup(): Promise<void> {
     await context.route(/https?:\/\/[^/]*(tile\.openstreetmap\.org|arcgisonline\.com)\//, (r) => r.abort());
     const page = await context.newPage();
     page.setDefaultTimeout(300_000);
-    await page.goto("/login", { waitUntil: "load" });
+    // Premier chargement : Windows peut refuser une connexion locale (ERR_NO_BUFFER_SPACE) quand le poste est charge. Trois essais.
+    for (let essai = 1; ; essai++) {
+      try { await page.goto("/login", { waitUntil: "load" }); break; } catch (e) { if (essai >= 3) throw e; await page.waitForTimeout(2_000); }
+    }
     await calme(page);
     await page.getByRole("textbox", { name: "E-mail" }).fill(run.comptes.admin.email);
     await page.getByPlaceholder("Mot de passe").fill(run.comptes.admin.motDePasse);
     await page.getByRole("button", { name: "Se connecter" }).click();
     await page.getByRole("button", { name: "Déconnexion" }).waitFor();
-    for (const chemin of ["/", "/inspections/terrain/observations", "/inspections/terrain", "/inspections/terrain/defauts", "/inspections/releve/enregistrer", "/imports", "/securite"]) {
+    for (const chemin of ["/", "/inspections/terrain/observations", "/inspections/terrain", "/inspections/terrain/defauts", "/inspections/releve/enregistrer", "/imports", "/securite", "/projets-voirie"]) {
       // Deux passages : le premier peut etre interrompu par le rechargement de Vite apres optimisation des dependances.
       for (let i = 0; i < 2; i++) {
         await page.goto(chemin, { waitUntil: "load" });
         await calme(page);
       }
     }
+    await prechaufferVoirie(page, run);
   } catch (e) {
     console.warn("Prechauffage de Vite incomplet :", e instanceof Error ? e.message.split("\n")[0] : e);
   } finally {

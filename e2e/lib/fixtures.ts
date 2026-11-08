@@ -3,7 +3,7 @@ import path from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { chromium, expect, test as base, type BrowserContext, type Page } from "@playwright/test";
 import { lireRun, type CompteRun, type DonneesRun } from "./donnees";
-import { DOSSIER_SORTIES, FICHIER_SERVEUR_COUPE, ORIGINE_WEB, PORT_CONTROLE } from "./env";
+import { DOSSIER_SORTIES, FICHIER_SERVEUR_COUPE, OPTIONS_LANCEMENT_NAVIGATEUR, ORIGINE_WEB, PORT_CONTROLE } from "./env";
 import { fermerBase, revoquerAppareilsDeTest } from "./base";
 
 /**
@@ -80,6 +80,7 @@ export const test = base.extend<Fixtures>({
 
     async function lancer(dossier: string, adresse: string, options?: OptionsProfil): Promise<{ context: BrowserContext; page: Page; attendreCalme: () => Promise<void> }> {
       const context = await chromium.launchPersistentContext(dossier, {
+        ...OPTIONS_LANCEMENT_NAVIGATEUR,
         headless: !process.env.E2E_AVEC_FENETRE,
         baseURL,
         locale: "fr-FR",
