@@ -326,3 +326,7 @@ Limite connue : si un jeu `AUTORISE` de même clé existe, il est LA référence
 `POST .../revue-suppressions` avec `ACCEPTER` répond **409 `SUPPRESSIONS_REFUSEES`** si le statut des suppressions est déjà `REFUSEES` (même ensemble retiré, même empreinte) : le message de l'autorisation (« un refus ne peut plus qu'être rejeté, retiré, ou remplacé par un fichier corrigé ») est désormais vrai de bout en bout. Rester permis : `REFUSER` après `ACCEPTER` (sens prudent, il bloque l'autorisation), `REFUSER` après `REFUSER`, et une nouvelle revue quand l'ensemble retiré a changé (le statut redevient `A_REVOIR`). La sortie d'un refus : rejeter le dépôt (`rejeter`), puis déposer un fichier corrigé.
 
 **Décision réservée au DSI, non prise ici (O1, séparation des tâches)** : la même personne peut déposer, accepter les suppressions et autoriser (l'audit note `memePersonne` sans bloquer, comme au socle). Exiger un relecteur différent du déposant est une règle de gouvernance à valider.
+
+### 14.3 Limites du téléversement multipart (m1)
+
+La réception multipart du dépôt, de l'inventaire et de l'aperçu admet **40 champs texte et 45 parties** (le fichier compris), de 10 000 octets au plus chacun. Le dépôt en porte 26 au plus (`champsDepot` fusionné avec `champsImport`) ; au-delà de 40 champs, ou si un champ dépasse 10 000 octets : **400 `TELEVERSEMENT_INVALIDE`** (jamais 500). Avant : 20 champs et 25 parties, ce qui refusait à tort un dépôt portant 21 champs ou plus.

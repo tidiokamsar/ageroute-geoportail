@@ -214,7 +214,8 @@ const upload = multer({
   storage: multer.memoryStorage(),
   // multer 2.x decode le nom du fichier en latin1 par defaut ; les navigateurs l'envoient en UTF-8.
   defParamCharset: "utf8",
-  limits: { fileSize: TAILLE_MAX_OCTETS, files: 1, fields: 20, fieldSize: 10_000, parts: 25 },
+  // Revue de la vague 1, m1 : le depot admet jusqu'a 26 champs texte (champsDepot + champsImport) ; 40 champs et 45 parties (fichier compris) laissent une marge.
+  limits: { fileSize: TAILLE_MAX_OCTETS, files: 1, fields: 40, fieldSize: 10_000, parts: 45 },
 } as multer.Options & { defParamCharset: string });
 
 /**

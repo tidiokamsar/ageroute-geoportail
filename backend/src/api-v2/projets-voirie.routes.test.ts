@@ -322,6 +322,25 @@ describe("depot d'un fichier (multipart)", () => {
     expect(appelsDe("deposerJeu")).toEqual([]);
   });
 
+  it("m1 (revue vague 1) : les 26 champs texte du depot (depot + import) passent ; au-dela de 40 champs : 400 TELEVERSEMENT_INVALIDE, jamais 500", async () => {
+    const champs: Record<string, string> = {
+      role: "AUTRE", concessionnaireId: C1, typeReseau: "TELECOM", dateDonnees: "2026-10-24", origineFichier: "recu", confidentialite: "INTERNE", natureObjets: "INCONNUE",
+      classePrecision: "B", precisionHorizontaleM: "3.5", precisionVerticaleM: "4", methode: "releve", dateConstat: "2026-10-23",
+      couche: "c", entreeKml: "doc.kml", epsgSource: "32629", confirmerHorsZone: "false", sha256Attendu: "a".repeat(64), mapping: "{}", delimiteur: ";", encodage: "utf-8",
+      separateurDecimal: ",", colonneX: "x", colonneY: "y", colonneWkt: "w", colonneCle: "k", colonneOrdre: "o",
+    };
+    expect(Object.keys(champs)).toHaveLength(26);
+    const r = await depot("GEST", champs);
+    expect(r.status, JSON.stringify(r.body)).toBe(201);
+    expect(appelsDe("deposerJeu")).toHaveLength(1);
+    const trop: Record<string, string> = { role: "AUTRE" };
+    for (let i = 0; i < 45; i++) trop[`x${i}`] = "1";
+    const t = await depot("GEST", trop);
+    expect(t.status).toBe(400);
+    expect(t.body.code).toBe("TELEVERSEMENT_INVALIDE");
+    expect(appelsDe("deposerJeu")).toHaveLength(1);
+  });
+
   it("depot valide : 201, l'acteur est le compte authentifie (aucun champ du corps ne le choisit), nom de fichier UTF-8 conserve", async () => {
     const r = await depot("GEST", { role: "RESEAU_TIERS", concessionnaireId: C1, classePrecision: "B", precisionHorizontaleM: "3.5", dateDonnees: "2026-10-24", origineFichier: "recu de l operateur" });
     // Aucun champ ne designe l acteur : un creeParId du corps est REFUSE (schema strict), jamais ignore en silence.
