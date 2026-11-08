@@ -167,7 +167,7 @@ Réponse 200 :
   "format": "KML"|"KMZ"|"GEOJSON"|"GPX"|"CSV",
   "detection": { "methode": "contenu", "extensionDeclaree": "kmz"|null, "extensionCoherente": true },
   "archive": { "nbEntrees", "tailleDecompresseeOctets", "kmlPrincipal", "entreesKml": [..], "entrees": [ { nom, tailleOctets, type } ] } | null,
-  "couches": [ { "id": "c0", "nom": "Fibre / Principal", "nbObjets", "parTypeGeom": { LIGNE, POINT, POLYGONE } } ],   // CSV : liste vide, une seule table (voir `csv`) ; GeoJSON : une couche c0 ; KMZ à plusieurs KML sans choix : liste vide
+  "couches": [ { "id": "c0", "nom": "Fibre / Principal", "nbObjets", "parTypeGeom": { LIGNE, POINT, POLYGONE } } ], "nbCouches": 4, "couchesTronquees": false,   // 200 couches listées au plus (14.5)   // CSV : liste vide, une seule table (voir `csv`) ; GeoJSON : une couche c0 ; KMZ à plusieurs KML sans choix : liste vide
   "csv": { "delimiteur", "delimiteurDetecte", "encodage", "encodageDetecte", "bom",
            "separateurDecimal": "."|","|null, "separateurDecimalDetecte", "nbLignes",
            "colonnes": [ { "nom", "exemples": [3 valeurs au plus] } ], "echantillon": [ 5 lignes au plus ] } | null,
@@ -280,7 +280,7 @@ Codes ajoutés, par statut (les codes existants de `API.md` sont inchangés) :
 | 400 (suite) | `CONCESSIONNAIRE_REQUIS` : un jeu `RESEAU_TIERS` sans `concessionnaireId` dont le mapping ne désigne aucun concessionnaire connu (avertissement `CONCESSIONNAIRE_INCONNU` : un concessionnaire n'est jamais créé par un import) |
 | 409 | `EMPREINTE_DIVERGENTE`, `CONFIRMATION_HORS_ZONE_REQUISE`, `SUPPRESSIONS_A_REVOIR`, `SUPPRESSIONS_REFUSEES`, `AUCUNE_SUPPRESSION`, `AUCUNE_VERSION_PRECEDENTE`, `VERSION_PRECEDENTE_INDISPONIBLE`, `DEPOT_EN_ATTENTE` (retour arrière), `STATUT_INCOMPATIBLE` |
 | 415 | `FORMAT_NON_SUPPORTE` : GeoPackage, Shapefile (y compris en ZIP), DXF, DWG, texte non reconnu |
-| 422 | `ARCHIVE_*`, `KMZ_SANS_KML`, `KMZ_PLUSIEURS_KML`, `ENTREE_KML_INTROUVABLE` (section 6) ; `CRS_*`, `TRANSFORMATION_ECHEC` (5.4) ; `ENCODAGE_AMBIGU`, `DELIMITEUR_AMBIGU`, `SEPARATEUR_DECIMAL_AMBIGU`, `CSV_STRUCTURE_INVALIDE`, `CSV_TROP_DE_LIGNES` (plus de 500 000), `CSV_TROP_DE_COLONNES` (plus de 200), `CSV_CELLULE_TROP_LONGUE` (plus de 10 000 caractères), `CSV_COLONNES_REQUISES` (pas de colonnes de coordonnées désignées), `CSV_COLONNE_INTROUVABLE`, `COUCHE_INTROUVABLE`, `MAPPING_COLONNE_INTROUVABLE`, `GPX_INVALIDE` |
+| 422 | `ARCHIVE_*`, `KMZ_SANS_KML`, `KMZ_PLUSIEURS_KML`, `ENTREE_KML_INTROUVABLE` (section 6) ; `CRS_*`, `TRANSFORMATION_ECHEC` (5.4) ; `ENCODAGE_AMBIGU`, `DELIMITEUR_AMBIGU`, `SEPARATEUR_DECIMAL_AMBIGU`, `CSV_STRUCTURE_INVALIDE`, `CSV_TROP_DE_LIGNES` (plus de 500 000), `CSV_TROP_DE_COLONNES` (plus de 200), `CSV_TROP_DE_CELLULES` (plus de 5 000 000 de cellules au total), `CSV_CELLULE_TROP_LONGUE` (plus de 10 000 caractères), `CSV_COLONNES_REQUISES` (pas de colonnes de coordonnées désignées), `CSV_COLONNE_INTROUVABLE`, `COUCHE_INTROUVABLE`, `MAPPING_COLONNE_INTROUVABLE`, `GPX_INVALIDE` |
 | 504 | `APERCU_TROP_LONG` |
 
 ## 12. Réglages serveur ajoutés
@@ -295,6 +295,7 @@ Toute valeur absente, illisible ou hors bornes redonne le défaut (même règle 
 | `PROJETS_VOIRIE_ARCHIVE_TAILLE_DECOMPRESSEE_MAX` | 104 857 600 (100 Mo) | 1 Mo à 1 Go |
 | `PROJETS_VOIRIE_ARCHIVE_TAUX_MAX` | 100 | 2 à 1 000 |
 | `PROJETS_VOIRIE_CSV_LIGNES_MAX` | 500 000 | 100 à 5 000 000 |
+| `PROJETS_VOIRIE_CSV_CELLULES_MAX` | 5 000 000 | 10 000 à 100 000 000 |
 | `PROJETS_VOIRIE_APERCU_ECHANTILLON` | 20 | 1 à 100 |
 | `PROJETS_VOIRIE_DELAI_APERCU_MS` | 30 000 | 1 000 à 300 000 |
 
@@ -330,3 +331,22 @@ Limite connue : si un jeu `AUTORISE` de même clé existe, il est LA référence
 ### 14.3 Limites du téléversement multipart (m1)
 
 La réception multipart du dépôt, de l'inventaire et de l'aperçu admet **40 champs texte et 45 parties** (le fichier compris), de 10 000 octets au plus chacun. Le dépôt en porte 26 au plus (`champsDepot` fusionné avec `champsImport`) ; au-delà de 40 champs, ou si un champ dépasse 10 000 octets : **400 `TELEVERSEMENT_INVALIDE`** (jamais 500). Avant : 20 champs et 25 parties, ce qui refusait à tort un dépôt portant 21 champs ou plus.
+
+### 14.4 CSV en UTF-16 (m2)
+
+Un contenu commençant par un BOM UTF-16 (LE ou BE) est décodé, puis son premier caractère utile décide : `<` (XML : KML, GPX), `{` (JSON : GeoJSON) ou un contenu blanc suivent la branche texte structuré ; **tout autre texte est lu comme un tableau délimité** (règles de la section 4.1, aucune devinette : encodage `utf-16le` ou `utf-16be` reconnu à son BOM, délimiteur et séparateur décimal inchangés, CRS exigé). Avant : tout contenu à BOM UTF-16 passait par la branche XML/JSON et répondait 415 `FORMAT_NON_SUPPORTE`, ce qui rendait inatteignable le décodage UTF-16 des CSV exportés par un tableur.
+
+### 14.5 Liste des couches bornée (O6)
+
+La réponse de `POST /:id/import/inventaire` liste **200 couches au plus** (dans l'ordre du fichier) et annonce `nbCouches` (total) et `couchesTronquees`. Au-delà, l'avertissement `COUCHES_TRONQUEES` est ajouté ; les couches suivantes restent choisissables par leur identifiant (`c200`, `c201`...) mais ne sont pas décrites. L'avertissement `COUCHES_MULTIPLES` porte le total.
+
+### 14.6 Mémoire d'un CSV de cellules vides (O5)
+
+Le nombre total de cellules d'un CSV (lignes par colonnes, **cellules vides comprises**) est plafonné : `PROJETS_VOIRIE_CSV_CELLULES_MAX`, défaut 5 000 000 (bornes 10 000 à 100 000 000, valeur de protection à valider par le DSI), au-delà 422 `CSV_TROP_DE_CELLULES`, détecté pendant l'analyse, avant d'avoir tout alloué. Constat de la revue : un fichier de 24 Mo de seuls délimiteurs tenait environ 536 Mo de mémoire. Limite restante : la mesure de mémoire du test est une borne large (400 Mo), pas une mesure de production.
+
+### 14.7 Constats documentés, non corrigés (décisions réservées au DSI ou hors périmètre de la correction)
+
+- **O2** : un retour arrière remet la version précédente comme `AUTORISE` sans nouvelle revue des objets propres à la version retirée du service (la revue des suppressions porte sur l'ensemble retiré lors de l'autorisation, pas sur le retour). Aucune perte de données ; acte audité (`RESTORE` et `UPDATE`).
+- **O3** : `sha256Attendu` et `confirmerHorsZone` sont facultatifs et ne sont pas liés à un aperçu précis (aucune session côté serveur) : un dépôt sans `sha256Attendu` n'est pas comparé à l'aperçu vu par l'utilisateur. Décision réservée au DSI : exiger `sha256Attendu` (et une confirmation explicite hors zone) pour tout dépôt.
+- **O4** : le fichier d'origine, s'il est conservé (`PROJETS_VOIRIE_CONSERVER_ORIGINAL=oui`), n'a aucune voie de purge (la table refuse la suppression physique). Décision DSI : durée de conservation et procédure de purge.
+- **O7** : un descripteur de réseau (lot B1) peut modifier la classe ou la précision effective d'un jeu `AUTORISE` utilisée par la détection de conflits (RC-3), par un seul `GESTIONNAIRE`, sans contrôle à quatre yeux. Décision DSI : droits de descripteur et double validation.

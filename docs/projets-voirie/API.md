@@ -184,7 +184,7 @@ Axe A;Societe des Eaux Synthetique;EAU_POTABLE;r2.kml;1;AUTORISE;inconnue;PROXIM
 | 409 | `STATUT_INCOMPATIBLE` | autoriser / rejeter un jeu qui n'est pas en contrôle, retirer un jeu déjà retiré |
 | 409 | `CODE_DEJA_UTILISE`, `CONCESSIONNAIRE_DEJA_CONNU` | unicité |
 | 413 | `FICHIER_TROP_GROS` | plus de 25 Mo |
-| 415 | `FORMAT_NON_SUPPORTE` | KMZ, ZIP, Shapefile, DXF, DWG, GPX, CSV... (« prévu au lot suivant »), texte qui n'est ni XML ni JSON |
+| 415 | `FORMAT_NON_SUPPORTE` | GeoPackage, Shapefile (y compris dans un ZIP), DXF, DWG (formats non branchés, voir `MATRICE-FORMATS.md`), contenu texte qui n'est ni du KML, du GeoJSON, du GPX ni un tableau délimité. KMZ, GPX et CSV sont lus (`CONTRAT-IMPORT.md`, sections 4 à 6) |
 | 422 | `CONTENU_NON_RECONNU` | HTML, PDF, exécutable, image, binaire, octets NUL |
 | 422 | `FICHIER_VIDE`, `TROP_D_OBJETS` (> 50 000), `GEOMETRIE_INVALIDE`, `HORS_GUINEE` | contenu refusé |
 | 422 | `XML_INVALIDE`, `DTD_REFUSEE`, `ENTITE_REFUSEE`, `XML_TROP_PROFOND`, `XML_TROP_VOLUMINEUX`, `JSON_INVALIDE`, `JSON_TROP_PROFOND`, `ENCODAGE_NON_SUPPORTE`, `CRS_NON_SUPPORTE` | document illisible ou dangereux |
@@ -214,7 +214,7 @@ Exemples réels :
 - Géométrie invalide au sens PostGIS (anneau qui se croise) : **réparée** (`ST_MakeValid`) et signalée.
 - Un `Placemark` à géométries de familles différentes donne un objet par famille.
 - XML lu par un lecteur minimal sans dépendance : ni DTD, ni entité hors des cinq prédéfinies, imbrication limitée à 100 niveaux ; JSON limité à 64 niveaux.
-- CRS : WGS 84 uniquement ; aucune transformation silencieuse ; un `crs` GeoJSON autre que CRS84 / EPSG:4326 est refusé.
+- CRS : KML, KMZ et GPX sont en WGS 84 par définition du format ; un GeoJSON déclarant un autre CRS, et tout CSV, exigent un `epsgSource` choisi par l'utilisateur dans une liste blanche (`PROJETS_VOIRIE_CRS_SOURCE_AUTORISES`, défaut 4326, 32628, 32629), transformé par PostGIS ; aucune transformation silencieuse (`CONTRAT-IMPORT.md`, section 5).
 
 ## Réglages serveur (variables d'environnement)
 
@@ -567,7 +567,7 @@ Le banc a vérifié sommet par sommet, contre un oracle indépendant (séries de
 ### Inventaire d'un CSV
 
 ```json
-{ "format": "CSV", "detection": { "methode": "contenu", "extensionDeclaree": "csv", "extensionCoherente": true }, "archive": null, "couches": [],
+{ "format": "CSV", "detection": { "methode": "contenu", "extensionDeclaree": "csv", "extensionCoherente": true }, "archive": null, "couches": [], "nbCouches": 0, "couchesTronquees": false,
   "csv": { "delimiteur": ";", "delimiteurDetecte": true, "encodage": "utf-8", "encodageDetecte": true, "bom": true, "separateurDecimal": ",", "separateurDecimalDetecte": true, "nbLignes": 13,
            "colonnes": [ { "nom": "axe", "exemples": ["A", "B", "C"] }, { "nom": "x", "exemples": ["380250,357", "380030,541", "379810,723"] } ],
            "echantillon": [ ["A", "6", "380250,357", "1016150,670", "Kissidougou"] ] },
