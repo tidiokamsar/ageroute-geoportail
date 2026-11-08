@@ -71,6 +71,12 @@ vi.mock("../middleware/territoire.middleware", async (original) => {
     requireTerritoireMasque: (regions: never, introuvable: never) => marquer(m.requireTerritoireMasque(regions, introuvable), { territoire: "masque" }),
   };
 });
+// Lot B3 : les routes du workflow n'ont pas de garde de ROLE (la matrice des droits decide, par profil effectif) : la garde `gardeWorkflow(action)` porte la marque
+// `actions`, lue ici comme les trois autres gardes.
+vi.mock("../projets-voirie/workflow/garde", async (original) => {
+  const m = await original<typeof import("../projets-voirie/workflow/garde")>();
+  return { ...m, gardeWorkflow: (a: never) => marquer(m.gardeWorkflow(a), { actions: Array.isArray(a) ? [...(a as string[])] : [a as string] }) };
+});
 vi.mock("../territoire/territoire.v1", async (original) => {
   const m = await original<typeof import("../territoire/territoire.v1")>();
   const nommes: Record<string, unknown> = { ...m };
@@ -86,7 +92,7 @@ vi.mock("../territoire/territoire.v2", async (original) => {
 
 import { createApp } from "../app";
 
-interface Garde { auth: boolean; roles: string[][]; modules: string[]; territoire: string[] }
+interface Garde { auth: boolean; roles: string[][]; modules: string[]; territoire: string[]; actions: string[] }
 export interface LigneInventaire {
   methode: string;
   chemin: string;
@@ -95,6 +101,8 @@ export interface LigneInventaire {
   roles: string[][];
   modules: string[];
   territoire: string[];
+  /** Actions de la matrice du workflow (lot B3) exigees par la route (au moins une). */
+  actions: string[];
 }
 
 const SUFFIXE_MONTAGE = String.raw`\/?(?=\/|$)`;
@@ -111,12 +119,13 @@ function prefixeDeMontage(couche: any): string {
   return source;
 }
 
-const vide = (): Garde => ({ auth: false, roles: [], modules: [], territoire: [] });
+const vide = (): Garde => ({ auth: false, roles: [], modules: [], territoire: [], actions: [] });
 const fusion = (a: Garde, b: Garde): Garde => ({
   auth: a.auth || b.auth,
   roles: [...a.roles, ...b.roles],
   modules: [...a.modules, ...b.modules],
   territoire: [...a.territoire, ...b.territoire],
+  actions: [...a.actions, ...b.actions],
 });
 
 function gardeDe(handle: any): Garde {
@@ -126,6 +135,7 @@ function gardeDe(handle: any): Garde {
   if (m?.role) g.roles.push(m.role);
   if (m?.module) g.modules.push(m.module);
   if (m?.territoire) g.territoire.push(String(m.territoire));
+  if (m?.actions) g.actions.push(...(m.actions as string[]));
   return g;
 }
 
@@ -145,7 +155,7 @@ function enumerer(pile: any[], prefixe: string, heritees: Garde, sortie: LigneIn
         for (const c of courantes) if (c.prefixe === "" || local === c.prefixe || local.startsWith(`${c.prefixe}/`)) g = fusion(g, c.garde);
         for (const sous of couche.route.stack) g = fusion(g, gardeDe(sous.handle));
         for (const meth of Object.keys(couche.route.methods).filter((k) => couche.route.methods[k])) {
-          sortie.push({ methode: meth === "_all" ? "ALL" : meth.toUpperCase(), chemin: complet, auth: g.auth, roles: g.roles, modules: g.modules, territoire: g.territoire });
+          sortie.push({ methode: meth === "_all" ? "ALL" : meth.toUpperCase(), chemin: complet, auth: g.auth, roles: g.roles, modules: g.modules, territoire: g.territoire, actions: g.actions });
         }
       }
     } else if (couche.name === "router" && couche.handle?.stack) {
@@ -155,7 +165,7 @@ function enumerer(pile: any[], prefixe: string, heritees: Garde, sortie: LigneIn
       enumerer(couche.handle.stack, prefixe + pref, g, sortie);
     } else {
       const g = gardeDe(couche.handle);
-      if (g.auth || g.roles.length || g.modules.length || g.territoire.length) {
+      if (g.auth || g.roles.length || g.modules.length || g.territoire.length || g.actions.length) {
         courantes.push({ prefixe: couche.regexp?.fast_slash ? "" : prefixeDeMontage(couche), garde: g });
       }
     }
@@ -237,6 +247,7 @@ const DOMAINES_TERRITORIAUX = [/^\w+ \/api\/ordres-travaux(\/|$)/, /^\w+ \/api\/
 const SANS_GARDE_TERRITORIALE: Exception[] = [
   { motif: /^GET \/api\/v2\/projets-voirie$/, raison: "liste filtree dans le service (regions du compte : un compte regional ne voit que les projets de ses regions) ; banc projets-voirie" },
   { motif: /^\w+ \/api\/v2\/projets-voirie\/concessionnaires$/, raison: "annuaire national des concessionnaires de reseau : des organismes, pas des donnees regionales" },
+  { motif: /^GET \/api\/v2\/projets-voirie\/workflow\/mon-profil$/, raison: "profil de workflow du compte connecte (role, rattachements, droits) : la liste des projets est filtree dans le service par les regions du compte ; lot B3" },
   { motif: /^GET \/api\/ordres-travaux$/, raison: "liste filtree dans le handler (regions du compte) ; banc F1" },
   { motif: /^GET \/api\/ordres-travaux\/stats$/, raison: "statistiques filtrees dans le service (regions du compte) ; banc F1" },
   { motif: /^GET \/api\/ordres-travaux\/assignables$/, raison: "annuaire des agents assignables : personnes, pas des OT ; D-C1-5" },
@@ -302,7 +313,8 @@ describe("Observation de la Terre (/api/v2/teledetection)", () => {
 });
 
 describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
-  const pv = lignes.filter((l) => l.chemin.startsWith("/api/v2/projets-voirie"));
+  // Le workflow (lot B3) a sa section : droits par profil effectif, pas par role technique.
+  const pv = lignes.filter((l) => l.chemin.startsWith("/api/v2/projets-voirie") && !/\/workflow(\/|$)/.test(l.chemin));
   const ECRITURES: Record<string, string[]> = {
     "POST /api/v2/projets-voirie": ["ADMIN", "GESTIONNAIRE"],
     "POST /api/v2/projets-voirie/concessionnaires": ["ADMIN", "GESTIONNAIRE"],
@@ -371,6 +383,68 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
   });
 });
 
+describe("Workflow concessionnaire, referents, taches, preuves et recolement (/api/v2/projets-voirie/.../workflow, lot B3)", () => {
+  const wf = lignes.filter((l) => l.chemin.startsWith("/api/v2/projets-voirie") && /\/workflow(\/|$)/.test(l.chemin));
+  const P = "/api/v2/projets-voirie/:id/workflow";
+  // Actions de la matrice (profils.noyau.ts) exigees par chaque route. Les routes ne portent PAS de garde de role technique : le droit se decide par PROFIL EFFECTIF
+  // (ADMIN, GESTIONNAIRE, INSPECTEUR, LECTEUR, REFERENT) selon une matrice a defaut prudent, configurable.
+  const ACTIONS_WORKFLOW: Record<string, string[]> = {
+    [`GET /api/v2/projets-voirie/workflow/mon-profil`]: [],
+    [`GET ${P}/referents`]: ["referent.lire"],
+    [`POST ${P}/referents`]: ["referent.gerer"],
+    [`POST ${P}/referents/:rattachementId/revoquer`]: ["referent.gerer"],
+    [`GET ${P}/jeux`]: ["workflow.lire"],
+    [`GET ${P}/conflits`]: ["workflow.lire"],
+    [`GET ${P}/demandes`]: ["workflow.lire"],
+    [`POST ${P}/demandes`]: ["demande.ecrire"],
+    [`GET ${P}/demandes/:demandeId`]: ["workflow.lire"],
+    [`PATCH ${P}/demandes/:demandeId`]: ["demande.ecrire"],
+    [`POST ${P}/demandes/:demandeId/statut`]: ["demande.ecrire"],
+    [`POST ${P}/demandes/:demandeId/preuves`]: ["preuve.ajouter"],
+    [`GET ${P}/taches`]: ["workflow.lire", "tache.executer"],
+    [`POST ${P}/taches`]: ["tache.gerer"],
+    [`GET ${P}/taches/:tacheId`]: ["workflow.lire", "tache.executer"],
+    [`PATCH ${P}/taches/:tacheId`]: ["tache.gerer"],
+    [`POST ${P}/taches/:tacheId/statut`]: ["tache.executer"],
+    [`POST ${P}/taches/:tacheId/preuves`]: ["preuve.ajouter"],
+    [`GET ${P}/recolements`]: ["workflow.lire"],
+    [`POST ${P}/recolements`]: ["recolement.ecrire"],
+    [`GET ${P}/recolements/:recolementId`]: ["workflow.lire"],
+    [`PATCH ${P}/recolements/:recolementId`]: ["recolement.ecrire"],
+    [`POST ${P}/recolements/:recolementId/statut`]: ["recolement.ecrire"],
+    [`POST ${P}/recolements/:recolementId/preuves`]: ["preuve.ajouter"],
+  };
+
+  it("expose exactement les 24 routes du workflow : ni envoi de message, ni export de geometrie, ni ordre ou deplacement", () => {
+    expect(wf.map(cle).sort()).toEqual(Object.keys(ACTIONS_WORKFLOW).sort());
+    expect(wf.filter((l) => /ordre|deplac|ordonn|export|envoi|envoyer|courriel|mail|message|notif|sms|geometr/i.test(l.chemin))).toEqual([]);
+  });
+
+  it("toute route exige un compte connecte ET le module `projets-voirie`", () => {
+    for (const l of wf) {
+      expect(l.auth, cle(l)).toBe(true);
+      expect(l.modules, cle(l)).toEqual(["projets-voirie"]);
+    }
+  });
+
+  it("chaque route porte exactement la ou les actions de la matrice du contrat, et aucune n'est reservee par un role technique", () => {
+    for (const l of wf) {
+      expect(l.actions, cle(l)).toEqual(ACTIONS_WORKFLOW[cle(l)]);
+      expect(l.roles, cle(l)).toEqual([]);
+    }
+  });
+
+  it("toute action nommee par une route existe dans la matrice du noyau (garde contre une faute de frappe qui laisserait la route ouverte a personne ou a tous)", async () => {
+    const { ACTIONS } = await import("../projets-voirie/workflow/profils.noyau");
+    for (const a of Object.values(ACTIONS_WORKFLOW).flat()) expect(ACTIONS as readonly string[], a).toContain(a);
+  });
+
+  it("toute route qui designe un projet porte la garde territoriale a 404 masque ; mon-profil filtre dans le service", () => {
+    for (const l of wf.filter((x) => x.chemin.includes("/:id"))) expect(l.territoire, cle(l)).toEqual(["masque"]);
+    expect(wf.find((l) => cle(l) === "GET /api/v2/projets-voirie/workflow/mon-profil")!.territoire).toEqual([]);
+  });
+});
+
 describe("Gardes structurelles : aucune route ne passe sans qu'on ait decide de son acces", () => {
   it("toute route authentifiee non publique sans module ni reserve ADMIN est une exception DOCUMENTEE", () => {
     const sansModule = lignes.filter((l) => !estPublique(l) && l.modules.length === 0 && !adminSeul(l));
@@ -425,6 +499,7 @@ describe("Gardes structurelles : aucune route ne passe sans qu'on ait decide de 
       /^POST \/api\/v2\/export\/selection$/,         // lecture (export), module controle dans le handler
       /^POST \/api\/simulateur\/budget$/,            // calcul sans ecriture, module `programmation`
       /^POST \/api\/v2\/taches-internes/,            // ROLES_ECRITURE verifie dans le handler (ADMIN, GESTIONNAIRE, INSPECTEUR)
+      /^\w+ \/api\/v2\/projets-voirie\/:id\/workflow\//, // lot B3 : droit par PROFIL EFFECTIF (matrice du workflow, gardeWorkflow(action)) : un agent de terrain et un referent concessionnaire (LECTEUR rattache) ecrivent dans un cadre borne ; verifie par la section « Workflow » de ce fichier
     ];
     const sansRole = lignes
       .filter((l) => !estPublique(l) && l.methode !== "GET" && l.roles.length === 0)

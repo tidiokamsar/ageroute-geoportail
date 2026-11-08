@@ -100,6 +100,12 @@ export const MODULE_PAR_ENTITE: Record<string, ModuleKey | null> = {
   RegleConflit: "projets-voirie",
   ConflitProjet: "projets-voirie",
   ExportConflitsProjetVoirie: "projets-voirie",
+  // Workflow concessionnaire (lot B3) : rattachements des referents, demandes (envoi enregistre hors application), taches, recolements. Les preuves sont
+  // auditees sous l'objet qui les porte. Aucune geometrie dans l'audit. C'est la voie de lecture de l'auditeur (GET /api/audit).
+  ReferentConcessionnaire: "projets-voirie",
+  DemandeConcessionnaire: "projets-voirie",
+  TacheProjetVoirie: "projets-voirie",
+  RecolementProjetVoirie: "projets-voirie",
   User: null,
   AppSetting: null,
 };
