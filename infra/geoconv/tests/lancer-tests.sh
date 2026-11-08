@@ -23,7 +23,7 @@ if (cd "$ICI" && pwd -W >/dev/null 2>&1); then HOTE_TESTS="$(cd "$ICI" && pwd -W
 else HOTE_TESTS="$ICI"; HOTE_GEOCONV="$RACINE_GEOCONV"; fi
 
 PY=python; "$PY" -c "" 2>/dev/null || PY=python3
-IMAGE="ageroute-geoconv:0.1.0"
+IMAGE="ageroute-geoconv:0.2.0"
 BASE_GDAL="ghcr.io/osgeo/gdal:ubuntu-small-3.13.3@sha256:64250faf833c06d4b21afce4c27190039ba7ab58d70f0eebc87cf77d929c0b40"
 ID="essai$$"
 V_ENTREE="geoconv_${ID}_entree"
