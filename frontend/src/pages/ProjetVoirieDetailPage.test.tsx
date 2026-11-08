@@ -494,12 +494,16 @@ describe("durcissement du serveur (revue de securite)", () => {
 
   it("changer de largeurs ANNULE la requete d'analyse precedente (AbortController) et n'en lance qu'une par apercu, sans rechargement automatique", async () => {
     const signaux: AbortSignal[] = [];
+    // Les requetes d'apercu restent en vol jusqu'a la fin des verifications d'annulation : un delai fixe court
+    // (400 ms) laissait la premiere se terminer avant la seconde frappe sur une machine chargee (test instable).
+    let liberer: () => void = () => undefined;
+    const enVol = new Promise<void>((resolve) => { liberer = resolve; });
     installer();
     const impl = h.get.getMockImplementation()!;
     h.get.mockImplementation(async (url: string, opts?: { params?: Record<string, unknown>; signal?: AbortSignal }) => {
       if (url === `${BASE}/analyse` && opts?.params && "largeurEmpriseM" in opts.params) {
         signaux.push(opts.signal as AbortSignal);
-        await new Promise((resolve) => setTimeout(resolve, 400));
+        await enVol;
       }
       return impl(url, opts);
     });
@@ -515,6 +519,7 @@ describe("durcissement du serveur (revue de securite)", () => {
     await waitFor(() => expect(signaux).toHaveLength(2));
     await waitFor(() => expect(signaux[0].aborted).toBe(true));
     expect(signaux[1].aborted).toBe(false);
+    liberer();
     await new Promise((resolve) => setTimeout(resolve, 900));
     expect(signaux).toHaveLength(2);
     expect(appelsAnalyse().filter((p) => p.largeurEmpriseM !== undefined)).toHaveLength(2);
