@@ -17,6 +17,7 @@
  */
 
 import { Collecteur, formesVides, type Brut, type FormesBrutes } from "./collecteur.noyau";
+import type { Puits } from "./formats/puits.noyau";
 import { ErreurLecture } from "./lecture.types";
 import type { Avertissement, LimitesLecture, ObjetLu, ResumeLecture } from "./lecture.types";
 import { ErreurXml, lireXml, type NoeudXml } from "./xml.noyau";
@@ -159,19 +160,15 @@ function attributsDe(pm: NoeudXml, dossier: string[]): { nom: string | null; att
   return { nom, attributs: entrees };
 }
 
-export function lireKml(texte: string, limites?: LimitesLecture): { objets: ObjetLu[]; avertissements: Avertissement[]; resume: ResumeLecture } {
-  let racine: NoeudXml;
-  try {
-    racine = lireXml(texte);
-  } catch (e) {
-    if (e instanceof ErreurXml) throw new ErreurLecture(e.code, e.message);
-    throw e;
-  }
+/** Verifie que la racine du document XML est celle d'un KML (ou d'un fragment KML). */
+export function verifierRacineKml(racine: NoeudXml): void {
   if (racine.nom !== "kml" && racine.nom !== "Document" && racine.nom !== "Folder" && racine.nom !== "Placemark") {
-    throw new ErreurLecture("FORMAT_NON_SUPPORTE", `fichier XML non reconnu comme KML (element racine « ${racine.nom} ») : seuls les formats KML et GeoJSON sont pris en charge`);
+    throw new ErreurLecture("FORMAT_NON_SUPPORTE", `fichier XML non reconnu comme KML (element racine « ${racine.nom} ») : seuls les formats KML, KMZ, GeoJSON, GPX et CSV sont pris en charge`);
   }
+}
 
-  const col = new Collecteur(limites);
+/** Parcourt l'arbre KML et livre chaque Placemark au `col` (la couche d'un Placemark est le chemin de ses dossiers, « » a la racine). */
+export function traverserKml(racine: NoeudXml, col: Puits): void {
   const visiter = (n: NoeudXml, dossier: string[]): void => {
     if (n.nom === "Placemark") {
       col.elementLu();
@@ -180,7 +177,7 @@ export function lireKml(texte: string, limites?: LimitesLecture): { objets: Obje
       for (const e of n.enfants) aGeometrie = collecterGeometries(e, formes, 0) || aGeometrie;
       if (!aGeometrie) { col.compter("OBJETS_SANS_GEOMETRIE"); return; }
       const { nom, attributs } = attributsDe(n, dossier);
-      col.ajouter(nom, attributs, formes);
+      col.ajouter(nom, attributs, formes, dossier.join(" / "));
       return;
     }
     if (IGNORES.has(n.nom)) { col.elementIgnore(n.nom); return; }
@@ -193,5 +190,22 @@ export function lireKml(texte: string, limites?: LimitesLecture): { objets: Obje
     for (const e of n.enfants) visiter(e, chemin);
   };
   visiter(racine, []);
+}
+
+/** Analyse le texte XML d'un KML (sans DTD ni entite). */
+export function lireArbreKml(texte: string): NoeudXml {
+  try {
+    return lireXml(texte);
+  } catch (e) {
+    if (e instanceof ErreurXml) throw new ErreurLecture(e.code, e.message);
+    throw e;
+  }
+}
+
+export function lireKml(texte: string, limites?: LimitesLecture): { objets: ObjetLu[]; avertissements: Avertissement[]; resume: ResumeLecture } {
+  const racine = lireArbreKml(texte);
+  verifierRacineKml(racine);
+  const col = new Collecteur(limites);
+  traverserKml(racine, col);
   return col.terminer();
 }

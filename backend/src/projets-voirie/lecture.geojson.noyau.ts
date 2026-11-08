@@ -8,6 +8,7 @@
  */
 
 import { Collecteur, formesVides, type Brut, type FormesBrutes } from "./collecteur.noyau";
+import type { Puits } from "./formats/puits.noyau";
 import { ErreurLecture } from "./lecture.types";
 import type { Avertissement, LimitesLecture, ObjetLu, ResumeLecture } from "./lecture.types";
 
@@ -63,7 +64,8 @@ function nomDe(props: Record<string, Json>): string | null {
   return null;
 }
 
-export function lireGeoJson(texte: string, limites?: LimitesLecture): { objets: ObjetLu[]; avertissements: Avertissement[]; resume: ResumeLecture } {
+/** Analyse le texte JSON et verifie que c'est un document GeoJSON (membre « type »). */
+export function lireDocumentGeoJson(texte: string): Record<string, Json> {
   let doc: Json;
   try {
     doc = JSON.parse(texte);
@@ -73,9 +75,25 @@ export function lireGeoJson(texte: string, limites?: LimitesLecture): { objets: 
   if (!estObjet(doc) || typeof doc.type !== "string") {
     throw new ErreurLecture("FORMAT_NON_SUPPORTE", "document JSON qui n'est pas du GeoJSON (membre « type » absent)");
   }
-  verifierCrs(doc);
+  return doc;
+}
 
-  const col = new Collecteur(limites);
+/**
+ * Systeme de coordonnees DECLARE par le document (membre `crs`, GeoJSON 2008) : `null` s'il n'y en a pas (WGS 84 par la RFC 7946),
+ * sinon son nom et son code EPSG (`null` si le nom n'est pas un code EPSG). Ne decide rien : l'appelant tranche.
+ */
+export function crsDeclareGeoJson(doc: Record<string, Json>): { nom: string; epsg: number | null } | null {
+  const crs = doc.crs;
+  if (crs === undefined || crs === null) return null;
+  const nom = estObjet(crs) && estObjet(crs.properties) && typeof crs.properties.name === "string" ? crs.properties.name.trim() : null;
+  if (nom === null) throw new ErreurLecture("CRS_NON_SUPPORTE", "membre « crs » du GeoJSON illisible : seuls les codes EPSG sont pris en charge");
+  if (CRS_ADMIS.some((r) => r.test(nom))) return { nom, epsg: 4326 };
+  const m = /^(?:urn:ogc:def:crs:)?epsg:{1,2}(\d{1,6})$/i.exec(nom);
+  return { nom: nom.slice(0, 80), epsg: m ? Number(m[1]) : null };
+}
+
+/** Parcourt un document GeoJSON deja analyse et livre chaque objet au `col`. */
+export function traverserGeoJson(doc: Record<string, Json>, col: Puits): void {
   const traiter = (f: Record<string, Json>): void => {
     col.elementLu();
     const formes = formesVides();
@@ -104,5 +122,12 @@ export function lireGeoJson(texte: string, limites?: LimitesLecture): { objets: 
     default:
       throw new ErreurLecture("FORMAT_NON_SUPPORTE", `type GeoJSON « ${doc.type} » non pris en charge`);
   }
+}
+
+export function lireGeoJson(texte: string, limites?: LimitesLecture): { objets: ObjetLu[]; avertissements: Avertissement[]; resume: ResumeLecture } {
+  const doc = lireDocumentGeoJson(texte);
+  verifierCrs(doc);
+  const col = new Collecteur(limites);
+  traverserGeoJson(doc, col);
   return col.terminer();
 }

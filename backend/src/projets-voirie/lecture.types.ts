@@ -15,7 +15,7 @@ export type GeometrieLue =
   | { type: "MultiPolygon"; coordinates: Pos[][][] };
 
 export type TypeGeom = "LIGNE" | "POINT" | "POLYGONE";
-export type FormatFichier = "KML" | "GEOJSON";
+export type FormatFichier = "KML" | "KMZ" | "GEOJSON" | "GPX" | "CSV";
 
 export interface ObjetLu {
   nom: string | null;
@@ -30,7 +30,7 @@ export interface ObjetLu {
 }
 
 export interface Avertissement {
-  code: CodeAvertissement;
+  code: CodeAvertissement | CodeAvertissementImport;
   message: string;
   nb?: number;
 }
@@ -93,7 +93,32 @@ export type CodeErreurLecture =
   | "GEOMETRIE_INVALIDE"
   | "HORS_GUINEE"
   | "TROP_D_OBJETS"
-  | "TROP_DE_SOMMETS";
+  | "TROP_DE_SOMMETS"
+  | CodeErreurImport;
+
+/**
+ * Codes ajoutes par le lot A1 (formats ouverts, CRS, mapping). Contrat : docs/projets-voirie/CONTRAT-IMPORT.md.
+ * Les erreurs de lecture portent un statut 422 par defaut (voir `STATUT_LECTURE` des routes) ; 409 pour la confirmation attendue.
+ */
+export type CodeErreurImport =
+  // archives (KMZ)
+  | "ARCHIVE_INVALIDE" | "ARCHIVE_TROP_D_ENTREES" | "ARCHIVE_CHEMIN_DANGEREUX" | "ARCHIVE_NOMS_AMBIGUS" | "ARCHIVE_LIEN_SYMBOLIQUE"
+  | "ARCHIVE_ENTREE_SPECIALE" | "ARCHIVE_CHIFFREE" | "ARCHIVE_METHODE_NON_SUPPORTEE" | "ARCHIVE_IMBRIQUEE" | "ARCHIVE_TROP_GROSSE"
+  | "ARCHIVE_TAUX_COMPRESSION" | "ARCHIVE_CHEVAUCHEMENT" | "ARCHIVE_TROP_PROFONDE" | "KMZ_SANS_KML" | "KMZ_PLUSIEURS_KML" | "ENTREE_KML_INTROUVABLE"
+  // CSV et GPX
+  | "ENCODAGE_AMBIGU" | "DELIMITEUR_AMBIGU" | "SEPARATEUR_DECIMAL_AMBIGU" | "CSV_STRUCTURE_INVALIDE" | "CSV_TROP_DE_LIGNES" | "CSV_TROP_DE_COLONNES"
+  | "CSV_CELLULE_TROP_LONGUE" | "CSV_COLONNES_REQUISES" | "CSV_COLONNE_INTROUVABLE" | "GPX_INVALIDE"
+  // couches, mapping
+  | "COUCHE_INTROUVABLE" | "MAPPING_COLONNE_INTROUVABLE"
+  // CRS
+  | "CRS_REQUIS" | "CRS_NON_AUTORISE" | "CRS_NON_DISPONIBLE" | "CRS_INCOMPATIBLE_FORMAT" | "CRS_CONFLIT" | "CRS_INCOHERENT" | "TRANSFORMATION_ECHEC"
+  | "CONFIRMATION_HORS_ZONE_REQUISE";
+
+/** Avertissements ajoutes par le lot A1. */
+export type CodeAvertissementImport =
+  | "COUCHES_MULTIPLES" | "LIGNES_CSV_REJETEES" | "COLONNES_RENOMMEES" | "HORODATAGES_IGNORES" | "EXTENSION_INCOHERENTE"
+  | "ENTREES_ARCHIVE_IGNOREES" | "MAPPING_VALEURS_MULTIPLES" | "MAPPING_VALEUR_INCONNUE" | "CRS_CHOISI_PAR_UTILISATEUR" | "ELEMENTS_GPX_IGNORES"
+  | "CONCESSIONNAIRE_INCONNU" | "MAPPING_CHAMP_IGNORE";
 
 export class ErreurLecture extends Error {
   constructor(public readonly code: CodeErreurLecture, message: string) {

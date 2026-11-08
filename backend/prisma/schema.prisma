@@ -4242,6 +4242,10 @@ enum StatutParametresProjet {
 enum FormatJeuProjet {
   KML
   GEOJSON
+  /// Lot A1 (migration 20261101100000) : KMZ = archive ZIP bornee dont seule l'entree KML principale est lue ; TSV et TXT sont des CSV.
+  KMZ
+  GPX
+  CSV
 }
 
 /// PUBLIC et INTERNE ne rendent rien public dans ce lot : le module reste entierement derriere la cle de module.
@@ -4665,4 +4669,45 @@ model DecisionConflit {
 
   @@index([conflitId, statut])
   @@map("conflits_projet_decisions")
+}
+
+// ===================== IMPORT DES FORMATS OUVERTS, VERSIONS (lot A1) =====================
+// Contrat : docs/projets-voirie/CONTRAT-IMPORT.md. Migration 20261101100000_import_formats_versions (additive, avec descente).
+// Les cles etrangeres (projet, jeu, jeu lie, compte) existent EN SQL SEULEMENT : les relations ne sont pas declarees ici pour ne pas modifier
+// les modeles du socle (ProjetVoirie, JeuDonneesProjet, User). Les lignes sont en AJOUT SEUL (declencheurs de la base).
+
+enum TypeEvenementImportProjet {
+  SUPPRESSIONS_ACCEPTEES
+  SUPPRESSIONS_REFUSEES
+  RETOUR_ARRIERE
+}
+
+/// Decision humaine sur un jeu : revue des suppressions d'une nouvelle version, ou retour arriere. Jamais de geometrie dans `details`.
+model EvenementImportProjet {
+  id            String                    @id @default(uuid())
+  projetId      String
+  jeuId         String
+  /// Retour arriere : le jeu restaure (version precedente). `jeuId` est alors le jeu retire du service.
+  jeuLieId      String?
+  type          TypeEvenementImportProjet
+  acteurId      String
+  justification String
+  details       Json                      @default("{}")
+  createdAt     DateTime                  @default(now())
+
+  @@index([jeuId, createdAt])
+  @@index([jeuLieId])
+  @@index([projetId])
+  @@map("projets_voirie_import_evenements")
+}
+
+/// Fichier d'origine d'un jeu, ecrit seulement si PROJETS_VOIRIE_CONSERVER_ORIGINAL=oui. Aucune route ne le relit.
+model FichierOrigineJeuProjet {
+  jeuId        String   @id
+  sha256       String
+  tailleOctets Int
+  contenu      Bytes
+  createdAt    DateTime @default(now())
+
+  @@map("projets_voirie_fichiers_origine")
 }
