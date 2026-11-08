@@ -14,6 +14,7 @@ import { prisma } from "../../lib/prisma";
 import { Budget, avecErreurDelai, poserDelais } from "../bd";
 import { delaiAnalyseMs, delaiVerrouMs } from "../config";
 import { jeuLisible } from "../conflits/visibilite.noyau";
+import { tracerConsultation } from "../consultation";
 import { ErreurMetier } from "../erreurs";
 import { limiteurAnalyses } from "../limiteurs";
 import type { Acteur } from "../projets.service";
@@ -47,7 +48,7 @@ export async function comptageProjet(acteur: Acteur, projetId: string, d: Demand
     retenus = retenirJeux(tous, d.inclureNonAutorises);
   }
   const jeuxIds = retenus.map((j) => j.id);
-  const demande: depot.DemandeComptage = { projetId, jeuxIds, statutsJeu: statutsLisibles(acteur.role) };
+  const demande: depot.DemandeComptage = { projetId, jeuxIds };
 
   const delai = delaiAnalyseMs();
   const trop = () => new ErreurMetier(504, "COMPTAGE_TROP_LONG", `Le comptage a dépassé ${Math.round(delai / 1000)} s et a été interrompu : restreignez-le à un jeu (jeuId).`);
@@ -73,6 +74,8 @@ export async function comptageProjet(acteur: Acteur, projetId: string, d: Demand
     },
   });
   const qualite = mesures.q;
+  // m4 : le comptage rend, par jeu, le nom du fichier, le concessionnaire et les longueurs : lecture tracee pour les jeux sensibles, AVANT la remise des donnees.
+  await tracerConsultation(acteur, retenus.map((j) => ({ id: j.id, confidentialite: j.confidentialite, nbObjets: j.nbObjets })), { route: "reseau", bbox: null, zoom: null });
   return {
     projet,
     inclureNonAutorises: d.inclureNonAutorises,

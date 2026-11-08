@@ -27,6 +27,7 @@ import { decoderCurseurObjet, encoderCurseurObjet } from "./curseurs.noyau";
 import { verifierQualite } from "./qualite.noyau";
 import * as depot from "./reseaux.depot";
 import { natureEffective, verifierDescripteur, type NatureDeclarable } from "./types.noyau";
+import { jeuxConsultesParRelations } from "./consultation-reseau";
 import { vueObjet, vueRelation } from "./vues";
 
 export { decoderCurseurObjet };
@@ -77,7 +78,8 @@ export async function ficheObjetReseau(acteur: Acteur, projetId: string, objetId
     const p = l.typeGeom === "LIGNE" ? await depot.tracePartagee(tx, objetId) : null;
     return { ligne: l, relations: r.slice(0, 200), partage: p };
   });
-  await tracerConsultation(acteur, [{ id: ligne.jeuId, confidentialite: ligne.confidentialite, nbObjets: 1 }], { route: "reseau", bbox: null, zoom: null });
+  // m4 : les relations rendues portent aussi les objets (nom, nature, jeu) de l'AUTRE bout, qui peut etre d'un autre jeu sensible : tout est trace.
+  await tracerConsultation(acteur, jeuxConsultesParRelations(relations, [{ id: ligne.jeuId, confidentialite: ligne.confidentialite, nbObjets: 1 }]), { route: "reseau", bbox: null, zoom: null });
   return {
     objet: vueObjet(ligne),
     relations: relations.map((r) => ({ ...vueRelation(r, decide), role: r.sourceObjetId === objetId ? "SOURCE" : "CIBLE" })),

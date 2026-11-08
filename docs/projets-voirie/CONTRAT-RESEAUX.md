@@ -148,3 +148,27 @@ Les relations `PORTE_PAR` et `CONTENU_DANS` de ce lot en sont un **préalable**,
 ## 10. Limites connues et décisions à prendre
 
 Voir `docs/reports/LOT-B1-RAPPORT.md`. En résumé : tolérances et seuil de couverture à valider ; les descripteurs et relations suivent l'**objet**, donc ne se reportent pas automatiquement à une nouvelle version d'un jeu (le delta par empreinte pourrait les proposer) ; la classe d'un objet est une déclaration humaine (justifiée, auditée), pas une mesure ; les totaux de l'analyse 2D restent au niveau du jeu ; `parType` et `parConcessionnaire` du socle somment toujours les natures d'un même type de réseau (ajouter `parNature`, ne pas les réécrire) ; la proposition ne porte que sur des jeux autorisés.
+
+## 11. Corrections de la revue de la vague 1 et constats documentés (ajouts)
+
+Cette section complète les sections 5, 6 et 8 ; en cas de divergence, elle l'emporte.
+
+### 11.1 Un support ne se compte que sur un jeu AUTORISE, pour tous les rôles (m3)
+
+Le **support physique d'un circuit** (blocs `circuitsLogiques.supportPhysique` du comptage et `cible.supportPhysique` des dossiers de conflit) ne compte une relation `PORTE_PAR` (validée ou proposée) que si la **cible** appartient à un jeu `AUTORISE`, quel que soit le rôle du compte. Avant : la cible était filtrée par les statuts lisibles du rôle, ce qui faisait compter à un `ADMIN` ou `GESTIONNAIRE` un support d'un jeu `REMPLACE` ou `REJETE` que le lecteur ne comptait pas (deux chiffres sur la même page). Conséquence assumée : quand l'infrastructure est remplacée par une nouvelle version, ses relations ne comptent plus tant que le support n'est pas de nouveau associé à la version autorisée (les descripteurs et relations suivent l'objet, section 10). Les listes de relations (`GET .../reseau/relations`) restent, elles, filtrées par la lisibilité du rôle : un décideur y voit aussi les relations dont un bout est dans un jeu `REMPLACE`.
+
+### 11.2 Consultation des relations et du comptage tracée (m4)
+
+Comme la lecture des objets, trois lectures sont **tracées** (`ConsultationJeuProjet`, action `SECURITY_EVENT`, route `reseau`, une ligne au plus par compte, jeu et fenêtre de 15 minutes, sans géométrie ni nom d'objet, écrite **avant** la remise des données) pour chaque jeu `CONFIDENTIEL_CONCESSIONNAIRE` ou `INFRASTRUCTURE_SENSIBLE` rendu :
+
+- `GET /:id/reseau/relations` : les jeux des **deux bouts** de chaque relation de la page ;
+- `GET /:id/reseau/objets/:objetId` : le jeu de l'objet **et** ceux des objets de l'autre bout de ses relations ;
+- `GET /:id/reseau/comptage` : chaque jeu retenu (le comptage rend nom de fichier, concessionnaire et longueurs par jeu).
+
+Les réponses d'écriture (déclarer, valider, refuser, révoquer) sont déjà auditées par leur propre ligne d'audit.
+
+### 11.3 Constats documentés, non corrigés
+
+- **Verrou du projet tenu par une association en échec** : une proposition d'association interrompue par le délai de la base (504 `ASSOCIATION_TROP_LONGUE`, jusqu'à 20 s) tient le verrou du projet pendant ce délai, sans cadence entre deux échecs consécutifs ; les écritures concurrentes du projet attendent puis répondent 503 `PROJET_OCCUPE` (voir `CONTRAT-WORKFLOW.md`, 9 bis). La cadence n'est appliquée qu'aux exécutions qui réussissent. Décision à prendre : cadence aussi sur les échecs, ou verrou consultatif propre à l'association comme pour l'analyse de conflits.
+- **O7** : un descripteur modifie la classe ou la précision effective d'un jeu `AUTORISE` utilisée par la détection de conflits (RC-3), par un seul `GESTIONNAIRE`, sans contrôle à quatre yeux. Décision réservée au DSI : droits de descripteur et double validation.
+- **O11** : `jeuMasque` et 409 `STATUT_INCOMPATIBLE` indiquent le statut `RETIRE` d'un jeu aux comptes qui décident, comme le socle ; ce n'est pas une fuite pour les autres comptes (404).

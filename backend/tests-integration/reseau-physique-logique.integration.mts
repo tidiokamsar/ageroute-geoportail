@@ -608,6 +608,49 @@ async function main() {
   ]);
   verifier("9. PROJET SUPPRIME : 404 PROJET_INTROUVABLE pour tous, administrateur national compris, sur lectures et ecritures", supp.every((r) => r.status === 404 && r.body.code === "PROJET_INTROUVABLE"), supp.map((r) => [r.status, r.body.code]));
 
+  // ================================================================ 9 bis. Revue de la vague 1 : m3 (supports comptes sur des jeux AUTORISE seulement, pour tous les roles) et m4 (trace de consultation)
+  const PID_M3: string = (await envoyer("post", "", { code: "RESEAUX-M3", nom: "Revue vague 1", regionId: R1 })).body.projet.id;
+  const J3_CIRC = await deposerEtAutoriser(PID_M3, await geojsonMixte([{ nom: "Circuit M3", coords: [[20, 2.5], [80, 2.5]] }]), { role: "RESEAU_TIERS", concessionnaireId: CONC1, natureObjets: "CIRCUIT_LOGIQUE" }, "m3-circuit.geojson");
+  const INFRA_M3: Entree[] = [{ nom: "Gaine M3", coords: [[20, 2.5], [80, 2.5]] }];
+  const champsInfraM3 = { role: "RESEAU_TIERS", concessionnaireId: CONC3, natureObjets: "ACTIF_PHYSIQUE" };
+  const J3_INFRA1 = await deposerEtAutoriser(PID_M3, await geojsonMixte(INFRA_M3), champsInfraM3, "m3-infra-v1.geojson");
+  const O3_C = await oid(J3_CIRC, "Circuit M3"), O3_G = await oid(J3_INFRA1, "Gaine M3");
+  const rel3 = await envoyer("post", `/${PID_M3}/reseau/relations`, { type: "PORTE_PAR", sourceObjetId: O3_C, cibleObjetId: O3_G, justification: JUSTIF });
+  const supportsDe = async (t: string) => (await get(`/${PID_M3}/reseau/comptage`, t)).body.circuitsLogiques.supportPhysique;
+  const avant3 = [await supportsDe(T.admin), await supportsDe(T.chef), await supportsDe(T.lecteur)];
+  verifier("9 bis. m3, point de depart : la gaine (jeu AUTORISE) porte le circuit : 1 support valide pour l'administrateur, le gestionnaire et le lecteur",
+    rel3.status === 201 && avant3.every((s) => s.avecSupportValide === 1 && s.sansSupportConnu === 0), [rel3.body.code, avant3]);
+  // Nouvelle version de l'infrastructure, sans suppression (meme gaine + une chambre) : la version 1, qui porte la relation, passe REMPLACE.
+  const J3_INFRA2 = await deposerEtAutoriser(PID_M3, await geojsonMixte([...INFRA_M3, { nom: "Chambre M3", pt: [50, 2.5] }]), champsInfraM3, "m3-infra-v2.geojson");
+  const apres3 = [await supportsDe(T.admin), await supportsDe(T.chef), await supportsDe(T.lecteur)];
+  verifier("9 bis. m3 : le support est dans un jeu REMPLACE : il n'est compte pour AUCUN role (administrateur, gestionnaire, lecteur : 0 support valide, 1 circuit sans support connu) ; meme page, un seul chiffre",
+    (await sql<{ statut: string }>(`SELECT statut::text FROM projets_voirie_jeux WHERE id = $1`, J3_INFRA1))[0].statut === "REMPLACE" && J3_INFRA2 !== J3_INFRA1
+    && apres3.every((s) => s.avecSupportValide === 0 && s.avecPropositionSeulement === 0 && s.sansSupportConnu === 1) && JSON.stringify(apres3[0]) === JSON.stringify(apres3[2]) && JSON.stringify(apres3[1]) === JSON.stringify(apres3[2]), apres3);
+  const { cibleDesObjets } = await banc.imp("projets-voirie/reseaux/cibles.service");
+  const cibleAdmin = (await cibleDesObjets("ADMIN", [O3_C])).get(O3_C), cibleLecteur = (await cibleDesObjets("LECTEUR", [O3_C])).get(O3_C);
+  verifier("9 bis. m3 : la qualification de la cible d'un conflit (extension RC-3) suit la meme regle : 0 support valide pour l'administrateur comme pour le lecteur",
+    cibleAdmin?.supportPhysique?.valides === 0 && cibleLecteur?.supportPhysique?.valides === 0 && JSON.stringify(cibleAdmin) === JSON.stringify(cibleLecteur), [cibleAdmin, cibleLecteur]);
+
+  // m4 : trace de consultation des relations, de la fiche (autre bout) et du comptage, sur des comptes qui n'ont encore rien lu de ces jeux.
+  const tr1 = await mk("trace1@banc.invalid", "Trace Un", "GESTIONNAIRE"), tr2 = await mk("trace2@banc.invalid", "Trace Deux", "LECTEUR"), tr3 = await mk("trace3@banc.invalid", "Trace Trois", "GESTIONNAIRE");
+  const tracesDe = async (u: { id: string }) => (await sql<{ entityId: string; nb: number | null; route: string }>(`SELECT "entityId", (after->>'nbObjets')::int AS nb, after->>'route' AS route FROM audit_logs WHERE "entityType" = 'ConsultationJeuProjet' AND "userId" = $1 ORDER BY "entityId"`, u.id));
+  const ids = (l: { entityId: string }[]) => l.map((x) => x.entityId).sort();
+  verifier("9 bis. m4 : avant toute lecture, aucune trace pour ces comptes", (await tracesDe(tr1)).length === 0 && (await tracesDe(tr2)).length === 0 && (await tracesDe(tr3)).length === 0);
+  const listeRel = await get(`/${PID_M3}/reseau/relations`, jeton(tr1));
+  const t1 = await tracesDe(tr1);
+  verifier("9 bis. m4 : la liste des relations (noms, natures et jeux des DEUX bouts) est tracee : une ligne par jeu sensible rendu, route `reseau`, 1 objet chacun, sans geometrie",
+    listeRel.status === 200 && listeRel.body.relations.length === 1 && JSON.stringify(ids(t1)) === JSON.stringify([J3_CIRC, J3_INFRA1].sort()) && t1.every((x) => x.route === "reseau" && x.nb === 1), [t1, listeRel.body.relations.length]);
+  const cptM3 = await get(`/${PID_M3}/reseau/comptage`, jeton(tr2));
+  const t2 = await tracesDe(tr2);
+  verifier("9 bis. m4 : le comptage (nom de fichier, concessionnaire, longueurs par jeu) est trace pour un lecteur : une ligne par jeu sensible retenu (circuits, infrastructure v2), nombre d'objets du jeu",
+    cptM3.status === 200 && JSON.stringify(ids(t2)) === JSON.stringify([J3_CIRC, J3_INFRA2].sort()) && t2.every((x) => x.route === "reseau") && t2.find((x) => x.entityId === J3_INFRA2)?.nb === 2, t2);
+  const ficheM3 = await get(`/${PID_M3}/reseau/objets/${O3_C}`, jeton(tr3));
+  const t3 = await tracesDe(tr3);
+  verifier("9 bis. m4 : la fiche d'un objet rend aussi l'objet de l'AUTRE bout de ses relations : les deux jeux sont traces (le circuit et la gaine de la version remplacee)",
+    ficheM3.status === 200 && ficheM3.body.relations.length === 1 && JSON.stringify(ids(t3)) === JSON.stringify([J3_CIRC, J3_INFRA1].sort()), [t3, ficheM3.body.relations.length]);
+  const sansGeom = JSON.stringify(await sql(`SELECT after FROM audit_logs WHERE "entityType" = 'ConsultationJeuProjet' AND "userId" IN ($1, $2, $3)`, tr1.id, tr2.id, tr3.id));
+  verifier("9 bis. m4 : ces traces ne portent ni geometrie ni nom d'objet", !/coordinates|LINESTRING|Circuit M3|Gaine M3|Chambre M3/.test(sansGeom), sansGeom.slice(0, 200));
+
   // ================================================================ 10. Isolation
   const apresTout = await etat();
   const diff = Object.keys(apresTout).filter((t) => apresTout[t] !== avantTout[t]);

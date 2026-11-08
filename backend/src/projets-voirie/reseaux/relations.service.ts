@@ -19,6 +19,8 @@ import { decoderCurseurConflit, encoderCurseurConflit } from "../conflits/curseu
 import { jeuLisible } from "../conflits/visibilite.noyau";
 import { estDecideur } from "../conflits/types.noyau";
 import { verrouillerProjet, type Acteur } from "../projets.service";
+import { tracerConsultation } from "../consultation";
+import { jeuxConsultesParRelations } from "./consultation-reseau";
 import {
   OBJET_INTROUVABLE, RELATION_INTROUVABLE, STATUTS_QUALIFIABLES, avecTraductionBase, exigerProjetActif, lireSousDelai, statutsLisibles,
 } from "./commun";
@@ -41,6 +43,8 @@ export async function listerRelationsProjet(acteur: Acteur, projetId: string, f:
   const page = lignes.slice(0, f.limite);
   const dernier = page[page.length - 1];
   const decide = estDecideur(acteur.role);
+  // m4 : la liste rend nom, nature, type et jeu des deux bouts : lecture tracee pour les jeux sensibles, AVANT la remise des donnees.
+  await tracerConsultation(acteur, jeuxConsultesParRelations(page), { route: "reseau", bbox: null, zoom: null });
   return {
     relations: page.map((l) => vueRelation(l, decide)),
     curseurSuivant: lignes.length > f.limite && dernier ? encoderCurseurConflit({ t: dernier.createdAt.toISOString(), i: dernier.id }) : null,
