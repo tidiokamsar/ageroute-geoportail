@@ -32,7 +32,7 @@ Le serveur ne garde rien entre deux étapes : **le client renvoie le fichier à 
 | 6 | `POST /:id/jeux/:jeuId/autoriser` ou `/rejeter` | oui | inchangé, sauf la garde 409 des suppressions |
 | 7 | `POST /:id/jeux/:jeuId/retour-arriere` | oui | remise de la version précédente comme `AUTORISE` |
 
-Toutes ces routes sont derrière : jeton, clé de module `projets-voirie`, octet NUL (400), UUID (400), **rôle `ADMIN` ou `GESTIONNAIRE`** (403), projet désigné (404 masqué hors périmètre ou inexistant), validation (400), service. Réponses `Cache-Control: no-store`.
+Toutes ces routes sont derrière : jeton, clé de module `projets-voirie`, octet NUL (400), UUID (400), **rôle `ADMIN` ou `GESTIONNAIRE`** (403, y compris pour `GET .../options` et `GET .../delta`), projet désigné (404 masqué hors périmètre ; **404 `PROJET_INTROUVABLE` à tous les comptes, nationaux compris, si le projet est inexistant ou retiré**), place de réception pour les routes à fichier (503 `SERVICE_OCCUPE`), validation (400), service. Réponses `Cache-Control: no-store`.
 
 ## 3. Champs d'options (multipart, identiques aux étapes 1 à 4)
 
@@ -71,12 +71,13 @@ Valeur de `format` stockée : `KML`, `KMZ`, `GEOJSON`, `GPX`, `CSV`. Un TSV ou u
 
 - **Encodage** : UTF-8 avec ou sans BOM, ou UTF-16 avec BOM ; sinon `ENCODAGE_AMBIGU` sauf `encodage` déclaré. Un octet NUL ailleurs : 422 `CONTENU_NON_RECONNU`.
 - **Structure** : RFC 4180 (guillemets, `""`, retours à la ligne dans un champ guillemeté). Première ligne = en-tête. En-têtes vides renommés `colonne_N`, doublons suffixés ` (2)` (avertissement `COLONNES_RENOMMEES`).
-- **Nombres** : `separateurDecimal`. Avec le délimiteur `,` le séparateur décimal ne peut être que `.`. Nombre illisible : la ligne est rejetée (rapport par ligne).
+- **Nombres** : `separateurDecimal` (`.` ou `,`), déclaré ou lu sur les colonnes de coordonnées seulement et sans ambiguïté (les deux présents : 422 `SEPARATEUR_DECIMAL_AMBIGU`). Un nombre doit être exactement un nombre : pas de séparateur de milliers (`1 234,5` est illisible), pas d'exposant avec la virgule. Nombre illisible : la ligne est rejetée (rapport par ligne).
 - **Points** (`colonneX` + `colonneY`) : un objet `POINT` par ligne.
 - **Lignes** (`colonneX` + `colonneY` + `colonneCle`, `colonneOrdre` facultative) : un objet `LIGNE` par valeur distincte de clé, nommé par la clé ; au moins deux points, sinon la clé est rejetée. Attributs : la clé, `nbPoints`, et les colonnes dont la valeur est identique sur toutes les lignes du groupe. **Non fait** : plusieurs clés d'axe imbriquées, détection de ruptures de chaînage, polygones depuis des points.
 - **WKT** (`colonneWkt`) : `POINT`, `LINESTRING`, `POLYGON`, `MULTIPOINT`, `MULTILINESTRING`, `MULTIPOLYGON`, 2D (Z et M ignorés), sans préfixe `SRID=` ; sinon la ligne est rejetée.
 - **Injection de formules** : les valeurs sont lues comme du texte et conservées telles quelles (`=...`, `+...`, `-...`, `@...` n'ont aucun effet : on ne les évalue ni ne les écrit en tableur). L'export CSV de l'analyse neutralise déjà ces préfixes.
-- **Lignes rejetées** : comptées dans l'avertissement `LIGNES_CSV_REJETEES` ; le détail (numéro de ligne du fichier, code, message) est dans `resume.import.rejets` (50 au plus, `tronque` au-delà). S'il ne reste aucun objet : 422 (`GEOMETRIE_INVALIDE`, `HORS_GUINEE` ou `FICHIER_VIDE`).
+- **Cellules** : 10 000 caractères au plus (422 `CSV_CELLULE_TROP_LONGUE`), sauf la colonne WKT (2 000 000). Colonnes non vides seulement dans `attributs` (une cellule vide est une valeur inconnue, jamais une valeur par défaut).
+- **Lignes rejetées** : comptées dans l'avertissement `LIGNES_CSV_REJETEES` ; le détail (numéro de ligne du fichier, code, message) est dans `resume.import.rejets` (50 au plus, `rejetsTronques` au-delà). Codes de rejet : `COORDONNEES_ABSENTES`, `COORDONNEES_ILLISIBLES`, `WKT_ABSENT`, `WKT_INVALIDE`, `CLE_ABSENTE`, `ORDRE_ILLISIBLE`, `LIGNE_TROP_COURTE`. S'il ne reste aucun objet : 422 (`GEOMETRIE_INVALIDE`, `HORS_GUINEE` ou `FICHIER_VIDE`).
 
 ## 5. CRS
 
@@ -101,7 +102,7 @@ Valeur de `format` stockée : `KML`, `KMZ`, `GEOJSON`, `GPX`, `CSV`. Un TSV ou u
     "zoneAttendue": { "nom": "Guinee", "bbox": [-15.2, 7.1, -7.5, 12.8] },
     "empriseResultat": [ouest, sud, est, nord] | null,
     "nbElementsHorsZone": 0, "nbObjets": 31,
-    "statut": "CONFORME" | "PARTIELLEMENT_HORS_ZONE" | "HORS_ZONE",
+    "statut": "CONFORME" | "PARTIELLEMENT_HORS_ZONE",   // tout hors zone n'est pas un statut : c'est l'erreur 422 HORS_GUINEE
     "confirmationRequise": false, "confirmee": false
   }
 }
@@ -166,7 +167,7 @@ Réponse 200 :
   "format": "KML"|"KMZ"|"GEOJSON"|"GPX"|"CSV",
   "detection": { "methode": "contenu", "extensionDeclaree": "kmz"|null, "extensionCoherente": true },
   "archive": { "nbEntrees", "tailleDecompresseeOctets", "kmlPrincipal", "entreesKml": [..], "entrees": [ { nom, tailleOctets, type } ] } | null,
-  "couches": [ { "id": "c0", "nom": "Fibre / Principal", "nbObjets", "parTypeGeom": { LIGNE, POINT, POLYGONE } } ],
+  "couches": [ { "id": "c0", "nom": "Fibre / Principal", "nbObjets", "parTypeGeom": { LIGNE, POINT, POLYGONE } } ],   // CSV : liste vide, une seule table (voir `csv`) ; GeoJSON : une couche c0 ; KMZ à plusieurs KML sans choix : liste vide
   "csv": { "delimiteur", "delimiteurDetecte", "encodage", "encodageDetecte", "bom",
            "separateurDecimal": "."|","|null, "separateurDecimalDetecte", "nbLignes",
            "colonnes": [ { "nom", "exemples": [3 valeurs au plus] } ], "echantillon": [ 5 lignes au plus ] } | null,
@@ -187,7 +188,8 @@ Réponse 200 :
   "fichier": { nom, tailleOctets, sha256 }, "format", "couche": { id, nom } | null,
   "resume": { "nbObjets", "parTypeGeom", "longueurTotaleM", "bbox", "attributsDetectes", "crs": { ... 5.2 ... }, "import": { ... 7.4 ... } },
   "statistiques": { "nbObjets", "parTypeGeom", "longueurTotaleM", "doublonsInternes", "sommets", "geometriesAReparer", "geometriesVides" },
-  "validationGeometrique": { "nbProblemes", "problemes": [ { "ordre", "nom", "typeGeom", "code", "message" } ], "tronque": false },
+  "validationGeometrique": { "nbProblemes", "problemes": [ { "ordre", "nom", "typeGeom", "code", "message" } ], "tronque": false,
+                             "elementsEcartes": [ { "element", "nom", "code", "message" } ] },
   "echantillon": { "taille", "total", "objets": [ { "ordre", "nom", "typeGeom", "geometrie": { GeoJSON WGS 84 }, "simplifiee": false, "attributs": { } } ] },
   "mapping": { "applique": { }, "propositionsJeu": { "<champ>": { "valeur", "colonne" } }, "avertissements": [ ] },
   "avertissements": [ { "code", "message", "nb?" } ]
@@ -195,6 +197,7 @@ Réponse 200 :
 ```
 
 - **Échantillon** : 20 objets au plus (`PROJETS_VOIRIE_APERCU_ECHANTILLON`, 1 à 100), choisis de façon déterministe : d'abord les objets à problème (au plus la moitié), puis des objets régulièrement espacés dans le fichier. Une géométrie de plus de 500 sommets est décimée (`simplifiee: true`). Jamais tout le fichier.
+- `validationGeometrique.elementsEcartes` : les éléments du fichier **écartés avant la base**, 50 au plus (le nombre exact est dans les avertissements `ELEMENTS_HORS_GUINEE` et `GEOMETRIES_INVALIDES_IGNOREES`) : `element` = numéro de l'élément dans le fichier (1 = premier Placemark, Feature, point de passage ou ligne reconstruite d'un CSV), `code` = `COORDONNEES_HORS_ZONE` (hors de la Guinée ou hors de la plage des degrés) ou `GEOMETRIE_INVALIDE` (ligne de moins de deux points, anneau dégénéré, coordonnée illisible), message fixe sans coordonnée. Les lignes d'un CSV rejetées avant toute géométrie sont dans `resume.import.rejets`.
 - `validationGeometrique.problemes` : 50 au plus. Codes : `GEOMETRIE_VIDE`, `AUTO_INTERSECTION`, `TROP_PEU_DE_POINTS`, `ANNEAU_INVALIDE`, `GEOMETRIE_INVALIDE`. Les valeurs de coordonnées de la base ne sont pas recopiées dans les messages.
 - Une géométrie invalide au sens PostGIS est **réparée** au dépôt (comme aujourd'hui, `ST_MakeValid`) : l'aperçu la compte dans `geometriesAReparer`.
 - L'aperçu fait au plus 2 exécutions simultanées par processus (503 `SERVICE_OCCUPE`), coupe la base au bout de 30 s (504 `APERCU_TROP_LONG`, `PROJETS_VOIRIE_DELAI_APERCU_MS`), et ne persiste rien.
@@ -246,7 +249,7 @@ Validation : un champ cible hors liste : 400 `MAPPING_INVALIDE` ; une colonne so
   "comparaison": { "jeuId", "version", "statut" } | null,
   "delta": { ajoutes, modifies, retires, identiques } | null,
   "cleComparaison": "identifiant" | "nom" | null, "clesAmbigues": 0,
-  "echantillons": { "ajoutes": [ { ordre, nom } ], "modifies": [ { cle, nomAvant, nomApres } ], "retires": [ { objetId, nom } ] },   // 20 au plus chacun, aucune géométrie
+  "echantillons": { "ajoutes": [ { objetId, nom } ], "modifies": [ { cle, nomAvant, nomApres } ], "retires": [ { objetId, nom } ] },   // 20 au plus chacun, aucune géométrie
   "suppressions": { "statut", "nb", "revue": { "par": { id, nomComplet }, "le", "decision", "justification" } | null },
   "retourArriere": { "possible": true|false, "raison": "..."|null, "restaureraJeuId", "restaureraVersion" } | null,   // jeu AUTORISE seulement
   "evenements": [ { "id", "type", "par", "le", "justification", "details" } ] }
@@ -274,7 +277,8 @@ Codes ajoutés, par statut (les codes existants de `API.md` sont inchangés) :
 |---|---|
 | 400 | `MAPPING_INVALIDE`, `CHAMPS_INVALIDES` (options incohérentes : `colonneWkt` avec `colonneX`, `epsgSource` non entier, `sha256Attendu` malformé...) |
 | 404 | `JEU_INTROUVABLE` (delta, revue, retour arrière) |
-| 409 | `EMPREINTE_DIVERGENTE`, `CONFIRMATION_HORS_ZONE_REQUISE`, `SUPPRESSIONS_A_REVOIR`, `SUPPRESSIONS_REFUSEES`, `AUCUNE_SUPPRESSION`, `AUCUNE_VERSION_PRECEDENTE`, `VERSION_PRECEDENTE_INDISPONIBLE` |
+| 400 (suite) | `CONCESSIONNAIRE_REQUIS` : un jeu `RESEAU_TIERS` sans `concessionnaireId` dont le mapping ne désigne aucun concessionnaire connu (avertissement `CONCESSIONNAIRE_INCONNU` : un concessionnaire n'est jamais créé par un import) |
+| 409 | `EMPREINTE_DIVERGENTE`, `CONFIRMATION_HORS_ZONE_REQUISE`, `SUPPRESSIONS_A_REVOIR`, `SUPPRESSIONS_REFUSEES`, `AUCUNE_SUPPRESSION`, `AUCUNE_VERSION_PRECEDENTE`, `VERSION_PRECEDENTE_INDISPONIBLE`, `DEPOT_EN_ATTENTE` (retour arrière), `STATUT_INCOMPATIBLE` |
 | 415 | `FORMAT_NON_SUPPORTE` : GeoPackage, Shapefile (y compris en ZIP), DXF, DWG, texte non reconnu |
 | 422 | `ARCHIVE_*`, `KMZ_SANS_KML`, `KMZ_PLUSIEURS_KML`, `ENTREE_KML_INTROUVABLE` (section 6) ; `CRS_*`, `TRANSFORMATION_ECHEC` (5.4) ; `ENCODAGE_AMBIGU`, `DELIMITEUR_AMBIGU`, `SEPARATEUR_DECIMAL_AMBIGU`, `CSV_STRUCTURE_INVALIDE`, `CSV_TROP_DE_LIGNES` (plus de 500 000), `CSV_TROP_DE_COLONNES` (plus de 200), `CSV_CELLULE_TROP_LONGUE` (plus de 10 000 caractères), `CSV_COLONNES_REQUISES` (pas de colonnes de coordonnées désignées), `CSV_COLONNE_INTROUVABLE`, `COUCHE_INTROUVABLE`, `MAPPING_COLONNE_INTROUVABLE`, `GPX_INVALIDE` |
 | 504 | `APERCU_TROP_LONG` |

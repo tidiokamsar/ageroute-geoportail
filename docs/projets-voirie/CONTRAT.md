@@ -85,6 +85,8 @@ dépôt réel ──► CONTROLE ──autoriser──► AUTORISE ──nouvell
 
 ### 4.1 Limites et lecture des fichiers
 
+> **Mise à jour du lot A1 (07/11/2026), voir `CONTRAT-IMPORT.md`, qui fait foi pour ces points.** Les formats **KMZ, GPX et CSV/TSV/TXT** sont lus (en plus de KML et GeoJSON) ; une archive KMZ ne répond donc plus 415 (seuls GeoPackage, Shapefile, DXF et DWG répondent encore 415, chaîne GDAL) ; un CRS projeté se choisit dans une liste blanche (`epsgSource`) et se transforme par PostGIS (section 4.3 ci-dessous : le refus `CRS_NON_SUPPORTE` ne vaut plus que pour un membre `crs` GeoJSON illisible ou qui n'est pas un code EPSG) ; le delta de versions porte aussi `modifies`, et un jeu qui retire des objets ne s'autorise qu'après une revue des suppressions. Les limites et les codes ci-dessous restent vrais pour KML et GeoJSON WGS 84.
+
 Fichier 25 Mo (aligné sur nginx), 50 000 objets, coordonnées dans l'emprise de la Guinée (longitude -15,2 à -7,5 ; latitude 7,1 à 12,8), altitude ignorée, formats `KML` et `GeoJSON` seulement. Détection **par le contenu**, jamais par l'extension seule :
 
 - HTML, PDF, exécutable, binaire, octets NUL : 422 `CONTENU_NON_RECONNU` ;
@@ -120,7 +122,7 @@ Avertissements typés `{ code, message, nb? }` : `ALTITUDE_IGNOREE`, `ELEMENTS_H
 
 ### 4.3 CRS
 
-Aucune transformation silencieuse. KML : WGS 84 par la norme KML 2.2. GeoJSON : WGS 84 par la RFC 7946 ; un membre `crs` autre que CRS84 / EPSG:4326 est refusé (422 `CRS_NON_SUPPORTE`, message : les CRS projetés, avec EPSG choisi par l'utilisateur ou points de contrôle, viendront au lot suivant). Le résumé dit ce qui a été fait (`crs`).
+Aucune transformation silencieuse (lot A1 : CRS source choisi dans une liste blanche, transformé par PostGIS `ST_Transform`, résumé complet dans `resume.crs` : voir `CONTRAT-IMPORT.md` section 5). KML : WGS 84 par la norme KML 2.2. GeoJSON : WGS 84 par la RFC 7946 ; un membre `crs` autre que CRS84 / EPSG:4326 est refusé (422 `CRS_NON_SUPPORTE`, message : les CRS projetés, avec EPSG choisi par l'utilisateur ou points de contrôle, viendront au lot suivant). Le résumé dit ce qui a été fait (`crs`).
 
 ### 4.4 Carte
 
