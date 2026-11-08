@@ -17,6 +17,7 @@ import { carteEtat, mapDouble, reinitialiserCarte } from "../components/projets-
 import { analyse, couche, JEU_AXES, JEU_GAZ_CONTROLE, JEU_TEL, ligne, projetFiche } from "../components/projets-voirie/synthetique.testutil";
 import { downloadViaApi } from "../lib/download";
 import { violationsAccessibilite } from "../test/accessibilite";
+import { OPTIONS, apercu as apercuImport, inventaireKmlUneCouche } from "../components/projets-voirie/assistant/assistantImport.testutil";
 
 /**
  * Page d'un projet : carte + panneau. Les reponses de l'API sont SYNTHETIQUES. On verifie ce qui part sur le fil (parametres de la carte,
@@ -39,6 +40,7 @@ function installer(over: { fiche?: unknown; analyse?: unknown; carte?: unknown }
       return r(ids.map((id) => ({ ...couche({ jeuId: id }), nonAutorise: id === "jeu-gaz" })));
     }
     if (url === "/v2/projets-voirie/concessionnaires") return r([{ id: "c1", nom: "Operateur synthetique A", typeReseau: "TELECOM" }]);
+    if (url === `${BASE}/import/options`) return r(OPTIONS);
     return r({});
   });
 }
@@ -313,14 +315,27 @@ describe("analyse : apercu des largeurs, export", () => {
 describe("depot depuis la page", () => {
   it("« Ajouter des donnees » ouvre le dialogue ; « Voir le jeu existant » (409) ferme, ouvre Couches et met le jeu en avant", async () => {
     installer();
-    h.post.mockRejectedValue({ response: { status: 409, data: { code: "JEU_DEJA_CHARGE", jeuId: "jeu-tel" } } });
+    h.post.mockImplementation(async (url: string) => {
+      if (/\/import\/inventaire$/.test(url)) return { data: inventaireKmlUneCouche() };
+      if (/\/import\/apercu$/.test(url)) return { data: apercuImport() };
+      throw { response: { status: 409, data: { code: "JEU_DEJA_CHARGE", jeuId: "jeu-tel" } } };
+    });
     rendre();
     await userEvent.click(await screen.findByRole("button", { name: /Ajouter des données/ }));
     const d = await screen.findByRole("dialog", { name: "Ajouter des données au projet" });
+    await screen.findByTestId("formats-acceptes");
     await userEvent.upload(d.querySelector("input[type=file]")!, new File(["<kml/>"], "reseau.kml"));
     await screen.findByRole("option", { name: /Operateur synthetique A/ });
     await userEvent.selectOptions(within(d).getByLabelText("Concessionnaire propriétaire du réseau"), "c1");
-    await userEvent.click(within(d).getByRole("button", { name: "Simuler le dépôt" }));
+    await userEvent.click(within(d).getByRole("button", { name: "Analyser le fichier" }));
+    await within(d).findByRole("heading", { name: "Format et couches" });
+    await userEvent.click(within(d).getByRole("button", { name: "Continuer" }));
+    await within(d).findByRole("heading", { name: "Système de coordonnées" });
+    await userEvent.click(within(d).getByRole("button", { name: "Vérifier la transformation" }));
+    await within(d).findByTestId("bloc-crs");
+    await userEvent.click(within(d).getByRole("button", { name: "Continuer" }));
+    await userEvent.click(await within(d).findByRole("button", { name: "Continuer vers les contrôles" }));
+    await userEvent.click(await within(d).findByRole("button", { name: "Simuler l'enregistrement" }));
     await userEvent.click(await within(d).findByRole("button", { name: "Voir le jeu existant" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(screen.getByRole("tab", { name: "Couches" })).toHaveAttribute("aria-selected", "true");

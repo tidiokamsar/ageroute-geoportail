@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  autoriserJeu, rejeterJeu, chargerAnalyse, chargerCarte, creerConcessionnaire, creerProjet, deposerJeu, listerConcessionnaires, listerProjets, lireProjet, modifierProjet, retirerJeu,
-  type CorpsProjet, type DonneesDepot, type ParamsCarte,
+  autoriserJeu, rejeterJeu, chargerAnalyse, chargerCarte, creerConcessionnaire, creerProjet, listerConcessionnaires, listerProjets, lireProjet, modifierProjet, retirerJeu,
+  type CorpsProjet, type ParamsCarte,
 } from "./projetsVoirieApi";
 import type { Largeurs } from "./projetsVoirie";
 
@@ -90,23 +90,6 @@ export function useCreerConcessionnaire() {
   return useMutation({
     mutationFn: (c: Parameters<typeof creerConcessionnaire>[0]) => creerConcessionnaire(c),
     onSuccess: () => qc.invalidateQueries({ queryKey: [...CLE, "concessionnaires"] }),
-  });
-}
-
-/** Simulation : ne change rien cote serveur, donc n'invalide rien. */
-export function useSimulerDepot(id: string) {
-  return useMutation({
-    mutationFn: ({ donnees, onProgression }: { donnees: DonneesDepot; onProgression?: (e: number, t: number | null) => void }) =>
-      deposerJeu(id, donnees, { simuler: true, onProgression }),
-  });
-}
-
-export function useEcrireDepot(id: string) {
-  const invalider = useInvalidationProjet();
-  return useMutation({
-    mutationFn: ({ donnees, onProgression }: { donnees: DonneesDepot; onProgression?: (e: number, t: number | null) => void }) =>
-      deposerJeu(id, donnees, { simuler: false, onProgression }),
-    onSuccess: () => invalider(id),
   });
 }
 

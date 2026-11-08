@@ -17,6 +17,7 @@ vi.mock("../lib/download", () => ({ downloadViaApi: vi.fn().mockResolvedValue(un
 import { ProjetVoirieDetailPage } from "./ProjetVoirieDetailPage";
 import { analyse, couche, ligne, projetFiche } from "../components/projets-voirie/synthetique.testutil";
 import { BASE, reponseApi } from "../components/projets-voirie/conflitsPage.testutil";
+import { OPTIONS, apercu as apercuImport, inventaireKmlUneCouche, reponseDepot } from "../components/projets-voirie/assistant/assistantImport.testutil";
 import { downloadViaApi } from "../lib/download";
 
 /**
@@ -35,7 +36,14 @@ const RACINE = path.resolve(__dirname, "..");
 function fichiersDuModule(): string[] {
   const sortie: string[] = [];
   const dossier = path.join(RACINE, "components/projets-voirie");
-  for (const f of readdirSync(dossier)) if (/\.tsx?$/.test(f) && !/\.test\.|\.testutil\./.test(f)) sortie.push(path.join(dossier, f));
+  // Le dossier de l'assistant d'import (lot A2) fait partie du module : il est parcouru comme le reste.
+  const parcourir = (rep: string) => {
+    for (const f of readdirSync(rep, { withFileTypes: true })) {
+      if (f.isDirectory()) parcourir(path.join(rep, f.name));
+      else if (/\.tsx?$/.test(f.name) && !/\.test\.|\.testutil\./.test(f.name)) sortie.push(path.join(rep, f.name));
+    }
+  };
+  parcourir(dossier);
   for (const f of readdirSync(path.join(RACINE, "pages"))) if (/^Projet(s)?Voirie.*\.tsx$/.test(f) && !/\.test\./.test(f)) sortie.push(path.join(RACINE, "pages", f));
   for (const f of readdirSync(path.join(RACINE, "lib"))) if (/^projetsVoirie.*\.ts$/.test(f) && !/\.test\./.test(f)) sortie.push(path.join(RACINE, "lib", f));
   return sortie;
@@ -46,8 +54,10 @@ const sansCommentaires = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "").repla
 describe("preuve statique", () => {
   const fichiers = fichiersDuModule();
   it("le module compte bien des fichiers (la recherche ne porte pas sur un dossier vide)", () => {
-    // Socle (14) + dossiers de conflit (lot RC-3 : 3 lib, 8 composants).
-    expect(fichiers.length).toBeGreaterThanOrEqual(25);
+    // Socle (14) + dossiers de conflit (lot RC-3 : 3 lib, 8 composants) + assistant d'import (lot A2 : 6 lib, 10 composants).
+    expect(fichiers.length).toBeGreaterThanOrEqual(40);
+    expect(fichiers.some((f) => /assistant[\\/]AssistantImport\.tsx$/.test(f))).toBe(true);
+    expect(fichiers.some((f) => /projetsVoirieImportApi\.ts$/.test(f))).toBe(true);
   });
   it.each([
     ["stockage local", /localStorage|sessionStorage|indexedDB|IndexedDB|openDatabase|\bcaches\b|serviceWorker|navigator\.storage|persistQueryClient|createSyncStoragePersister/],
@@ -72,6 +82,22 @@ describe("preuve statique", () => {
     expect(routes.filter((r) => /deplacer|ordre|ordonner|executer|execution/i.test(r))).toEqual([]);
     // Le seul export est le CSV d'agregats.
     expect(routes.filter((r) => /export/.test(r))).toEqual(["/conflits/export.csv"]);
+  });
+  it("l'assistant d'import n'appelle que les routes du contrat A1 : ni API publique, ni exportation de geometrie, ni ordre ni deplacement", () => {
+    const api = sansCommentaires(readFileSync(path.join(RACINE, "lib/projetsVoirieImportApi.ts"), "utf8"));
+    expect(api).not.toMatch(/\/api\/public|\/public\//);
+    expect(api).not.toMatch(/export\.(geojson|kml|kmz|shp)/i);
+    const routes = [...api.matchAll(/`\$\{BASE\}([^`]*)`/g)].map((m) => m[1].replace(/\/\$\{id\(\w+\)\}/g, ""));
+    expect(routes.sort()).toEqual(["/import/apercu", "/import/inventaire", "/import/options", "/jeux/delta", "/jeux/retour-arriere", "/jeux/revue-suppressions"].sort());
+    expect(routes.filter((r) => /deplacer|ordre\b|ordonner|executer/i.test(r))).toEqual([]);
+  });
+  it("aucun composant de l'assistant ne relit le fichier : pas de FileReader, d'URL d'objet, ni de HTML injecte", () => {
+    const composants = fichiersDuModule().filter((f) => /assistant[\\/]/.test(f));
+    expect(composants.length).toBeGreaterThanOrEqual(9);
+    for (const f of composants) {
+      const src = sansCommentaires(readFileSync(f, "utf8"));
+      expect(src, path.relative(RACINE, f)).not.toMatch(/FileReader|createObjectURL|\.text\(\)|\.arrayBuffer\(|dangerouslySetInnerHTML|innerHTML|bindPopup|setHTML/);
+    }
   });
   it("aucune route, aucun appel du module ne vise l'API publique ni une exportation de geometrie", () => {
     const api = sansCommentaires(readFileSync(path.join(RACINE, "lib/projetsVoirieApi.ts"), "utf8"));
@@ -111,9 +137,16 @@ describe("preuve a l'execution : un parcours complet ne touche aucun stockage", 
         return { data: ids.map((id) => couche({ jeuId: id, features: [ligne("Fibre FO-01", 0, 0, 5, 5, { Circuit: "C-1" })] })) };
       }
       if (url === "/v2/projets-voirie/concessionnaires") return { data: [{ id: "c1", nom: "Operateur synthetique A", typeReseau: "TELECOM" }] };
+      if (url === "/v2/projets-voirie/p1/import/options") return { data: OPTIONS };
+      if (/\/jeux\/[^/]+\/delta$/.test(url)) return { data: { jeu: { id: "jeu-nouveau", version: 3, statut: "CONTROLE", role: "RESEAU_TIERS" }, comparaison: null, delta: null, cleComparaison: null, clesAmbigues: 0, echantillons: { ajoutes: [], modifies: [], retires: [] }, suppressions: { statut: "AUCUNE", nb: 0, revue: null }, retourArriere: null, evenements: [] } };
       return { data: {} };
     });
-    h.post.mockResolvedValue({ data: { simulation: true, jeu: null, resume: { nbObjets: 1, parTypeGeom: { LIGNE: 1 }, attributsDetectes: [] }, avertissements: [] } });
+    h.post.mockImplementation(async (url: string, _c: unknown, cfg?: { params?: Record<string, string> }) => {
+      if (/\/import\/inventaire$/.test(url)) return { data: inventaireKmlUneCouche() };
+      if (/\/import\/apercu$/.test(url)) return { data: apercuImport() };
+      if (/\/jeux$/.test(url)) return { data: reponseDepot({ remplace: null, delta: null, suppressions: null }, !!cfg?.params?.simuler) };
+      return { data: {} };
+    });
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -135,12 +168,26 @@ describe("preuve a l'execution : un parcours complet ne touche aucun stockage", 
     await screen.findByRole("heading", { name: /Fichiers reçus, à autoriser/ });
     await userEvent.click(screen.getByRole("button", { name: /Ajouter des données/ }));
     const d = await screen.findByRole("dialog");
+    await screen.findByTestId("formats-acceptes");
     await userEvent.upload(d.querySelector("input[type=file]")!, new File(["<kml/>"], "reseau-synthetique.kml"));
     await screen.findByRole("option", { name: /Operateur synthetique A/ });
     await userEvent.selectOptions(within(d).getByLabelText("Concessionnaire propriétaire du réseau"), "c1");
-    await userEvent.click(within(d).getByRole("button", { name: "Simuler le dépôt" }));
-    await userEvent.click(await within(d).findByRole("button", { name: "Confirmer l'écriture" }));
-    await waitFor(() => expect(h.post).toHaveBeenCalledTimes(2));
+    // Assistant complet : detection, CRS, correspondance, controles (echantillon et carte), simulation, enregistrement, approbation.
+    await userEvent.click(within(d).getByRole("button", { name: "Analyser le fichier" }));
+    await within(d).findByRole("heading", { name: "Format et couches" });
+    await userEvent.click(within(d).getByRole("button", { name: "Continuer" }));
+    await within(d).findByRole("heading", { name: "Système de coordonnées" });
+    await userEvent.click(within(d).getByRole("button", { name: "Vérifier la transformation" }));
+    await within(d).findByTestId("bloc-crs");
+    await userEvent.click(within(d).getByRole("button", { name: "Continuer" }));
+    await userEvent.click(await within(d).findByRole("button", { name: "Continuer vers les contrôles" }));
+    await within(d).findByRole("heading", { name: "Contrôles et échantillon" });
+    await within(d).findAllByTestId("objet-carte");
+    await userEvent.click(within(d).getByRole("button", { name: "Simuler l'enregistrement" }));
+    await userEvent.click(await within(d).findByRole("button", { name: "Enregistrer en quarantaine" }));
+    await userEvent.click(await within(d).findByRole("button", { name: "Continuer vers l'approbation" }));
+    await within(d).findByRole("heading", { name: "Approbation" });
+    await waitFor(() => expect(h.post).toHaveBeenCalledTimes(4));
     expect(espions.length).toBeGreaterThanOrEqual(10);
     expect(espions.flatMap((e) => e.mock.calls)).toEqual([]);
   }, 60_000);

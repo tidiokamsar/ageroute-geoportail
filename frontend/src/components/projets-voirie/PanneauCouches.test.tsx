@@ -269,3 +269,25 @@ describe("attribut KML « description » contenant du HTML : toujours du texte",
     expect(document.body.style.display).not.toBe("none");
   });
 });
+
+describe("versions et suppressions : l'assistant d'import repris sur un jeu deja depose", () => {
+  it("un bouton « Versions » existe pour un jeu autorise et un jeu en quarantaine, jamais sans le droit d'ecriture, et ouvre l'assistant sur CE jeu", async () => {
+    const onVersions = vi.fn();
+    rendre({ onVersions, afficherNonAutorises: true });
+    const tel = screen.getByRole("button", { name: "Versions et suppressions du jeu Operateur synthetique A, version 2" });
+    await userEvent.click(tel);
+    expect(onVersions).toHaveBeenCalledWith(JEU_TEL);
+    expect(screen.getByRole("button", { name: "Versions et suppressions du jeu Hydrocarbures synthetique, version 1" })).toBeInTheDocument();
+  });
+  it("sans le droit d'ecriture ou sans gestionnaire fourni : aucun bouton", () => {
+    const { unmount } = rendre({ peutEcrire: false, onVersions: vi.fn() });
+    expect(screen.queryByRole("button", { name: /Versions et suppressions/ })).toBeNull();
+    unmount();
+    rendre();
+    expect(screen.queryByRole("button", { name: /Versions et suppressions/ })).toBeNull();
+  });
+  it("un jeu remplace, rejete ou retire n'offre pas de reprise", () => {
+    rendre({ jeux: [jeu({ id: "r", statut: "REMPLACE" }), jeu({ id: "j", statut: "REJETE" })], onVersions: vi.fn() });
+    expect(screen.queryByRole("button", { name: /Versions et suppressions/ })).toBeNull();
+  });
+});
