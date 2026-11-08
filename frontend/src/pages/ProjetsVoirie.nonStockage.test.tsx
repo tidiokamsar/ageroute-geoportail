@@ -20,6 +20,8 @@ import { BASE, reponseApi } from "../components/projets-voirie/conflitsPage.test
 import { OPTIONS, apercu as apercuImport, inventaireKmlUneCouche, reponseDepot } from "../components/projets-voirie/assistant/assistantImport.testutil";
 import { downloadViaApi } from "../lib/download";
 import { BASE_RESEAU, carteAvecObjets, objetQualifie, projetFicheReseau, reponseApiReseau, resultatPropositionServeur } from "../components/projets-voirie/reseaux/reseauxSynthetiques.testutil";
+import { D2, T1, R1, W, demandeEnvoyee, ficheDemandeServeur, profilServeur, recolementServeur, ficheRecolementServeur, transRec, reponseApiWorkflow } from "../components/projets-voirie/workflow/workflowSynthetiques.testutil";
+import { ProjetVoirieWorkflowPage } from "./ProjetVoirieWorkflowPage";
 
 /**
  * AUCUN RESEAU DE CONCESSIONNAIRE N'EST CONSERVE SUR L'APPAREIL (contrat, sections 2 et 6).
@@ -111,6 +113,14 @@ describe("preuve statique", () => {
     expect(routes.sort()).toEqual(["/reseau/associations/proposer", "/reseau/comptage", "/reseau/objets", "/reseau/objets", "/reseau/objets/descripteur", "/reseau/relations", "/reseau/relations", "/reseau/relations/:action"].sort());
     expect(routes.filter((r) => /deplacer|ordre|ordonner|executer|geometrie/i.test(r))).toEqual([]);
     expect(api).not.toMatch(/api\.delete/);
+  });
+  it("le workflow n'appelle que les routes du lot B3 : aucun envoi, message, ordre, deplacement, suppression ni fichier ; aucune API publique", () => {
+    const api = sansCommentaires(readFileSync(path.join(RACINE, "lib/projetsVoirieWorkflowApi.ts"), "utf8"));
+    expect(api).not.toMatch(/\/api\/public|\/public\//);
+    const routes = [...api.matchAll(/`\$\{(?:BASE|W\(projetId\))\}([^`]*)`/g)].map((m) => m[1].replace(/\/\$\{id\(\w+\)\}/g, ""));
+    expect(routes.length).toBeGreaterThanOrEqual(20);
+    expect(routes.filter((r) => /envoyer|message|mail|notifier|ordre|ordonner|deplacer|executer|supprimer|fichier|upload|telecharg/i.test(r))).toEqual([]);
+    expect(api).not.toMatch(/api\.delete|FormData|multipart/);
   });
   it("aucune route, aucun appel du module ne vise l'API publique ni une exportation de geometrie", () => {
     const api = sansCommentaires(readFileSync(path.join(RACINE, "lib/projetsVoirieApi.ts"), "utf8"));
@@ -296,6 +306,54 @@ describe("preuve a l'execution : un parcours complet ne touche aucun stockage", 
     await screen.findByTestId("resultat-proposition");
     await userEvent.click(screen.getByRole("button", { name: "Comptage" }));
     await screen.findByTestId("resultat-comptage");
+    expect(espions.length).toBeGreaterThanOrEqual(10);
+    expect(espions.flatMap((e) => e.mock.calls)).toEqual([]);
+  }, 120_000);
+
+  it("ecran des echanges : profil, demande (envoi enregistre), tache, recolement (soumission), preuve, referents : zero appel de stockage", async () => {
+    const soumettre = recolementServeur({ transitionsPossibles: [transRec("SOUMIS")] });
+    h.get.mockImplementation(async (url: string, opts?: { params?: Record<string, unknown> }) => reponseApiWorkflow(url, opts?.params, {
+      profil: profilServeur("ADMIN"), demandes: { demandes: [demandeEnvoyee()], compteurs: { ENVOYEE: 1 }, curseurSuivant: null },
+      fichesDemandes: { [D2]: ficheDemandeServeur(demandeEnvoyee(), ["RECUE", "CLOTUREE", "ANNULEE"], [], []) },
+      recolements: { recolements: [soumettre], compteurs: { BROUILLON: 1 }, curseurSuivant: null }, fichesRecolements: { [R1]: ficheRecolementServeur(soumettre, [], []) },
+    }));
+    h.post.mockReset(); h.post.mockResolvedValue({ data: {} });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(
+      <MemoryRouter initialEntries={["/projets-voirie/p1/echanges"]}>
+        <QueryClientProvider client={qc}>
+          <Routes><Route path="/projets-voirie/:id/echanges" element={<ProjetVoirieWorkflowPage />} /></Routes>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: /Releve des chambres/ }, { timeout: 25000 }));
+    const f = await screen.findByTestId("fiche-demande");
+    await userEvent.click(within(f).getByRole("button", { name: "Annuler la demande" }));
+    let d = await screen.findByRole("dialog");
+    await userEvent.type(within(d).getByLabelText(/Motif/), "Doublon de la demande n° 2");
+    await userEvent.click(within(d).getByRole("button", { name: "Annuler la demande" }));
+    await waitFor(() => expect(h.post).toHaveBeenCalledWith(`${W}/demandes/${D2}/statut`, { vers: "ANNULEE", justification: "Doublon de la demande n° 2" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await userEvent.click(screen.getByRole("tab", { name: "Tâches" }));
+    await screen.findByRole("list", { name: "Liste : taches" });
+    expect(document.querySelector(`button[data-tache-id="${T1}"]`)).toBeTruthy();
+    await userEvent.click(screen.getByRole("tab", { name: "Récolements" }));
+    await userEvent.click(await waitFor(() => { const b = document.querySelector<HTMLButtonElement>(`button[data-recolement-id="${R1}"]`); if (!b) throw new Error("liste absente"); return b; }, { timeout: 25000 }));
+    const r = await screen.findByTestId("fiche-recolement");
+    await userEvent.click(within(r).getByRole("button", { name: "Soumettre pour validation" }));
+    d = await screen.findByRole("dialog");
+    await userEvent.type(within(d).getByLabelText(/Justification/), "Pret pour validation");
+    await userEvent.click(within(d).getByRole("button", { name: "Enregistrer" }));
+    await waitFor(() => expect(h.post).toHaveBeenCalledWith(`${W}/recolements/${R1}/statut`, { vers: "SOUMIS", justification: "Pret pour validation" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await userEvent.click(within(r).getByRole("button", { name: "Ajouter une preuve" }));
+    d = await screen.findByRole("dialog");
+    await userEvent.type(within(d).getByLabelText(/Texte de la preuve/), "Plan de recolement signe");
+    await userEvent.click(within(d).getByRole("button", { name: "Ajouter la preuve" }));
+    await waitFor(() => expect(h.post).toHaveBeenCalledWith(`${W}/recolements/${R1}/preuves`, expect.objectContaining({ texte: "Plan de recolement signe" })));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await userEvent.click(screen.getByRole("tab", { name: "Référents" }));
+    await screen.findByRole("list", { name: "Liste : référents" });
     expect(espions.length).toBeGreaterThanOrEqual(10);
     expect(espions.flatMap((e) => e.mock.calls)).toEqual([]);
   }, 120_000);

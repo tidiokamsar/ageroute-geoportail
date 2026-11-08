@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { Geometry } from "geojson";
-import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Crosshair, FilePlus2 } from "lucide-react";
+import { Link, Navigate, useParams } from "react-router-dom";
+import { ArrowLeft, Crosshair, FilePlus2, Handshake } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { BandeauHorsLigne, EtatChargement, EtatErreur, EtatVide } from "../components/projets-voirie/EtatsPv";
 import { PanneauAnalyse } from "../components/projets-voirie/PanneauAnalyse";
@@ -41,6 +41,8 @@ const AssistantImport = lazy(() => import("../components/projets-voirie/assistan
 
 type IdOnglet = "analyse" | "couches" | "conflits" | "reseaux";
 const ONGLETS: { id: IdOnglet; libelle: string }[] = [{ id: "analyse", libelle: "Analyse" }, { id: "couches", libelle: "Couches" }, { id: "conflits", libelle: "Conflits" }, { id: "reseaux", libelle: "Réseaux" }];
+/** Un compte rattache a un concessionnaire n'ouvre que l'ecran des echanges : le serveur repond 403 COMPTE_REFERENT_RESTREINT hors de `/workflow`. */
+export const CODE_COMPTE_REFERENT = "COMPTE_REFERENT_RESTREINT";
 const PLAFOND_OBJETS_LISTE = 5000;
 const PLAFOND_JEUX_CARTE = 50;
 const CONFLITS_PAR_DEFAUT: Record<CleConflit, boolean> = { chaussee: true, emprise: true, hors: false, croisements: true };
@@ -165,6 +167,7 @@ export function ProjetVoirieDetailPage() {
   useEffect(() => { if (onglet === "conflits") setConflitsMonte(true); if (onglet === "reseaux") setReseauxMonte(true); }, [onglet]);
 
   if (projet.isPending) return <EtatChargement libelle="Chargement du projet…" />;
+  if (projet.isError && classerErreur(projet.error).code === CODE_COMPTE_REFERENT) return <Navigate to="/projets-voirie/echanges" replace />;
   if (projet.isError || !fiche) {
     return (
       <div className="space-y-3">
@@ -196,6 +199,9 @@ export function ProjetVoirieDetailPage() {
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" className="min-h-[44px] xl:min-h-9" onClick={() => setCadrageCle((c) => c + 1)} disabled={!fiche.bbox}>
             <Crosshair aria-hidden="true" /> Centrer sur le projet
+          </Button>
+          <Button asChild type="button" variant="outline" className="min-h-[44px] xl:min-h-9">
+            <Link to={`/projets-voirie/${encodeURIComponent(fiche.id)}/echanges`}><Handshake aria-hidden="true" /> Échanges avec les concessionnaires</Link>
           </Button>
           {peutEcrire && (
             <Button type="button" className="min-h-[44px] xl:min-h-9" disabled={!enLigne} onClick={() => setAssistant({ jeuReprise: null })}>
