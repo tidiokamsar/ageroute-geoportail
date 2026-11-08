@@ -380,6 +380,10 @@ model User {
   conflitsPreuvesAuteur           ConflitPreuve[]            @relation("ConflitPreuveAuteur")
   decisionsConflitProposees       DecisionConflit[]          @relation("DecisionConflitProposeur")
   decisionsConflitTranchees       DecisionConflit[]          @relation("DecisionConflitDecideur")
+  reseauDescripteursDeclares      ReseauObjetDescripteur[]   @relation("ReseauDescripteurDeclarant")
+  reseauDescripteursModifies      ReseauObjetDescripteur[]   @relation("ReseauDescripteurModificateur")
+  reseauRelationsCreees           ReseauRelation[]           @relation("ReseauRelationCreateur")
+  reseauRelationsDecidees         ReseauRelation[]           @relation("ReseauRelationDecideur")
   propositionsTeledetectionTransitions PropositionTeledetectionTransition[] @relation("PtTransitionAuteur")
   propositionsTeledetectionPreuves PropositionTeledetectionPreuve[] @relation("PtPreuveAjoutee")
   programmesBudgetairesCrees      ProgrammeBudgetaire[]      @relation("ProgrammationAuteur")
@@ -4313,6 +4317,7 @@ model ProjetVoirie {
   reglesConflit   RegleConflit[]
   analysesConflit AnalyseConflitProjet[]
   conflits        ConflitProjet[]
+  reseauRelations ReseauRelation[]
 
   @@index([regionId])
   @@index([deletedAt])
@@ -4382,6 +4387,7 @@ model JeuDonneesProjet {
   objets       ObjetProjet[]
   conflits     ConflitProjet[] @relation("ConflitJeuReseau")
   conflitsAxes ConflitProjet[] @relation("ConflitJeuAxes")
+  descripteurs ReseauObjetDescripteur[]
 
   @@index([projetId, statut])
   @@index([concessionnaireId])
@@ -4395,6 +4401,9 @@ model ObjetProjet {
   jeuId     String
   jeu       JeuDonneesProjet @relation(fields: [jeuId], references: [id], onDelete: Restrict)
   conflits  ConflitProjet[]
+  descripteur     ReseauObjetDescripteur?
+  relationsSource ReseauRelation[] @relation("ReseauRelationSource")
+  relationsCible  ReseauRelation[] @relation("ReseauRelationCible")
   nom       String?
   typeGeom  TypeGeomObjet
   geom      Unsupported("geometry(Geometry, 4326)")
@@ -4665,4 +4674,104 @@ model DecisionConflit {
 
   @@index([conflitId, statut])
   @@map("conflits_projet_decisions")
+}
+
+// ===================== RESEAUX PHYSIQUES ET CIRCUITS LOGIQUES DES PROJETS DE VOIRIE (lot B1) =====================
+// Contrat : docs/projets-voirie/CONTRAT-RESEAUX.md. Migration 20261101200000_reseaux_physiques_logiques (additive, avec descente).
+// Le nombre de lignes d un fichier n est pas un nombre de cables : un descripteur PRECISE un objet (nature, qualite DECLAREE, profondeur et altitude
+// SEULEMENT si fournies) ; une relation dit qu un circuit est PORTE PAR une infrastructure. Une proposition automatique n a d effet qu une fois
+// validee par une personne. Hors schema.prisma (voir docs/securite/DERIVE-SCHEMA.md) : les contraintes CHECK, les declencheurs de coherence et
+// d interdiction de suppression, les fonctions SQL. Ces deux tables s ecrivent et se lisent en SQL brut parametre.
+
+enum TypeRelationReseau {
+  PORTE_PAR
+  CONTENU_DANS
+}
+
+enum StatutRelationReseau {
+  PROPOSEE
+  VALIDEE
+  REFUSEE
+  REVOQUEE
+}
+
+enum OrigineRelationReseau {
+  AUTOMATIQUE
+  MANUELLE
+}
+
+enum NiveauConfianceObjet {
+  ELEVE
+  MOYEN
+  FAIBLE
+}
+
+enum StatutQualiteObjet {
+  OBSERVE
+  IMPORTE_NON_VERIFIE
+  DERIVE
+  CONTREDIT
+  INCONNU
+}
+
+/// Descripteur d un objet de reseau (au plus un par objet). Ce qu il ne dit pas est herite du jeu, jamais invente. Pas de suppression : on corrige.
+model ReseauObjetDescripteur {
+  objetId               BigInt                @id
+  objet                 ObjetProjet           @relation(fields: [objetId], references: [id], onDelete: Restrict)
+  /// Renseigne par le declencheur a partir de l objet.
+  jeuId                 String
+  jeu                   JeuDonneesProjet      @relation(fields: [jeuId], references: [id], onDelete: Restrict)
+  /// Nulle : herite de la nature du jeu. Seules ACTIF_PHYSIQUE, CIRCUIT_LOGIQUE et EQUIPEMENT se declarent (contrainte).
+  nature                NatureObjetReseau?
+  typeObjet             String?
+  classePrecision       ClassePrecision?
+  precisionHorizontaleM Decimal?              @db.Decimal(8, 2)
+  precisionVerticaleM   Decimal?              @db.Decimal(8, 2)
+  methodeCollecte       String?
+  dateConstat           DateTime?             @db.Date
+  niveauConfiance       NiveauConfianceObjet?
+  statutQualite         StatutQualiteObjet    @default(INCONNU)
+  profondeurM           Decimal?              @db.Decimal(8, 2)
+  altitudeM             Decimal?              @db.Decimal(9, 2)
+  referenceVerticale    String?
+  justification         String
+  declareParId          String
+  declarePar            User                  @relation("ReseauDescripteurDeclarant", fields: [declareParId], references: [id], onDelete: Restrict)
+  declareLe             DateTime              @default(now())
+  modifieParId          String?
+  modifiePar            User?                 @relation("ReseauDescripteurModificateur", fields: [modifieParId], references: [id], onDelete: Restrict)
+  updatedAt             DateTime              @default(now()) @updatedAt
+
+  @@index([jeuId])
+  @@index([nature])
+  @@map("reseau_objets_descripteurs")
+}
+
+/// Relation entre deux objets du meme projet. Une proposition AUTOMATIQUE est PROPOSEE ; seule une personne la valide. Une refusee n est jamais reproposee.
+model ReseauRelation {
+  id                    String                @id @default(uuid())
+  projetId              String
+  projet                ProjetVoirie          @relation(fields: [projetId], references: [id], onDelete: Restrict)
+  typeRelation          TypeRelationReseau
+  sourceObjetId         BigInt
+  source                ObjetProjet           @relation("ReseauRelationSource", fields: [sourceObjetId], references: [id], onDelete: Restrict)
+  cibleObjetId          BigInt
+  cible                 ObjetProjet           @relation("ReseauRelationCible", fields: [cibleObjetId], references: [id], onDelete: Restrict)
+  statut                StatutRelationReseau  @default(PROPOSEE)
+  origine               OrigineRelationReseau
+  proposition           Json                  @default("{}")
+  decideParId           String?
+  decidePar             User?                 @relation("ReseauRelationDecideur", fields: [decideParId], references: [id], onDelete: Restrict)
+  decideLe              DateTime?
+  justificationDecision String?
+  creeParId             String
+  creePar               User                  @relation("ReseauRelationCreateur", fields: [creeParId], references: [id], onDelete: Restrict)
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @default(now()) @updatedAt
+
+  @@unique([typeRelation, sourceObjetId, cibleObjetId], map: "reseau_relations_couple_key")
+  @@index([projetId, statut])
+  @@index([sourceObjetId])
+  @@index([cibleObjetId])
+  @@map("reseau_relations")
 }
