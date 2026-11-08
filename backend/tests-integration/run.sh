@@ -61,6 +61,8 @@ lancer "projets-voirie.integration.mts"
 lancer "conflits-projets-voirie.integration.mts"
 # Formats d'import ouverts, CRS, mapping, versions (lot A1) : clone `essai_import_formats` ; exige la migration 20261101100000 dans `replay`.
 lancer "import-formats.integration.mts"
+# Workflow concessionnaire, referents et recolement (lot B3) : clone `essai_workflow_pv` ; applique lui-meme la migration 20261101300000 au clone si `replay` ne la porte pas.
+lancer "workflow-roles.integration.mts"
 
 printf '\n%s\n' "Resultat des bancs d'integration"
 printf '%s\n' "${lignes[@]}"

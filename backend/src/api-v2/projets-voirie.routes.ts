@@ -14,6 +14,8 @@ import { carte } from "../projets-voirie/carte.service";
 import { reserverReception } from "../projets-voirie/limiteurs";
 import { monterRoutesConflits } from "./projets-voirie.conflits.routes";
 import { champsImport, monterRoutesImport, optionsDepuis } from "./projets-voirie.import.routes";
+import { monterRoutesWorkflow } from "./projets-voirie.workflow.routes";
+import { gardeReferent } from "../projets-voirie/workflow/garde";
 import { deposerJeu } from "../projets-voirie/import.service";
 import {
   creerConcessionnaire, creerProjet, decider, decoderCurseur, ficheProjet, listerConcessionnaires, listerJeux, listerProjets,
@@ -38,6 +40,8 @@ import {
 export const projetsVoirieV2Router = Router();
 
 projetsVoirieV2Router.use(requireAuth, requireModuleAccess("projets-voirie"));
+// Lot B3 : un compte rattache a un concessionnaire (referent) n'ouvre que les routes /workflow/... ; toute autre route du module lui repond 403 avant lecture.
+projetsVoirieV2Router.use(gardeReferent);
 
 // ENTREES : identifiants et caracteres (revue de securite, m3). Un identifiant de l'URL qui n'est pas un UUID, ou un texte qui contient
 // un octet NUL (refuse par PostgreSQL : 500 sinon), est un 400 explicite avant tout acces a la base.
@@ -372,3 +376,7 @@ monterRoutesConflits(projetsVoirieV2Router, { ecriture, administrateur, gardePro
 // ------------------------------------------------------------------------------------------------
 
 monterRoutesImport(projetsVoirieV2Router, { ecriture, gardeProjet, acteurDe, enveloppe, refuser, placeDeReception, recevoir });
+// Workflow concessionnaire, referents, taches, preuves et recolement (lot B3). Memes gardes, meme ordre (voir projets-voirie.workflow.routes.ts).
+// ------------------------------------------------------------------------------------------------
+
+monterRoutesWorkflow(projetsVoirieV2Router, { gardeProjet, acteurDe, enveloppe, refuser, UUID });

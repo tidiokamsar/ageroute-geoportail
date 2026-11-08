@@ -23,6 +23,8 @@ const compte = {
   role: "GESTIONNAIRE" as string,
   email: "agent@ageroute.gov.gn",
   modulesAutorises: [] as string[],
+  /** Nombre de rattachements actifs du compte a un concessionnaire (lot B3 : referent). */
+  rattachements: 0,
 };
 
 vi.mock("../../lib/prisma", () => ({
@@ -33,6 +35,7 @@ vi.mock("../../lib/prisma", () => ({
         actif: true, lockedUntil: null, role: compte.role, email: compte.email, modulesAutorises: compte.modulesAutorises,
       })),
     },
+    referentConcessionnaire: { count: vi.fn(async () => compte.rattachements) },
     auditLog: {
       findMany: vi.fn(async () => [
         {
@@ -69,6 +72,7 @@ function lire(entityType: string) {
 beforeEach(() => {
   compte.role = "GESTIONNAIRE";
   compte.modulesAutorises = [];
+  compte.rattachements = 0;
 });
 
 describe("GET /api/audit — cloisonnement du journal", () => {
@@ -147,5 +151,42 @@ describe("GET /api/audit — cloisonnement du journal", () => {
   it("le paramètre entityId reste obligatoire", async () => {
     const res = await request(app()).get("/api/audit?entityType=Troncon").set("Authorization", `Bearer ${jeton()}`);
     expect(res.status).not.toBe(200);
+  });
+});
+
+describe("GET /api/audit — referent concessionnaire (lot B3)", () => {
+  const TYPES = ["DemandeConcessionnaire", "TacheProjetVoirie", "RecolementProjetVoirie", "ReferentConcessionnaire", "ConsultationJeuProjet", "ConflitProjet", "JeuDonneesProjet"];
+
+  it("un compte rattache a un concessionnaire ne lit l'historique d'aucune entite du module Projets de voirie, meme avec la cle de module (403 COMPTE_REFERENT_RESTREINT)", async () => {
+    compte.role = "LECTEUR";
+    compte.modulesAutorises = ["projets-voirie"];
+    compte.rattachements = 1;
+    for (const t of TYPES) {
+      const res = await lire(t);
+      expect(res.status, t).toBe(403);
+      expect(res.body.code, t).toBe("COMPTE_REFERENT_RESTREINT");
+      expect(JSON.stringify(res.body), t).not.toContain("Agent");
+    }
+  });
+
+  it("le meme compte sans rattachement (auditeur, observateur) lit le journal des entites du module : c'est la voie de lecture de l'auditeur", async () => {
+    compte.role = "LECTEUR";
+    compte.modulesAutorises = ["projets-voirie"];
+    for (const t of TYPES) expect((await lire(t)).status, t).toBe(200);
+  });
+
+  it("la restriction ne touche que les entites du module : un referent garde la lecture des journaux des autres modules qu'il a (aucun, ici : 403 par le module)", async () => {
+    compte.role = "LECTEUR";
+    compte.modulesAutorises = ["projets-voirie"];
+    compte.rattachements = 1;
+    expect((await lire("Marche")).status).toBe(403);
+    compte.modulesAutorises = ["projets-voirie", "marches"];
+    expect((await lire("Marche")).status).toBe(200);
+  });
+
+  it("l'ADMIN n'est jamais referent : il lit toujours (aucune lecture de rattachement)", async () => {
+    compte.role = "ADMIN";
+    compte.rattachements = 5;
+    expect((await lire("DemandeConcessionnaire")).status).toBe(200);
   });
 });

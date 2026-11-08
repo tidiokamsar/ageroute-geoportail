@@ -41,3 +41,6 @@ export const sommetsParFichierMax = () => borne("PROJETS_VOIRIE_SOMMETS_PAR_FICH
 
 /** Fenetre pendant laquelle une meme consultation d'un jeu sensible par un meme compte n'est tracee qu'une fois. */
 export const FENETRE_CONSULTATION_MIN = 15;
+
+/** Lecteur d'entier borne de l'environnement, partage avec le workflow (lot B3, `workflow/config.ts`) : une valeur absente ou hors bornes redonne le defaut. */
+export { borne as borneEnv };

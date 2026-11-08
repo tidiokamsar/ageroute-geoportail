@@ -6,6 +6,7 @@
  * auteur et sa justification, dans un historique en ajout seul.
  */
 
+import { verifierSeparation } from "../separation.noyau";
 import {
   JUSTIFICATION_MIN, STATUTS_CONFLIT, type OptionDecision, type RoleDecideur, type StatutConflit, estDecideur,
 } from "./types.noyau";
@@ -81,12 +82,16 @@ export interface EntreeTransition {
   dernierPassageConfirmeLe?: Date | null;
   /** Cloture : l'utilisateur a explicitement indique que le recolement du reseau deplace reste a valider. */
   recolementAValider?: boolean;
+  /** Cloture (lot B3) : un recolement VALIDE de ce dossier est designe (ou retenu) : la mention « a valider » n'est plus exigee. */
+  recolementValide?: boolean;
+  /** Cloture (lot B3, reglage PROJETS_VOIRIE_RECOLEMENT_OBLIGATOIRE) : un deplacement decide exige un recolement valide ; la mention seule ne suffit plus. */
+  recolementObligatoire?: boolean;
   /** Cloture : qui a place le dossier en TRAITEMENT_DECIDE (la « proposition » de cloture). */
   proposeurClotureId?: string | null;
   derogation?: string;
 }
 
-export type VerdictTransition = { ok: true; transition: DefinitionTransition; justification: string; derogation: string | null; recolementMentionne: boolean } | Refus;
+export type VerdictTransition = { ok: true; transition: DefinitionTransition; justification: string; derogation: string | null; recolementMentionne: boolean; recolementValideUtilise: boolean } | Refus;
 
 const texte = (s: string | undefined) => (s ?? "").trim();
 
@@ -96,7 +101,8 @@ const texte = (s: string | undefined) => (s ?? "").trim();
  *   2. le role est habilite (403 ROLE_INSUFFISANT) ; un compte non identifie n'agit jamais (403) ;
  *   3. justification d'au moins 10 caracteres (422 JUSTIFICATION_REQUISE) ;
  *   4. preuve requise pour CONFIRME (409 PREUVE_REQUISE) ; decision approuvee requise pour TRAITEMENT_DECIDE (409 DECISION_REQUISE) ;
- *   5. cloture : mention du recolement si DEPLACER_RESEAU (422 MENTION_RECOLEMENT_REQUISE), puis separation des taches (409).
+ *   5. cloture : si DEPLACER_RESEAU est decide : un recolement valide designe (lot B3) dispense de la mention ; sinon, avec le reglage « recolement obligatoire »,
+ *      409 RECOLEMENT_NON_VALIDE ; sinon mention du recolement (422 MENTION_RECOLEMENT_REQUISE) ; puis separation des taches (409).
  */
 export function evaluerTransition(e: EntreeTransition): VerdictTransition {
   const tr = transitionDe(e.de, e.vers);
@@ -119,18 +125,24 @@ export function evaluerTransition(e: EntreeTransition): VerdictTransition {
   }
   let derogation: string | null = null;
   let recolementMentionne = false;
+  let recolementValideUtilise = false;
   if (tr.cloture) {
     if (enVigueur.some((d) => d.option === "DEPLACER_RESEAU")) {
-      if (e.recolementAValider !== true) {
+      if (e.recolementValide === true) {
+        recolementValideUtilise = true;
+      } else if (e.recolementObligatoire === true) {
+        return refus(409, "RECOLEMENT_NON_VALIDE", "Le déplacement d'un réseau est décidé : la clôture exige un récolement validé de ce dossier (désignez-le par recolementId).");
+      } else if (e.recolementAValider !== true) {
         return refus(422, "MENTION_RECOLEMENT_REQUISE", "Le déplacement d'un réseau est décidé : indiquez explicitement que le récolement reste à valider (il n'est pas géré dans ce lot).");
+      } else {
+        recolementMentionne = true;
       }
-      recolementMentionne = true;
     }
     const sep = verifierSeparationCloture({ acteurId: e.acteurId, role: e.role, proposeurClotureId: e.proposeurClotureId ?? null, derogation: e.derogation });
     if (!sep.ok) return sep;
     derogation = sep.derogation;
   }
-  return { ok: true, transition: tr, justification, derogation, recolementMentionne };
+  return { ok: true, transition: tr, justification, derogation, recolementMentionne, recolementValideUtilise };
 }
 
 // ------------------------------------------------------------------------------------------------
@@ -138,8 +150,6 @@ export function evaluerTransition(e: EntreeTransition): VerdictTransition {
 // ------------------------------------------------------------------------------------------------
 
 export type VerdictSeparation = { ok: true; derogation: string | null } | Refus;
-
-const separation = (msg: string) => refus(409, "SEPARATION_DES_TACHES", msg);
 
 /**
  * Approbation (ou refus) d'une decision par `acteur`.
@@ -151,28 +161,24 @@ const separation = (msg: string) => refus(409, "SEPARATION_DES_TACHES", msg);
 export function verifierSeparationDecision(e: {
   option: OptionDecision; proposeurId: string; acteurId: string; role: string; nbHabilites: number; derogation: string | undefined;
 }): VerdictSeparation {
-  if (e.acteurId !== e.proposeurId) return { ok: true, derogation: null };
-  const d = texte(e.derogation);
-  const adminExige = e.option === "DEPLACER_RESEAU" || e.nbHabilites >= 2;
-  if (d.length < JUSTIFICATION_MIN) {
-    return separation(`La personne qui a proposé une décision ne peut pas la trancher elle-même sans dérogation motivée (${JUSTIFICATION_MIN} caractères au moins).`);
-  }
-  if (adminExige && e.role !== "ADMIN") {
-    return separation(e.option === "DEPLACER_RESEAU"
+  // Regle commune extraite en B3 (separation.noyau.ts) : memes controles, dans le meme ordre, memes messages.
+  return verifierSeparation({
+    acteurId: e.acteurId, role: e.role, auteursIds: [e.proposeurId], derogation: e.derogation,
+    adminExige: e.option === "DEPLACER_RESEAU" || e.nbHabilites >= 2,
+    messageSansDerogation: `La personne qui a proposé une décision ne peut pas la trancher elle-même sans dérogation motivée (${JUSTIFICATION_MIN} caractères au moins).`,
+    messageAdminExige: e.option === "DEPLACER_RESEAU"
       ? "Le déplacement d'un réseau ne peut être approuvé par son proposant que par une dérogation d'un administrateur."
-      : "Plusieurs comptes habilités existent : seul un administrateur peut déroger à la séparation des tâches.");
-  }
-  return { ok: true, derogation: d };
+      : "Plusieurs comptes habilités existent : seul un administrateur peut déroger à la séparation des tâches.",
+  });
 }
 
 /** Cloture : la personne qui a place le dossier en TRAITEMENT_DECIDE ne le cloture pas sans derogation motivee d'un ADMIN. */
 export function verifierSeparationCloture(e: { acteurId: string; role: string; proposeurClotureId: string | null; derogation: string | undefined }): VerdictSeparation {
-  if (e.proposeurClotureId === null || e.acteurId !== e.proposeurClotureId) return { ok: true, derogation: null };
-  const d = texte(e.derogation);
-  if (d.length < JUSTIFICATION_MIN || e.role !== "ADMIN") {
-    return separation(`La clôture ne peut pas être approuvée par la personne qui a placé le dossier en traitement décidé, sauf dérogation motivée d'un administrateur (${JUSTIFICATION_MIN} caractères au moins).`);
-  }
-  return { ok: true, derogation: d };
+  const message = `La clôture ne peut pas être approuvée par la personne qui a placé le dossier en traitement décidé, sauf dérogation motivée d'un administrateur (${JUSTIFICATION_MIN} caractères au moins).`;
+  return verifierSeparation({
+    acteurId: e.acteurId, role: e.role, auteursIds: [e.proposeurClotureId], derogation: e.derogation, adminExige: true,
+    messageSansDerogation: message, messageAdminExige: message,
+  });
 }
 
 // ------------------------------------------------------------------------------------------------

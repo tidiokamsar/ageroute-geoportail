@@ -17,6 +17,7 @@ const MODULE = join(SRC, "projets-voirie");
 const ROUTES = join(SRC, "api-v2", "projets-voirie.routes.ts");
 const ROUTES_CONFLITS = join(SRC, "api-v2", "projets-voirie.conflits.routes.ts");
 const ROUTES_IMPORT = join(SRC, "api-v2", "projets-voirie.import.routes.ts");
+const ROUTES_WORKFLOW = join(SRC, "api-v2", "projets-voirie.workflow.routes.ts");
 
 function sources(dossier: string): string[] {
   const sortie: string[] = [];
@@ -35,14 +36,18 @@ const TABLES_DU_MODULE = [
   "regles_conflit_projet", "analyses_conflit_projet", "conflits_projet", "conflits_projet_historique", "conflits_projet_preuves", "conflits_projet_decisions",
   // Formats d'import ouverts et versions (lot A1) : evenements de revue et de retour arriere, fichier d'origine facultatif.
   "projets_voirie_import_evenements", "projets_voirie_fichiers_origine",
+  // Workflow concessionnaire (lot B3).
+  "referents_concessionnaire", "demandes_concessionnaire", "taches_projet_voirie", "recolements_projet_voirie", "preuves_workflow_projet", "workflow_projet_historique",
 ];
 const DELEGUES_DU_MODULE = [
   "projetVoirie", "jeuDonneesProjet", "objetProjet", "concessionnaireReseau", "auditLog",
   "regleConflit", "analyseConflitProjet", "conflitProjet", "conflitHistorique", "conflitPreuve", "decisionConflit",
   "evenementImportProjet", "fichierOrigineJeuProjet",
+  // Workflow concessionnaire (lot B3).
+  "referentConcessionnaire", "demandeConcessionnaire", "tacheProjetVoirie", "recolementProjetVoirie", "preuveWorkflowProjet", "historiqueWorkflowProjet",
 ];
 
-const fichiersDuModule = [...sources(MODULE), ROUTES, ROUTES_CONFLITS, ROUTES_IMPORT];
+const fichiersDuModule = [...sources(MODULE), ROUTES, ROUTES_CONFLITS, ROUTES_IMPORT, ROUTES_WORKFLOW];
 
 describe("le module n'ecrit que dans ses propres tables", () => {
   it("le module contient du code a verifier (garde contre une lecture qui ne trouve rien)", () => {
@@ -102,6 +107,7 @@ describe("rien d'autre dans le code ne lit les donnees du module (jamais d'API p
     join("api-v2", "projets-voirie.routes.ts"),
     join("api-v2", "projets-voirie.conflits.routes.ts"),
     join("api-v2", "projets-voirie.import.routes.ts"),
+    join("api-v2", "projets-voirie.workflow.routes.ts"),
     // Cle de module.
     join("lib", "modules.ts"),
   ]);

@@ -50,6 +50,16 @@ export function moduleAutorise(modules: Set<ModuleKey> | null, cle: ModuleKey): 
 }
 
 /**
+ * Le compte est-il REFERENT d'un concessionnaire (au moins un rattachement actif, module Projets de voirie, lot B3) ? Un tel compte n'ouvre que les
+ * routes `/workflow/...` du module ; il ne lit pas non plus l'historique d'audit des entites du module (`GET /api/audit`), qui porte les noms des
+ * agents d'AGEROUTE et des motifs internes. Un ADMIN n'est jamais referent (aucune lecture).
+ */
+export async function compteRattache(user: CompteAuthentifie): Promise<boolean> {
+  if (user.role === "ADMIN") return false;
+  return (await prisma.referentConcessionnaire.count({ where: { userId: user.id, revoqueLe: null } })) > 0;
+}
+
+/**
  * Module dont releve chaque type d'entite journalise, pour aligner la lecture du
  * journal d'audit sur les droits deja accordes sur l'entite elle-meme.
  *
@@ -100,6 +110,12 @@ export const MODULE_PAR_ENTITE: Record<string, ModuleKey | null> = {
   RegleConflit: "projets-voirie",
   ConflitProjet: "projets-voirie",
   ExportConflitsProjetVoirie: "projets-voirie",
+  // Workflow concessionnaire (lot B3) : rattachements des referents, demandes (envoi enregistre hors application), taches, recolements. Les preuves sont
+  // auditees sous l'objet qui les porte. Aucune geometrie dans l'audit. C'est la voie de lecture de l'auditeur (GET /api/audit).
+  ReferentConcessionnaire: "projets-voirie",
+  DemandeConcessionnaire: "projets-voirie",
+  TacheProjetVoirie: "projets-voirie",
+  RecolementProjetVoirie: "projets-voirie",
   User: null,
   AppSetting: null,
 };
