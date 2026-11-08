@@ -27,7 +27,7 @@ Contrôle territorial : repose sur `perimetres_comptes` comme les autres routes 
 | `POST /concessionnaires` | écriture | 201 `{ concessionnaire }` |
 | `POST /:id/jeux` | écriture | 201 (dépôt) ou 200 (`?simuler=true`) `{ simulation, jeu, resume, avertissements, delta, remplace }` |
 | `GET /:id/jeux` | lecture | `{ jeux: [ jeu ] }`, du plus récent au plus ancien : tous statuts sauf `RETIRE` pour `ADMIN` et `GESTIONNAIRE`, **seulement `AUTORISE` pour un lecteur** |
-| `DELETE /:id/jeux/:jeuId` | écriture | `{ jeu }` (statut `RETIRE`, les objets restent en base) |
+| `DELETE /:id/jeux/:jeuId` | écriture | `{ jeu }` (statut `RETIRE`, les objets restent en base) ; 409 `DEPOT_EN_ATTENTE` si le jeu est `AUTORISE` et qu'une nouvelle version de même clé l'attend (CONTRAT-IMPORT.md 14.1) |
 | `POST /:id/jeux/:jeuId/autoriser` | écriture | `{ jeu, remplaces: [ids] }` |
 | `POST /:id/jeux/:jeuId/rejeter` | écriture | `{ jeu, remplaces: [] }` |
 | `GET /:id/carte` | lecture | couches d'affichage (section Carte) |

@@ -15,7 +15,7 @@ import { verrouillerProjet, type Acteur, type Tx } from "../projets.service";
 import { INCLURE_JEU, vueJeu } from "../vues";
 import { limiteurApercus } from "./apercu.service";
 import { delaiApercuMs } from "./import.config";
-import { colonneIdentifiant, deltaEntreJeux, statutSuppressions } from "./versions.depot";
+import { colonneIdentifiant, deltaEntreJeux, jeuDeReferenceSuppressions, statutSuppressions } from "./versions.depot";
 
 type JeuLigne = NonNullable<Awaited<ReturnType<Tx["jeuDonneesProjet"]["findFirst"]>>>;
 
@@ -23,15 +23,6 @@ async function jeuDuProjet(tx: Tx, projetId: string, jeuId: string): Promise<Jeu
   const j = await tx.jeuDonneesProjet.findFirst({ where: { id: jeuId, projetId } });
   if (!j) throw introuvable("Jeu de données", "JEU_INTROUVABLE");
   return j;
-}
-
-/** Le jeu AUTORISE de meme cle (projet, role, concessionnaire) que `jeu`, hors lui-meme : celui qu'un jeu en controle remplacera. */
-async function autoriseDeMemeCle(tx: Tx, jeu: JeuLigne) {
-  if (jeu.role === "AUTRE") return null;
-  return tx.jeuDonneesProjet.findFirst({
-    where: { projetId: jeu.projetId, role: jeu.role, concessionnaireId: jeu.concessionnaireId, statut: "AUTORISE", id: { not: jeu.id } },
-    select: { id: true, version: true, statut: true, resume: true },
-  });
 }
 
 export type RaisonRetourArriere = "AUCUNE_VERSION_PRECEDENTE" | "VERSION_PRECEDENTE_INDISPONIBLE" | "DEPOT_EN_ATTENTE";
@@ -80,7 +71,14 @@ export async function lireDelta(projetId: string, jeuId: string) {
       ? await tx.jeuDonneesProjet.findFirst({ where: { id: jeu.remplaceId, projetId, statut: { not: "RETIRE" } }, select: { id: true, version: true, statut: true, resume: true } })
       : null;
     const delta = ancien ? await deltaEntreJeux(tx, { id: jeu.id, colonneId: colonneIdentifiant(jeu.resume) }, ancien) : null;
-    const s = await statutSuppressions(tx, jeu.id, delta);
+    // Le statut des suppressions d'un depot en attente se lit contre la MEME reference que l'autorisation (M1) : le jeu autorise de meme cle, a defaut
+    // le jeu que ce depot devait remplacer, meme retire depuis. Un jeu retire n'est pas montre : seul le nombre d'objets retires l'est (aux decideurs).
+    let deltaSuppressions = delta;
+    if (jeu.statut === "CONTROLE" || jeu.statut === "RECU") {
+      const reference = await jeuDeReferenceSuppressions(tx, jeu);
+      if (reference && reference.id !== ancien?.id) deltaSuppressions = await deltaEntreJeux(tx, { id: jeu.id, colonneId: colonneIdentifiant(jeu.resume) }, reference);
+    }
+    const s = await statutSuppressions(tx, jeu.id, deltaSuppressions);
 
     const evenements = await tx.evenementImportProjet.findMany({
       where: { projetId, OR: [{ jeuId: jeu.id }, { jeuLieId: jeu.id }] }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 200,
@@ -120,15 +118,21 @@ export async function revueSuppressions(acteur: Acteur, projetId: string, jeuId:
     if (jeu.statut !== "CONTROLE" && jeu.statut !== "RECU") {
       throw new ErreurMetier(409, "STATUT_INCOMPATIBLE", `Seul un jeu en contrôle peut faire l'objet d'une revue des suppressions (statut actuel : ${jeu.statut}).`, { statut: jeu.statut });
     }
-    const ancien = await autoriseDeMemeCle(tx, jeu);
+    // Reference de la revue : le jeu autorise de meme cle, a defaut le jeu que ce depot devait remplacer, meme retire depuis (M1).
+    const ancien = await jeuDeReferenceSuppressions(tx, jeu);
     const delta = ancien ? await deltaEntreJeux(tx, { id: jeu.id, colonneId: colonneIdentifiant(jeu.resume) }, ancien) : null;
     if (!ancien || !delta || delta.retires === 0) {
       throw new ErreurMetier(409, "AUCUNE_SUPPRESSION", "Cette version ne retire aucun objet de la version autorisée : il n'y a rien à revoir.", { jeuId: jeu.id });
     }
+    // O1 : un refus de revue est DEFINITIF pour l'ensemble retire sur lequel il a porte (meme message que l'autorisation). Il ne se leve pas par
+    // une acceptation ; il reste le rejet, le retrait, ou un fichier corrige (autre ensemble retire, donc revue a refaire). Refuser de nouveau reste permis.
+    if (decision === "ACCEPTER" && (await statutSuppressions(tx, jeu.id, delta)).statut === "REFUSEES") {
+      throw new ErreurMetier(409, "SUPPRESSIONS_REFUSEES", "La revue des suppressions de cette version est un refus : elle ne peut plus qu'être rejetée ou retirée, ou remplacée par un fichier corrigé.", { jeuId: jeu.id, nb: delta.retires });
+    }
     const e = await tx.evenementImportProjet.create({
       data: {
         projetId, jeuId: jeu.id, type: decision === "ACCEPTER" ? "SUPPRESSIONS_ACCEPTEES" : "SUPPRESSIONS_REFUSEES", acteurId: acteur.id, justification: texte,
-        details: { decision, nb: delta.retires, empreinteDelta: delta.empreinteRetires, jeuComparaisonId: ancien.id, versionComparee: ancien.version, delta: { ajoutes: delta.ajoutes, modifies: delta.modifies, retires: delta.retires, identiques: delta.identiques } },
+        details: { decision, nb: delta.retires, empreinteDelta: delta.empreinteRetires, jeuComparaisonId: ancien.id, versionComparee: ancien.version, statutComparaison: ancien.statut, delta: { ajoutes: delta.ajoutes, modifies: delta.modifies, retires: delta.retires, identiques: delta.identiques } },
       },
     });
     await logAuditTransactionnelle(tx, {

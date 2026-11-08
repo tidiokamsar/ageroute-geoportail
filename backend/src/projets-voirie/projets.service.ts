@@ -14,7 +14,7 @@ import type { Bbox } from "./lecture.types";
 import { estDelaiDepasse, poserDelais } from "./bd";
 import { delaiDepotMs, delaiVerrouMs } from "./config";
 import { INCLURE_JEU, vueJeu, vueProjet } from "./vues";
-import { verifierSuppressionsRevues } from "./formats/versions.depot";
+import { jeuDeReferenceSuppressions, verifierSuppressionsRevues } from "./formats/versions.depot";
 
 export interface Acteur { id: string; role: string; ip?: string }
 
@@ -247,6 +247,18 @@ export async function retirerJeu(acteur: Acteur, projetId: string, jeuId: string
     await verrouillerProjet(tx, projetId);
     const avant = await jeuOuErreur(tx, projetId, jeuId);
     if (avant.statut === "RETIRE") throw new ErreurMetier(409, "STATUT_INCOMPATIBLE", "Ce jeu est déjà retiré.", { statut: avant.statut });
+    // Revue de la vague 1, M1 : retirer le jeu AUTORISE pendant qu'une nouvelle version l'attend ferait disparaitre la reference de la revue
+    // des suppressions. Le depot en attente se rejette (ou se retire) d'abord ; les deux gardes (ici et dans `decider`) se cumulent.
+    if (avant.statut === "AUTORISE" && avant.role !== "AUTRE") {
+      const attente = await tx.jeuDonneesProjet.findFirst({
+        where: { projetId, role: avant.role, concessionnaireId: avant.concessionnaireId, statut: { in: ["RECU", "CONTROLE"] }, id: { not: avant.id } }, select: { id: true, version: true },
+      });
+      if (attente) {
+        throw new ErreurMetier(409, "DEPOT_EN_ATTENTE",
+          "Une nouvelle version de même rôle et de même concessionnaire attend son autorisation : rejetez-la ou retirez-la d'abord, ou autorisez-la (avec la revue de ses suppressions) ; le jeu autorisé n'est pas retiré en attendant.",
+          { jeuId: attente.id, version: attente.version });
+      }
+    }
     await tx.jeuDonneesProjet.update({ where: { id: jeuId }, data: { statut: "RETIRE", deletedAt: new Date() } });
     await logAuditTransactionnelle(tx, {
       userId: acteur.id, action: "DELETE", entityType: "JeuDonneesProjet", entityId: jeuId,
@@ -280,6 +292,11 @@ export async function decider(acteur: Acteur, projetId: string, jeuId: string, d
       });
       // Lot A1 : les suppressions d'une nouvelle version ne sont JAMAIS appliquees sans revue humaine explicite (409 sinon).
       for (const ancien of anciens) await verifierSuppressionsRevues(tx, { id: jeu.id, resume: jeu.resume }, ancien);
+      // Revue de la vague 1, M1 : sans jeu AUTORISE (retire ou remplace depuis le depot), la reference est le jeu que ce depot devait remplacer.
+      if (anciens.length === 0) {
+        const reference = await jeuDeReferenceSuppressions(tx, jeu);
+        if (reference) await verifierSuppressionsRevues(tx, { id: jeu.id, resume: jeu.resume }, reference);
+      }
       remplaces = anciens.map((a) => a.id);
       // L'ancien jeu passe REMPLACE AVANT que le nouveau devienne AUTORISE (index unique partiel : un seul AUTORISE par cle).
       if (remplaces.length) await tx.jeuDonneesProjet.updateMany({ where: { id: { in: remplaces } }, data: { statut: "REMPLACE" } });

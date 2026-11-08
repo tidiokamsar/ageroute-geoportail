@@ -361,14 +361,12 @@ async function main() {
   verifier("10. SUPPRESSIONS JAMAIS APPLIQUEES SANS REVUE : autoriser la version 2 sans revue : 409 SUPPRESSIONS_A_REVOIR ; la version 1 reste AUTORISE",
     refusAuto.status === 409 && refusAuto.body.code === "SUPPRESSIONS_A_REVOIR" && refusAuto.body.nb === 1 && (await statutJeu(JEU_V1)) === "AUTORISE" && (await statutJeu(JEU_V2)) === "CONTROLE", refusAuto.body);
   const revueCourte = await envoyer("post", `/${PID}/jeux/${JEU_V2}/revue-suppressions`, { decision: "REFUSER", justification: "non" });
-  const revueRefus = await envoyer("post", `/${PID}/jeux/${JEU_V2}/revue-suppressions`, { decision: "REFUSER", justification: "Le regard R2 existe toujours sur le terrain" });
-  verifier("10. revue REFUSER : justification d'au moins 10 caracteres (400), puis statut REFUSEES ; l'autorisation repond alors 409 SUPPRESSIONS_REFUSEES",
-    revueCourte.status === 400 && revueRefus.status === 200 && revueRefus.body.suppressions.statut === "REFUSEES" && revueRefus.body.suppressions.revue.par.nomComplet === "Sekou Gestionnaire"
-    && (await autoriser(PID, JEU_V2)).body.code === "SUPPRESSIONS_REFUSEES", revueRefus.body.suppressions);
-  exemples["revue_suppressions"] = revueRefus.body;
+  verifier("10. revue : justification d'au moins 10 caracteres (400) ; le refus de revue et sa definitivite (O1) sont eprouves a la section 11 bis", revueCourte.status === 400);
   const revueOk = await envoyer("post", `/${PID}/jeux/${JEU_V2}/revue-suppressions`, { decision: "ACCEPTER", justification: "R2 a ete depose, confirme par le concessionnaire" }, T.chef2);
-  verifier("10. une nouvelle revue remplace la precedente (la derniere fait foi, toutes sont conservees) : ACCEPTEES par un autre compte",
-    revueOk.status === 200 && revueOk.body.suppressions.statut === "ACCEPTEES" && (await compter(`SELECT count(*) n FROM projets_voirie_import_evenements WHERE "jeuId" = $1`, JEU_V2)) === 2, revueOk.body);
+  exemples["revue_suppressions"] = revueOk.body;
+  verifier("10. revue ACCEPTER par un autre compte : statut ACCEPTEES, relecteur nomme, un seul evenement conserve",
+    revueOk.status === 200 && revueOk.body.suppressions.statut === "ACCEPTEES" && revueOk.body.suppressions.revue.par.nomComplet === "Fatoumata Gestionnaire"
+    && (await compter(`SELECT count(*) n FROM projets_voirie_import_evenements WHERE "jeuId" = $1`, JEU_V2)) === 1, revueOk.body);
   verifier("10. revue impossible : jeu sans suppression (la version 1 n'est plus en controle : 409 STATUT_INCOMPATIBLE) ; jeu inconnu : 404",
     (await envoyer("post", `/${PID}/jeux/${JEU_V1}/revue-suppressions`, { decision: "ACCEPTER", justification: "justification suffisante" })).body.code === "STATUT_INCOMPATIBLE"
     && (await envoyer("post", `/${PID}/jeux/00000000-0000-4000-8000-000000000042/revue-suppressions`, { decision: "ACCEPTER", justification: "justification suffisante" })).status === 404);
@@ -377,16 +375,16 @@ async function main() {
   verifier("10. apres revue acceptee, l'autorisation passe : version 2 AUTORISE, version 1 REMPLACE ; AUCUN objet supprime (la version 1 garde ses objets)",
     autoV2.status === 200 && (await statutJeu(JEU_V2)) === "AUTORISE" && (await statutJeu(JEU_V1)) === "REMPLACE" && (await nbObjets(JEU_V1)) === nbV1Avant && nbV1Avant === 2, autoV2.body);
   const auditRevue = await sql<{ action: string; n: number }>(`SELECT action::text, count(*)::int n FROM audit_logs WHERE "entityType" = 'JeuDonneesProjet' AND "entityId" = $1 AND (after::text LIKE '%revueSuppressions%') GROUP BY 1`, JEU_V2);
-  verifier("10. chaque revue est auditee (VALIDATE pour ACCEPTER, REJECT pour REFUSER) avec acteur, justification, nombre d'objets retires, sans geometrie",
-    auditRevue.some((r) => r.action === "VALIDATE" && r.n === 1) && auditRevue.some((r) => r.action === "REJECT" && r.n === 1), auditRevue);
+  verifier("10. chaque revue est auditee (VALIDATE pour ACCEPTER ; REJECT pour REFUSER, section 10 bis) avec acteur, justification, nombre d'objets retires, sans geometrie",
+    auditRevue.length === 1 && auditRevue[0].action === "VALIDATE" && auditRevue[0].n === 1, auditRevue);
 
   // Retire sans cle : un objet sans nom ni identifiant ne se rapproche de rien (jamais de modification au hasard).
   verifier("10. version sans suppression (premier depot d'un autre concessionnaire) : suppressions null ; delta null", (await depot(PID, variante(csvMap, 3), { role: "AUTRE", ...optMap }, "autre2.csv", true)).body.delta === null);
 
   // ---------------------------------------------------------------- 11. Retour arriere
   const dl2 = (await get(`/${PID}/jeux/${JEU_V2}/delta`)).body;
-  verifier("11. GET delta du jeu autorise : retourArriere possible, restaurerait la version 1 ; evenements = les deux revues", dl2.retourArriere.possible === true && dl2.retourArriere.restaureraJeuId === JEU_V1
-    && dl2.retourArriere.restaureraVersion === 1 && dl2.evenements.length === 2 && dl2.suppressions.statut === "ACCEPTEES", dl2.retourArriere);
+  verifier("11. GET delta du jeu autorise : retourArriere possible, restaurerait la version 1 ; evenements = la revue", dl2.retourArriere.possible === true && dl2.retourArriere.restaureraJeuId === JEU_V1
+    && dl2.retourArriere.restaureraVersion === 1 && dl2.evenements.length === 1 && dl2.suppressions.statut === "ACCEPTEES", dl2.retourArriere);
   verifier("11. retour arriere refuse : jeu qui n'est pas autorise (409 STATUT_INCOMPATIBLE) ; justification courte (400)",
     (await envoyer("post", `/${PID}/jeux/${JEU_V1}/retour-arriere`, { justification: "justification suffisante" })).body.code === "STATUT_INCOMPATIBLE"
     && (await envoyer("post", `/${PID}/jeux/${JEU_V2}/retour-arriere`, { justification: "non" })).status === 400);
@@ -422,6 +420,55 @@ async function main() {
     const r = await envoyer("delete", `/${PID}/jeux/${JEU_V2}`);
     return r.status === 200 && (await get(`/${PID}/jeux/${JEU_V2}/delta`, T.admin)).status === 404;
   })());
+
+  // ---------------------------------------------------------------- 11 bis. Revue de la vague 1 : M1 (la revue des suppressions ne se contourne pas) et O1 (un refus est definitif)
+  // Scenario EXACT de la revue : v1 AUTORISE ; depot de v2 qui retire R2 (A_REVOIR) ; un decideur retire v1 (DELETE) PUIS autorise v2. Avant la correction : DELETE 200, autorisation 200, suppressions appliquees sans revue.
+  const CONC_C: string = (await envoyer("post", "/concessionnaires", { nom: "Operateur Gamma", typeReseau: "TELECOM" })).body.concessionnaire.id;
+  const PID_M1: string = (await envoyer("post", "", { code: "M1-REVUE", nom: "Revue M1", regionId: R1 })).body.projet.id;
+  const gamma = (b: Buffer) => Buffer.from(b.toString().replace(/Operateur Beta/g, "Operateur Gamma"));
+  const dG1 = await depot(PID_M1, gamma(csvMap), { role: "RESEAU_TIERS", ...optMap, mapping }, "gamma-v1.csv");
+  const G1: string = dG1.body.jeu?.id;
+  await autoriser(PID_M1, G1);
+  const dG2 = await depot(PID_M1, gamma(csvV2), { role: "RESEAU_TIERS", ...optMap, mapping }, "gamma-v2.csv");
+  const G2: string = dG2.body.jeu?.id;
+  verifier("11 bis. fixtures M1 : v1 AUTORISE (concessionnaire Gamma), v2 en controle qui RETIRE un objet (A_REVOIR) et remplace v1",
+    dG1.status === 201 && dG2.status === 201 && dG2.body.delta.retires === 1 && dG2.body.suppressions.statut === "A_REVOIR" && dG2.body.remplace.jeuId === G1 && dG1.body.jeu.concessionnaire?.id === CONC_C
+    && (await statutJeu(G1)) === "AUTORISE" && (await statutJeu(G2)) === "CONTROLE", [dG1.body.code, dG2.body.code]);
+  const retraitM1 = await envoyer("delete", `/${PID_M1}/jeux/${G1}`);
+  verifier("11 bis. M1, garde 1 : retirer le jeu AUTORISE pendant qu'une nouvelle version l'attend : 409 DEPOT_EN_ATTENTE (jeuId du depot) ; v1 reste AUTORISE ; aucune trace d'audit DELETE",
+    retraitM1.status === 409 && retraitM1.body.code === "DEPOT_EN_ATTENTE" && retraitM1.body.jeuId === G2 && (await statutJeu(G1)) === "AUTORISE"
+    && (await compter(`SELECT count(*) n FROM audit_logs WHERE "entityType" = 'JeuDonneesProjet' AND "entityId" = $1 AND action::text = 'DELETE'`, G1)) === 0, retraitM1.body);
+  const autoriseApresRetrait = await autoriser(PID_M1, G2);
+  verifier("11 bis. M1 : l'autorisation de v2 sans revue reste 409 SUPPRESSIONS_A_REVOIR (v1 AUTORISE, v2 en controle)",
+    autoriseApresRetrait.status === 409 && autoriseApresRetrait.body.code === "SUPPRESSIONS_A_REVOIR" && (await statutJeu(G2)) === "CONTROLE", autoriseApresRetrait.body);
+  // Garde 2 (defense en profondeur, jeu deja retire dans une base qui porte l'etat obtenu par l'ancien contournement) : l'etat est fabrique en base.
+  await sql(`UPDATE projets_voirie_jeux SET statut = 'RETIRE', "deletedAt" = now() WHERE id = $1`, G1);
+  const autoriseSurRetire = await autoriser(PID_M1, G2);
+  const dlRetire = await get(`/${PID_M1}/jeux/${G2}/delta`);
+  verifier("11 bis. M1, garde 2 : v1 RETIRE (etat herite), l'autorisation de v2 repond TOUJOURS 409 SUPPRESSIONS_A_REVOIR ; le delta n'expose pas le jeu retire (comparaison null) mais annonce A_REVOIR et 1 suppression",
+    autoriseSurRetire.status === 409 && autoriseSurRetire.body.code === "SUPPRESSIONS_A_REVOIR" && autoriseSurRetire.body.nb === 1 && (await statutJeu(G2)) === "CONTROLE"
+    && dlRetire.status === 200 && dlRetire.body.comparaison === null && dlRetire.body.suppressions.statut === "A_REVOIR" && dlRetire.body.suppressions.nb === 1 && !JSON.stringify(dlRetire.body).includes(G1), [autoriseSurRetire.body, dlRetire.body.suppressions]);
+  const revueM1 = await envoyer("post", `/${PID_M1}/jeux/${G2}/revue-suppressions`, { decision: "ACCEPTER", justification: "R2 a ete depose, confirme par le concessionnaire Gamma" }, T.chef2);
+  verifier("11 bis. M1 : la revue reste possible contre le jeu retire (plus de 409 AUCUNE_SUPPRESSION) ; acceptee (ACCEPTEES), puis l'autorisation passe ; aucun objet de v1 n'est supprime",
+    revueM1.status === 200 && revueM1.body.suppressions.statut === "ACCEPTEES" && (await autoriser(PID_M1, G2)).status === 200 && (await statutJeu(G2)) === "AUTORISE" && (await statutJeu(G1)) === "RETIRE" && (await nbObjets(G1)) === 2, revueM1.body);
+  // O1 : un refus de revue est definitif pour l'ensemble retire sur lequel il a porte.
+  const csvV3 = Buffer.from(`Libelle;Type;Classe;Operateur;Code;lon;lat\nRegard 1 (deplace);telecom;B;Operateur Gamma;R1;-10,1;9,2005\n`);
+  const dG3 = await depot(PID_M1, csvV3, { role: "RESEAU_TIERS", ...optMap, mapping }, "gamma-v3.csv");
+  const G3: string = dG3.body.jeu?.id;
+  const refusG3 = await envoyer("post", `/${PID_M1}/jeux/${G3}/revue-suppressions`, { decision: "REFUSER", justification: "Le regard R3 existe toujours sur le terrain" });
+  verifier("11 bis. revue REFUSER : statut REFUSEES, relecteur nomme, l'autorisation repond 409 SUPPRESSIONS_REFUSEES ; audit REJECT",
+    dG3.status === 201 && dG3.body.delta.retires === 1 && refusG3.status === 200 && refusG3.body.suppressions.statut === "REFUSEES" && refusG3.body.suppressions.revue.par.nomComplet === "Sekou Gestionnaire"
+    && (await autoriser(PID_M1, G3)).body.code === "SUPPRESSIONS_REFUSEES"
+    && (await compter(`SELECT count(*) n FROM audit_logs WHERE "entityType" = 'JeuDonneesProjet' AND "entityId" = $1 AND action::text = 'REJECT' AND after::text LIKE '%revueSuppressions%'`, G3)) === 1, refusG3.body);
+  const accepteApresRefus = await envoyer("post", `/${PID_M1}/jeux/${G3}/revue-suppressions`, { decision: "ACCEPTER", justification: "Finalement j'accepte la suppression" }, T.admin);
+  verifier("11 bis. O1 : ACCEPTER apres REFUSER : 409 SUPPRESSIONS_REFUSEES (meme message que l'autorisation), aucun evenement de plus ; le statut reste REFUSEES ; un nouveau REFUSER reste permis",
+    accepteApresRefus.status === 409 && accepteApresRefus.body.code === "SUPPRESSIONS_REFUSEES" && (await compter(`SELECT count(*) n FROM projets_voirie_import_evenements WHERE "jeuId" = $1`, G3)) === 1
+    && (await get(`/${PID_M1}/jeux/${G3}/delta`)).body.suppressions.statut === "REFUSEES"
+    && (await envoyer("post", `/${PID_M1}/jeux/${G3}/revue-suppressions`, { decision: "REFUSER", justification: "Refus confirme apres relecture" })).status === 200
+    && (await compter(`SELECT count(*) n FROM projets_voirie_import_evenements WHERE "jeuId" = $1`, G3)) === 2, accepteApresRefus.body);
+  verifier("11 bis. un refus se leve par le rejet du depot (apres quoi la cle est libre) : rejet 200, nouveau depot possible",
+    (await envoyer("post", `/${PID_M1}/jeux/${G3}/rejeter`, { justification: "depot refuse par la revue des suppressions" })).status === 200 && (await statutJeu(G3)) === "REJETE"
+    && (await depot(PID_M1, variante(csvV3, 1), { role: "RESEAU_TIERS", ...optMap, mapping }, "gamma-v3b.csv", true)).status === 200);
 
   // ---------------------------------------------------------------- 12. Conservation du fichier d'origine
   const origAvant = await compter(`SELECT count(*) n FROM projets_voirie_fichiers_origine`);

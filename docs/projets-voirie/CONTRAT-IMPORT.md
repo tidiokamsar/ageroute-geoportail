@@ -238,7 +238,7 @@ Validation : un champ cible hors liste : 400 `MAPPING_INVALIDE` ; une colonne so
 
 **Statut des suppressions** (statut à part du statut du jeu) : `AUCUNE` (première version, ou aucun objet retiré), `A_REVOIR` (objets retirés, aucune revue), `ACCEPTEES`, `REFUSEES`. Il est dans la réponse du dépôt (`suppressions: { statut, nb }`) et de `GET .../delta`.
 
-`POST /:id/jeux/:jeuId/revue-suppressions` : corps `{ "decision": "ACCEPTER" | "REFUSER", "justification": "10 caractères au moins" }`. Le jeu doit être `CONTROLE` ou `RECU` et avoir des objets retirés (409 `STATUT_INCOMPATIBLE`, 409 `AUCUNE_SUPPRESSION`). Une nouvelle revue remplace la précédente (la dernière fait foi ; toutes sont conservées et auditées). Réponse : `{ jeu, suppressions, evenement }`. La revue est liée à l'empreinte exacte de l'ensemble retiré.
+`POST /:id/jeux/:jeuId/revue-suppressions` : corps `{ "decision": "ACCEPTER" | "REFUSER", "justification": "10 caractères au moins" }`. Le jeu doit être `CONTROLE` ou `RECU` et avoir des objets retirés (409 `STATUT_INCOMPATIBLE`, 409 `AUCUNE_SUPPRESSION`). Une nouvelle revue remplace la précédente (la dernière fait foi ; toutes sont conservées et auditées), **sauf qu'un refus est définitif** pour l'ensemble retiré sur lequel il a porté (section 14.2). Réponse : `{ jeu, suppressions, evenement }`. La revue est liée à l'empreinte exacte de l'ensemble retiré.
 
 **Garde de l'autorisation** : `POST .../autoriser` d'un jeu qui remplace un jeu autorisé et dont des objets sont retirés répond **409 `SUPPRESSIONS_A_REVOIR`** (avec `jeuId`, `nb`) sans revue, **409 `SUPPRESSIONS_REFUSEES`** si la dernière revue est un refus (le jeu ne peut plus qu'être rejeté ou retiré, ou remplacé par un fichier corrigé après rejet). `rejeter` n'est jamais bloqué. Aucun objet n'est jamais conservé « par défaut » d'une version à l'autre : accepter les suppressions, c'est accepter que la nouvelle version remplace l'ancienne telle quelle ; l'ancienne (et ses objets) reste en base, statut `REMPLACE`.
 
@@ -305,3 +305,24 @@ Valeurs de départ à valider par le DSI : aucune n'est un seuil métier validé
 Constat : le dépôt ne contient aucune file de jobs ni worker réutilisable (`backend/src/jobs/` : deux planificateurs `setInterval`). La chaîne GDAL a son propre contrat de spool fichier (`CHAINE-GDAL.md`), non branché. **Ce lot ne construit pas de système asynchrone** : les formats ouverts sont traités de façon synchrone sous plafonds stricts (25 Mo, 50 000 objets, 2 000 000 de sommets, 500 000 lignes CSV, 100 entrées de KMZ), derrière les limiteurs et les délais côté base du socle (`PROJETS_VOIRIE_DELAI_*`) ; l'aperçu a son propre budget. Les budgets de temps du socle ne sont pas contournés.
 
 Contrat futur d'un job asynchrone (pour les gros fichiers GDAL, non implémenté) : table `projets_voirie_import_jobs` (`id`, `projetId`, `creeParId`, `statut` `EN_ATTENTE`, `EN_COURS`, `TERMINE`, `ECHEC`, `ANNULE`, `EXPIRE`, `etape`, `progression` 0 à 100, `codeErreur`, `tentatives`, `tentativesMax` = 3, `reclameLe`, `finLe`, `expireLe`, `parametres` JSON identique aux options de la section 3) ; réclamation atomique (`UPDATE ... WHERE statut = 'EN_ATTENTE' ... SKIP LOCKED`), relance bornée d'un job `EN_COURS` dont la réclamation a expiré, annulation par `ADMIN` ou `GESTIONNAIRE`, nettoyage par `expireLe` (fichiers temporaires 72 h, alignement `GEOCONV_RETENTION_H`), interrogation par `GET /:id/import/jobs/:jobId`. Le résultat d'un job est l'entrée de l'étape 2 du wizard.
+
+## 14. Corrections de la revue de la vague 1 (ajouts)
+
+Cette section complète les sections 8 et 9 ; en cas de divergence, elle l'emporte.
+
+### 14.1 La revue des suppressions ne se contourne pas (M1)
+
+Défaut constaté : un décideur pouvait retirer (`DELETE /:id/jeux/:jeuId`) le jeu `AUTORISE` pendant qu'une nouvelle version, qui retirait des objets, attendait en contrôle, puis autoriser cette version : il ne restait plus de jeu autorisé de même clé, donc plus de référence, plus de revue exigée (`AUCUNE_SUPPRESSION` à la revue, autorisation acceptée).
+
+Correction, deux gardes cumulées :
+
+1. **Retrait** : `DELETE /:id/jeux/:jeuId` d'un jeu `AUTORISE` (rôle autre que `AUTRE`) répond **409 `DEPOT_EN_ATTENTE`** (avec `jeuId` et `version` du dépôt) tant qu'un jeu `RECU` ou `CONTROLE` de même projet, rôle et concessionnaire existe. Il faut d'abord le rejeter ou le retirer, ou l'autoriser (avec la revue de ses suppressions). Le retrait d'un jeu `AUTORISE` sans dépôt en attente reste possible : c'est un acte explicite et audité (`DELETE`), qui retire l'ensemble du jeu et non « quelques objets d'une nouvelle version » ; un dépôt ultérieur de cette clé n'a alors plus rien à remplacer.
+2. **Référence de la revue** (défense en profondeur, pour les bases qui portent déjà l'état obtenu par l'ancien contournement) : les suppressions d'un jeu en contrôle se calculent contre le jeu `AUTORISE` de même clé, **à défaut contre le jeu que ce dépôt devait remplacer (`remplaceId`), même retiré ou remplacé depuis**. Cette référence est utilisée par l'autorisation (`SUPPRESSIONS_A_REVOIR` / `SUPPRESSIONS_REFUSEES`), par `revue-suppressions` (plus de `AUCUNE_SUPPRESSION` à tort ; l'événement porte `statutComparaison`) et par le statut annoncé par `GET .../delta`. Un jeu retire reste invisible : `comparaison` reste `null`, aucun échantillon ni identifiant du jeu retiré n'est rendu, seul le statut et le nombre de suppressions le sont. Les objets d'un jeu retiré restent en base (suppression logique), le delta est calculable.
+
+Limite connue : si un jeu `AUTORISE` de même clé existe, il est LA référence (il est celui qu'une autorisation remplacerait) ; la référence `remplaceId` ne sert qu'en son absence. Un seul jeu est comparé, une seule revue le couvre.
+
+### 14.2 Un refus de revue est définitif (O1)
+
+`POST .../revue-suppressions` avec `ACCEPTER` répond **409 `SUPPRESSIONS_REFUSEES`** si le statut des suppressions est déjà `REFUSEES` (même ensemble retiré, même empreinte) : le message de l'autorisation (« un refus ne peut plus qu'être rejeté, retiré, ou remplacé par un fichier corrigé ») est désormais vrai de bout en bout. Rester permis : `REFUSER` après `ACCEPTER` (sens prudent, il bloque l'autorisation), `REFUSER` après `REFUSER`, et une nouvelle revue quand l'ensemble retiré a changé (le statut redevient `A_REVOIR`). La sortie d'un refus : rejeter le dépôt (`rejeter`), puis déposer un fichier corrigé.
+
+**Décision réservée au DSI, non prise ici (O1, séparation des tâches)** : la même personne peut déposer, accepter les suppressions et autoriser (l'audit note `memePersonne` sans bloquer, comme au socle). Exiger un relecteur différent du déposant est une règle de gouvernance à valider.
