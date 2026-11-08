@@ -19,7 +19,7 @@ export function conflit(over: Partial<ConflitResume> = {}): ConflitResume {
     id: "cf-1", cle: "cle-aaaa", type: "INTERSECTION_CHAUSSEE", axe: "Axe A",
     concessionnaire: { id: "c1", nom: "Operateur synthetique A" }, typeReseau: "TELECOM", jeuReseauId: "jeu-tel", objet: { id: "2", nom: "Fibre FO-01" },
     mesure: { longueurChausseeM: 74.01, longueurEmpriseM: 145.02, distanceMinM: 0, nbCroisements: 2, longueurPieceM: 145.02 },
-    geom: GEOM_CONFLIT, bbox: [O - 0.0004, S + 0.0002, O + 0.0004, S + 0.0002], geometrieMasquee: false,
+    geom: GEOM_CONFLIT, bbox: [O - 0.0004, S + 0.0002, O + 0.0004, S + 0.0002], geometrieMasquee: false, cible: null,
     statut: "POTENTIEL", risque: "MOYEN", responsable: { id: "u-resp", nom: "Awa Responsable" }, echeance: "2099-12-31", echeanceDepassee: false,
     actionProposee: "Vérifier la profondeur avec le concessionnaire", classePrecision: "B", verticalEvalue: false, aReexaminer: false, motifReexamen: null,
     premiereAnalyse: { id: "an-1", numero: 1 }, derniereAnalyse: { id: "an-2", numero: 2 },
@@ -138,6 +138,11 @@ export const REGLES = [
 
 const pers = (p: { id: string | null; nom: string | null } | null) => (p ? { id: p.id, nomComplet: p.nom } : null);
 
+/** `cible` du backend (`qualifierCible`) ; `tracePartagee` n'est rendue que par la fiche. */
+export function serveurCible(c: NonNullable<ConflitResume["cible"]>) {
+  return { nature: c.nature, origineNature: c.origineNature, qualification: c.qualification, libelle: c.libelle, supportPhysique: c.supportPhysique, ...(c.tracePartagee !== null ? { tracePartagee: c.tracePartagee } : {}) };
+}
+
 /** `vueConflit` du backend (liste) : pas de geometrie, une `bbox` ; `classePrecision` nul quand elle est inconnue. */
 export function serveurConflit(c: ConflitResume) {
   return {
@@ -147,6 +152,7 @@ export function serveurConflit(c: ConflitResume) {
     concessionnaire: c.concessionnaire, typeReseau: c.typeReseau, jeuReseauId: c.jeuReseauId, objet: c.objet,
     mesure: c.mesure, premiereAnalyseId: c.premiereAnalyse?.id ?? null, derniereAnalyseId: c.derniereAnalyse?.id ?? null,
     bbox: c.geometrieMasquee ? null : c.bbox, geometrieMasquee: c.geometrieMasquee, createdAt: c.createdAt, updatedAt: c.updatedAt,
+    ...(c.cible ? { cible: serveurCible(c.cible) } : {}),
   };
 }
 
