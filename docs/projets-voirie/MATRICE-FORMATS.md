@@ -2,6 +2,8 @@
 
 Document du 28/10/2026. Image : `ageroute-geoconv:0.2.0` (worker 0.2.0), dérivée de `ghcr.io/osgeo/gdal:ubuntu-small-3.13.3` (GDAL 3.13.3 « Iowa City », 2026/08/13 ; PROJ 9.8.1 ; Ubuntu 26.04 ; Python 3.14.4).
 
+**État du branchement (lot B2, 08/11/2026)** : GeoPackage, Shapefile ZIP et DXF texte sont branchés au module Projets de voirie par des jobs asynchrones, interrupteur `PROJETS_VOIRIE_GDAL` désactivé par défaut. L'API n'annonce un format `SUPPORTE` que si l'interrupteur est actif, le dossier d'échange accessible et un test de bout en bout réel existe (`backend/tests-integration/gdal-jobs.integration.mts`, conteneur `ageroute-geoconv:0.2.0`, fichiers synthétiques) ; sinon `INDISPONIBLE` avec la raison. Voir `LOT-B2-RAPPORT.md` pour les résultats.
+
 Règle : « **supporté** » n'est écrit que pour ce qui a un test réel dans `infra/geoconv/tests/` (banc exécuté le 08/11/2026 avec le worker 0.2.0 : 85 jobs conformes sur 85, 23 contrôles d'isolement conformes). Tous les jeux de test sont synthétiques, fabriqués avec GDAL et Python : **aucun fichier produit par AutoCAD, Covadis, ArcGIS ou QGIS n'a été testé**. Un « supporté » ci-dessous signifie « lu et converti correctement sur des fichiers fabriqués par GDAL », pas « validé sur les fichiers des fournisseurs ».
 
 ## 1. Formats d'entrée

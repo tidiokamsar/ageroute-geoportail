@@ -1,6 +1,6 @@
 # Chaîne de conversion GDAL isolée (GeoPackage, Shapefile ZIP, DXF)
 
-Statut : lot RC-1 bis, préparation. Document du 28/10/2026. Code : `infra/geoconv/`. **Rien de ce lot n'est branché au déploiement** : ni `docker-compose.yml`, ni `infra/deployer-console.sh`, ni le `Dockerfile` ou la configuration nginx du backend ne sont modifiés. Le backend ne sait pas encore appeler cette chaîne : ce document fixe le contrat que l'autre agent implémentera.
+Statut : lot RC-1 bis, préparation. Document du 28/10/2026. Code : `infra/geoconv/`. **Rien de ce lot n'est branché au déploiement** : ni `docker-compose.yml`, ni `infra/deployer-console.sh`, ni le `Dockerfile` ou la configuration nginx du backend ne sont modifiés. **Mise à jour du 08/11/2026 (lot B2)** : le backend appelle désormais cette chaîne par jobs asynchrones, derrière l'interrupteur `PROJETS_VOIRIE_GDAL` **désactivé par défaut** (voir la section 7 et `CONTRAT-IMPORT.md` sections 13 et 14) ; rien n'est activé ni déployé en production, le conteneur n'est pas dans le déploiement actuel.
 
 ## 1. Décisions d'architecture appliquées
 
@@ -171,7 +171,8 @@ Limites du conteneur (overlay) : `mem_limit` 1 Go sans swap, 1 CPU, 64 processus
 - Dépôt : écrire `fichier.<ext>`, puis `demande.json` par rename. Suivi : lire `statut.json` jusqu'à `termine` ou `echec`. Délai d'attente côté backend : `delai_s` + marge ; au-delà, considérer le job perdu et rejouer avec un nouveau `jobId`.
 - Après consommation, le backend copie ce dont il a besoin dans sa propre base, puis supprime `entree/<jobId>/` et `sortie/<jobId>/`. Les fichiers GeoJSON du spool ne sont **pas** un stockage : ils sont purgés.
 - Les GeoJSON de sortie contiennent des données sensibles de concessionnaires : le volume `geoconv_sortie` doit rester interne, sans exposition par nginx ni traefik.
-- Conséquence sur CONTRAT.md : la détection de formats du backend (4.1, « archives, Shapefile, DXF, DWG, GPX : 415 `FORMAT_NON_SUPPORTE` ») restera valable tant que le backend n'appelle pas cette chaîne ; l'appel se fera dans un lot dédié, derrière la clé de module `projets-voirie`.
+- **Branchement réalisé (lot B2)** : le backend écrit `entree/<jobId>-t<n>/fichier.<ext>` puis `demande.json` en dernier, lit `statut.json` par un sondage borné (`backend/src/projets-voirie/gdal/traiteur.ts`), valide la sortie contre un schéma strict (`sortie.noyau.ts` : le conteneur est un écrivain non fiable), puis lit les couches ligne à ligne. L'identifiant de job du contrat est `<uuid du job>-t<tentative>` ; chaque relance utilise un nouveau dossier. Le backend purge `entree/<id>/` et `sortie/<id>/` (donc `geoconv_sortie` doit lui être inscriptible pour la suppression : décision DSI, voir `LOT-B2-RAPPORT.md`) et ne supprime jamais le dossier de sortie d'un job que le conteneur traite encore. Les formats GeoPackage, Shapefile ZIP et DXF ne se lisent plus jamais dans l'API : 415 `FORMAT_GDAL_DESACTIVE` quand l'interrupteur est coupé, 422 `CONVERSION_ASYNCHRONE_REQUISE` quand il est actif.
+- Particularité vérifiée : pour une source déjà en EPSG:4326, GDAL n'écrit aucun membre `crs` dans le GeoJSON (défaut de GeoJSON) ; le CRS explicite est celui de `resultat.json`.
 
 ## 8. Activation en préproduction
 
