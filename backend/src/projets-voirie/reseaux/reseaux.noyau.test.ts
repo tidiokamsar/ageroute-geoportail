@@ -268,7 +268,7 @@ describe("reglages : tolerances et bornes", () => {
     expect(propositionsParCircuitMax()).toBe(3);
     for (const v of ["0", "21", "2.5"]) { process.env.PROJETS_VOIRIE_ASSOC_PAR_CIRCUIT_MAX = v; expect(propositionsParCircuitMax(), v).toBe(5); }
     process.env.PROJETS_VOIRIE_ASSOC_CIRCUITS_MAX = "50";
-    expect(circuitsParExecutionMax()).toBe(20_000);
+    expect(circuitsParExecutionMax()).toBe(3_000);
     process.env.PROJETS_VOIRIE_ASSOC_TOLERANCES_M = "A=1,B=2,C=3,D=4,INCONNUE=5";
     expect(tolerancesAssociation().D).toBe(4);
   });

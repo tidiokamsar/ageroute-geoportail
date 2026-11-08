@@ -59,6 +59,10 @@ lancer "inspection-terrain.integration.mts"
 lancer "projets-voirie.integration.mts"
 # Dossiers de conflit (lot RC-3) : clone `essai_conflits_pv` ; applique lui-meme la migration 20261031100000 au clone si `replay` ne la porte pas.
 lancer "conflits-projets-voirie.integration.mts"
+# Reseaux physiques et circuits logiques (lot B1) : clone `essai_reseau_pl` ; applique lui-meme la migration 20261101200000 au clone si `replay` ne la porte pas.
+lancer "reseau-physique-logique.integration.mts"
+# Volume des reseaux (lot B1) : clone `essai_reseau_volume`, 3 000 circuits et 3 000 gaines par defaut (RESEAUX_VOLUME pour changer).
+lancer "reseau-physique-logique-volume.integration.mts"
 
 printf '\n%s\n' "Resultat des bancs d'integration"
 printf '%s\n' "${lignes[@]}"

@@ -6,7 +6,8 @@
  *                                        INCONNUE sont exigees, sinon le defaut s'applique ; la classe E est exclue)
  *   PROJETS_VOIRIE_ASSOC_COUVERTURE_MIN  defaut 0.9 (bornes 0,5 a 1)
  *   PROJETS_VOIRIE_ASSOC_PAR_CIRCUIT_MAX defaut 5 (bornes 1 a 20) : propositions au plus par circuit
- *   PROJETS_VOIRIE_ASSOC_CIRCUITS_MAX    defaut 20 000 (bornes 100 a 100 000) : circuits au plus par execution (422 sinon)
+ *   PROJETS_VOIRIE_ASSOC_CIRCUITS_MAX    defaut 3 000 (bornes 100 a 100 000) : circuits au plus par execution (422 sinon) ; mesure (banc de volume) : 3 000 circuits en
+ *                                        3 a 13 s de proposition selon la charge du poste (delai de la base par defaut : 20 s), 10 000 en 8 a 21 s, 20 000 en 22 s
  *   PROJETS_VOIRIE_ASSOC_INTERVALLE_S    defaut 30 (bornes 0 a 3 600) : delai minimal entre deux propositions d associations d un projet (429 sinon)
  *
  * LES DEFAUTS SONT PROVISOIRES et a valider par la DSI : le cahier (20.2) dit de ne pas attribuer une precision standard ; ces valeurs sont des
@@ -42,7 +43,7 @@ function nombreBorne(nom: string, defaut: number, min: number, max: number, enti
 export const tolerancesAssociation = (): TableTolerances => lireTolerances(process.env.PROJETS_VOIRIE_ASSOC_TOLERANCES_M);
 export const couvertureMinAssociation = (): number => nombreBorne("PROJETS_VOIRIE_ASSOC_COUVERTURE_MIN", COUVERTURE_MIN_DEFAUT, 0.5, 1, false);
 export const propositionsParCircuitMax = (): number => nombreBorne("PROJETS_VOIRIE_ASSOC_PAR_CIRCUIT_MAX", 5, 1, 20, true);
-export const circuitsParExecutionMax = (): number => nombreBorne("PROJETS_VOIRIE_ASSOC_CIRCUITS_MAX", 20_000, 100, 100_000, true);
+export const circuitsParExecutionMax = (): number => nombreBorne("PROJETS_VOIRIE_ASSOC_CIRCUITS_MAX", 3_000, 100, 100_000, true);
 
 /**
  * Delai minimal entre deux executions de la proposition d'associations d'un meme projet : chaque execution ecrit une ligne d'audit et lance un

@@ -369,8 +369,6 @@ export interface Candidat {
   classeCircuit: string | null; classeInfra: string | null; precisionCircuitM: number | null; precisionInfraM: number | null;
 }
 
-const CLASSES_TOL = ["A", "B", "C", "D", "INCONNUE"] as const;
-
 /** Circuits logiques et infrastructures physiques LINEAIRES qui peuvent donner lieu a une proposition, hors classe E (exclue : pas de faux trace). */
 export async function compterEligibles(tx: TxLecture, d: Pick<DemandeCandidats, "jeuxCircuits" | "jeuxInfra">): Promise<{ circuits: number; infrastructures: number; circuitsClasseE: number; infrastructuresClasseE: number }> {
   if (d.jeuxCircuits.length === 0 && d.jeuxInfra.length === 0) return { circuits: 0, infrastructures: 0, circuitsClasseE: 0, infrastructuresClasseE: 0 };
@@ -400,44 +398,49 @@ export async function compterEligibles(tx: TxLecture, d: Pick<DemandeCandidats, 
  */
 export async function candidatsAssociation(tx: TxLecture, d: DemandeCandidats): Promise<Candidat[]> {
   if (d.jeuxCircuits.length === 0 || d.jeuxInfra.length === 0) return [];
-  const classes = [...CLASSES_TOL] as string[];
-  const tols = CLASSES_TOL.map((c) => d.tolerances[c]);
+  const t = d.tolerances;
+  // Tolerance de la CLASSE d'un objet, en expression (jamais une jointure : une jointure sur une petite table donne des estimations fausses a
+  // l'optimiseur et un produit cartesien filtre trop tard). La classe E n'a pas de tolerance : elle est exclue par un filtre explicite.
+  const tolClasse = (classe: Prisma.Sql) => Prisma.sql`CASE COALESCE(${classe}::text, 'INCONNUE') WHEN 'A' THEN ${t.A}::float8 WHEN 'B' THEN ${t.B}::float8
+    WHEN 'C' THEN ${t.C}::float8 WHEN 'D' THEN ${t.D}::float8 WHEN 'INCONNUE' THEN ${t.INCONNUE}::float8 END`;
+  const classeCirc = Prisma.sql`COALESCE(dd."classePrecision", j."classePrecision")`;
+  const precCirc = Prisma.sql`COALESCE(dd."precisionHorizontaleM", j."precisionHorizontaleM")::float8`;
+  const classeInfra = Prisma.sql`COALESCE(di."classePrecision", ji."classePrecision")`;
+  const precInfra = Prisma.sql`COALESCE(di."precisionHorizontaleM", ji."precisionHorizontaleM")::float8`;
   const r = await tx.$queryRaw<{
     cid: string; iid: string; couv: number; tol: number; lc: number; ld: number; cc: string | null; ci: string | null; pc: number | null; pi: number | null;
   }[]>`
-    WITH tol AS (SELECT t."classe" AS "classe", t."tol" AS "tol" FROM unnest(${classes}::text[], ${tols}::float8[]) AS t("classe", "tol")),
-    circ AS MATERIALIZED (
+    WITH circ AS MATERIALIZED (
       SELECT o."id" AS "id", o."geom" AS "geom", ST_Transform(o."geom", ${d.epsg}::int) AS "g", j."typeReseau" AS "tr",
-             COALESCE(dd."classePrecision", j."classePrecision")::text AS "classe",
-             COALESCE(dd."precisionHorizontaleM", j."precisionHorizontaleM")::float8 AS "prec",
-             GREATEST(tl."tol", COALESCE(COALESCE(dd."precisionHorizontaleM", j."precisionHorizontaleM")::float8, 0)) AS "tolo"
+             ${classeCirc}::text AS "classe", ${precCirc} AS "prec",
+             GREATEST(${tolClasse(classeCirc)}, COALESCE(${precCirc}, 0)) AS "tolo"
         FROM "projets_voirie_objets" o
         JOIN "projets_voirie_jeux" j ON j."id" = o."jeuId"
         LEFT JOIN "reseau_objets_descripteurs" dd ON dd."objetId" = o."id"
-        JOIN tol tl ON tl."classe" = COALESCE(COALESCE(dd."classePrecision", j."classePrecision")::text, 'INCONNUE')
-       WHERE j."id" = ANY(${[...d.jeuxCircuits]}::text[]) AND o."typeGeom" = 'LIGNE' AND COALESCE(dd."nature", j."natureObjets") = 'CIRCUIT_LOGIQUE'),
-    params AS (
-      SELECT GREATEST((SELECT max("tol") FROM tol), COALESCE((SELECT max("tolo") FROM circ), 0),
-                      COALESCE((SELECT max(COALESCE(di."precisionHorizontaleM", ji."precisionHorizontaleM"))::float8
-                                  FROM "projets_voirie_objets" oi JOIN "projets_voirie_jeux" ji ON ji."id" = oi."jeuId"
-                                  LEFT JOIN "reseau_objets_descripteurs" di ON di."objetId" = oi."id"
-                                 WHERE ji."id" = ANY(${[...d.jeuxInfra]}::text[])), 0)) AS "maxtol"),
+       WHERE j."id" = ANY(${[...d.jeuxCircuits]}::text[]) AND o."typeGeom" = 'LIGNE' AND COALESCE(dd."nature", j."natureObjets") = 'CIRCUIT_LOGIQUE'
+         AND ${classeCirc} IS DISTINCT FROM 'E'),
+    params AS MATERIALIZED (
+      -- Plus grande tolerance d'une infrastructure candidate : borne du rayon de recherche (la tolerance d'un couple est le MAXIMUM des deux).
+      SELECT COALESCE(max(GREATEST(${tolClasse(classeInfra)}, COALESCE(${precInfra}, 0))), 0) AS "maxinfra"
+        FROM "projets_voirie_objets" oi
+        JOIN "projets_voirie_jeux" ji ON ji."id" = oi."jeuId"
+        LEFT JOIN "reseau_objets_descripteurs" di ON di."objetId" = oi."id"
+       WHERE ji."id" = ANY(${[...d.jeuxInfra]}::text[]) AND oi."typeGeom" = 'LIGNE' AND COALESCE(di."nature", ji."natureObjets") = 'ACTIF_PHYSIQUE'
+         AND ${classeInfra} IS DISTINCT FROM 'E'),
     paires AS MATERIALIZED (
-      SELECT c."id" AS "cid", i."id" AS "iid", c."g" AS "cg", ST_Transform(i."geom", ${d.epsg}::int) AS "ig", GREATEST(c."tolo", i."tolo") AS "tol",
+      SELECT c."id" AS "cid", i."id" AS "iid", c."g" AS "cg", i."ig" AS "ig", GREATEST(c."tolo", i."tolo") AS "tol",
              c."classe" AS "cc", i."classe" AS "ci", c."prec" AS "pc", i."prec" AS "pi"
         FROM circ c CROSS JOIN params p
         JOIN LATERAL (
-          SELECT oi."id" AS "id", oi."geom" AS "geom", COALESCE(di."classePrecision", ji."classePrecision")::text AS "classe",
-                 COALESCE(di."precisionHorizontaleM", ji."precisionHorizontaleM")::float8 AS "prec",
-                 GREATEST(ti."tol", COALESCE(COALESCE(di."precisionHorizontaleM", ji."precisionHorizontaleM")::float8, 0)) AS "tolo"
+          SELECT oi."id" AS "id", ST_Transform(oi."geom", ${d.epsg}::int) AS "ig", ${classeInfra}::text AS "classe", ${precInfra} AS "prec",
+                 GREATEST(${tolClasse(classeInfra)}, COALESCE(${precInfra}, 0)) AS "tolo"
             FROM "projets_voirie_objets" oi
             JOIN "projets_voirie_jeux" ji ON ji."id" = oi."jeuId"
             LEFT JOIN "reseau_objets_descripteurs" di ON di."objetId" = oi."id"
-            JOIN tol ti ON ti."classe" = COALESCE(COALESCE(di."classePrecision", ji."classePrecision")::text, 'INCONNUE')
-           WHERE oi."geom" && ST_Expand(c."geom", GREATEST(c."tolo", p."maxtol") / 100000.0)
+           WHERE oi."geom" && ST_Expand(c."geom", GREATEST(c."tolo", p."maxinfra") / 100000.0)
              AND ji."id" = ANY(${[...d.jeuxInfra]}::text[]) AND oi."typeGeom" = 'LIGNE' AND COALESCE(di."nature", ji."natureObjets") = 'ACTIF_PHYSIQUE'
-             AND ji."typeReseau" IS NOT DISTINCT FROM c."tr") i ON TRUE
-       WHERE ST_DWithin(c."g", ST_Transform(i."geom", ${d.epsg}::int), GREATEST(c."tolo", i."tolo"))),
+             AND ${classeInfra} IS DISTINCT FROM 'E' AND ji."typeReseau" IS NOT DISTINCT FROM c."tr") i ON TRUE
+       WHERE ST_DWithin(c."g", i."ig", GREATEST(c."tolo", i."tolo"))),
     mesures AS (
       SELECT p."cid", p."iid", p."tol", p."cc", p."ci", p."pc", p."pi", ST_Length(p."cg") AS "lc",
              ST_Length(ST_Intersection(p."cg", ST_Buffer(p."ig", p."tol", ${QUART_DE_CERCLE}))) AS "ld"
@@ -448,7 +451,7 @@ export async function candidatsAssociation(tx: TxLecture, d: DemandeCandidats): 
         FROM mesures m WHERE m."lc" > 0 AND m."ld" / m."lc" >= ${d.couvertureMin}::float8)
     SELECT k."cid"::text AS "cid", k."iid"::text AS "iid", k."couv"::float8 AS "couv", k."tol"::float8 AS "tol", k."lc"::float8 AS "lc", k."ld"::float8 AS "ld",
            k."cc" AS "cc", k."ci" AS "ci", k."pc"::float8 AS "pc", k."pi"::float8 AS "pi"
-      FROM classees k WHERE k."rang" <= ${d.parCircuitMax}::int AND k."cc" IS DISTINCT FROM 'E' AND k."ci" IS DISTINCT FROM 'E'
+      FROM classees k WHERE k."rang" <= ${d.parCircuitMax}::int
      ORDER BY k."cid", k."rang"
      LIMIT ${d.limite}`;
   return r.map((x) => ({

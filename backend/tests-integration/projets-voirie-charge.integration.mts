@@ -13,7 +13,7 @@
 import { ouvrirBancClone } from "./lib/banc-clone.mts";
 import { verifier, conclure } from "./lib/verdict.ts";
 
-const banc = await ouvrirBancClone("essai_pv_charge");
+const banc = await ouvrirBancClone("essai_pv_charge", { migrations: ["20261101200000_reseaux_physiques_logiques"] });
 const { prisma } = await banc.imp("lib/prisma");
 const { createApp } = await banc.imp("app");
 const { signAccessToken } = await banc.imp("utils/jwt");

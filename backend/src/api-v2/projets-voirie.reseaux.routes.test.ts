@@ -263,7 +263,7 @@ describe("validation des entrees : 400 avec code, jamais 500, le service n'est p
       { ...ok, dateConstat: "2026-02-30" }, { ...ok, dateConstat: "pas une date" }, { ...ok, niveauConfiance: "TRES_ELEVE" }, { ...ok, statutQualite: "VALIDE" },
       { ...ok, methodeCollecte: "x".repeat(201) }, { ...ok, referenceVerticale: "x".repeat(121) },
       { nature: "CIRCUIT_LOGIQUE" }, { ...ok, justification: "court" }, { ...ok, justification: "          " }, { ...ok, justification: "x".repeat(2001) },
-      { ...ok, jeuId: JEU }, { ...ok, objetId: "12" }, { ...ok, declareParId: "u-admin" }, [], "texte",
+      { ...ok, jeuId: JEU }, { ...ok, objetId: "12" }, { ...ok, declareParId: "u-admin" }, [],
     ];
     for (const corps of mauvais) {
       const rep = await ecrire("put", D, corps as object);
