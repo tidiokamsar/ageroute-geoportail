@@ -162,7 +162,7 @@ describe("GET /import/options", () => {
     expect(r.status).toBe(200);
     expect(r.body.formats.map((f: { format: string }) => f.format)).toEqual(["KML", "KMZ", "GEOJSON", "GPX", "CSV"]);
     expect(r.body.formats.find((f: { format: string }) => f.format === "CSV")).toMatchObject({ choixCrs: "obligatoire", crsParDefinition: null });
-    expect(r.body.nonSupportes.map((f: { format: string }) => f.format)).toEqual(["GEOPACKAGE", "SHAPEFILE", "DXF", "DWG"]);
+    expect(r.body.nonSupportes.map((f: { format: string }) => f.format)).toEqual(["DWG"]); // lot B2 : GeoPackage, Shapefile et DXF sont annonces par formatsGdal (indisponibles par defaut)
     expect(r.body.crs.cible).toMatchObject({ epsg: 4326, unite: "degre" });
     expect(r.body.crs.sourcesAutorises).toEqual([
       { epsg: 4326, nom: "WGS 84", unite: "degre", disponible: true },

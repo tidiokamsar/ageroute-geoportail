@@ -344,6 +344,11 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
     "GET /api/v2/projets-voirie/:id/import/options": ["ADMIN", "GESTIONNAIRE"],
     "POST /api/v2/projets-voirie/:id/import/inventaire": ["ADMIN", "GESTIONNAIRE"],
     "POST /api/v2/projets-voirie/:id/import/apercu": ["ADMIN", "GESTIONNAIRE"],
+    // Lot B2 : jobs de conversion GDAL (GeoPackage, Shapefile ZIP, DXF) ; prouves par api-v2/projets-voirie.gdal.routes.test.ts et le banc gdal-jobs.
+    "POST /api/v2/projets-voirie/:id/import/jobs": ["ADMIN", "GESTIONNAIRE"],
+    "GET /api/v2/projets-voirie/:id/import/jobs": ["ADMIN", "GESTIONNAIRE"],
+    "GET /api/v2/projets-voirie/:id/import/jobs/:jobId": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/import/jobs/:jobId/annuler": ["ADMIN", "GESTIONNAIRE"],
     "GET /api/v2/projets-voirie/:id/jeux/:jeuId/delta": ["ADMIN", "GESTIONNAIRE"],
     "POST /api/v2/projets-voirie/:id/jeux/:jeuId/revue-suppressions": ["ADMIN", "GESTIONNAIRE"],
     "POST /api/v2/projets-voirie/:id/jeux/:jeuId/retour-arriere": ["ADMIN", "GESTIONNAIRE"],
@@ -357,7 +362,7 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
     "POST /api/v2/projets-voirie/:id/reseau/associations/proposer": ["ADMIN", "GESTIONNAIRE"],
   };
 
-  it("expose exactement les 15 routes du socle, les 16 des dossiers de conflit, les 6 de l'import (lot A1) et les 10 des reseaux (lot B1), ni plus (aucun export de geometrie, aucune route d'ordre ou de deplacement), ni moins", () => {
+  it("expose exactement les 15 routes du socle, les 16 des dossiers de conflit, les 6 de l'import (lot A1) et les 10 des reseaux (lot B1) et les 4 des jobs de conversion GDAL (lot B2), ni plus (aucun export de geometrie, aucune route d'ordre ou de deplacement), ni moins", () => {
     expect(pv.map(cle).sort()).toEqual([
       "DELETE /api/v2/projets-voirie/:id", "DELETE /api/v2/projets-voirie/:id/jeux/:jeuId",
       "GET /api/v2/projets-voirie", "GET /api/v2/projets-voirie/:id", "GET /api/v2/projets-voirie/:id/analyse",
@@ -376,6 +381,9 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
       // Formats d'import ouverts, CRS, mapping, versions (lot A1, contrat CONTRAT-IMPORT.md)
       "GET /api/v2/projets-voirie/:id/import/options", "POST /api/v2/projets-voirie/:id/import/inventaire", "POST /api/v2/projets-voirie/:id/import/apercu",
       "GET /api/v2/projets-voirie/:id/jeux/:jeuId/delta", "POST /api/v2/projets-voirie/:id/jeux/:jeuId/revue-suppressions", "POST /api/v2/projets-voirie/:id/jeux/:jeuId/retour-arriere",
+      // Jobs de conversion GDAL (lot B2, CONTRAT-IMPORT.md section 13)
+      "POST /api/v2/projets-voirie/:id/import/jobs", "GET /api/v2/projets-voirie/:id/import/jobs", "GET /api/v2/projets-voirie/:id/import/jobs/:jobId",
+      "POST /api/v2/projets-voirie/:id/import/jobs/:jobId/annuler",
       // Reseaux physiques et circuits logiques (lot B1, CONTRAT-RESEAUX.md, section 5)
       "GET /api/v2/projets-voirie/:id/reseau/objets", "GET /api/v2/projets-voirie/:id/reseau/objets/:objetId",
       "PUT /api/v2/projets-voirie/:id/reseau/objets/:objetId/descripteur",

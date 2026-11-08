@@ -58,12 +58,12 @@ describe("detection par le contenu, jamais par l'extension", () => {
     expect(code(() => lire(Buffer.from("a,b\n1,\u0000\n"), "a.csv"))).toBe("CONTENU_NON_RECONNU");
   });
 
-  it("texte libre, DXF renomme, XML d'une autre racine, ZIP de Shapefile, JSON non GeoJSON : FORMAT_NON_SUPPORTE", () => {
+  it("texte libre, XML d'une autre racine, JSON non GeoJSON : FORMAT_NON_SUPPORTE ; DXF et ZIP de Shapefile : FORMAT_GDAL_DESACTIVE (lot B2, interrupteur coupe par defaut)", () => {
     expect(code(() => lire("Bonjour,\nceci est une lettre.\n", "plan.txt"))).toBe("FORMAT_NON_SUPPORTE");
-    expect(code(() => lire("0\nSECTION\n2\nHEADER\n0\nENDSEC\n", "plan.txt"))).toBe("FORMAT_NON_SUPPORTE");
-    expect(code(() => lire("0\nSECTION\n2\nHEADER\n", "plan.dxf"))).toBe("FORMAT_NON_SUPPORTE");
+    expect(code(() => lire("0\nSECTION\n2\nHEADER\n0\nENDSEC\n", "plan.txt"))).toBe("FORMAT_GDAL_DESACTIVE"); // reconnu comme DXF par le contenu
+    expect(code(() => lire("0\nSECTION\n2\nHEADER\n", "plan.dxf"))).toBe("FORMAT_GDAL_DESACTIVE");
     expect(code(() => lire(`<svgx/>`, "a.xml"))).toBe("FORMAT_NON_SUPPORTE");
-    expect(code(() => lire(construireZip([{ nom: "axes.shp", contenu: "x" }, { nom: "axes.dbf", contenu: "x" }]).buffer, "axes.zip"))).toBe("FORMAT_NON_SUPPORTE");
+    expect(code(() => lire(construireZip([{ nom: "axes.shp", contenu: "x" }, { nom: "axes.dbf", contenu: "x" }]).buffer, "axes.zip"))).toBe("FORMAT_GDAL_DESACTIVE");
     expect(code(() => lire(JSON.stringify({ hello: 1 }), "a.json"))).toBe("FORMAT_NON_SUPPORTE");
   });
 
