@@ -817,7 +817,7 @@ Erreurs : 403 `QUARANTAINE_RESERVEE`, 404 `JEU_INTROUVABLE`, 503 `SERVICE_OCCUPE
 
 ### Extension des dossiers de conflit, de l'analyse 2D et de la carte
 
-- `GET /:id/conflits` et `GET /:id/conflits/:cid` : `conflit.cible` (nature effective, `qualification`, `libelle`, `supportPhysique`, et `tracePartagee` sur la fiche) ; export CSV : colonnes `natureCible` et `qualificationCible` **à la fin**. Voir `CONTRAT-CONFLITS.md`, section 9, points 35 à 41.
+- `GET /:id/conflits` et `GET /:id/conflits/:cid` : `conflit.cible` (nature effective, `qualification`, `libelle`, `supportPhysique`, et `tracePartagee` sur la fiche) ; export CSV : colonnes `natureCible` et `qualificationCible` **avant `cle`, qui reste la dernière**. Voir `CONTRAT-CONFLITS.md`, section 9, points 35 à 41.
 
 ```json
 {

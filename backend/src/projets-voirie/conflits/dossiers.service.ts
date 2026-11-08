@@ -526,7 +526,7 @@ export async function trancherDecision(acteur: Acteur, projetId: string, cid: st
 export const ENTETE_CSV_CONFLITS = [
   "axe", "type", "statut", "risque", "aReexaminer", "motifReexamen", "concessionnaire", "typeReseau", "classePrecision", "verticalEvalue",
   "longueurChausseeM", "longueurEmpriseM", "distanceMinM", "nbCroisements", "longueurPieceM", "responsable", "echeance", "actionProposee",
-  "nbPreuves", "nbDecisions", "premiereAnalyse", "derniereAnalyse", "cle", "natureCible", "qualificationCible",
+  "nbPreuves", "nbDecisions", "premiereAnalyse", "derniereAnalyse", "natureCible", "qualificationCible", "cle",
 ] as const;
 
 const EXPORT_MAX = 100_000;
@@ -547,7 +547,7 @@ export async function exporterConflitsCsv(acteur: Acteur, projetId: string, f: F
     });
   }, { timeout: delaiAnalyseMs() + 15_000, maxWait: 10_000 })));
   const m = (c: { mesure: unknown }) => (c.mesure ?? {}) as Record<string, number | null>;
-  // Lot B1 : nature de la cible (colonnes ajoutees A LA FIN), pour les dossiers dont les donnees du reseau sont lisibles.
+  // Lot B1 : nature de la cible (colonnes ajoutees AVANT `cle`, qui reste la derniere), pour les dossiers dont les donnees du reseau sont lisibles.
   const cibles = await cibleDesObjets(acteur.role, lignes.flatMap((c) => (c.objetId === null || !donneesReseauLisibles(acteur.role, statutsLies(c)) ? [] : [String(c.objetId)])));
   const rows = lignes.map((c) => {
     // Les donnees tirees d'un jeu RETIRE ne sortent pas, meme dans un export (voir visibilite.noyau.ts).
@@ -558,8 +558,9 @@ export async function exporterConflitsCsv(acteur: Acteur, projetId: string, f: F
       lisible ? c.classePrecision ?? "inconnue" : "", c.verticalEvalue ? "oui" : "non",
       mesure.longueurChausseeM ?? 0, mesure.longueurEmpriseM ?? 0, mesure.distanceMinM ?? "", mesure.nbCroisements ?? 0, mesure.longueurPieceM ?? 0,
       c.responsable?.nomComplet ?? "", jour(c.echeance) ?? "", c.actionProposee ?? "", c._count.preuves, c._count.decisions,
-      c.premiereAnalyse.numero, c.derniereAnalyse.numero, c.cle,
+      c.premiereAnalyse.numero, c.derniereAnalyse.numero,
       lisible && c.objetId !== null ? cibles.get(String(c.objetId))?.nature ?? "" : "", lisible && c.objetId !== null ? cibles.get(String(c.objetId))?.qualification ?? "" : "",
+      c.cle,
     ];
   });
   const csv = "﻿" + [ENTETE_CSV_CONFLITS.join(";"), ...rows.map((r) => r.map((v) => celluleCsv(v as string | number)).join(";"))].join("\r\n") + "\r\n";

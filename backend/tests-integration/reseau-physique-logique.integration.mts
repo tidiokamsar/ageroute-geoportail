@@ -513,7 +513,7 @@ async function main() {
     fL6.body.conflit.statut === "POTENTIEL" && fL6.body.conflit.classePrecision === "A", fL6.body.conflit);
   const csv = await request(app).get(`${BASE}/${PID}/conflits/export.csv`).set("Authorization", `Bearer ${T.chef}`);
   const entete = csv.text.replace(/^﻿/, "").split("\r\n")[0].split(";");
-  verifier("7. export CSV des dossiers : colonnes natureCible et qualificationCible ajoutees A LA FIN, sans geometrie", csv.status === 200 && entete.slice(-3).join(";") === "cle;natureCible;qualificationCible" && /CIRCUIT_LOGIQUE_SANS_SUPPORT_VALIDE/.test(csv.text)
+  verifier("7. export CSV des dossiers : colonnes natureCible et qualificationCible ajoutees AVANT `cle` (qui reste la derniere), sans geometrie", csv.status === 200 && entete.slice(-3).join(";") === "natureCible;qualificationCible;cle" && /CIRCUIT_LOGIQUE_SANS_SUPPORT_VALIDE/.test(csv.text)
     && /INFRASTRUCTURE_PHYSIQUE/.test(csv.text) && !/coordinates|LINESTRING/i.test(csv.text), entete);
 
   // Rejeu : une classe modifiee fait marquer le dossier a reexaminer, sans toucher le statut.
