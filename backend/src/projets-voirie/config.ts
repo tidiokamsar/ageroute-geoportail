@@ -44,3 +44,25 @@ export const FENETRE_CONSULTATION_MIN = 15;
 
 /** Lecteur d'entier borne de l'environnement, partage avec le workflow (lot B3, `workflow/config.ts`) : une valeur absente ou hors bornes redonne le defaut. */
 export { borne as borneEnv };
+
+// ------------------------------------------------------------------------------------------------
+// Lot S1 : sources multiples et comparaison entre sources (contrat : docs/projets-voirie/CONTRAT-SOURCES.md).
+//   PROJETS_VOIRIE_COMPARAISON_OBJETS_MAX     defaut 20 000 (bornes 100 a 200 000) : objets lineaires au plus pour les deux jeux compares (422 COMPARAISON_TROP_VOLUMINEUSE)
+//   PROJETS_VOIRIE_COMPARAISON_INTERVALLE_S   defaut 60     (bornes 0 a 3 600)     : delai minimal entre deux comparaisons TERMINEES d un meme projet (429 COMPARAISON_TROP_FREQUENTE) ;
+//                                                                                    0 desactive le delai (bancs d essai ; jamais en production). Une comparaison en ECHEC ne compte pas.
+// ------------------------------------------------------------------------------------------------
+
+export const comparaisonObjetsMax = () => borne("PROJETS_VOIRIE_COMPARAISON_OBJETS_MAX", 20_000, 100, 200_000);
+export const comparaisonIntervalleMinS = () => borne("PROJETS_VOIRIE_COMPARAISON_INTERVALLE_S", 60, 0, 3_600);
+
+/**
+ * Methodes d acquisition d un jeu (code court porte par `projets_voirie_jeux.methodeAcquisition`). La base ne verifie que la forme du code ; cette
+ * liste est celle que le service accepte. Le lot T1 (referentiels configurables, domaine METHODE_ACQUISITION) pourra la relier a son referentiel
+ * sans migration : les codes sont stables. Deux methodes = deux SOURCES d un meme reseau ; meme methode = nouvelle VERSION (CONTRAT-SOURCES.md, 3.1).
+ */
+export const METHODES_ACQUISITION = [
+  "GNSS_RTK", "GNSS_DIFFERENTIEL", "GNSS_AUTONOME", "TOPOGRAPHIE", "DETECTION_ELECTROMAGNETIQUE", "GEORADAR", "NUMERISATION_PLAN",
+  "RECOLEMENT_TRAVAUX", "DECLARATIF_FOURNISSEUR", "INCONNUE",
+] as const;
+export type MethodeAcquisition = (typeof METHODES_ACQUISITION)[number];
+export const estMethodeAcquisition = (v: unknown): v is MethodeAcquisition => typeof v === "string" && (METHODES_ACQUISITION as readonly string[]).includes(v);
