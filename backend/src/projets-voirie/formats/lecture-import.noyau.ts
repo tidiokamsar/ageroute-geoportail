@@ -22,8 +22,12 @@ import {
 import type { NoeudXml } from "../xml.noyau";
 import { inspecterCsv, lireCsv, type InventaireCsv, type LimitesCsv, type OptionsCsv, type RejetCsv, type ResultatCsv } from "./csv.noyau";
 import {
-  EPSG_CIBLE, choisirCrs, libelleCrs, libelleMethode, type ChoixCrs, type MetaCrs, type OrigineCrs, type Plausibilite,
+  EPSG_CIBLE, choisirCrs, choisirCrsConverti, libelleCrs, libelleMethode, type ChoixCrs, type MetaCrs, type OrigineCrs, type Plausibilite,
 } from "./crs.noyau";
+import { documentGeoJson, selectionner, type CoucheConvertie, type ConversionValidee } from "../gdal/conversion.noyau";
+import { gdalActif } from "../gdal/config";
+import { detecterFormatGdal } from "../gdal/format.noyau";
+import { ERREURS_JOB } from "../gdal/contrat.noyau";
 import { proposerChampsJeu, type Mapping, type PropositionJeu } from "./mapping.noyau";
 import { Enregistreur, Inventaire, PuitsFiltre, type ChampJeu, type CoucheInventoriee, type Puits, type SommetsBruts } from "./puits.noyau";
 import { traverserGpx, type ResultatGpx } from "./gpx.noyau";
@@ -66,6 +70,9 @@ export interface Detection {
   doc?: Record<string, unknown>;
   csv?: InventaireCsv;
   avertissements: Avertissement[];
+  /** Lot B2 : fichier converti par la chaine GDAL (job asynchrone). `doc` est alors le GeoJSON WGS 84 des couches choisies. */
+  conversion?: ConversionValidee;
+  selection?: CoucheConvertie[];
 }
 
 const EXTENSIONS_ATTENDUES: Record<string, FormatFichier> = {
@@ -87,6 +94,15 @@ export function detecter(contenu: Buffer, nomFichier: string, opts: OptionsImpor
   if (contenu.length === 0) throw new ErreurLecture("FICHIER_VIDE", "le fichier est vide");
   if (contenu.length > TAILLE_MAX_OCTETS) throw new ErreurLecture("FICHIER_TROP_GROS", `fichier de plus de ${TAILLE_MAX_OCTETS} octets`);
   const ext = extensionDe(nomFichier);
+  // Lot B2 : GeoPackage, Shapefile ZIP et DXF ne se lisent JAMAIS dans le processus de l'API (conversion par le conteneur GDAL isole, job asynchrone).
+  // Interrupteur coupe : code explicite ; active : on indique la voie a suivre. Les autres fichiers (dont les KMZ) suivent leur voie habituelle.
+  const gdal = detecterFormatGdal(contenu, lim.zip, false);
+  if (gdal !== null) {
+    const format = gdal.format === "DXF_BINAIRE" ? "DXF" : gdal.format;
+    if (!gdalActif()) throw new ErreurMetier(415, "FORMAT_GDAL_DESACTIVE", `Le format ${format} est desactive sur ce serveur (interrupteur PROJETS_VOIRIE_GDAL) : deposez le fichier dans un autre format ouvert (GeoJSON, KML, GPX, CSV).`, { format });
+    if (gdal.format === "DXF_BINAIRE") throw new ErreurLecture("DXF_BINAIRE_NON_PRIS_EN_CHARGE", ERREURS_JOB.DXF_BINAIRE_NON_PRIS_EN_CHARGE.message);
+    throw new ErreurMetier(422, "CONVERSION_ASYNCHRONE_REQUISE", `Un fichier ${format} se convertit dans un conteneur isole : creez un job (POST /:id/import/jobs) puis passez son identifiant (jobId) a l'inventaire, a l'apercu et au depot.`, { format });
+  }
   let d: Detection;
   // Une archive contient des octets NUL par nature : ses octets ne passent pas par le controle de contenu texte (seule l'entree KML lue y passe).
   if (estZip(contenu)) d = detecterKmz(contenu, opts, lim, mode.inventaire === true);
@@ -127,6 +143,19 @@ export function detecter(contenu: Buffer, nomFichier: string, opts: OptionsImpor
     d.avertissements.push({ code: "EXTENSION_INCOHERENTE", message: `L'extension .${ext} annonce du ${attendu} mais le contenu est du ${d.format} : le contenu fait foi.` });
   }
   return d;
+}
+
+/**
+ * Lot B2 : entree du pipeline pour un resultat de conversion GDAL deja VALIDE (voir gdal/sortie.noyau.ts). Ne lit aucun fichier : `conv` porte les
+ * Features retenues. La suite (CRS, mapping, validation, quarantaine, delta) est EXACTEMENT celle des autres formats.
+ */
+export function detecterConvertie(conv: ConversionValidee, opts: OptionsImport): Detection {
+  const choisies = selectionner(conv.couches, opts.couche);
+  if (choisies.length === 0) throw new ErreurLecture("FICHIER_VIDE", "aucune couche du fichier ne contient d'objet");
+  return {
+    format: conv.format, extensionDeclaree: null, extensionCoherente: true, archive: null, entreeKml: null,
+    doc: documentGeoJson(choisies) as Record<string, unknown>, avertissements: [...conv.avertissements], conversion: conv, selection: choisies,
+  };
 }
 
 function detecterKmz(contenu: Buffer, opts: OptionsImport, lim: LimitesImport, inventaire: boolean): Detection {
@@ -267,6 +296,35 @@ export function inventorier(d: Detection): InventaireFichier {
   };
 }
 
+/**
+ * Inventaire d'un fichier CONVERTI (lot B2) : meme forme que l'inventaire des autres formats (couches, champs, CRS, avertissements), lu dans le resultat
+ * VALIDE du job. Les calques d'un DXF sont les couches. Aucune coordonnee d'objet.
+ */
+export function inventaireConverti(conv: ConversionValidee): InventaireFichier & { conversion: Record<string, unknown> } {
+  const src = conv.couches.find((c) => c.crsSource !== null)?.crsSource ?? null;
+  const declare = src && src.origine === "fichier" ? (src.epsg !== null ? `EPSG:${src.epsg}` : "sans code EPSG") : null;
+  const avertissements: Avertissement[] = [...conv.avertissements];
+  if (conv.couches.filter((c) => c.nbObjets > 0).length > 1) {
+    avertissements.push({ code: "COUCHES_MULTIPLES", message: `Le fichier contient ${conv.couches.length} couches : sans choix (couche), toutes seraient importees.`, nb: conv.couches.length });
+  }
+  return {
+    format: conv.format,
+    detection: { methode: "contenu", extensionDeclaree: null, extensionCoherente: true },
+    archive: null,
+    couches: conv.couches.map(({ id, nom, nbObjets, parTypeGeom }) => ({ id, nom, nbObjets, parTypeGeom })),
+    csv: null,
+    crs: {
+      normeDuFormat: null, declareDansLeFichier: declare,
+      choixObligatoire: conv.parametres.epsgSource === undefined && (conv.format !== "GPKG" || (src?.epsg ?? 4326) !== EPSG_CIBLE),
+    },
+    champsDisponibles: conv.champsDisponibles, suggestionsMapping: suggererMapping(conv.champsDisponibles), avertissements,
+    conversion: {
+      jobId: conv.jobId, gdal: conv.gdal, source: conv.source, parametres: conv.parametres, dxf: conv.dxf,
+      crsSource: src, coordonnees: conv.couches[0]?.coordonnees ?? null,
+    },
+  };
+}
+
 // ------------------------------------------------------------------------------------------------ Lecture
 
 export interface InfoCrsImport extends InfoCrs {
@@ -275,7 +333,7 @@ export interface InfoCrsImport extends InfoCrs {
   uniteSource: string;
   uniteCible: string;
   origine: OrigineCrs;
-  transformation: "ST_Transform" | "aucune";
+  transformation: "ST_Transform" | "aucune" | "GDAL_PROJ";
   versionProj: string | null;
   plausibilite: Plausibilite;
 }
@@ -287,6 +345,12 @@ export interface InfoImportLecture {
   mapping: Mapping;
   rejets: RejetCsv[];
   rejetsTronques: boolean;
+  /** Lot B2 : provenance d'une conversion GDAL (jamais de coordonnee). */
+  conversion?: {
+    jobId: string; formatSource: string; gdal: { version: string; proj: string | null }; source: { nom: string; octets: number; sha256: string };
+    couches: string[]; crsSource: { origine: string; epsg: number | null; nom: string | null } | null;
+    dxf: { unitesDeclarees: string | null; insunits: number | null; lues: Record<string, number>; ignorees: Record<string, number>; blocs: { definitions: number; entitesDansBlocs: number } } | null;
+  };
 }
 
 /** Element ecarte, avec un message fixe (jamais de coordonnee recopiee). */
@@ -321,7 +385,13 @@ export interface Preparation {
   terminer(meta: MetaCrs, versionProj: string | null, transformes?: Transformes): ResultatImport;
 }
 
-function justification(format: FormatFichier, choix: ChoixCrs, meta: MetaCrs): string {
+function justification(format: FormatFichier, choix: ChoixCrs, meta: MetaCrs, conv?: ConversionValidee): string {
+  if (conv) {
+    const v = `GDAL ${conv.gdal.version}${conv.gdal.proj ? ` / PROJ ${conv.gdal.proj}` : ""}`;
+    const qui = choix.origine === "choisi_par_utilisateur" ? "choisi ou confirme par l'utilisateur" : "declare par le fichier";
+    if (choix.epsg === EPSG_CIBLE) return `Fichier ${format} converti par GDAL (conteneur isole, sans reseau) : CRS EPSG:4326 ${qui}, coordonnees lues telles quelles, sans reprojection.`;
+    return `Fichier ${format} converti par GDAL (conteneur isole, sans reseau) : CRS ${libelleCrs(meta)} ${qui} ; coordonnees en ${meta.unite} transformees en WGS 84 (EPSG:4326, degres) par ${v}, puis controlees contre l'emprise de la Guinee. Le CRS n'est jamais devine.`;
+  }
   if (choix.transformer) {
     return `CRS ${libelleCrs(meta)} choisi par l'utilisateur (liste blanche) : coordonnees en ${meta.unite} transformees en WGS 84 (EPSG:4326, degres) par PostGIS ST_Transform (PROJ), puis controlees contre l'emprise de la Guinee. Aucune transformation n'est faite sans ce choix.`;
   }
@@ -336,8 +406,11 @@ function justification(format: FormatFichier, choix: ChoixCrs, meta: MetaCrs): s
  * l'appelant les transforme (crs.service.ts) puis appelle `terminer`. Pour WGS 84, `terminer` ne demande aucune transformation.
  */
 export function preparer(d: Detection, opts: OptionsImport, lim: LimitesImport): Preparation {
+  const conv = d.conversion;
   const declare = d.format === "GEOJSON" && d.doc ? crsDeclareGeoJson(d.doc) : null;
-  const choix = choisirCrs(d.format, opts.epsgSource, declare, lim.crsAutorises);
+  const choix = conv
+    ? choisirCrsConverti(conv.format as "GPKG" | "SHAPEFILE" | "DXF", d.selection![0].crsSource, d.selection![0].coordonnees, conv.parametres.epsgSource, opts.epsgSource, lim.crsAutorises)
+    : choisirCrs(d.format, opts.epsgSource, declare, lim.crsAutorises);
 
   // Couches : inventaire d'abord (la selection se fait par identifiant), puis lecture filtree.
   let couche: { id: string; nom: string } | null = null;
@@ -354,6 +427,10 @@ export function preparer(d: Detection, opts: OptionsImport, lim: LimitesImport):
       couche = { id: c.id, nom: c.nom };
       coucheCle = c.cle;
     }
+  } else if (conv) {
+    // Selection deja faite par detecterConvertie (COUCHE_INTROUVABLE, CRS_MULTIPLES) ; l'identifiant est celui de l'inventaire du job.
+    nbCouches = d.selection!.length;
+    if (opts.couche !== undefined) couche = { id: d.selection![0].id, nom: d.selection![0].nom };
   } else if (opts.couche !== undefined) {
     if (opts.couche !== "c0") throw new ErreurLecture("COUCHE_INTROUVABLE", `ce format n'a qu'une couche, « c0 » (demande : « ${opts.couche.slice(0, 40)} »)`);
     couche = { id: "c0", nom: d.format === "CSV" ? "Table CSV" : "(fichier entier)" };
@@ -376,7 +453,7 @@ export function preparer(d: Detection, opts: OptionsImport, lim: LimitesImport):
     if (choix.origine === "choisi_par_utilisateur" && !choix.transformer && csv.maxAbsCoordonnee > 180) {
       throw new ErreurLecture("CRS_INCOHERENT", `le CRS declare est geographique (EPSG:${choix.epsg}, degres) mais les coordonnees atteignent ${Math.round(csv.maxAbsCoordonnee)} : ce sont probablement des metres d'un CRS projete (par exemple EPSG:32629 pour l'UTM 29N). Aucun CRS n'est devine : choisissez le bon epsgSource`);
     }
-  } else if (d.format === "GEOJSON") {
+  } else if (d.format === "GEOJSON" || conv) {
     traverserGeoJson(d.doc!, filtre);
   } else {
     gpx = parcourirCouches(d, filtre);
@@ -408,12 +485,14 @@ export function preparer(d: Detection, opts: OptionsImport, lim: LimitesImport):
       }
       if (choix.origine === "choisi_par_utilisateur") {
         avertissements.push({ code: "CRS_CHOISI_PAR_UTILISATEUR", message: `Le CRS source (EPSG:${choix.epsg}) a ete choisi par l'utilisateur : il n'est pas verifie par le fichier.` });
+      } else if (choix.origine === "declare_dans_le_fichier") {
+        avertissements.push({ code: "CRS_DECLARE_DANS_LE_FICHIER", message: `Le CRS source (EPSG:${choix.epsg}) est celui que le fichier declare.` });
       }
       const { propositions, avertissements: avMapping } = proposerChampsJeu(mapping, filtre.valeurs);
       avertissements.push(...avMapping);
 
       const nbHors = res.avertissements.find((a) => a.code === "ELEMENTS_HORS_GUINEE")?.nb ?? 0;
-      const confirmationApplicable = d.format === "CSV" || choix.origine === "choisi_par_utilisateur";
+      const confirmationApplicable = d.format === "CSV" || choix.origine === "choisi_par_utilisateur" || conv !== undefined;
       const confirmationRequise = confirmationApplicable && nbHors > 0;
       if (confirmationRequise && !opts.confirmerHorsZone) {
         throw new ErreurMetier(409, "CONFIRMATION_HORS_ZONE_REQUISE",
@@ -426,13 +505,19 @@ export function preparer(d: Detection, opts: OptionsImport, lim: LimitesImport):
         statut: nbHors > 0 ? "PARTIELLEMENT_HORS_ZONE" : "CONFORME", confirmationRequise, confirmee: confirmationRequise && opts.confirmerHorsZone === true,
       };
       const geo = choix.epsg === EPSG_CIBLE;
+      // Fichier converti : la transformation a ete faite par GDAL/PROJ dans le conteneur ; la meta du CRS source vient de la base (resoudreCrs), jamais devinee.
+      const metaSource: MetaCrs = conv ? (conv.metaSource ?? { epsg: choix.epsg, nom: d.selection![0].crsSource?.nom ?? `EPSG:${choix.epsg}`, unite: "inconnue", geographique: geo }) : meta;
       const crs: InfoCrsImport = {
-        source: geo ? "WGS84 (EPSG:4326)" : libelleCrs(meta),
+        source: geo ? "WGS84 (EPSG:4326)" : libelleCrs(metaSource),
         cible: "EPSG:4326",
-        methode: libelleMethode(choix.transformer, versionProj),
-        justification: justification(d.format, choix, meta),
-        epsgSource: choix.epsg, epsgCible: EPSG_CIBLE, uniteSource: geo ? "degre" : meta.unite, uniteCible: "degre",
-        origine: choix.origine, transformation: choix.transformer ? "ST_Transform" : "aucune", versionProj: choix.transformer ? versionProj : null,
+        methode: conv
+          ? (geo ? "aucune transformation" : `GDAL ${conv.gdal.version}${conv.gdal.proj ? ` / PROJ ${conv.gdal.proj}` : ""} (conteneur isole)`)
+          : libelleMethode(choix.transformer, versionProj),
+        justification: justification(d.format, choix, metaSource, conv),
+        epsgSource: choix.epsg, epsgCible: EPSG_CIBLE, uniteSource: geo ? "degre" : metaSource.unite, uniteCible: "degre",
+        origine: choix.origine,
+        transformation: conv ? (geo ? "aucune" : "GDAL_PROJ") : choix.transformer ? "ST_Transform" : "aucune",
+        versionProj: conv ? (geo ? null : conv.gdal.proj) : choix.transformer ? versionProj : null,
         plausibilite,
       };
       return {
@@ -445,6 +530,13 @@ export function preparer(d: Detection, opts: OptionsImport, lim: LimitesImport):
             nbLignes: csv.nbLignes, nbLignesRejetees: csv.nbLignesRejetees,
           } : null,
           mapping, rejets: csv?.rejets ?? [], rejetsTronques: csv?.rejetsTronques ?? false,
+          ...(conv ? {
+            conversion: {
+              jobId: conv.jobId, formatSource: conv.format, gdal: conv.gdal, source: conv.source, couches: d.selection!.map((c) => c.id),
+              crsSource: d.selection![0].crsSource,
+              dxf: conv.dxf ? { unitesDeclarees: conv.dxf.unitesDeclarees, insunits: conv.dxf.insunits, lues: conv.dxf.lues, ignorees: conv.dxf.ignorees, blocs: conv.dxf.blocs } : null,
+            },
+          } : {}),
         },
         propositionsJeu: propositions, archive: d.archive,
         detection: { extensionDeclaree: d.extensionDeclaree, extensionCoherente: d.extensionCoherente },

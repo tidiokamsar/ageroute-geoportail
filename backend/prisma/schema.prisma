@@ -4250,6 +4250,10 @@ enum FormatJeuProjet {
   KMZ
   GPX
   CSV
+  /// Lot B2 (migration 20261102200000) : formats d'ingenierie convertis par la chaine GDAL isolee (job asynchrone) puis lus par le pipeline commun.
+  GPKG
+  SHAPEFILE
+  DXF
 }
 
 /// PUBLIC et INTERNE ne rendent rien public dans ce lot : le module reste entierement derriere la cle de module.
@@ -5034,4 +5038,52 @@ model ReseauRelation {
   @@index([sourceObjetId])
   @@index([cibleObjetId])
   @@map("reseau_relations")
+}
+
+/// Lot B2 : statut d'un job de conversion GDAL. Les transitions sont imposees par un declencheur de la base (migration 20261102200000).
+enum StatutJobImportProjet {
+  EN_ATTENTE
+  EN_COURS
+  TERMINE
+  ECHEC
+  ANNULE
+  EXPIRE
+}
+
+/// Job de conversion GDAL (GeoPackage, Shapefile ZIP, DXF) d'un projet de voirie. Les fichiers vivent dans le spool, jamais en base ; le resume ne porte
+/// aucune coordonnee d'objet. Pas de suppression physique. Contrat : docs/projets-voirie/CONTRAT-IMPORT.md section 13 et API.md.
+model JobImportProjet {
+  id            String                @id @default(uuid())
+  projetId      String
+  creeParId     String
+  format        FormatJeuProjet
+  statut        StatutJobImportProjet @default(EN_ATTENTE)
+  nomFichier    String
+  sha256        String
+  tailleOctets  Int
+  /// Choix de l'utilisateur (epsgSource, unitesDxf). Jamais de geometrie.
+  parametres    Json                  @default("{}")
+  etape         String?
+  progression   Int                   @default(0)
+  codeErreur    String?
+  messageErreur String?
+  tentatives    Int                   @default(0)
+  tentativesMax Int                   @default(3)
+  /// Dossier du spool de la tentative courante (<id>-t<n>).
+  spoolId       String?
+  reclameLe     DateTime?
+  finLe         DateTime?
+  expireLe      DateTime
+  purgeLe       DateTime?
+  resume        Json?
+  jeuId         String?
+  annuleParId   String?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @default(now()) @updatedAt
+
+  @@index([projetId, createdAt])
+  @@index([statut, expireLe])
+  @@index([creeParId, statut])
+  @@index([jeuId])
+  @@map("projets_voirie_import_jobs")
 }

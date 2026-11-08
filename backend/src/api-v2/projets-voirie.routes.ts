@@ -14,6 +14,8 @@ import { carte } from "../projets-voirie/carte.service";
 import { reserverReception } from "../projets-voirie/limiteurs";
 import { monterRoutesConflits } from "./projets-voirie.conflits.routes";
 import { champsImport, monterRoutesImport, optionsDepuis } from "./projets-voirie.import.routes";
+import { monterRoutesGdal, sourceConvertie } from "./projets-voirie.gdal.routes";
+import { consommerDansTx, purgerApresDepot } from "../projets-voirie/gdal/jobs.service";
 import { monterRoutesWorkflow } from "./projets-voirie.workflow.routes";
 import { gardeReferent } from "../projets-voirie/workflow/garde";
 import { monterRoutesReseaux } from "./projets-voirie.reseaux.routes";
@@ -264,12 +266,17 @@ projetsVoirieV2Router.post("/:id/jeux", ecriture, gardeProjet, placeDeReception,
   if (!q.success) return refuser(res, q.error);
   const c = champsDepot.safeParse(req.body);
   if (!c.success) return refuser(res, c.error, "CHAMPS_INVALIDES");
-  if (!req.file) { res.status(400).json({ error: "Fichier manquant (champ multipart « fichier »)", code: "FICHIER_MANQUANT" }); return; }
+  // Lot B2 : `jobId` = resultat valide d'une conversion GDAL (GeoPackage, Shapefile ZIP, DXF) a la place du fichier ; MEME depot ensuite (quarantaine, CRS, delta).
+  const src = c.data.jobId !== undefined ? await sourceConvertie(req.params.id, c.data.jobId, c.data.couche, req.file !== undefined) : null;
+  if (!src && !req.file) { res.status(400).json({ error: "Fichier manquant (champ multipart « fichier »)", code: "FICHIER_MANQUANT" }); return; }
+  const acteur = acteurDe(req);
   const r = await deposerJeu({
-    acteur: acteurDe(req), projetId: req.params.id, fichier: req.file.buffer, nomFichier: req.file.originalname, champs: c.data, simuler: q.data.simuler,
+    acteur, projetId: req.params.id, fichier: src ? Buffer.alloc(0) : req.file!.buffer, nomFichier: src ? src.nomFichier : req.file!.originalname, champs: c.data, simuler: q.data.simuler,
     // Lot A1 : couche, CRS, colonnes CSV, mapping, confirmation, empreinte attendue (CONTRAT-IMPORT.md).
     options: optionsDepuis(c.data), sha256Attendu: c.data.sha256Attendu,
+    ...(src ? { conversion: src.conversion, apresDepot: (tx, jeuId) => consommerDansTx(tx, src.job.id, jeuId, acteur) } : {}),
   });
+  if (src && !r.simulation) await purgerApresDepot(src.job.id);
   res.status(r.simulation ? 200 : 201).json(r);
 }));
 
@@ -377,6 +384,8 @@ monterRoutesConflits(projetsVoirieV2Router, { ecriture, administrateur, gardePro
 // ------------------------------------------------------------------------------------------------
 
 monterRoutesImport(projetsVoirieV2Router, { ecriture, gardeProjet, acteurDe, enveloppe, refuser, placeDeReception, recevoir });
+// Jobs de conversion GDAL (lot B2) : memes gardes, meme ordre (voir projets-voirie.gdal.routes.ts). Interrupteur PROJETS_VOIRIE_GDAL, desactive par defaut.
+monterRoutesGdal(projetsVoirieV2Router, { ecriture, gardeProjet, acteurDe, enveloppe, refuser, placeDeReception, recevoir });
 // Workflow concessionnaire, referents, taches, preuves et recolement (lot B3). Memes gardes, meme ordre (voir projets-voirie.workflow.routes.ts).
 // ------------------------------------------------------------------------------------------------
 

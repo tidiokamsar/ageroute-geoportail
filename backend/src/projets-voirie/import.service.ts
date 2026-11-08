@@ -26,7 +26,8 @@ import { META_WGS84 } from "./formats/crs.noyau";
 import { resoudreCrs, transformerSommets, versionProj } from "./formats/crs.service";
 import { classerRaison, type Probleme } from "./formats/validation.noyau";
 import { LISTE_MAX, limitesImport, modeConservationOriginal } from "./formats/import.config";
-import { detecter, preparer, type OptionsImport, type Preparation, type ResultatImport } from "./formats/lecture-import.noyau";
+import { detecter, detecterConvertie, preparer, type OptionsImport, type Preparation, type ResultatImport } from "./formats/lecture-import.noyau";
+import type { ConversionValidee } from "./gdal/conversion.noyau";
 import { deltaEntreJeux, type DeltaJeux } from "./formats/versions.depot";
 import type { PropositionJeu } from "./formats/mapping.noyau";
 import type { Avertissement, ObjetLu, TypeGeom } from "./lecture.types";
@@ -65,7 +66,17 @@ export interface DemandeDepot {
   options?: OptionsImport;
   /** Lot A1 : empreinte attendue (garde contre un fichier modifie entre l'apercu et le depot). */
   sha256Attendu?: string;
+  /**
+   * Lot B2 : resultat VALIDE d'une conversion GDAL. `fichier` est alors vide ; l'empreinte, la taille et le nom sont ceux du fichier d'origine du job. Le resultat
+   * entre dans le MEME pipeline (quarantaine, CRS, mapping, delta, revue des suppressions) : aucune seconde voie.
+   */
+  conversion?: ConversionValidee;
+  /** Lot B2 : appele DANS la transaction du depot reel (jamais en simulation), apres l'insertion : consomme le job (un seul depot par job). */
+  apresDepot?: (tx: Tx, jeuId: string) => Promise<void>;
 }
+
+/** Taille du fichier d'origine : celle du job pour une conversion, sinon celle du fichier recu. */
+const tailleDe = (d: DemandeDepot): number => (d.conversion ? d.conversion.source.octets : d.fichier.length);
 
 /** Ce que renvoie le depot en plus du socle : delta detaille, suppressions a revoir, validation geometrique. */
 export interface Suppressions { statut: "AUCUNE" | "A_REVOIR"; nb: number }
@@ -189,14 +200,14 @@ function controlerLecture(c: ChampsDepot, lecture: ResultatImport): void {
 }
 
 export async function deposerJeu(d: DemandeDepot): Promise<ResultatDepot> {
-  const sha256 = createHash("sha256").update(d.fichier).digest("hex");
+  const sha256 = d.conversion ? d.conversion.source.sha256 : createHash("sha256").update(d.fichier).digest("hex");
   if (d.sha256Attendu !== undefined && d.sha256Attendu !== sha256) {
     throw new ErreurMetier(409, "EMPREINTE_DIVERGENTE", "Le fichier envoyé n'est pas celui de l'aperçu (empreinte SHA-256 différente) : relancez l'aperçu avec ce fichier.", { sha256 });
   }
   const options = d.options ?? {};
   const limites = limitesImport();
   // Lecture AVANT toute connexion a la base : un fichier refuse ne consomme ni transaction ni place dans le limiteur.
-  const preparation = preparer(detecter(d.fichier, d.nomFichier, options, limites), options, limites);
+  const preparation = preparer(d.conversion ? detecterConvertie(d.conversion, options) : detecter(d.fichier, d.nomFichier, options, limites), options, limites);
   const c = d.champs;
   natureEffective(c.role, c.natureObjets);
   // Un concessionnaire peut venir du mapping (colonne `concessionnaire`) : il est alors resolu dans la transaction.
@@ -318,7 +329,7 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
   await tx.jeuDonneesProjet.create({
     data: {
       id, projetId: d.projetId, role: c.role, concessionnaireId: concId, typeReseau,
-      nomFichier: d.nomFichier.slice(0, 255), format: lecture.format, sha256, tailleOctets: d.fichier.length, nbObjets: 0,
+      nomFichier: d.nomFichier.slice(0, 255), format: lecture.format, sha256, tailleOctets: tailleDe(d), nbObjets: 0,
       dateDonnees: dateJour(c.dateDonnees), origineFichier: c.origineFichier ?? null,
       classePrecision: c.classePrecision ?? null, precisionHorizontaleM: c.precisionHorizontaleM ?? null, precisionVerticaleM: c.precisionVerticaleM ?? null,
       methode: c.methode ?? null, dateConstat: dateJour(c.dateConstat), natureObjets: nature,
@@ -348,7 +359,8 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
     delta = { ajoutes: dj.ajoutes, modifies: dj.modifies, retires: dj.retires, identiques: dj.identiques };
     suppressions = { statut: dj.retires > 0 ? "A_REVOIR" : "AUCUNE", nb: dj.retires };
   }
-  const conservation = modeConservationOriginal();
+  // Un fichier converti n'est jamais conserve en entier : seuls l'empreinte et la taille du fichier d'origine le sont (le spool est purge).
+  const conservation = d.conversion ? "EMPREINTE_SEULE" : modeConservationOriginal();
   const validationGeometrique: ValidationGeometrique = { nbProblemes: bilan.reparees, problemes: bilan.problemes, tronque: bilan.reparees > bilan.problemes.length, elementsEcartes: lecture.ecartes };
 
   const resume = {
@@ -373,7 +385,7 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
   });
   // Fichier d'origine : seulement si la configuration le demande (retention a decider ; defaut : empreinte seule, comme le socle).
   if (conservation === "STOCKE" && !d.simuler) {
-    await tx.fichierOrigineJeuProjet.create({ data: { jeuId: id, sha256, tailleOctets: d.fichier.length, contenu: d.fichier } });
+    await tx.fichierOrigineJeuProjet.create({ data: { jeuId: id, sha256, tailleOctets: tailleDe(d), contenu: d.fichier } });
   }
 
   const jeu = await tx.jeuDonneesProjet.findUniqueOrThrow({ where: { id }, include: INCLURE_JEU });
@@ -388,12 +400,13 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
     validationGeometrique,
   };
   if (d.simuler) throw new SimulationTerminee(resultat);
+  if (d.apresDepot) await d.apresDepot(tx, id);
 
   await logAuditTransactionnelle(tx, {
     userId: d.acteur.id, action: "CREATE", entityType: "JeuDonneesProjet", entityId: id,
     after: {
       projetId: d.projetId, role: c.role, concessionnaireId: concId, nomFichier: jeu.nomFichier, format: lecture.format, sha256,
-      tailleOctets: d.fichier.length, nbObjets: mesures.nbObjets, longueurTraceFusionneM: mesures.longueurTraceFusionneM,
+      tailleOctets: tailleDe(d), nbObjets: mesures.nbObjets, longueurTraceFusionneM: mesures.longueurTraceFusionneM,
       version, statut: "CONTROLE", confidentialite: jeu.confidentialite, natureObjets: nature, classePrecision: c.classePrecision ?? null,
       origineFichier: c.origineFichier ?? null, remplaceId: remplace?.id ?? null, delta, suppressions,
       avertissements: avertissements.map((a) => ({ code: a.code, nb: a.nb ?? null })),
@@ -408,6 +421,8 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
         champsDepuisMapping: Object.fromEntries(Object.entries(mappe.depuisMapping).map(([k, v]) => [k, v.colonne])),
         csv: lecture.importInfo.csv ? { mode: lecture.importInfo.csv.mode, delimiteur: lecture.importInfo.csv.delimiteur, encodage: lecture.importInfo.csv.encodage, nbLignesRejetees: lecture.importInfo.csv.nbLignesRejetees } : null,
         conservationOriginal: conservation,
+        // Lot B2 : provenance d'une conversion GDAL (job, version de GDAL et de PROJ, couches lues, comptes DXF) : jamais de geometrie.
+        conversion: lecture.importInfo.conversion ?? null,
       },
     },
     ipAddress: d.acteur.ip,
