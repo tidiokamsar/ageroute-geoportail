@@ -84,3 +84,7 @@ Chaque format n'est activé qu'avec son test réel, son guide et son rapport de 
 ## 5. Points de déploiement
 
 D1 socle, D2 formats simples et conflits persistés, D3 réseaux, GDAL et workflow, D4 exploitation. Chacun : revue indépendante, suites complètes, sauvegarde vérifiée, procédure de retour arrière, validation humaine à l'étape 9.
+
+## 6. Vague 3 (decidee le 08/11/2026, voir `DECISION-ARCHITECTURALE-2.md`)
+
+Module national configurable, multi-sources, tolerant aux documents manquants. Lots T1 (territoires et referentiels), D1 (completude documentaire, LandXML, DWG et PDF comme documents), S1 (multi-sources, comparaison, connectivite declarative), X1 (export de dossier technique, tableaux de bord), UI-C (interface), C1 bis (tests de bout en bout multi-territoires). Ordre, migrations et dependances : section 10 de la decision. Les decisions techniques sont prises par l'architecte et documentees ; seules les actions irreversibles sur la production restent soumises a l'autorisation du DSI.
