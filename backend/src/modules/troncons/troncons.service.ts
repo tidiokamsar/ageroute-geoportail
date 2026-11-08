@@ -67,6 +67,10 @@ export interface TronconListParams extends ListParams {
   region?: string;
   etat?: string;
   classe?: string;
+  /** Corridor entre deux points (latA,lonA,latB,lonB en degres) : ne gardent que les
+   *  troncons qui touchent une bande autour du segment droit A->B. C'est la meme
+   *  geometrie que /itineraire (tampon 20 km), servie ici comme FILTRE de liste. */
+  corridor?: { latA: number; lonA: number; latB: number; lonB: number; rayonM?: number };
   revetement?: string;
   /** « non_renseigne » : PK 0 -> 0, la facon dont l'absence a ete saisie (les colonnes sont obligatoires). */
   pk?: "non_renseigne" | "renseigne";
