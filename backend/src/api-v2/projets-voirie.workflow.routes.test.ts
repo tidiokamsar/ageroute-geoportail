@@ -162,7 +162,7 @@ afterAll(() => _installerResolveurCompte(null));
 const avec = (r: request.Test, compte: string | null) => (compte ? r.set("Authorization", `Bearer ${jeton(compte)}`) : r);
 const appelsDe = (nom: string) => w.appels.filter((a) => a.nom === nom);
 
-type M = "get" | "post" | "patch";
+type M = "get" | "post" | "patch" | "delete";
 interface Route { m: M; chemin: string; corps?: object; service: string; succes: number; profils: string[] }
 const W = `/${P1}/workflow`;
 const DEC = ["ADMIN", "GEST"], TOUS_LECTURE = ["ADMIN", "GEST", "REF"];
