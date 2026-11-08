@@ -38,6 +38,9 @@ export type StatutRelation = (typeof STATUTS_RELATION)[number];
 export const ORIGINES_RELATION = ["AUTOMATIQUE", "MANUELLE"] as const;
 export type OrigineRelation = (typeof ORIGINES_RELATION)[number];
 
+/** Un identifiant d'objet (`bigint` de la base, rendu en TEXTE) : entier positif sur au plus 18 chiffres, la seule forme acceptee sans debordement. */
+export const ID_OBJET = /^[1-9][0-9]{0,17}$/;
+
 /** Longueur minimale d'une justification humaine (comme les autres decisions du module). */
 export const JUSTIFICATION_MIN = 10;
 

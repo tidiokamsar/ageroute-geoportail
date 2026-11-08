@@ -328,9 +328,17 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
     "POST /api/v2/projets-voirie/:id/conflits/:cid/decisions": ["ADMIN", "GESTIONNAIRE"],
     "POST /api/v2/projets-voirie/:id/conflits/:cid/decisions/:did/approuver": ["ADMIN", "GESTIONNAIRE"],
     "POST /api/v2/projets-voirie/:id/conflits/:cid/decisions/:did/refuser": ["ADMIN", "GESTIONNAIRE"],
+    // Reseaux physiques et circuits logiques (lot B1) : descripteurs d'objets, relations, propositions d'associations. Toutes les ecritures sont auditees ;
+    // le comptage et les listes sont des lectures, limitees aux jeux que le compte peut lire (prouve par le banc PostGIS reseau-physique-logique).
+    "PUT /api/v2/projets-voirie/:id/reseau/objets/:objetId/descripteur": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/reseau/relations": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/reseau/relations/:relId/valider": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/reseau/relations/:relId/refuser": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/reseau/relations/:relId/revoquer": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/reseau/associations/proposer": ["ADMIN", "GESTIONNAIRE"],
   };
 
-  it("expose exactement les 15 routes du socle et les 16 des dossiers de conflit, ni plus (aucun export de geometrie, aucune route d'ordre ou de deplacement), ni moins", () => {
+  it("expose exactement les 15 routes du socle, les 16 des dossiers de conflit et les 10 des reseaux, ni plus (aucun export de geometrie, aucune route d'ordre ou de deplacement), ni moins", () => {
     expect(pv.map(cle).sort()).toEqual([
       "DELETE /api/v2/projets-voirie/:id", "DELETE /api/v2/projets-voirie/:id/jeux/:jeuId",
       "GET /api/v2/projets-voirie", "GET /api/v2/projets-voirie/:id", "GET /api/v2/projets-voirie/:id/analyse",
@@ -346,6 +354,13 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
       "PATCH /api/v2/projets-voirie/:id/conflits/:cid", "POST /api/v2/projets-voirie/:id/conflits/:cid/statut", "POST /api/v2/projets-voirie/:id/conflits/:cid/preuves",
       "POST /api/v2/projets-voirie/:id/conflits/:cid/decisions", "POST /api/v2/projets-voirie/:id/conflits/:cid/decisions/:did/approuver",
       "POST /api/v2/projets-voirie/:id/conflits/:cid/decisions/:did/refuser",
+      // Reseaux physiques et circuits logiques (lot B1, CONTRAT-RESEAUX.md, section 5)
+      "GET /api/v2/projets-voirie/:id/reseau/objets", "GET /api/v2/projets-voirie/:id/reseau/objets/:objetId",
+      "PUT /api/v2/projets-voirie/:id/reseau/objets/:objetId/descripteur",
+      "GET /api/v2/projets-voirie/:id/reseau/relations", "POST /api/v2/projets-voirie/:id/reseau/relations",
+      "POST /api/v2/projets-voirie/:id/reseau/relations/:relId/valider", "POST /api/v2/projets-voirie/:id/reseau/relations/:relId/refuser",
+      "POST /api/v2/projets-voirie/:id/reseau/relations/:relId/revoquer",
+      "POST /api/v2/projets-voirie/:id/reseau/associations/proposer", "GET /api/v2/projets-voirie/:id/reseau/comptage",
     ].sort());
     // Aucune route ne cree d'ordre, de deplacement ni de decision automatique.
     expect(pv.filter((l) => /ordre|deplac|ordonn/i.test(l.chemin))).toEqual([]);

@@ -13,6 +13,7 @@ import { analyser, exporterCsv } from "../projets-voirie/analyse.service";
 import { carte } from "../projets-voirie/carte.service";
 import { reserverReception } from "../projets-voirie/limiteurs";
 import { monterRoutesConflits } from "./projets-voirie.conflits.routes";
+import { monterRoutesReseaux } from "./projets-voirie.reseaux.routes";
 import { deposerJeu } from "../projets-voirie/import.service";
 import {
   creerConcessionnaire, creerProjet, decider, decoderCurseur, ficheProjet, listerConcessionnaires, listerJeux, listerProjets,
@@ -363,3 +364,10 @@ projetsVoirieV2Router.get("/:id/analyse/export.csv", ecriture, gardeProjet, enve
 // ------------------------------------------------------------------------------------------------
 
 monterRoutesConflits(projetsVoirieV2Router, { ecriture, administrateur, gardeProjet, acteurDe, enveloppe, refuser, UUID });
+
+// ------------------------------------------------------------------------------------------------
+// Reseaux physiques et circuits logiques (lot B1) : descripteurs d objets, relations, propositions d associations, comptage par nature.
+// Memes gardes, meme ordre (voir projets-voirie.reseaux.routes.ts).
+// ------------------------------------------------------------------------------------------------
+
+monterRoutesReseaux(projetsVoirieV2Router, { ecriture, gardeProjet, acteurDe, enveloppe, refuser, UUID });

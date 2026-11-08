@@ -190,6 +190,27 @@ export function supportsDesCircuits(circuitsIds: readonly string[], liaisons: re
   return { avecSupportValide: valide, avecPropositionSeulement: propose, sansSupportConnu: circuitsIds.length - valide - propose };
 }
 
+export interface JeuARetenir { id: string; role: string; concessionnaireId: string | null; statut: string; createdAt: Date }
+
+/**
+ * Jeux a compter. Par defaut les seuls jeux AUTORISE. Avec `inclureNonAutorises` (ADMIN et GESTIONNAIRE), un jeu en attente REMPLACE, pour ce
+ * comptage seulement, le jeu autorise de meme role et de meme concessionnaire : on ne compte JAMAIS deux fois le meme reseau (meme regle que
+ * l'analyse du socle). Le role AUTRE admet plusieurs fichiers libres : tous sont retenus.
+ */
+export function retenirJeux<T extends JeuARetenir>(jeux: readonly T[], inclureNonAutorises: boolean): T[] {
+  const lisibles = jeux.filter((j) => (inclureNonAutorises ? ["AUTORISE", "CONTROLE", "RECU"] : ["AUTORISE"]).includes(j.statut));
+  const parCle = new Map<string, T>();
+  const autres: T[] = [];
+  for (const j of lisibles) {
+    if (j.role === "AUTRE") { autres.push(j); continue; }
+    const cle = `${j.role}|${j.concessionnaireId ?? ""}`;
+    const c = parCle.get(cle);
+    const enAttente = j.statut !== "AUTORISE";
+    if (!c || (enAttente && c.statut === "AUTORISE") || (enAttente === (c.statut !== "AUTORISE") && j.createdAt > c.createdAt)) parCle.set(cle, j);
+  }
+  return [...parCle.values(), ...autres].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+}
+
 /** Comptage de reference sur geometrie plane (metres). Une nature absente de la liste donne un bloc a zero. */
 export function comptabiliser(objets: readonly ObjetCompte[], liaisons: readonly LiaisonCompte[] = []): Comptage {
   const de = (n: NatureComptee) => objets.filter((o) => o.nature === n);

@@ -19,7 +19,7 @@ import type { Acteur } from "./projets.service";
 export const NIVEAUX_TRACES = ["CONFIDENTIEL_CONCESSIONNAIRE", "INFRASTRUCTURE_SENSIBLE"] as const;
 
 export interface JeuConsulte { id: string; confidentialite: string; nbObjets: number }
-export interface ContexteConsultation { route: "carte" | "analyse" | "conflits"; bbox: number[] | null; zoom: number | null }
+export interface ContexteConsultation { route: "carte" | "analyse" | "conflits" | "reseau"; bbox: number[] | null; zoom: number | null }
 
 /** Ecrit les lignes d'audit manquantes ; rend le nombre de lignes ecrites. */
 export async function tracerConsultation(acteur: Acteur, jeux: readonly JeuConsulte[], ctx: ContexteConsultation): Promise<number> {
