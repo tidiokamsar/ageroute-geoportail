@@ -72,6 +72,8 @@ const EXTENSIONS_ATTENDUES: Record<string, FormatFichier> = {
   kml: "KML", kmz: "KMZ", geojson: "GEOJSON", json: "GEOJSON", gpx: "GPX", csv: "CSV", tsv: "CSV", txt: "CSV", psv: "CSV",
 };
 const ENTREES_VUES_MAX = 200;
+/** Couches listees dans la reponse d'inventaire (O6) : la liste est bornee, le total reste annonce ; les couches au-dela restent choisissables par leur identifiant. */
+export const COUCHES_REPONSE_MAX = 200;
 const CHOIX_FORMATS = "KML, KMZ, GeoJSON, GPX ou tableau delimite (CSV, TSV, TXT)";
 
 function premierOctetUtile(b: Buffer): number {
@@ -96,7 +98,11 @@ export function detecter(contenu: Buffer, nomFichier: string, opts: OptionsImpor
     const octet = premierOctetUtile(contenu);
     if (octet === -1) throw new ErreurLecture("FICHIER_VIDE", "le fichier ne contient que des blancs");
     const utf16 = (contenu[0] === 0xff && contenu[1] === 0xfe) || (contenu[0] === 0xfe && contenu[1] === 0xff);
-    if (utf16 || octet === 0x3c /* < */ || octet === 0x7b /* { */) {
+    // Revue de la vague 1, m2 : un contenu UTF-16 (BOM) n'est pas forcement du XML ou du JSON ; son premier caractere utile, une fois decode,
+    // decide (un tableau CSV enregistre en UTF-16 par un tableur est lu comme un CSV). Un contenu blanc reste traite par la branche texte (FICHIER_VIDE).
+    const premierUtf16 = utf16 ? textePropre(decoderTexte(contenu)).trimStart()[0] : undefined;
+    const texteStructure = utf16 ? premierUtf16 === undefined || premierUtf16 === "<" || premierUtf16 === "{" : octet === 0x3c /* < */ || octet === 0x7b /* { */;
+    if (texteStructure) {
       const texte = textePropre(decoderTexte(contenu));
       const nettoye = texte.trimStart();
       if (nettoye === "") throw new ErreurLecture("FICHIER_VIDE", "le fichier ne contient que des blancs");
@@ -182,7 +188,11 @@ export interface InventaireFichier {
   format: FormatFichier;
   detection: { methode: "contenu"; extensionDeclaree: string | null; extensionCoherente: boolean };
   archive: InfoArchive | null;
+  /** Les `COUCHES_REPONSE_MAX` premieres couches, dans l'ordre du fichier (revue de la vague 1, O6). */
   couches: { id: string; nom: string; nbObjets: number; parTypeGeom: { LIGNE: number; POINT: number; POLYGONE: number } }[];
+  /** Nombre TOTAL de couches du fichier ; `couchesTronquees` : la liste ci-dessus n'est pas complete. */
+  nbCouches: number;
+  couchesTronquees: boolean;
   csv: InfoCsvInventaire | null;
   crs: { normeDuFormat: string | null; declareDansLeFichier: string | null; choixObligatoire: boolean };
   champsDisponibles: string[];
@@ -253,13 +263,19 @@ export function inventorier(d: Detection): InventaireFichier {
     choixObligatoire = true;
     if (d.csv.renommees > 0) avertissements.push({ code: "COLONNES_RENOMMEES", message: "Colonnes sans nom, en double ou trop longues renommees.", nb: d.csv.renommees });
   }
+  const nbCouches = couches.length;
   if (couches.filter((c) => c.nbObjets > 0).length > 1) {
-    avertissements.push({ code: "COUCHES_MULTIPLES", message: `Le fichier contient ${couches.length} couches : sans choix (couche), toutes seraient importees.`, nb: couches.length });
+    avertissements.push({ code: "COUCHES_MULTIPLES", message: `Le fichier contient ${nbCouches} couches : sans choix (couche), toutes seraient importees.`, nb: nbCouches });
+  }
+  const couchesTronquees = nbCouches > COUCHES_REPONSE_MAX;
+  if (couchesTronquees) {
+    avertissements.push({ code: "COUCHES_TRONQUEES", message: `La liste des couches est limitee a ${COUCHES_REPONSE_MAX} sur ${nbCouches} : les suivantes se choisissent par leur identifiant (c${COUCHES_REPONSE_MAX}, c${COUCHES_REPONSE_MAX + 1}...).`, nb: nbCouches });
+    couches = couches.slice(0, COUCHES_REPONSE_MAX);
   }
   return {
     format: d.format,
     detection: { methode: "contenu", extensionDeclaree: d.extensionDeclaree, extensionCoherente: d.extensionCoherente },
-    archive: d.archive, couches, csv,
+    archive: d.archive, couches, nbCouches, couchesTronquees, csv,
     crs: { normeDuFormat: d.format === "CSV" ? null : "EPSG:4326", declareDansLeFichier: declare, choixObligatoire },
     champsDisponibles: champs.slice(0, 500),
     suggestionsMapping: suggererMapping(champs),
