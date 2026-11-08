@@ -1,6 +1,6 @@
 /* eslint-disable jsx-a11y/no-noninteractive-tabindex -- zone de defilement focusable au clavier (WCAG 2.1.1, regle axe scrollable-region-focusable) */
 import { useId, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, Navigate, useNavigate } from "react-router-dom";
 import { FolderPlus, Search } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
@@ -27,6 +27,8 @@ export function ProjetsVoirieListePage() {
   const projets = requete.data?.pages.flatMap((p) => p.projets) ?? [];
   const peutEcrire = peutEcrireProjets(user?.role);
   const erreur = requete.isError ? classerErreur(requete.error) : null;
+  // Un compte rattache a un concessionnaire (referent) n'ouvre que l'ecran des echanges : redirection, sans message d'erreur brut.
+  if (erreur?.code === "COMPTE_REFERENT_RESTREINT") return <Navigate to="/projets-voirie/echanges" replace />;
 
   return (
     <div className="space-y-4">

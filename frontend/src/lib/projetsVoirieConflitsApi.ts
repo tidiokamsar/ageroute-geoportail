@@ -2,6 +2,7 @@ import type { Geometry } from "geojson";
 import { api } from "./api";
 import { downloadViaApi } from "./download";
 import { ReponseInattendue } from "./projetsVoirieApi";
+import { QUALIFICATIONS_CIBLE, type CibleConflit, type QualificationCible } from "./projetsVoirieReseaux";
 import {
   CLASSES_PRECISION, TYPES_RESEAU, lireBbox, versNombre,
   type Bbox, type ClassePrecision, type TypeReseau,
@@ -57,6 +58,8 @@ export interface ConflitResume {
   bbox: Bbox | null;
   /** Vrai quand le serveur masque la geometrie a ce compte (jeu de reseau retire ou non autorise). */
   geometrieMasquee: boolean;
+  /** Nature de l'objet concerne (lot B1) : infrastructure physique, circuit logique (avec ou sans support valide), equipement. `null` : masquee ou non fournie. */
+  cible: CibleConflit | null;
   statut: StatutConflit;
   risque: RisqueConflit | null;
   responsable: Personne | null;
@@ -74,6 +77,19 @@ export interface ConflitResume {
   tronconsProches: TronconProche[];
   createdAt: string | null;
   updatedAt: string | null;
+}
+
+/** Cible d'un dossier (lot B1) : `{ nature, origineNature, qualification, libelle, supportPhysique, tracePartagee }`. Jamais deduite : un champ absent reste `null`. */
+export function lireCible(v: unknown): CibleConflit | null {
+  if (!estObjet(v)) return null;
+  const nature = typeof v.nature === "string" && ["ACTIF_PHYSIQUE", "CIRCUIT_LOGIQUE", "EQUIPEMENT", "AXE", "EMPRISE", "INCONNUE"].includes(v.nature) ? (v.nature as CibleConflit["nature"]) : null;
+  const qualification = parmi(v.qualification, QUALIFICATIONS_CIBLE as readonly QualificationCible[]);
+  const sp = estObjet(v.supportPhysique) ? { valides: nombreOuNull(v.supportPhysique.valides), proposes: nombreOuNull(v.supportPhysique.proposes) } : null;
+  const c: CibleConflit = {
+    nature, origineNature: v.origineNature === "OBJET" || v.origineNature === "JEU" ? v.origineNature : "INCONNUE", qualification, libelle: texte(v.libelle), supportPhysique: sp,
+    tracePartagee: nombreOuNull(v.tracePartagee),
+  };
+  return c.nature || c.qualification ? c : null;
 }
 
 export type Compteurs = Partial<Record<StatutConflit, number>>;
@@ -303,6 +319,7 @@ export function lireConflitResume(v: unknown): ConflitResume | null {
     geom: lireGeom(v.geometrie ?? v.geom),
     bbox: lireBbox(v.bbox),
     geometrieMasquee: v.geometrieMasquee === true,
+    cible: lireCible(v.cible),
     statut,
     risque: parmi(v.risque, RISQUES_CONFLIT),
     responsable: lirePersonne(v.responsable, v.responsableId),
