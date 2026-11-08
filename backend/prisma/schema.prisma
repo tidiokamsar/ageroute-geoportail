@@ -4666,3 +4666,218 @@ model DecisionConflit {
   @@index([conflitId, statut])
   @@map("conflits_projet_decisions")
 }
+
+
+// ===================== WORKFLOW CONCESSIONNAIRE, REFERENTS, TACHES, PREUVES ET RECOLEMENT (lot B3) =====================
+// Contrat : docs/projets-voirie/CONTRAT-WORKFLOW.md. Migration 20261101300000_workflow_roles_recolement (additive, avec descente).
+// AUCUNE relation Prisma : les cles etrangeres (users, projets, concessionnaires, jeux, conflits, demandes) sont dans la migration seulement, pour que
+// ce bloc reste en fin de fichier sans toucher aux modeles existants (User, ProjetVoirie...). Hors schema.prisma (non representable, voir
+// docs/securite/DERIVE-SCHEMA.md) : les index uniques PARTIELS (un rattachement actif, un recolement en cours par conflit et par jeu), les declencheurs
+// (suppression refusee, ajout seul, identite et etats terminaux immuables) et les contraintes CHECK.
+// L'envoi d'une demande se fait HORS application : ces tables l'enregistrent, rien ne s'envoie.
+
+enum StatutDemandeConcessionnaire {
+  BROUILLON
+  ENVOYEE
+  RECUE
+  CLOTUREE
+  ANNULEE
+}
+
+enum StatutTacheProjet {
+  A_FAIRE
+  EN_COURS
+  A_VALIDER
+  TERMINEE
+  ANNULEE
+}
+
+enum PrioriteTacheProjet {
+  BASSE
+  NORMALE
+  HAUTE
+  URGENTE
+}
+
+enum StatutRecolementProjet {
+  BROUILLON
+  SOUMIS
+  VALIDE
+  REJETE
+}
+
+enum TypeObjetWorkflow {
+  DEMANDE
+  TACHE
+  RECOLEMENT
+}
+
+enum ActionHistoriqueWorkflow {
+  CREATION
+  MODIFICATION
+  STATUT
+  PREUVE
+}
+
+enum TypePreuveWorkflow {
+  NOTE
+  REFERENCE_DOCUMENT
+  COURRIER
+  REPONSE_CONCESSIONNAIRE
+  PLAN_RECOLEMENT
+  RELEVE_TERRAIN
+}
+
+/// Rattachement d'un COMPTE a un concessionnaire pour un projet : un attribut de compte, pas un role. Se revoque, ne se supprime pas.
+model ReferentConcessionnaire {
+  id                String    @id @default(uuid())
+  userId            String
+  concessionnaireId String
+  projetId          String
+  creeParId         String
+  motif             String
+  createdAt         DateTime  @default(now())
+  revoqueLe         DateTime?
+  revoqueParId      String?
+  motifRevocation   String?
+
+  @@index([userId])
+  @@index([projetId, concessionnaireId])
+  @@map("referents_concessionnaire")
+}
+
+/// Demande de donnees a un concessionnaire. L'envoi est FAIT HORS APPLICATION par une personne et enregistre ici.
+model DemandeConcessionnaire {
+  id                String                       @id @default(uuid())
+  projetId          String
+  concessionnaireId String
+  objet             String
+  description       String?
+  echeance          DateTime?                    @db.Date
+  statut            StatutDemandeConcessionnaire @default(BROUILLON)
+  canalEnvoi        String?
+  dateEnvoi         DateTime?                    @db.Date
+  referenceEnvoi    String?
+  interlocuteur     String?
+  envoyeParId       String?
+  envoyeLe          DateTime?
+  dateReception     DateTime?                    @db.Date
+  recueParId        String?
+  recueLe           DateTime?
+  jeuRecuId         String?
+  finParId          String?
+  finLe             DateTime?
+  motifFin          String?
+  creeParId         String
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @default(now()) @updatedAt
+
+  @@index([projetId, createdAt, id])
+  @@index([projetId, statut])
+  @@index([projetId, concessionnaireId])
+  @@index([jeuRecuId])
+  @@map("demandes_concessionnaire")
+}
+
+/// Tache liee a un projet, un conflit ou une demande. `concessionnaireId` (deduit du lien) ne partage rien : `partagee` rend la tache visible de ses referents.
+model TacheProjetVoirie {
+  id                String              @id @default(uuid())
+  projetId          String
+  titre             String
+  description       String?
+  conflitId         String?
+  demandeId         String?
+  concessionnaireId String?
+  partagee          Boolean             @default(false)
+  responsableId     String
+  echeance          DateTime?           @db.Date
+  statut            StatutTacheProjet   @default(A_FAIRE)
+  priorite          PrioriteTacheProjet @default(NORMALE)
+  validationRequise Boolean             @default(false)
+  termineLe         DateTime?
+  creeParId         String
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @default(now()) @updatedAt
+
+  @@index([projetId, createdAt, id])
+  @@index([projetId, statut])
+  @@index([projetId, concessionnaireId])
+  @@index([responsableId])
+  @@index([conflitId])
+  @@index([demandeId])
+  @@map("taches_projet_voirie")
+}
+
+/// Recolement (as-built) lie a un conflit dont un deplacement est decide et/ou a un jeu. Valide par un TIERS. Valider ne modifie ni le referentiel,
+/// ni un jeu, ni un conflit.
+model RecolementProjetVoirie {
+  id                   String                 @id @default(uuid())
+  projetId             String
+  conflitId            String?
+  jeuId                String?
+  concessionnaireId    String?
+  objet                String
+  constat              String?
+  ecarts               String?
+  dateRecolement       DateTime?              @db.Date
+  statut               StatutRecolementProjet @default(BROUILLON)
+  revision             Int                    @default(1)
+  soumisParId          String?
+  soumisLe             DateTime?
+  decideParId          String?
+  decideLe             DateTime?
+  motifDecision        String?
+  derogationSeparation String?
+  creeParId            String
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @default(now()) @updatedAt
+
+  @@index([projetId, createdAt, id])
+  @@index([projetId, statut])
+  @@index([projetId, concessionnaireId])
+  @@index([conflitId])
+  @@index([jeuId])
+  @@map("recolements_projet_voirie")
+}
+
+/// Preuve REFERENCEE (texte, reference, nom, empreinte SHA-256) : aucun fichier n'est stocke. Ajout seul (declencheur).
+model PreuveWorkflowProjet {
+  id           String             @id @default(uuid())
+  projetId     String
+  objetType    TypeObjetWorkflow
+  objetId      String
+  type         TypePreuveWorkflow
+  texte        String
+  reference    String?
+  nomFichier   String?
+  sha256       String?
+  tailleOctets Int?
+  partagee     Boolean            @default(false)
+  auteurId     String
+  auteurProfil String
+  createdAt    DateTime           @default(now())
+
+  @@index([objetType, objetId, createdAt])
+  @@index([projetId])
+  @@map("preuves_workflow_projet")
+}
+
+/// Historique du workflow : AJOUT SEUL (declencheur). `donnees` : { avant, apres } des champs modifies, ou les champs de la transition.
+model HistoriqueWorkflowProjet {
+  id            String                   @id @default(uuid())
+  projetId      String
+  objetType     TypeObjetWorkflow
+  objetId       String
+  action        ActionHistoriqueWorkflow
+  ancienStatut  String?
+  nouveauStatut String?
+  justification String?
+  acteurId      String
+  acteurProfil  String
+  donnees       Json                     @default("{}")
+  createdAt     DateTime                 @default(now())
+
+  @@index([objetType, objetId, createdAt])
+  @@index([projetId])
+  @@map("workflow_projet_historique")
+}
