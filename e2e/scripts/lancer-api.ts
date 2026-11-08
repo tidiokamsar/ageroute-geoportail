@@ -45,6 +45,9 @@ async function main() {
     // Pas a 0 : la cadence reste ACTIVE et un test la verifie (429 ANALYSE_TROP_FREQUENTE). Aucune autre valeur du module n'est touchee.
     PROJETS_VOIRIE_ANALYSE_INTERVALLE_S: "3",
     PROJETS_VOIRIE_ASSOC_INTERVALLE_S: "3",
+    // Delai de la base pour une analyse (defaut 20 s, 504 ANALYSE_TROP_LONGUE au-dela) porte a 120 s : sur un poste partage et charge, une analyse de
+    // quelques objets depasse 20 s et ferait echouer un scenario pour une raison qui ne dit rien de l'application. Borne du serveur : 1 s a 300 s.
+    PROJETS_VOIRIE_DELAI_ANALYSE_MS: "120000",
     // Aucune integration sortante : INTEGRATIONS_SORTANTES_ACTIVES n'est pas defini.
   });
 

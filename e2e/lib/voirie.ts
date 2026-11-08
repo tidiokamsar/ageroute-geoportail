@@ -61,6 +61,8 @@ export interface FichierEnvoye { name: string; buffer: Buffer; mimeType?: string
 const adresseAleatoire = () => { const o = randomBytes(3); return `10.${(o[0] % 250) + 1}.${(o[1] % 250) + 1}.${(o[2] % 250) + 1}`; };
 
 export const BASE = "/api/v2/projets-voirie";
+/** Delai d'une requete d'API : au-dela de celui des analyses du serveur (120 s dans ce harnais), pour lire sa reponse (200, 504) plutot que couper avant. */
+const DELAI_REQUETE_MS = 150_000;
 
 export class ApiVoirie {
   private constructor(private readonly ctx: APIRequestContext, readonly jeton: string | null) {}
@@ -73,14 +75,14 @@ export class ApiVoirie {
     expect(r.status(), `connexion de ${compte.email}`).toBe(200);
     const jeton = ((await r.json()) as { accessToken: string }).accessToken;
     await ctx.dispose();
-    return new ApiVoirie(await request.newContext({ baseURL: ORIGINE_API, extraHTTPHeaders: { ...entetes, authorization: `Bearer ${jeton}` } }), jeton);
+    return new ApiVoirie(await request.newContext({ baseURL: ORIGINE_API, timeout: DELAI_REQUETE_MS, extraHTTPHeaders: { ...entetes, authorization: `Bearer ${jeton}` } }), jeton);
   }
 
   /** Client SANS jeton (ou avec un jeton donne, valide ou non). */
   static async anonyme(jeton?: string): Promise<ApiVoirie> {
     const entetes: Record<string, string> = { "X-Forwarded-For": adresseAleatoire() };
     if (jeton) entetes.authorization = `Bearer ${jeton}`;
-    return new ApiVoirie(await request.newContext({ baseURL: ORIGINE_API, extraHTTPHeaders: entetes }), jeton ?? null);
+    return new ApiVoirie(await request.newContext({ baseURL: ORIGINE_API, timeout: DELAI_REQUETE_MS, extraHTTPHeaders: entetes }), jeton ?? null);
   }
 
   async fermer(): Promise<void> { await this.ctx.dispose(); }
@@ -296,8 +298,8 @@ export async function exigerAccessible(page: Page, contexte: string, options: { 
 /** Etape « Format et couches » d'un tableau : lire des points regroupes par une cle (un axe par valeur de cle), colonnes explicites. */
 export async function configurerCsvLignes(d: Locator, colonnes: { x: string; y: string; cle: string; ordre?: string }): Promise<void> {
   await d.getByRole("radio", { name: /Lignes : des points regroupés par une clé/ }).check();
-  await d.getByLabel("Colonne X").selectOption(colonnes.x);
-  await d.getByLabel("Colonne Y").selectOption(colonnes.y);
+  await d.getByLabel("Colonne X", { exact: true }).selectOption(colonnes.x);
+  await d.getByLabel("Colonne Y", { exact: true }).selectOption(colonnes.y);
   await d.getByLabel("Colonne clé (une ligne par valeur)").selectOption(colonnes.cle);
   if (colonnes.ordre) await d.getByLabel("Colonne d'ordre (facultatif)").selectOption(colonnes.ordre);
 }
