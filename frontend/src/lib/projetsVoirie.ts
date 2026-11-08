@@ -274,6 +274,7 @@ export const MESSAGE_CODE: Record<string, string> = {
   ANALYSE_TROP_LONGUE: "Le calcul de l'analyse a dépassé le délai autorisé et a été interrompu. Réessayez, ou réduisez le volume de données (jeux retirés ou simplifiés).",
   CARTE_TROP_LONGUE: "L'affichage de la carte a dépassé le délai autorisé. Réessayez, ou zoomez pour réduire la zone affichée.",
   DEPOT_TROP_LONG: "Le traitement du dépôt a dépassé le délai autorisé et a été interrompu : rien n'a été enregistré. Réessayez, ou découpez le fichier.",
+  COMPTE_REFERENT_RESTREINT: "Votre compte est rattaché à un concessionnaire pour des échanges de données : il n'ouvre que l'écran « Échanges avec les concessionnaires », pas le reste du module. Rien n'a été modifié.",
   ...MESSAGE_CODE_IMPORT,
 };
 

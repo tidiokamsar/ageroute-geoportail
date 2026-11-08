@@ -40,7 +40,11 @@ export function BandeauHorsLigne() {
   );
 }
 
-const CODES_INTROUVABLE_DU_LOT = ["CONFLIT_INTROUVABLE", "ANALYSE_INTROUVABLE", "REGLE_INTROUVABLE", "DECISION_INTROUVABLE"];
+const CODES_INTROUVABLE_DU_LOT = [
+  "CONFLIT_INTROUVABLE", "ANALYSE_INTROUVABLE", "REGLE_INTROUVABLE", "DECISION_INTROUVABLE",
+  "OBJET_INTROUVABLE", "RELATION_INTROUVABLE", "JEU_INTROUVABLE",
+  "DEMANDE_INTROUVABLE", "TACHE_INTROUVABLE", "RECOLEMENT_INTROUVABLE", "RATTACHEMENT_INTROUVABLE", "CONCESSIONNAIRE_INTROUVABLE",
+];
 
 export function EtatErreur({ erreur, sujet, onReessayer, enCours }: { erreur: ErreurPv; sujet: string; onReessayer?: () => void; enCours?: boolean }) {
   if (erreur.genre === "droit") {

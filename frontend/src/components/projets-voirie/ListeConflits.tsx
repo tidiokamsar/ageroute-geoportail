@@ -13,6 +13,7 @@ import {
   type FiltresConflits, type StatutConflit, type TriConflit,
 } from "../../lib/projetsVoirieConflits";
 import { formaterDate, formaterMetres, formaterNombre } from "../../lib/projetsVoirie";
+import { libelleCibleCourt } from "../../lib/projetsVoirieReseaux";
 
 /**
  * Liste des conflits : compteurs par statut (boutons a bascule), recherche, filtres (type, axe, concessionnaire, responsable, a reexaminer,
@@ -73,6 +74,7 @@ function LigneConflit({ c, actif, onOuvrir }: { c: ConflitResume; actif: boolean
         </span>
         {c.objet?.nom ? <span className="break-words text-[11px] text-gray-700">Objet : {c.objet.nom}</span>
           : c.geometrieMasquee && c.type !== "COUVERTURE_INSUFFISANTE" ? <span className="text-[11px] text-gray-700">Objet : {TEXTE_MASQUE}</span> : null}
+        {libelleCibleCourt(c.cible) && <span data-testid="cible-liste" className="break-words text-[11px] font-medium text-gray-900">Cible : {libelleCibleCourt(c.cible)}</span>}
         <span className="break-words text-[11px] text-gray-700"><Resume c={c} /></span>
         {c.geometrieMasquee && <span className="text-[11px] text-gray-700">Géométrie masquée pour votre compte (jeu de réseau non lisible).</span>}
         <span className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-700">
