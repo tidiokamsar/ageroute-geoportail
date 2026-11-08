@@ -22,6 +22,7 @@ import { tracerConsultation } from "./consultation";
 import { ErreurMetier, introuvable } from "./erreurs";
 import { limiteurCartes } from "./limiteurs";
 import type { Acteur } from "./projets.service";
+import { classeEffective, natureEffective } from "./reseaux/types.noyau";
 import { INCLURE_JEU } from "./vues";
 
 export const PLAFOND_OBJETS = 20_000;
@@ -47,7 +48,11 @@ export interface DemandeCarte {
   acteur?: Acteur;
 }
 
-interface LigneObjet { objetId: string; jeuId: string; nom: string | null; typeGeom: string; longueurM: number | null; attributs: unknown; geojson: string }
+interface LigneObjet {
+  objetId: string; jeuId: string; nom: string | null; typeGeom: string; longueurM: number | null; attributs: unknown; geojson: string;
+  /** Descripteur eventuel de l'objet (lot B1) : nature, classe de precision et type declares ; nuls si l'objet n'en a pas. */
+  dNature: string | null; dClasse: string | null; dType: string | null;
+}
 
 export async function carte(d: DemandeCarte) {
   const projet = await prisma.projetVoirie.findFirst({ where: { id: d.projetId, deletedAt: null }, select: { id: true } });
@@ -78,8 +83,10 @@ export async function carte(d: DemandeCarte) {
       const lignes = restant > 0
         ? await budget.etape(() => tx.$queryRaw<LigneObjet[]>`
             SELECT o."id"::text AS "objetId", o."jeuId" AS "jeuId", o."nom" AS "nom", o."typeGeom"::text AS "typeGeom", o."longueurM" AS "longueurM",
-                   o."attributs" AS "attributs", ST_AsGeoJSON(${geom}, 6) AS "geojson"
+                   o."attributs" AS "attributs", ST_AsGeoJSON(${geom}, 6) AS "geojson",
+                   d."nature"::text AS "dNature", d."classePrecision"::text AS "dClasse", d."typeObjet" AS "dType"
               FROM "projets_voirie_objets" o
+              LEFT JOIN "reseau_objets_descripteurs" d ON d."objetId" = o."id"
              WHERE o."jeuId" = ${j.id} ${filtreEmprise}
              ORDER BY o."ordre", o."id"
              LIMIT ${restant + 1}`)
@@ -110,12 +117,20 @@ export async function carte(d: DemandeCarte) {
         nbFeatures: gardees.length,
         total,
         tronque: jeuTronque,
-        features: gardees.map((l) => ({
-          type: "Feature" as const,
-          id: l.objetId,
-          geometry: JSON.parse(l.geojson) as unknown,
-          properties: { objetId: l.objetId, jeuId: l.jeuId, nom: l.nom, typeGeom: l.typeGeom, longueurM: l.longueurM === null ? null : Math.round(l.longueurM * 100) / 100, attributs: l.attributs },
-        })),
+        features: gardees.map((l) => {
+          // Lot B1 : nature et classe EFFECTIVES de l'objet (descripteur, sinon jeu, sinon inconnue) pour styler circuits, infrastructures et equipements.
+          const nature = natureEffective(l.dNature, j.natureObjets);
+          const classe = classeEffective(l.dClasse, j.classePrecision);
+          return {
+            type: "Feature" as const,
+            id: l.objetId,
+            geometry: JSON.parse(l.geojson) as unknown,
+            properties: {
+              objetId: l.objetId, jeuId: l.jeuId, nom: l.nom, typeGeom: l.typeGeom, longueurM: l.longueurM === null ? null : Math.round(l.longueurM * 100) / 100, attributs: l.attributs,
+              nature: nature.nature, origineNature: nature.origine, typeObjet: l.dType, classePrecision: classe.classe, origineClasse: classe.origine,
+            },
+          };
+        }),
       });
     }
     return { couches, tronque };

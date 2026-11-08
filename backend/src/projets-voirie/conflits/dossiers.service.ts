@@ -25,6 +25,8 @@ import { celluleCsv } from "../analyse.service";
 import { ErreurMetier, introuvable } from "../erreurs";
 import { limiteurAnalyses } from "../limiteurs";
 import type { Acteur } from "../projets.service";
+import type { CibleConflit } from "../reseaux/cible.noyau";
+import { cibleDesObjets, tracePartageeDe } from "../reseaux/cibles.service";
 import * as depot from "./conflits.depot";
 import { decoderCurseurConflit as decoderCurseurConflitNoyau, encoderCurseurConflit } from "./curseurs.noyau";
 import {
@@ -86,7 +88,7 @@ export function geometrieVisible(role: string, statutJeu: string | null): boolea
  * `bbox` : boite englobante (nulle si non lisible) ; `undefined` pour une reponse d'ecriture, qui ne la porte pas (relire la fiche).
  * Les donnees tirees du jeu (reseau, objet, mesure, classe, concessionnaire, jeu, boite) ne sont rendues que si le jeu est lisible pour `role`.
  */
-export function vueConflit(c: LigneConflit, role: string, bbox?: number[] | null) {
+export function vueConflit(c: LigneConflit, role: string, bbox?: number[] | null, cible?: CibleConflit | null) {
   const visible = donneesReseauLisibles(role, statutsLies(c));
   const depassee = c.echeance !== null && c.echeance < aujourdhui() && !STATUTS_FERMES.includes(c.statut as StatutConflit);
   return {
@@ -99,6 +101,8 @@ export function vueConflit(c: LigneConflit, role: string, bbox?: number[] | null
     jeuReseauId: visible ? c.jeuReseauId : null,
     objet: visible && c.objet ? { id: String(c.objet.id), nom: c.objet.nom } : null,
     mesure: visible ? c.mesure : null, premiereAnalyseId: c.premiereAnalyseId, derniereAnalyseId: c.derniereAnalyseId,
+    // Lot B1 : nature de l'objet en conflit (infrastructure physique, simple circuit logique...). Information calculee a la lecture, masquee comme le reste du reseau.
+    ...(cible === undefined ? {} : { cible: visible ? cible : null }),
     ...(bbox === undefined ? {} : { bbox: visible ? bbox : null }), geometrieMasquee: !visible,
     createdAt: c.createdAt, updatedAt: c.updatedAt,
   };
@@ -177,7 +181,8 @@ export async function listerConflits(acteur: Acteur, projetId: string, f: Filtre
   ]);
   const compteurs: Record<string, number> = Object.fromEntries(STATUTS_CONFLIT.map((s) => [s, 0]));
   for (const g of groupes) compteurs[g.statut] = g._count._all;
-  const vues = page.map((c) => vueConflit(c, acteur.role, boites.get(c.id) ?? null));
+  const cibles = await cibleDesObjets(acteur.role, page.flatMap((c) => (c.objetId === null ? [] : [String(c.objetId)])));
+  const vues = page.map((c) => vueConflit(c, acteur.role, boites.get(c.id) ?? null, c.objetId === null ? null : cibles.get(String(c.objetId)) ?? null));
 
   // Le rendu de la boite englobante d'un reseau de tiers est une lecture de position : tracee comme la carte, avant la remise.
   // Un dossier de couverture insuffisante rend l'axe : c'est le plan d'axes qui est consulte (revue RC-3, m6).
@@ -248,9 +253,15 @@ export async function ficheConflit(acteur: Acteur, projetId: string, cid: string
     decisions.filter((d) => d.statut === "APPROUVEE").map((d) => ({ id: d.id, option: d.option as OptionDecision, proposeParId: d.proposeParId, approuveLe: d.approuveLe })),
     dernierConfirme?.createdAt,
   ).length;
-  const brut = vueConflit(c, acteur.role, boite);
+  const cibleObjet = c.objetId === null ? null : (await cibleDesObjets(acteur.role, [String(c.objetId)])).get(String(c.objetId)) ?? null;
+  const brut = vueConflit(c, acteur.role, boite, cibleObjet);
+  // Circuits superposes : autres objets du meme jeu a la trace strictement identique (lecture seule, jamais un nombre de cables).
+  const tracePartagee = visible && c.objetId !== null && cibleObjet?.nature === "CIRCUIT_LOGIQUE" ? await tracePartageeDe(String(c.objetId)) : null;
   const fiche = {
-    conflit: { ...brut, geometrie: visible && geo[0] ? JSON.parse(geo[0].g) as unknown : null },
+    conflit: {
+      ...brut, geometrie: visible && geo[0] ? JSON.parse(geo[0].g) as unknown : null,
+      ...(brut.cible ? { cible: { ...brut.cible, tracePartagee } } : {}),
+    },
     sources,
     regle: regle ? { ...regle, versionAlgorithme: derniere?.versionAlgorithme ?? null } : null,
     largeurs: derniere ? { empriseM: Number(derniere.largeurEmpriseM), chausseeM: Number(derniere.largeurChausseeM) } : null,
@@ -515,7 +526,7 @@ export async function trancherDecision(acteur: Acteur, projetId: string, cid: st
 export const ENTETE_CSV_CONFLITS = [
   "axe", "type", "statut", "risque", "aReexaminer", "motifReexamen", "concessionnaire", "typeReseau", "classePrecision", "verticalEvalue",
   "longueurChausseeM", "longueurEmpriseM", "distanceMinM", "nbCroisements", "longueurPieceM", "responsable", "echeance", "actionProposee",
-  "nbPreuves", "nbDecisions", "premiereAnalyse", "derniereAnalyse", "cle",
+  "nbPreuves", "nbDecisions", "premiereAnalyse", "derniereAnalyse", "cle", "natureCible", "qualificationCible",
 ] as const;
 
 const EXPORT_MAX = 100_000;
@@ -536,6 +547,8 @@ export async function exporterConflitsCsv(acteur: Acteur, projetId: string, f: F
     });
   }, { timeout: delaiAnalyseMs() + 15_000, maxWait: 10_000 })));
   const m = (c: { mesure: unknown }) => (c.mesure ?? {}) as Record<string, number | null>;
+  // Lot B1 : nature de la cible (colonnes ajoutees A LA FIN), pour les dossiers dont les donnees du reseau sont lisibles.
+  const cibles = await cibleDesObjets(acteur.role, lignes.flatMap((c) => (c.objetId === null || !donneesReseauLisibles(acteur.role, statutsLies(c)) ? [] : [String(c.objetId)])));
   const rows = lignes.map((c) => {
     // Les donnees tirees d'un jeu RETIRE ne sortent pas, meme dans un export (voir visibilite.noyau.ts).
     const lisible = donneesReseauLisibles(acteur.role, statutsLies(c));
@@ -546,6 +559,7 @@ export async function exporterConflitsCsv(acteur: Acteur, projetId: string, f: F
       mesure.longueurChausseeM ?? 0, mesure.longueurEmpriseM ?? 0, mesure.distanceMinM ?? "", mesure.nbCroisements ?? 0, mesure.longueurPieceM ?? 0,
       c.responsable?.nomComplet ?? "", jour(c.echeance) ?? "", c.actionProposee ?? "", c._count.preuves, c._count.decisions,
       c.premiereAnalyse.numero, c.derniereAnalyse.numero, c.cle,
+      lisible && c.objetId !== null ? cibles.get(String(c.objetId))?.nature ?? "" : "", lisible && c.objetId !== null ? cibles.get(String(c.objetId))?.qualification ?? "" : "",
     ];
   });
   const csv = "﻿" + [ENTETE_CSV_CONFLITS.join(";"), ...rows.map((r) => r.map((v) => celluleCsv(v as string | number)).join(";"))].join("\r\n") + "\r\n";
