@@ -94,6 +94,14 @@ Lint, build, suite frontend (hors périmètre, aucun fichier frontend touché), 
 6. DWG, DXF binaire, GML, LandXML, raster : toujours hors lot.
 7. Politique d'échec par objet (refuser le fichier entier si une géométrie est aberrante : comportement actuel du worker).
 
-## K. Commits
+## K. Commits (branche `feat/gdal-branche`, au-dessus de `feat/vague1-final` `d7955d4`)
 
-Voir `git log feat/gdal-branche` : `1a7505a` (worker, fork), puis le WIP `fd516bc` remplacé par les commits de ce lot (migration et schéma, noyau et services, routes et pipeline, tests unitaires, banc, documentation).
+- `c86daa8` feat(geoconv) : pré-filtre DXF, worker 0.2.0, banc 85 jobs (fork)
+- `761504e` migration des jobs et descente gardée
+- `4130427` noyau et services de la conversion
+- `c58f7cf` pipeline commun, routes, état des formats
+- `445d71b` tests unitaires et de routes, inventaire des accès, isolation
+- `fb5e800` banc PostGIS et conteneur réel
+- `2a8175f` documentation et rapport
+
+Le commit WIP `fd516bc` et la fusion intermédiaire ont été remplacés : l'historique a été reconstruit sur `feat/vague1-final` (arbre identique à celui qui a été testé, vérifié par `git diff`). Aucun push.
