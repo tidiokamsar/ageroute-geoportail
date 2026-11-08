@@ -38,6 +38,7 @@ import { MainCourantePage } from "./MainCourantePage";
 import { ProjetsVoirieListePage } from "./ProjetsVoirieListePage";
 import { ProjetVoirieDetailPage } from "./ProjetVoirieDetailPage";
 import { analyse as analyseProjet, projetFiche, projetResume } from "../components/projets-voirie/synthetique.testutil";
+import { OPTIONS as OPTIONS_IMPORT, inventaireKml as inventaireImport } from "../components/projets-voirie/assistant/assistantImport.testutil";
 import {
   ANALYSE_1, REGLES, analyseConflit, brut as brutConflit, decision as decisionConflit, fiche as ficheConflit, pageConflits, preuve as preuveConflit, serveurComparaison, serveurDetailAnalyse,
   serveurFiche, serveurLancement, serveurListeAnalyses, serveurPage, serveurRegles, transition as transitionConflit,
@@ -211,6 +212,7 @@ beforeEach(() => {
     "/v2/projets-voirie/p1/analyse": analyseProjet(),
     "/v2/projets-voirie/p1/carte": [],
     "/v2/projets-voirie/concessionnaires": [{ id: "c1", nom: "Operateur synthetique A", typeReseau: "TELECOM" }],
+    "/v2/projets-voirie/p1/import/options": OPTIONS_IMPORT,
     // Dossiers de conflit (lot RC-3) : reponses SYNTHETIQUES.
     "/v2/projets-voirie/p1/conflits": brutConflit(serveurPage(pageConflits())),
     "/v2/projets-voirie/p1/conflits/cf-1": brutConflit(serveurFiche(ficheConflit({ statut: "CONFIRME", decisions: [decisionConflit(), decisionConflit({ id: "d2", option: "DEPLACER_RESEAU", statut: "APPROUVEE", coutEstime: null, coutReel: 0, approuvePar: { id: "u-adm", nom: "Fatou Admin" }, approuveLe: "2026-11-05T10:00:00Z", motifDecision: "Approuvé en comité", derogationSeparation: "Seul compte habilité" })], preuves: [preuveConflit()], transitions: [transitionConflit("TRAITEMENT_DECIDE", { decisionRequise: true })] }))),
@@ -522,12 +524,8 @@ describe("Accessibilite du module Projets de voirie : etats cles", () => {
     expect(await violationsAccessibilite(container)).toEqual([]);
   }, 30_000);
 
-  it("page projet : dialogue de depot, puis simulation affichee", async () => {
-    vi.mocked(api.post).mockResolvedValueOnce({ data: {
-      simulation: true, jeu: null, resume: { nbObjets: 3, parTypeGeom: { LIGNE: 3 }, longueurTotaleM: 1200, longueurTraceFusionneM: 900, bbox: [-10.103, 9.177, -10.097, 9.183], attributsDetectes: [{ nom: "Name", nb: 3 }] },
-      crs: { source: "WGS84 (EPSG:4326)", cible: "EPSG:4326", methode: "aucune transformation", justification: "WGS84 par norme KML 2.2" },
-      delta: { ajoutes: 1, retires: 0, identiques: 2 }, remplace: null, avertissements: [{ code: "ALTITUDE_IGNOREE", message: "L'altitude est ignorée.", nb: 3 }],
-    } } as never);
+  it("page projet : assistant d'import, etape 1 puis etape 2 (format et couches)", async () => {
+    vi.mocked(api.post).mockResolvedValueOnce({ data: inventaireImport() } as never);
     const { container } = rendreProjet();
     await userEvent.click(await screen.findByRole("button", { name: /Ajouter des données/ }, { timeout: 10_000 }));
     const d = await screen.findByRole("dialog", undefined, { timeout: 10_000 });
@@ -535,8 +533,8 @@ describe("Accessibilite du module Projets de voirie : etats cles", () => {
     await userEvent.upload(d.querySelector("input[type=file]")!, new File(["<kml/>"], "reseau.kml"));
     await screen.findByRole("option", { name: /Operateur synthetique A/ }, { timeout: 10_000 });
     await userEvent.selectOptions(within(d).getByLabelText("Concessionnaire propriétaire du réseau"), "c1");
-    await userEvent.click(within(d).getByRole("button", { name: "Simuler le dépôt" }));
-    await within(d).findByRole("heading", { name: "Résultat de la simulation" }, { timeout: 10_000 });
+    await userEvent.click(within(d).getByRole("button", { name: "Analyser le fichier" }));
+    await within(d).findByRole("heading", { name: "Format et couches" }, { timeout: 10_000 });
     expect(await violationsAccessibilite(container.ownerDocument.body)).toEqual([]);
   }, 60_000);
 

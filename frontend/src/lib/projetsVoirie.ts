@@ -8,7 +8,7 @@
 
 export type TypeReseau = "TELECOM" | "EAU_POTABLE" | "ELECTRICITE" | "ASSAINISSEMENT" | "GAZ_HYDROCARBURES" | "AUTRE";
 export type RoleJeu = "AXES_TRAVAUX" | "RESEAU_TIERS" | "LIMITES_ROUTE" | "AUTRE";
-export type FormatJeu = "KML" | "GEOJSON";
+export type FormatJeu = "KML" | "KMZ" | "GEOJSON" | "GPX" | "CSV";
 /** Contrat v2 : cinq niveaux. */
 export type Confidentialite = "PUBLIC" | "INTERNE" | "RESTREINT_PROJET" | "CONFIDENTIEL_CONCESSIONNAIRE" | "INFRASTRUCTURE_SENSIBLE";
 /** Contrat v2 : un depot reel cree un jeu CONTROLE (quarantaine) ; seul AUTORISE alimente la carte et l'analyse. */
@@ -228,7 +228,7 @@ export function contientBbox(grande: Bbox, petite: Bbox): boolean {
 // Erreurs
 // ---------------------------------------------------------------------------------------------------
 
-export type GenreErreur = "reseau" | "permission" | "droit" | "introuvable" | "conflit" | "validation" | "trop-gros" | "serveur" | "inattendue";
+export type GenreErreur = "reseau" | "permission" | "droit" | "introuvable" | "conflit" | "validation" | "trop-gros" | "serveur" | "inattendue" | "annule";
 
 export interface ErreurPv {
   genre: GenreErreur;
@@ -240,16 +240,24 @@ export interface ErreurPv {
   message: string;
   /** Erreurs par champ (`details.fieldErrors` d'un ZodError). */
   champs: Record<string, string[]>;
+  /** Delai a attendre, en secondes, d'un 429 ou d'un 503 : `retryAfterS` du corps, sinon l'en-tete `Retry-After`. */
+  retryAfterS?: number | null;
+  /** Complements numeriques du corps : `nbElementsHorsZone` et `nbObjets` (409 CONFIRMATION_HORS_ZONE_REQUISE), `nb` (409 SUPPRESSIONS_A_REVOIR). */
+  nb?: number | null;
+  nbElementsHorsZone?: number | null;
+  nbObjets?: number | null;
 }
+
+import { MESSAGE_CODE_IMPORT } from "./projetsVoirieMessages";
 
 /** Messages en clair pour les codes du contrat v2 (section 4). Le texte du serveur ne sert que pour un code inconnu. */
 export const MESSAGE_CODE: Record<string, string> = {
   JEU_DEJA_CHARGE: "Ce fichier est déjà chargé dans ce projet : un fichier de même empreinte (SHA-256) existe. Rien n'a été écrit.",
   DEPOT_EN_ATTENTE: "Un autre dépôt du même rôle et du même concessionnaire attend déjà son autorisation. Autorisez-le ou rejetez-le avant d'en déposer un nouveau. Rien n'a été écrit.",
-  FORMAT_NON_SUPPORTE: "Format prévu au lot suivant. Ce lot ne lit que les fichiers KML et GeoJSON ; KMZ, ZIP, Shapefile, DXF, PDF et HTML ne sont pas pris en charge. Exportez le fichier en KML ou en GeoJSON puis réessayez.",
-  CONTENU_NON_RECONNU: "Le contenu du fichier n'est pas reconnu comme un KML ou un GeoJSON, quelle que soit son extension. Le fichier n'a pas été ouvert ni exécuté. Format prévu au lot suivant, s'il s'agit d'un autre format.",
-  HORS_GUINEE: "Des coordonnées sont en dehors de la Guinée (longitude de -15,2 à -7,5 ; latitude de 7,1 à 12,8). Vérifiez que le fichier est en WGS 84, avec la longitude avant la latitude. Rien n'a été écrit.",
-  CRS_NON_SUPPORTE: "Le système de coordonnées déclaré par le fichier n'est pas pris en charge : ce lot n'accepte que le WGS 84 (norme KML et GeoJSON), sans transformation. Les systèmes projetés viendront au lot suivant. Rien n'a été écrit.",
+  FORMAT_NON_SUPPORTE: "Format non pris en charge par cet import. Sont lus : KML, KMZ, GeoJSON, GPX et les tableaux CSV, TSV ou TXT. GeoPackage, Shapefile, DXF et DWG sont prévus à un lot suivant (chaîne de conversion isolée) ; PDF et HTML ne sont jamais importés comme données SIG. Exportez le fichier dans un format lu, puis réessayez.",
+  CONTENU_NON_RECONNU: "Le contenu du fichier n'est pas reconnu comme un format lu (KML, KMZ, GeoJSON, GPX, tableau délimité), quelle que soit son extension. Le fichier n'a pas été exécuté ni interprété comme une page.",
+  HORS_GUINEE: "Des coordonnées sont en dehors de la Guinée (longitude de -15,2 à -7,5 ; latitude de 7,1 à 12,8). Vérifiez le système de coordonnées choisi et l'ordre des colonnes (longitude ou X avant latitude ou Y). Rien n'a été écrit.",
+  CRS_NON_SUPPORTE: "Le système de coordonnées déclaré par le fichier est illisible ou n'est pas un code EPSG : il n'est pas pris en charge. Rien n'a été écrit.",
   GEOMETRIE_INVALIDE: "Une géométrie du fichier est invalide et n'a pu être réparée. Corrigez-la dans l'outil d'origine puis réessayez. Rien n'a été écrit.",
   FICHIER_VIDE: "Le fichier est vide ou ne contient aucun objet exploitable. Rien n'a été écrit.",
   TROP_D_OBJETS: "Le fichier contient plus de 50 000 objets. Découpez-le en plusieurs fichiers puis réessayez. Rien n'a été écrit.",
@@ -266,7 +274,14 @@ export const MESSAGE_CODE: Record<string, string> = {
   ANALYSE_TROP_LONGUE: "Le calcul de l'analyse a dépassé le délai autorisé et a été interrompu. Réessayez, ou réduisez le volume de données (jeux retirés ou simplifiés).",
   CARTE_TROP_LONGUE: "L'affichage de la carte a dépassé le délai autorisé. Réessayez, ou zoomez pour réduire la zone affichée.",
   DEPOT_TROP_LONG: "Le traitement du dépôt a dépassé le délai autorisé et a été interrompu : rien n'a été enregistré. Réessayez, ou découpez le fichier.",
+  ...MESSAGE_CODE_IMPORT,
 };
+
+/** Vrai pour l'annulation d'une requete par AbortController (axios : CanceledError, code ERR_CANCELED ; fetch : AbortError). */
+export function estAnnulation(e: unknown): boolean {
+  const o = enObjet(e);
+  return !!o && (o.code === "ERR_CANCELED" || o.name === "CanceledError" || o.name === "AbortError");
+}
 
 function enObjet(v: unknown): Record<string, unknown> | null {
   return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
@@ -289,10 +304,19 @@ export function classerErreur(e: unknown): ErreurPv {
   if (fe) for (const [k, v] of Object.entries(fe)) if (Array.isArray(v)) champs[k] = v.filter((x): x is string => typeof x === "string");
 
   if (!reponse) {
+    if (estAnnulation(e)) return { genre: "annule", status: null, code: "ANNULE", message: "L'envoi a été annulé.", champs };
     if (enObjet(e)?.name === "ProjetVoirieReponseInattendue") return { genre: "inattendue", status: null, code: null, message: String((e as Error).message), champs };
     return { genre: "reseau", status: null, code: null, message: "Le serveur est injoignable. Ce module a besoin du réseau : vérifiez votre connexion puis réessayez.", champs };
   }
-  const base = { status, code, champs, jeuId: typeof corps?.jeuId === "string" ? corps.jeuId : null };
+  const entete = enObjet(reponse.headers);
+  const brutAttente = corps?.retryAfterS ?? entete?.["retry-after"] ?? entete?.["Retry-After"];
+  const attente = versNombre(brutAttente);
+  const nombre = (v: unknown) => versNombre(v);
+  const base = {
+    status, code, champs, jeuId: typeof corps?.jeuId === "string" ? corps.jeuId : null,
+    retryAfterS: attente !== null && attente >= 0 ? Math.ceil(attente) : null,
+    nb: nombre(corps?.nb), nbElementsHorsZone: nombre(corps?.nbElementsHorsZone), nbObjets: nombre(corps?.nbObjets),
+  };
   if (code && MESSAGE_CODE[code]) {
     // 403 QUARANTAINE_RESERVEE et ROLE_INSUFFISANT : un refus de DROIT precis, pas l'absence de la cle de module.
     const genre: GenreErreur = status === 409 ? "conflit" : status === 413 ? "trop-gros" : status === 503 || status === 504 ? "serveur" : status === 403 ? "droit" : status === 404 ? "introuvable" : "validation";
@@ -305,6 +329,7 @@ export function classerErreur(e: unknown): ErreurPv {
   if (status === 409) return { genre: "conflit", ...base, message: texteServeur ?? "Cette opération entre en conflit avec l'état actuel des données." };
   if (status === 413) return { genre: "trop-gros", ...base, message: MESSAGE_CODE.FICHIER_TROP_GROS };
   if (status === 415) return { genre: "validation", ...base, message: MESSAGE_CODE.FORMAT_NON_SUPPORTE };
+  if (status === 429) return { genre: "serveur", ...base, message: MESSAGE_CODE.TROP_DE_REQUETES };
   if (status === 400 || status === 422) return { genre: "validation", ...base, message: texteServeur ?? "Les données envoyées sont refusées par le serveur." };
   if (status !== null && status >= 500) return { genre: "serveur", ...base, message: texteServeur ?? "Le serveur a rencontré une erreur. Réessayez dans un instant." };
   return { genre: "serveur", ...base, message: texteServeur ?? "Une erreur est survenue." };
@@ -315,24 +340,45 @@ export function classerErreur(e: unknown): ErreurPv {
 // ---------------------------------------------------------------------------------------------------
 
 export const TAILLE_MAX_FICHIER = 25 * 1024 * 1024;
-export const EXTENSIONS_ADMISES = [".kml", ".geojson", ".json"] as const;
-const EXTENSIONS_REFUSEES = [".kmz", ".zip", ".shp", ".shx", ".dbf", ".dxf", ".dwg", ".pdf", ".html", ".htm", ".gpx", ".csv", ".xlsx", ".exe"];
 
-export interface VerdictFichier { ok: boolean; message: string | null; format: "KML" | "GEOJSON" | null }
+/** Extensions de documents et d'executables : jamais des donnees SIG (le PDF est une piece jointe, le HTML n'est jamais importe). Refus local, sans envoi. */
+const EXTENSIONS_NON_SIG = [".pdf", ".html", ".htm", ".xlsx", ".xls", ".doc", ".docx", ".exe", ".js", ".bat", ".cmd", ".msi", ".dll"];
+/** Formats annonces par l'extension mais lus par une chaine a part (GDAL) : avertissement, pas de refus (le serveur decide par le contenu). */
+const EXTENSIONS_HORS_LOT = [".gpkg", ".shp", ".shx", ".dbf", ".dxf", ".dwg", ".gdb", ".tab", ".mif", ".tif", ".tiff"];
+
+export interface FormatLocal { format: string; extensions: readonly string[] }
+/** Formats par defaut quand la liste de l'API n'est pas encore chargee : la meme que celle du contrat (CONTRAT-IMPORT.md, section 4). */
+export const FORMATS_PAR_DEFAUT: readonly FormatLocal[] = [
+  { format: "KML", extensions: [".kml"] }, { format: "KMZ", extensions: [".kmz"] }, { format: "GEOJSON", extensions: [".geojson", ".json"] },
+  { format: "GPX", extensions: [".gpx"] }, { format: "CSV", extensions: [".csv", ".tsv", ".txt"] },
+];
+
+export interface VerdictFichier {
+  ok: boolean;
+  message: string | null;
+  /** Format ANNONCE par l'extension (indice) : le format reel est detecte par le contenu, a l'etape suivante. */
+  format: string | null;
+  /** Mise en garde non bloquante (extension inconnue ou d'un format non lu : le serveur decidera par le contenu). */
+  avertissement: string | null;
+}
 
 /**
- * Controle LOCAL, avant tout envoi : une economie de transfert, pas une validation. Le serveur lit les octets et decide. L'extension n'est
- * qu'un indice ; le contenu du fichier n'est jamais lu par le navigateur (ni apercu, ni execution).
+ * Controle LOCAL, avant tout envoi : une economie de transfert, pas une validation. Le serveur lit les octets et decide PAR LE CONTENU. Seuls
+ * sont refuses ici : un fichier vide, un fichier trop gros, un document ou un executable. Une extension inconnue ne bloque pas.
  */
-export function controlerFichier(f: { name: string; size: number } | null): VerdictFichier {
-  if (!f) return { ok: false, message: null, format: null };
+export function controlerFichier(f: { name: string; size: number } | null, formats: readonly FormatLocal[] = FORMATS_PAR_DEFAUT, tailleMax = TAILLE_MAX_FICHIER): VerdictFichier {
+  if (!f) return { ok: false, message: null, format: null, avertissement: null };
   const nom = f.name.toLowerCase();
-  if (EXTENSIONS_REFUSEES.some((x) => nom.endsWith(x))) return { ok: false, message: MESSAGE_CODE.FORMAT_NON_SUPPORTE, format: null };
-  if (f.size === 0) return { ok: false, message: "Le fichier est vide.", format: null };
-  if (f.size > TAILLE_MAX_FICHIER) return { ok: false, message: `Le fichier fait ${formaterTaille(f.size)} : le maximum est de 25 Mo.`, format: null };
-  if (nom.endsWith(".kml")) return { ok: true, message: null, format: "KML" };
-  if (nom.endsWith(".geojson") || nom.endsWith(".json")) return { ok: true, message: null, format: "GEOJSON" };
-  return { ok: false, message: "Extension non reconnue : choisissez un fichier .kml ou .geojson.", format: null };
+  const refus = (message: string): VerdictFichier => ({ ok: false, message, format: null, avertissement: null });
+  if (EXTENSIONS_NON_SIG.some((x) => nom.endsWith(x))) return refus("Ce type de fichier n'est pas une donnée SIG : un PDF reste une pièce jointe, une page HTML n'est jamais importée. Choisissez un fichier de la liste des formats acceptés.");
+  if (f.size === 0) return refus("Le fichier est vide.");
+  if (f.size > tailleMax) return refus(`Le fichier fait ${formaterTaille(f.size)} : le maximum est de ${formaterTaille(tailleMax)}.`);
+  const connu = formats.find((x) => x.extensions.some((e) => nom.endsWith(e)));
+  if (connu) return { ok: true, message: null, format: connu.format, avertissement: null };
+  if (EXTENSIONS_HORS_LOT.some((x) => nom.endsWith(x))) {
+    return { ok: true, message: null, format: null, avertissement: "Cette extension annonce un format que cet import ne lit pas (GeoPackage, Shapefile, DXF, DWG...). Le serveur vérifiera le contenu et refusera le fichier s'il n'est pas lisible." };
+  }
+  return { ok: true, message: null, format: null, avertissement: "Extension non reconnue : le serveur détectera le format par le contenu du fichier." };
 }
 
 // ---------------------------------------------------------------------------------------------------
