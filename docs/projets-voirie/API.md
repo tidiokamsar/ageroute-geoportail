@@ -1,6 +1,6 @@
 # API Projets de voirie et réseaux : référence
 
-Préfixe : `/api/v2/projets-voirie`. Contrat : `docs/projets-voirie/CONTRAT.md` (v2, fait foi pour le modèle et les règles) ; dossiers de conflit : `CONTRAT-CONFLITS.md` et la section « Dossiers de conflit (lot RC-3) » de ce document. Ce document décrit les routes **telles qu'elles répondent**. Les exemples sont des réponses réelles, relevées par le banc `backend/tests-integration/projets-voirie.integration.mts` sur des données 100 % synthétiques (identifiants raccourcis, listes tronquées).
+Préfixe : `/api/v2/projets-voirie`. Contrat : `docs/projets-voirie/CONTRAT.md` (v2, fait foi pour le modèle et les règles) ; dossiers de conflit : `CONTRAT-CONFLITS.md` et la section « Dossiers de conflit (lot RC-3) » de ce document ; réseaux physiques et circuits logiques : `CONTRAT-RESEAUX.md` et la section « Réseaux physiques et circuits logiques (lot B1) ». Ce document décrit les routes **telles qu'elles répondent**. Les exemples sont des réponses réelles, relevées par le banc `backend/tests-integration/projets-voirie.integration.mts` sur des données 100 % synthétiques (identifiants raccourcis, listes tronquées).
 
 Toutes les routes : jeton d'accès (`Authorization: Bearer ...`), clé de module `projets-voirie` (un `ADMIN` passe sans clé), réponses `Cache-Control: no-store` et `X-Content-Type-Options: nosniff`. Erreurs : `{ "error": "texte", "code": "CODE", ... }`.
 
@@ -509,3 +509,346 @@ Journaux en **ajout seul** (UPDATE et DELETE refusés, code 23001) : `conflits_p
 - Les dossiers conservent pour toujours le lien vers le jeu de réseau d'origine et sa géométrie courante (suppression logique) : la politique de conservation d'un tiers qui retire son accord (m6 de la revue) reste à décider.
 - **Revue indépendante RC-3 (07/11/2026)** : M1, M2, m1, m3 à m8 et m11 sont corrigés ; voir `CONTRAT-CONFLITS.md`, section 9, points 17 (complément) et 19 à 34, pour les règles exactes, les limites connues (`resume` des analyses non filtré, séparation des tâches d'un ADMIN envers lui-même, annulation d'une décision, jokers LIKE...) et les décisions à prendre. Lecture de la liste, de la fiche et de la comparaison : un délai côté base n'est posé que pour l'export CSV (les autres lectures sont paginées).
 - Le 504 de l'analyse persistée réutilise le mécanisme du socle (`statement_timeout` posé par étape) ; il est prouvé par le banc avec une table verrouillée et un délai de 1 s, pas avec un calcul réellement trop long.
+
+## Réseaux physiques et circuits logiques (lot B1)
+
+Contrat : `docs/projets-voirie/CONTRAT-RESEAUX.md` (modèle, règles de comptage, méthode d'association). Les exemples ci-dessous sont des réponses **réelles** du banc `backend/tests-integration/reseau-physique-logique.integration.mts` (données 100 % synthétiques ; identifiants raccourcis, listes tronquées, `…` pour les parties omises).
+
+**Principe.** Le nombre de lignes d'un fichier n'est pas un nombre d'équipements physiques : plusieurs **circuits logiques** peuvent suivre le même **support physique**. Ce lot ajoute un **descripteur** par objet (nature, type, qualité déclarée, profondeur et altitude **seulement si fournies**), des **relations** entre objets (circuit porté par une infrastructure, équipement contenu dans une chambre), des **propositions d'association** par superposition qui ne sont **jamais appliquées sans validation humaine**, et un **comptage par nature** dont aucun total ne mélange les natures. **Aucune route ne rend ni n'exporte de géométrie.** La connectivité du réseau n'est pas gérée (voir `CONTRAT-RESEAUX.md`, section 9).
+
+Mêmes gardes, dans le même ordre, que le socle (voir « Gardes, dans l'ordre ») : jeton, clé de module, octet NUL, identifiants (`:objetId` : entier positif sur 18 chiffres au plus ; `:relId` : UUID ; sinon 400 `IDENTIFIANT_INVALIDE`), rôle, **projet désigné (404 `PROJET_INTROUVABLE` identique si inexistant, retiré ou hors périmètre, administrateur national compris pour un projet retiré)**, validation stricte du corps (400, champs inconnus refusés). **Lisibilité** (celle du socle et de RC-3) : un jeu `RETIRE` n'est montré à personne ; un jeu autre que `AUTORISE` n'est montré qu'à `ADMIN` et `GESTIONNAIRE` ; un objet ou une relation dont un jeu est illisible répond 404 (`OBJET_INTROUVABLE`, `RELATION_INTROUVABLE`). La lecture des objets de jeux `CONFIDENTIEL_CONCESSIONNAIRE` ou `INFRASTRUCTURE_SENSIBLE` est tracée (`ConsultationJeuProjet`, route `reseau`).
+
+### Routes
+
+| Route | Rôle | Réponse |
+|---|---|---|
+| `GET /:id/reseau/objets` | lecture | `{ objets, curseurSuivant }` ; filtres `jeuId` (UUID), `nature` (`ACTIF_PHYSIQUE`, `CIRCUIT_LOGIQUE`, `EQUIPEMENT`, `INCONNUE`), `typeObjet`, `q` (texte dans le nom, sans joker), `limite` (1 à 200, défaut 50), `curseur` |
+| `GET /:id/reseau/objets/:objetId` | lecture | `{ objet, relations, tracePartagee }` |
+| `PUT /:id/reseau/objets/:objetId/descripteur` | ADMIN, GESTIONNAIRE | 201 (création) ou 200 (remplacement) `{ objet }` ; **aucune route de suppression** |
+| `GET /:id/reseau/relations` | lecture | `{ relations, curseurSuivant }` ; filtres `statut` (liste séparée par des virgules), `type`, `objetId`, `origine`, `limite` (1 à 200), `curseur` |
+| `POST /:id/reseau/relations` | ADMIN, GESTIONNAIRE | 201 `{ relation }` ; déclaration manuelle, créée `VALIDEE` |
+| `POST /:id/reseau/relations/:relId/valider` | ADMIN, GESTIONNAIRE | `{ relation }` ; corps `{ justification }` |
+| `POST /:id/reseau/relations/:relId/refuser` | ADMIN, GESTIONNAIRE | `{ relation }` ; corps `{ justification }` |
+| `POST /:id/reseau/relations/:relId/revoquer` | ADMIN, GESTIONNAIRE | `{ relation }` ; corps `{ justification }` |
+| `POST /:id/reseau/associations/proposer` | ADMIN, GESTIONNAIRE | 201 `{ statut, parametres, bilan, idsCrees, avertissements }` |
+| `GET /:id/reseau/comptage` | lecture | comptage par nature (ci-dessous) ; `jeuId`, `inclureNonAutorises` (ADMIN, GESTIONNAIRE : 403 `QUARANTAINE_RESERVEE` sinon) |
+
+### Objet (liste et fiche)
+
+Aucune géométrie. `nature` et `qualite.classePrecision` sont **effectives** : celles du descripteur, sinon celles du jeu, sinon inconnues (`origineNature`, `origineClasse` : `OBJET`, `JEU` ou `INCONNUE`). `source` et `confidentialite` sont celles du jeu. Sans profondeur ni altitude, `vertical.etat` vaut `ABSENTE` : **aucune conclusion 3D** ; `evaluable` est **toujours faux** et `conclusion3D` toujours nul, même quand des données sont fournies.
+
+Un objet **sans** descripteur (hérite du jeu, classe inconnue, vertical absent) :
+
+```json
+{
+  "id": "10",
+  "jeuId": "fe13103e…",
+  "nom": "Fibre-Marqueur L13",
+  "typeGeom": "LIGNE",
+  "longueurM": 60.01,
+  "source": {
+    "jeuId": "fe13103e…",
+    "version": 1,
+    "role": "RESEAU_TIERS",
+    "statut": "AUTORISE",
+    "nomFichier": "circuits.geojson",
+    "typeReseau": "TELECOM",
+    "concessionnaire": {
+      "id": "e07ccd4f…",
+      "nom": "Operateur Telecom Synthetique"
+    },
+    "dateDonnees": null,
+    "confidentialite": "CONFIDENTIEL_CONCESSIONNAIRE"
+  },
+  "nature": "CIRCUIT_LOGIQUE",
+  "origineNature": "JEU",
+  "typeObjet": null,
+  "qualite": {
+    "classePrecision": null,
+    "origineClasse": "INCONNUE",
+    "precisionHorizontaleM": null,
+    "precisionVerticaleM": null,
+    "methodeCollecte": null,
+    "dateConstat": null,
+    "niveauConfiance": null,
+    "statutQualite": "INCONNU"
+  },
+  "vertical": {
+    "etat": "ABSENTE",
+    "evaluable": false,
+    "conclusion3D": null,
+    "motifs": [
+      "Profondeur et altitude absentes : aucune conclusion 3D.",
+      "Profondeur inconnue.",
+      "Altitude inconnue.",
+      "Précision verticale non déclarée."
+    ],
+    "profondeurM": null,
+    "altitudeM": null,
+    "referenceVerticale": null
+  },
+  "descripteur": null
+}
+```
+
+La fiche porte aussi `relations` (chacune avec son `role` : `SOURCE` ou `CIBLE`, et les actions possibles pour le compte) et `tracePartagee` : nombre d'**autres** objets du même jeu à la trace strictement identique (circuits superposés : ils restent séparés, ce ne sont pas des câbles distincts).
+
+### Descripteur (PUT)
+
+Corps (`strict`, champs inconnus refusés) : `nature` (`ACTIF_PHYSIQUE`, `CIRCUIT_LOGIQUE`, `EQUIPEMENT` ou nul = hérite du jeu), `typeObjet` (code en majuscules, parmi les types de la nature : voir `CONTRAT-RESEAUX.md`, 3.3), `classePrecision` (A à E ou nul), `precisionHorizontaleM`, `precisionVerticaleM` (strictement positives, arrondies au centimètre, jamais nulles après arrondi), `methodeCollecte`, `dateConstat` (`AAAA-MM-JJ`), `niveauConfiance` (`ELEVE`, `MOYEN`, `FAIBLE` ou nul), `statutQualite` (défaut `INCONNU`), `profondeurM` (0 à 10 000), `altitudeM` (-500 à 9 000), `referenceVerticale` (exige une profondeur ou une altitude), `justification` (**obligatoire**, 10 à 2 000 caractères). **Le descripteur est REMPLACÉ** : une valeur omise devient inconnue (nulle), jamais héritée ni conservée ni déduite. Seuls les objets d'un réseau de concessionnaire ou d'un jeu « autre » en contrôle ou autorisé se qualifient.
+
+```json
+{
+  "id": "4",
+  "jeuId": "fe13103e…",
+  "nom": "Fibre-Marqueur L6",
+  "typeGeom": "LIGNE",
+  "longueurM": 60.01,
+  "source": {
+    "jeuId": "fe13103e…",
+    "version": 1,
+    "role": "RESEAU_TIERS",
+    "statut": "AUTORISE",
+    "nomFichier": "circuits.geojson",
+    "typeReseau": "TELECOM",
+    "concessionnaire": {
+      "id": "e07ccd4f…",
+      "nom": "Operateur Telecom Synthetique"
+    },
+    "dateDonnees": null,
+    "confidentialite": "CONFIDENTIEL_CONCESSIONNAIRE"
+  },
+  "nature": "CIRCUIT_LOGIQUE",
+  "origineNature": "JEU",
+  "typeObjet": null,
+  "qualite": {
+    "classePrecision": "A",
+    "origineClasse": "OBJET",
+    "precisionHorizontaleM": 0.1,
+    "precisionVerticaleM": null,
+    "methodeCollecte": "GNSS RTK",
+    "dateConstat": "2026-10-01",
+    "niveauConfiance": "ELEVE",
+    "statutQualite": "OBSERVE"
+  },
+  "vertical": {
+    "etat": "FOURNIE",
+    "evaluable": false,
+    "conclusion3D": null,
+    "motifs": [
+      "Données verticales fournies par la source ; l'évaluation 3D n'est pas implémentée dans ce lot.",
+      "Altitude inconnue.",
+      "Précision verticale non déclarée."
+    ],
+    "profondeurM": 1.2,
+    "altitudeM": null,
+    "referenceVerticale": "terrain naturel"
+  },
+  "descripteur": {
+    "justification": "Controle effectue avec le chef de projet",
+    "declarePar": "Sekou Gestionnaire",
+    "declareLe": "2026-11-08T00:40:23.884Z",
+    "modifiePar": null,
+    "modifieLe": "2026-11-08T00:40:23.884Z"
+  }
+}
+```
+
+Erreurs : 422 `ROLE_NON_QUALIFIABLE` (plan d'axes, limites de route), `NATURE_INCOMPATIBLE_GEOMETRIE` (un circuit est une ligne, un équipement un point), `TYPE_OBJET_INCONNU_POUR_NATURE`, `TYPE_OBJET_SANS_NATURE`, `REFERENCE_VERTICALE_SANS_VALEUR`, `PRECISION_INCOHERENTE`, `INCOHERENCE_REFUSEE` (refus d'une contrainte ou d'un déclencheur de la base, message de la base) ; 409 `JEU_NON_QUALIFIABLE` (jeu rejeté, remplacé), `RELATIONS_ACTIVES` (la nature ne change pas sous une relation proposée ou validée) ; 404 `OBJET_INTROUVABLE`.
+
+### Relations
+
+`PORTE_PAR` : circuit logique (ligne) vers infrastructure physique (ligne). `CONTENU_DANS` : équipement (point) vers infrastructure physique (point ou polygone). Statuts : `PROPOSEE` (**aucun effet**), `VALIDEE`, `REFUSEE`, `REVOQUEE`. Un seul enregistrement par couple, quel que soit son statut.
+
+Une relation manuelle (équipement dans une chambre), créée `VALIDEE` :
+
+```json
+{
+  "id": "49125954…",
+  "projetId": "0bf39bf6…",
+  "typeRelation": "CONTENU_DANS",
+  "statut": "VALIDEE",
+  "origine": "MANUELLE",
+  "proposition": {},
+  "source": {
+    "objetId": "15",
+    "nom": "Vanne V1",
+    "nature": "EQUIPEMENT",
+    "typeObjet": null,
+    "typeGeom": "POINT",
+    "jeuId": "57c62821…"
+  },
+  "cible": {
+    "objetId": "14",
+    "nom": "Chambre C1",
+    "nature": "ACTIF_PHYSIQUE",
+    "typeObjet": null,
+    "typeGeom": "POINT",
+    "jeuId": "5cc65a08…"
+  },
+  "decision": {
+    "par": "Sekou Gestionnaire",
+    "le": "2026-11-08T00:40:30.513Z",
+    "justification": "Vanne visible dans la chambre au releve"
+  },
+  "creePar": "Sekou Gestionnaire",
+  "createdAt": "2026-11-08T00:40:30.513Z",
+  "updatedAt": "2026-11-08T00:40:30.513Z",
+  "actionsPossibles": [
+    "revoquer"
+  ]
+}
+```
+
+Transitions (corps `{ justification }`, 10 caractères au moins) : `valider` depuis `PROPOSEE`, `REFUSEE` ou `REVOQUEE` ; `refuser` depuis `PROPOSEE` ; `revoquer` depuis `VALIDEE` ; toute autre : 409 `TRANSITION_INTERDITE` ; justification courte : 400 `JUSTIFICATION_INVALIDE`. Erreurs de déclaration : 422 `NATURE_RELATION_INCOMPATIBLE`, `GEOMETRIE_RELATION_INCOMPATIBLE`, `RELATION_SUR_SOI` ; 409 `RELATION_DEJA_CONNUE` (avec `relationId` et `statut` : **une proposition refusée ne se contourne pas par une déclaration manuelle**), `JEU_NON_QUALIFIABLE` ; 404 `OBJET_INTROUVABLE` (objet d'un autre projet ou illisible), `RELATION_INTROUVABLE`.
+
+### Propositions d'association (superposition géométrique)
+
+`POST /:id/reseau/associations/proposer`, corps facultatif : `jeuId` (restreint les circuits examinés à ce jeu), `couvertureMin` (0,5 à 1), `parCircuitMax` (1 à 20), `tolerances` (par classe `A`, `B`, `C`, `D`, `INCONNUE`, 0,01 à 100 m, fusionnées sur celles du serveur ; **la classe E n'a pas de tolérance : elle est exclue**). Méthode et valeurs par défaut : `CONTRAT-RESEAUX.md`, section 7. **Les relations créées sont `PROPOSEE`, origine `AUTOMATIQUE`** ; une proposition déjà connue (validée, refusée, révoquée) n'est jamais réécrite : une proposition refusée ne revient pas.
+
+```json
+{
+  "statut": "PROPOSITIONS_A_VALIDER",
+  "parametres": {
+    "version": "ASSOC-0.1",
+    "statut": "PROVISOIRE_A_VALIDER",
+    "methodeTolerance": "maximum",
+    "tolerancesParClasseM": {
+      "A": 0.5,
+      "B": 1,
+      "C": 2,
+      "D": 5,
+      "INCONNUE": 2
+    },
+    "couvertureMin": 0.9,
+    "parCircuitMax": 5,
+    "projection": "EPSG:32629",
+    "jeuId": "fe13103e…"
+  },
+  "bilan": {
+    "circuitsExamines": 8,
+    "infrastructuresExaminees": 3,
+    "classeEExclus": {
+      "circuits": 0,
+      "infrastructures": 0
+    },
+    "propositionsCalculees": 4,
+    "creees": 4,
+    "dejaConnues": 0,
+    "tronque": false
+  },
+  "idsCrees": [
+    "7f4fe483…",
+    "…"
+  ],
+  "avertissements": [
+    "Ce sont des PROPOSITIONS : aucune association n'est appliquée tant qu'une personne ne l'a pas validée (avec justification).",
+    "Une simple superposition géométrique ne prouve pas qu'un circuit est porté par une infrastructure.",
+    "…"
+  ]
+}
+```
+
+Chaque proposition porte, dans `proposition`, sa méthode : `methode`, `version`, `toleranceM` (maximum des composantes, jamais leur somme), `composantes`, `couverture`, `couvertureMin`, `longueurCircuitM`, `longueurDansToleranceM`, `projection`, `statutParametres: "PROVISOIRE_A_VALIDER"` (sans géométrie).
+
+Erreurs : 409 `JEU_NON_AUTORISE` (les propositions ne portent que sur des jeux autorisés) ; 422 `TROP_DE_CIRCUITS` (avec `maximum`) ; 429 `ASSOCIATION_TROP_FREQUENTE` (avec `retryAfterS` et l'en-tête `Retry-After`) ; 503 `PROJET_OCCUPE`, `SERVICE_OCCUPE` ; 504 `ASSOCIATION_TROP_LONGUE`.
+
+### Comptage par nature
+
+`GET /:id/reseau/comptage` : **aucun total ne mélange les natures**. Par défaut les jeux `AUTORISE` ; avec `inclureNonAutorises` (ADMIN, GESTIONNAIRE), un jeu en attente **remplace** le jeu autorisé de même rôle et de même concessionnaire (jamais deux fois le même réseau).
+
+- `infrastructuresPhysiques` : `nombreDeclare` (**nombre d'infrastructures déclarées**, sans dédoublonnage géométrique), `nombreLineaires`, `parType`, `longueurSommeM`, `longueurTraceFusionneM` (**longueur de trace fusionnée** : union des tracés) ;
+- `circuitsLogiques` : `nombreDeclare` (**pas un nombre de câbles**), `sommeLongueursCircuitsM` (**somme des longueurs de circuits** : un tracé partagé par N circuits y compte N fois), `longueurTraceFusionneM`, `tracesPartagees` (`groupes`, `circuitsConcernes` : traces strictement identiques, sens de lecture indifférent), `supportPhysique` (`avecSupportValide`, `avecPropositionSeulement`, `sansSupportConnu` : une proposition n'est pas un support valide) ;
+- `equipements`, `natureInconnue` : à part ; un objet de nature inconnue n'est compté **ni comme infrastructure ni comme circuit** ;
+- `libelles`, `avertissements`, `jeux` (faits de chaque jeu, jamais additionnés), `qualite` (répartition par classe déclarée ou « inconnue », objets sans profondeur ni altitude, `evaluables: 0`), `limites`.
+
+Trois circuits superposés, un câble distinct (KIS-LOGIC-01), avant toute relation :
+
+```json
+{
+  "infrastructuresPhysiques": {
+    "nombreDeclare": 4,
+    "nombreLineaires": 3,
+    "parType": {
+      "INCONNU": 4
+    },
+    "longueurSommeM": 180.03,
+    "longueurTraceFusionneM": 180.03
+  },
+  "circuitsLogiques": {
+    "nombreDeclare": 8,
+    "nombreLineaires": 8,
+    "parType": {
+      "INCONNU": 8
+    },
+    "sommeLongueursCircuitsM": 410.05,
+    "longueurTraceFusionneM": 290.04,
+    "tracesPartagees": {
+      "groupes": 1,
+      "circuitsConcernes": 3
+    },
+    "supportPhysique": {
+      "avecSupportValide": 0,
+      "avecPropositionSeulement": 0,
+      "sansSupportConnu": 8
+    }
+  },
+  "equipements": {
+    "nombreDeclare": 1,
+    "parType": {
+      "INCONNU": 1
+    }
+  },
+  "natureInconnue": {
+    "nombreObjets": 0,
+    "nombreLineaires": 0,
+    "longueurSommeM": 0,
+    "longueurTraceFusionneM": 0
+  },
+  "avertissements": [
+    "Le nombre de circuits logiques n'est pas un nombre de câbles physiques : plusieurs circuits peuvent suivre le même support.",
+    "Les 8 circuits logiques linéaires déclarés partagent tout ou partie de leur tracé : la somme de leurs longueurs (410,05 m) dépasse la longueur de trace fusionnée (290,04 m). Ce ne sont pas 8 câbles physiques.",
+    "…"
+  ]
+}
+```
+
+Erreurs : 403 `QUARANTAINE_RESERVEE`, 404 `JEU_INTROUVABLE`, 503 `SERVICE_OCCUPE`, 504 `COMPTAGE_TROP_LONG`.
+
+### Extension des dossiers de conflit, de l'analyse 2D et de la carte
+
+- `GET /:id/conflits` et `GET /:id/conflits/:cid` : `conflit.cible` (nature effective, `qualification`, `libelle`, `supportPhysique`, et `tracePartagee` sur la fiche) ; export CSV : colonnes `natureCible` et `qualificationCible` **à la fin**. Voir `CONTRAT-CONFLITS.md`, section 9, points 35 à 41.
+
+```json
+{
+  "nature": "CIRCUIT_LOGIQUE",
+  "origineNature": "JEU",
+  "qualification": "CIRCUIT_LOGIQUE_SUR_INFRASTRUCTURE_VALIDEE",
+  "libelle": "Conflit avec un circuit logique porté par 1 infrastructure(s) physique(s) validée(s) : c'est l'infrastructure physique qui est concernée.",
+  "supportPhysique": {
+    "valides": 1,
+    "proposes": 0
+  },
+  "tracePartagee": 2
+}
+```
+
+- `GET /:id/analyse` : chaque objet de `conflits.parAxe[].objets` porte `nature`, `origineNature`, `classePrecision` effective ; `reseaux.parNature` et `conflits.total.parNature` : totaux par nature à la granularité du jeu ; `natures` le dit. `reseaux.parType` et `reseaux.parConcessionnaire` sont inchangés (ils somment les natures d'un même type de réseau : écart connu du socle).
+- `GET /:id/carte` : chaque feature porte `nature`, `origineNature`, `typeObjet`, `classePrecision`, `origineClasse`.
+
+### Garanties de la base
+
+Descripteur : un seul par objet ; objets d'un plan d'axes ou de limites de route refusés ; nature déclarable limitée ; circuit linéaire, équipement ponctuel ; précisions strictement positives ; référence verticale seulement avec une valeur ; `jeuId` rempli par la base. Relation : un seul enregistrement par couple ; natures, géométries et projet vérifiés par un déclencheur ; décision exigeant auteur, date et justification de 10 caractères ; extrémités, type, origine et proposition figés ; **`DELETE` et `TRUNCATE` refusés** sur les deux tables (23001) ; changement de nature effective sous une relation `PROPOSEE` ou `VALIDEE` refusé (23514).
+
+### Réglages serveur (variables d'environnement)
+
+`PROJETS_VOIRIE_ASSOC_TOLERANCES_M` (défaut `A=0.5,B=1,C=2,D=5,INCONNUE=2`, **provisoire, à valider par la DSI**), `PROJETS_VOIRIE_ASSOC_COUVERTURE_MIN` (0,9), `PROJETS_VOIRIE_ASSOC_PAR_CIRCUIT_MAX` (5), `PROJETS_VOIRIE_ASSOC_CIRCUITS_MAX` (3 000, bornes 100 à 100 000), `PROJETS_VOIRIE_ASSOC_INTERVALLE_S` (30, bornes 0 à 3 600 ; 0 réservé aux bancs). Valeur absente, illisible ou hors bornes : le défaut.
+
+### Ce qui n'est pas fait, décisions hors contrat, défauts connus
+
+- **Connectivité** (nœuds, continuité, traces amont et aval) : non implémentée, reportée par le cahier ; ce qu'il faudrait est décrit dans `CONTRAT-RESEAUX.md`, section 9.
+- **Évaluation 3D** : aucune. La profondeur, l'altitude et leur référence sont stockées et rendues ; `evaluable` reste faux, `conclusion3D` nul.
+- Les descripteurs et relations suivent l'**objet** : une nouvelle version d'un jeu crée de nouveaux objets sans descripteur ni relation (le delta par empreinte pourrait les proposer ; à décider).
+- Les tolérances et le seuil de couverture sont des **valeurs provisoires** (le cahier demande de ne pas attribuer une précision standard) ; la classe d'un objet est une déclaration humaine justifiée et auditée, pas une mesure.
+- Pas de GET d'une relation seule (la liste filtrée par `objetId` suffit) ; pas de lot (un descripteur par requête) ; l'historique des valeurs d'un descripteur est dans l'audit (`before` et `after`), pas dans une table dédiée.
+- Jeux comptés par `GET /comptage` et propositions : les jeux de rôle `AUTRE` sont inclus ; les propositions n'examinent que les jeux `AUTORISE`.
