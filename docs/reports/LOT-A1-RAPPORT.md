@@ -95,3 +95,13 @@ Aucun code n'est exécuté depuis un fichier : ni extraction sur disque (le modu
 4. **Revue des suppressions** : un second compte doit-il être exigé pour accepter des suppressions (aujourd'hui l'audit note `memePersonne`, sans bloquer, comme l'autorisation) ?
 5. **Traitement asynchrone** : décider si les gros fichiers (chaîne GDAL) justifient le job décrit à la section 13 du contrat, avant le branchement du conteneur GDAL.
 6. **Confirmation hors zone** pour KML, KMZ et GPX : étendre la règle du CSV à tous les formats, ou garder le comportement du socle.
+
+## 10. Commits de la branche `feat/import-formats-simples`
+
+| Commit | Contenu |
+|---|---|
+| `715db87270e1cfb918eefa4e2e3dcf5209ea3c10` | contrat `CONTRAT-IMPORT.md`, écrit et commité en premier |
+| `a53ac851b17781a01543a6aba3b23ff8490bed97` | lecteurs KMZ, CSV, GPX, WKT, choix du CRS, inventaire, mapping (noyau pur), migration et descente |
+| `4761f522de91e3f4b35e949289bdeb43d10e2909` | wizard (6 routes), CRS par PostGIS, delta et revue des suppressions, retour arrière, original facultatif, banc PostGIS |
+| `b263bd625b5ddc8b75f94d2deedcead58a866be6` | rapport des éléments écartés, tests de charge, corrections de types |
+| `b9a91f44ed9c54f1241c7ce816afc28dce43253a` | API, contrôle d'accès, rapport, précisions du contrat |
