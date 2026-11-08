@@ -48,6 +48,8 @@ const DELEGUES_DU_MODULE = [
   "evenementImportProjet", "fichierOrigineJeuProjet",
   // Workflow concessionnaire (lot B3).
   "referentConcessionnaire", "demandeConcessionnaire", "tacheProjetVoirie", "recolementProjetVoirie", "preuveWorkflowProjet", "historiqueWorkflowProjet",
+  // Reseaux physiques et circuits logiques (lot B1) : descripteurs d'objets et relations (revue de la vague 1, m7 : ces delegues manquaient a la liste).
+  "reseauObjetDescripteur", "reseauRelation",
 ];
 
 const fichiersDuModule = [...sources(MODULE), ROUTES, ROUTES_CONFLITS, ROUTES_IMPORT, ROUTES_WORKFLOW, ROUTES_RESEAUX];
