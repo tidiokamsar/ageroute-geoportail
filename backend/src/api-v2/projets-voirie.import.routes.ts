@@ -2,13 +2,16 @@ import type { NextFunction, RequestHandler, Request, Response, Router } from "ex
 import { z } from "zod";
 import { META_WGS84 } from "../projets-voirie/formats/crs.noyau";
 import { resoudreCrs } from "../projets-voirie/formats/crs.service";
-import { apercuFichier, inventaireFichier } from "../projets-voirie/formats/apercu.service";
+import { apercuFichier, inventaireFichier, type DemandeFichier } from "../projets-voirie/formats/apercu.service";
 import { modeConservationOriginal, crsSourceAutorises, delaiApercuMs, limitesCsv, limitesZip, tailleEchantillon } from "../projets-voirie/formats/import.config";
 import type { OptionsImport } from "../projets-voirie/formats/lecture-import.noyau";
 import { CHAMPS_CIBLES, analyserMapping } from "../projets-voirie/formats/mapping.noyau";
 import { lireDelta, retourArriere, revueSuppressions } from "../projets-voirie/formats/revue-versions.service";
 import { BBOX_GUINEE, OBJETS_MAX, SOMMETS_PAR_FICHIER_MAX, SOMMETS_PAR_OBJET_MAX, TAILLE_MAX_OCTETS } from "../projets-voirie/lecture.types";
 import { prisma } from "../lib/prisma";
+import { disponibilite } from "../projets-voirie/gdal/jobs.service";
+import { formatsGdalAnnonces } from "../projets-voirie/gdal/formats.registre";
+import { jobIdOption, sourceConvertie } from "./projets-voirie.gdal.routes";
 import { regionsDuProjet, type Acteur } from "../projets-voirie/projets.service";
 
 /**
@@ -56,6 +59,8 @@ export const champsImport = z.object({
   encodage: opt(z.enum(["utf-8", "iso-8859-1", "windows-1252"])),
   separateurDecimal: opt(z.enum([".", ","])),
   colonneX: opt(colonne), colonneY: opt(colonne), colonneWkt: opt(colonne), colonneCle: opt(colonne), colonneOrdre: opt(colonne),
+  /** Lot B2 : resultat d'un job de conversion GDAL (GeoPackage, Shapefile ZIP, DXF) a la place du fichier. */
+  jobId: jobIdOption,
 });
 export type ChampsImport = z.infer<typeof champsImport>;
 
@@ -91,10 +96,8 @@ const FORMATS = [
   { format: "GPX", extensions: [".gpx"], detection: "contenu", crsParDefinition: "EPSG:4326", choixCrs: "interdit" },
   { format: "CSV", extensions: [".csv", ".tsv", ".txt"], detection: "contenu", crsParDefinition: null, choixCrs: "obligatoire" },
 ] as const;
+// GeoPackage, Shapefile ZIP et DXF ne sont plus ici : ils sont annonces par `formatsGdal` (supportes ou indisponibles, avec la raison).
 const NON_SUPPORTES = [
-  { format: "GEOPACKAGE", raison: "chaine de conversion GDAL isolee (lot a part, non branchee)" },
-  { format: "SHAPEFILE", raison: "chaine de conversion GDAL isolee (lot a part, non branchee) ; un ZIP de Shapefile est refuse" },
-  { format: "DXF", raison: "chaine de conversion GDAL isolee (lot a part, non branchee)" },
   { format: "DWG", raison: "convertisseur approuve et licence verifiee requis" },
 ] as const;
 
@@ -131,8 +134,11 @@ export function monterRoutesImport(router: Router, o: OutilsImportRoutes): void 
     }
     const zip = limitesZip();
     const csv = limitesCsv();
+    // Lot B2 : etat des formats GDAL. Desactive (defaut), AUCUN acces au spool ni au conteneur : seulement l'etat de l'interrupteur.
+    const gdal = formatsGdalAnnonces(await disponibilite());
     res.json({
       formats: FORMATS,
+      formatsGdal: gdal,
       nonSupportes: NON_SUPPORTES,
       limites: {
         tailleMaxOctets: TAILLE_MAX_OCTETS, objetsMax: OBJETS_MAX, sommetsParObjetMax: SOMMETS_PAR_OBJET_MAX, sommetsParFichierMax: SOMMETS_PAR_FICHIER_MAX,
@@ -152,21 +158,27 @@ export function monterRoutesImport(router: Router, o: OutilsImportRoutes): void 
   }));
 
   // ---------------------------------------------------------------------------------------------- Etapes 1 et 2 : inventaire, apercu
-  const lireFichierEtOptions = (req: Request, res: Response): { fichier: Buffer; nomFichier: string; options: OptionsImport } | null => {
+  const lireFichierEtOptions = async (req: Request, res: Response): Promise<DemandeFichier | null> => {
     const c = champsApercu.safeParse(req.body ?? {});
     if (!c.success) { refuser(res, c.error, "CHAMPS_INVALIDES"); return null; }
+    const options = optionsDepuis(c.data);
+    // Lot B2 : jobId = resultat valide d'une conversion GDAL (a la place du fichier) ; meme pipeline ensuite.
+    if (c.data.jobId !== undefined) {
+      const s = await sourceConvertie(req.params.id, c.data.jobId, c.data.couche, req.file !== undefined);
+      return { fichier: Buffer.alloc(0), nomFichier: s.nomFichier, options, conversion: s.conversion };
+    }
     if (!req.file) { res.status(400).json({ error: "Fichier manquant (champ multipart « fichier »)", code: "FICHIER_MANQUANT" }); return null; }
-    return { fichier: req.file.buffer, nomFichier: req.file.originalname, options: optionsDepuis(c.data) };
+    return { fichier: req.file.buffer, nomFichier: req.file.originalname, options };
   };
 
   router.post("/:id/import/inventaire", ecriture, gardeProjet, projetExiste, placeDeReception, recevoir, enveloppe(async (req, res) => {
-    const d = lireFichierEtOptions(req, res);
+    const d = await lireFichierEtOptions(req, res);
     if (!d) return;
     res.json(inventaireFichier(d));
   }));
 
   router.post("/:id/import/apercu", ecriture, gardeProjet, projetExiste, placeDeReception, recevoir, enveloppe(async (req, res) => {
-    const d = lireFichierEtOptions(req, res);
+    const d = await lireFichierEtOptions(req, res);
     if (!d) return;
     res.json(await apercuFichier(d));
   }));

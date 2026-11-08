@@ -4,7 +4,7 @@ Statut : contrat du lot A1 (backend), écrit AVANT le code le 07/11/2026 pour l'
 
 Portée : formats **KML, KMZ, GeoJSON, GPX, CSV/TSV/TXT** (sans GDAL), choix du CRS source dans une liste blanche, transformation par PostGIS (`ST_Transform`, PROJ), inventaire des couches, aperçu borné sans persistance, mapping de champs, validation géométrique, statistiques, delta de versions avec revue des suppressions, retour arrière d'une version, conservation facultative du fichier d'origine.
 
-Hors portée de ce lot : GeoPackage, Shapefile, DXF (chaîne GDAL, lot à part, `CHAINE-GDAL.md`), raster, DWG, IFC, LAS, interface, conflits. Ces formats répondent toujours 415 `FORMAT_NON_SUPPORTE`.
+Hors portée de ce lot : GeoPackage, Shapefile, DXF (chaîne GDAL : lot B2, sections 13 et 14 ci-dessous, désactivé par défaut), raster, DWG, IFC, LAS, interface, conflits. Désactivés (défaut), GeoPackage, Shapefile et DXF répondent 415 `FORMAT_GDAL_DESACTIVE` ; DWG, raster, IFC et LAS répondent 415 `FORMAT_NON_SUPPORTE`.
 
 ## 1. Règles non négociables (rappel et ajouts)
 
@@ -149,7 +149,7 @@ Le central directory est lu et contrôlé **avant toute décompression** ; aucun
 | `ARCHIVE_TAUX_COMPRESSION` | rapport déclaré supérieur à 100 (`PROJETS_VOIRIE_ARCHIVE_TAUX_MAX`) pour une entrée de plus de 1 Mo |
 | `ARCHIVE_CHEVAUCHEMENT` | entrées dont les données se recouvrent (bombe par recouvrement) |
 | `ARCHIVE_TROP_PROFONDE` | plus de 8 niveaux de dossiers |
-| `KMZ_SANS_KML` | aucune entrée `.kml` (archive de documents, de Shapefile : un ZIP contenant `.shp`, `.gpkg` ou `.dxf` répond 415 `FORMAT_NON_SUPPORTE`, chaîne GDAL) |
+| `KMZ_SANS_KML` | aucune entrée `.kml` (archive de documents, de Shapefile : un ZIP contenant `.shp`, `.gpkg` ou `.dxf` répond 415 `FORMAT_GDAL_DESACTIVE` (interrupteur coupé) ou 422 `CONVERSION_ASYNCHRONE_REQUISE`, chaîne GDAL du lot B2) |
 | `KMZ_PLUSIEURS_KML` | plusieurs `.kml`, aucun `doc.kml` à la racine, et pas d'`entreeKml` : l'inventaire liste les entrées |
 | `ENTREE_KML_INTROUVABLE` | `entreeKml` ne désigne aucune entrée `.kml` |
 
@@ -279,7 +279,7 @@ Codes ajoutés, par statut (les codes existants de `API.md` sont inchangés) :
 | 404 | `JEU_INTROUVABLE` (delta, revue, retour arrière) |
 | 400 (suite) | `CONCESSIONNAIRE_REQUIS` : un jeu `RESEAU_TIERS` sans `concessionnaireId` dont le mapping ne désigne aucun concessionnaire connu (avertissement `CONCESSIONNAIRE_INCONNU` : un concessionnaire n'est jamais créé par un import) |
 | 409 | `EMPREINTE_DIVERGENTE`, `CONFIRMATION_HORS_ZONE_REQUISE`, `SUPPRESSIONS_A_REVOIR`, `SUPPRESSIONS_REFUSEES`, `AUCUNE_SUPPRESSION`, `AUCUNE_VERSION_PRECEDENTE`, `VERSION_PRECEDENTE_INDISPONIBLE`, `DEPOT_EN_ATTENTE` (retour arrière), `STATUT_INCOMPATIBLE` |
-| 415 | `FORMAT_NON_SUPPORTE` : GeoPackage, Shapefile (y compris en ZIP), DXF, DWG, texte non reconnu |
+| 415 | `FORMAT_NON_SUPPORTE` : DWG, texte non reconnu ; `FORMAT_GDAL_DESACTIVE` : GeoPackage, Shapefile (y compris en ZIP), DXF quand `PROJETS_VOIRIE_GDAL` est coupé (lot B2, section 13) |
 | 422 | `ARCHIVE_*`, `KMZ_SANS_KML`, `KMZ_PLUSIEURS_KML`, `ENTREE_KML_INTROUVABLE` (section 6) ; `CRS_*`, `TRANSFORMATION_ECHEC` (5.4) ; `ENCODAGE_AMBIGU`, `DELIMITEUR_AMBIGU`, `SEPARATEUR_DECIMAL_AMBIGU`, `CSV_STRUCTURE_INVALIDE`, `CSV_TROP_DE_LIGNES` (plus de 500 000), `CSV_TROP_DE_COLONNES` (plus de 200), `CSV_TROP_DE_CELLULES` (plus de 5 000 000 de cellules au total), `CSV_CELLULE_TROP_LONGUE` (plus de 10 000 caractères), `CSV_COLONNES_REQUISES` (pas de colonnes de coordonnées désignées), `CSV_COLONNE_INTROUVABLE`, `COUCHE_INTROUVABLE`, `MAPPING_COLONNE_INTROUVABLE`, `GPX_INVALIDE` |
 | 504 | `APERCU_TROP_LONG` |
 
@@ -301,52 +301,55 @@ Toute valeur absente, illisible ou hors bornes redonne le défaut (même règle 
 
 Valeurs de départ à valider par le DSI : aucune n'est un seuil métier validé (ce sont des bornes de protection).
 
-## 13. Traitement hors du processus de l'API (décision)
+## 13. Traitement hors du processus de l'API : jobs de conversion GDAL (lot B2, implémenté)
 
-Constat : le dépôt ne contient aucune file de jobs ni worker réutilisable (`backend/src/jobs/` : deux planificateurs `setInterval`). La chaîne GDAL a son propre contrat de spool fichier (`CHAINE-GDAL.md`), non branché. **Ce lot ne construit pas de système asynchrone** : les formats ouverts sont traités de façon synchrone sous plafonds stricts (25 Mo, 50 000 objets, 2 000 000 de sommets, 500 000 lignes CSV, 100 entrées de KMZ), derrière les limiteurs et les délais côté base du socle (`PROJETS_VOIRIE_DELAI_*`) ; l'aperçu a son propre budget. Les budgets de temps du socle ne sont pas contournés.
+Les formats ouverts (KML, KMZ, GeoJSON, GPX, CSV) restent traités de façon synchrone sous plafonds stricts (section 12). **GeoPackage, Shapefile ZIP et DXF** ne se lisent jamais dans le processus de l'API : un job les convertit en GeoJSON WGS 84 dans le conteneur isolé de `CHAINE-GDAL.md` (aucun réseau, aucun accès à la base, aucun secret), et le résultat validé entre dans le **même** pipeline que les formats simples (quarantaine `CONTROLE`, CRS, mapping, validation géométrique, delta, revue des suppressions, retour arrière). Aucune seconde voie.
 
-Contrat futur d'un job asynchrone (pour les gros fichiers GDAL, non implémenté) : table `projets_voirie_import_jobs` (`id`, `projetId`, `creeParId`, `statut` `EN_ATTENTE`, `EN_COURS`, `TERMINE`, `ECHEC`, `ANNULE`, `EXPIRE`, `etape`, `progression` 0 à 100, `codeErreur`, `tentatives`, `tentativesMax` = 3, `reclameLe`, `finLe`, `expireLe`, `parametres` JSON identique aux options de la section 3) ; réclamation atomique (`UPDATE ... WHERE statut = 'EN_ATTENTE' ... SKIP LOCKED`), relance bornée d'un job `EN_COURS` dont la réclamation a expiré, annulation par `ADMIN` ou `GESTIONNAIRE`, nettoyage par `expireLe` (fichiers temporaires 72 h, alignement `GEOCONV_RETENTION_H`), interrogation par `GET /:id/import/jobs/:jobId`. Le résultat d'un job est l'entrée de l'étape 2 du wizard.
+**Interrupteur `PROJETS_VOIRIE_GDAL`, désactivé par défaut.** Désactivé : `GET import/options` annonce les trois formats `INDISPONIBLE` avec la raison ; `POST import/jobs`, l'aperçu et le dépôt synchrones d'un de ces formats répondent 415 `FORMAT_GDAL_DESACTIVE` ; les autres routes de jobs 503 `GDAL_DESACTIVE` ; le sondage n'est pas créé ; le backend démarre sans conteneur (le déploiement actuel n'en a pas). Actif : un fichier GDAL envoyé aux routes synchrones répond 422 `CONVERSION_ASYNCHRONE_REQUISE`.
 
-## 14. Corrections de la revue de la vague 1 (ajouts)
+### 13.1 Table `projets_voirie_import_jobs` (migration `20261102200000_import_jobs_gdal`)
 
-Cette section complète les sections 8 et 9 ; en cas de divergence, elle l'emporte.
+`id`, `projetId`, `creeParId`, `format` (`GPKG`, `SHAPEFILE`, `DXF`, valeurs ajoutées à `FormatJeuProjet`), `statut` (`EN_ATTENTE`, `EN_COURS`, `TERMINE`, `ECHEC`, `ANNULE`, `EXPIRE`), `nomFichier`, `sha256`, `tailleOctets`, `parametres` (`epsgSource`, `unitesDxf`), `etape`, `progression` 0 à 100, `codeErreur`, `messageErreur`, `tentatives`, `tentativesMax` (3), `spoolId` (dossier de la tentative courante, `<uuid du job>-t<n>`), `reclameLe`, `finLe`, `expireLe`, `purgeLe`, `resume` (inventaire du résultat validé, sans géométrie), `jeuId` (jeu créé), `annuleParId`. La base impose la machine à états (déclencheur) : `EN_ATTENTE` vers `EN_COURS`, `ANNULE`, `EXPIRE`, `ECHEC` ; `EN_COURS` vers `TERMINE`, `ECHEC`, `ANNULE`, `EN_ATTENTE` (relance), `EXPIRE` ; `TERMINE` vers `EXPIRE` seulement ; `ECHEC`, `ANNULE`, `EXPIRE` ne changent plus (seule la purge peut être notée) ; le résultat d'un job `TERMINE` est figé (seuls `purgeLe` et `jeuId`) ; aucune suppression physique, aucun `TRUNCATE` ; un seul job actif par (projet, empreinte, paramètres). Descente : `backend/prisma/descentes/20261102200000_import_jobs_gdal.sql` (refusée si un job existe ; type reconstruit, refusé sans dérogation si un jeu porte `GPKG`, `SHAPEFILE` ou `DXF`).
 
-### 14.1 La revue des suppressions ne se contourne pas (M1)
+### 13.2 Cycle de vie
 
-Défaut constaté : un décideur pouvait retirer (`DELETE /:id/jeux/:jeuId`) le jeu `AUTORISE` pendant qu'une nouvelle version, qui retirait des objets, attendait en contrôle, puis autoriser cette version : il ne restait plus de jeu autorisé de même clé, donc plus de référence, plus de revue exigée (`AUCUNE_SUPPRESSION` à la revue, autorisation acceptée).
+1. **Création** (`POST import/jobs`) : format détecté par le contenu ; archive contrôlée par le noyau ZIP du module (zip-slip, bombe, imbrication, liens) AVANT tout dépôt dans le spool ; Shapefile complet (`.shp`, `.shx`, `.dbf` obligatoires) ; règles de CRS et d'unités (section 14) ; sous le **verrou du projet** : doublon actif (409 `JOB_DEJA_EN_COURS`), plafonds par compte et par projet (429), file globale (503), cadence par heure par compte et par projet (429 `JOBS_TROP_FREQUENTS`). La ligne est insérée, puis `entree/<spoolId>/fichier.<ext>` est écrit **sans** `demande.json` ; audit `CREATE` sans géométrie.
+2. **Transmission** : le sondage reclame le plus ancien `EN_ATTENTE` (`UPDATE ... FOR UPDATE SKIP LOCKED`), passe `EN_COURS` (tentative + 1) et publie `demande.json` en dernier, avec des limites qui ne font que **baisser** les plafonds de l'opérateur du conteneur. Au plus `concurrence` jobs transmis (le conteneur les traite un par un).
+3. **Fin** : le sondage lit `statut.json` ; `termine` : validation stricte (13.4) puis `TERMINE` avec le `resume` ; `echec` : `ECHEC` avec le code connu.
+4. **Usage** : `jobId` à la place de `fichier` pour l'inventaire, l'aperçu, la simulation et le dépôt ; le résultat est **relu et revalidé** à chaque usage, et l'empreinte de chaque fichier de couche comparée à celle du résumé (409 `RESULTAT_ALTERE`). Le dépôt réel consomme le job dans sa propre transaction (`jeuId`, comparaison et échange : un seul dépôt par job) puis purge le spool. Le jeu garde l'empreinte, la taille et le nom du **fichier d'origine** ; le fichier d'origine n'est jamais conservé (`EMPREINTE_SEULE`).
+5. **Annulation** : `POST import/jobs/:jobId/annuler`, `ADMIN` ou `GESTIONNAIRE`, comparaison et échange sur le statut, auditée.
+6. **Relance contrôlée** : un job transmis sans réponse après `delai * concurrence + 30 s`, ou interrompu par un redémarrage du conteneur (`INTERROMPU`, le seul code relançable), repart `EN_ATTENTE` dans un **nouveau** dossier du spool (copie du fichier), au plus `tentativesMax` fois, puis `ECHEC` `JOB_PERDU`.
+7. **Expiration et nettoyage** : `expireLe` = création + `PROJETS_VOIRIE_GDAL_RETENTION_H` (24 h par défaut, 72 h au plus, alignement `GEOCONV_RETENTION_H`). Un job `EN_ATTENTE`, `EN_COURS` ou `TERMINE` non utilisé au-delà passe `EXPIRE` ; les fichiers des jobs `ECHEC`, `ANNULE`, `EXPIRE` et utilisés sont retirés du spool par le sondage (`purgeLe`). Un dossier de sortie n'est pas retiré tant que le conteneur y écrit encore (statut `en_cours`), sauf échéance de perte.
+8. **Reprise après redémarrage** : le sondage ne garde rien en mémoire ; un job `EN_COURS` est relu dans le spool au premier tour (un tour part au démarrage).
 
-Correction, deux gardes cumulées :
+**Sondage borné** (`gdal/traiteur.ts`) : un minuteur `setInterval` (3 s par défaut), `unref`, créé seulement si l'interrupteur est actif, un seul tour à la fois, 50 jobs examinés, 25 purges, `concurrence` réclamations par tour. `backend/src/jobs` n'a pas été réutilisé : il ne contient que deux planificateurs `setTimeout` périodiques, sans file, reprise ni réclamation atomique.
 
-1. **Retrait** : `DELETE /:id/jeux/:jeuId` d'un jeu `AUTORISE` (rôle autre que `AUTRE`) répond **409 `DEPOT_EN_ATTENTE`** (avec `jeuId` et `version` du dépôt) tant qu'un jeu `RECU` ou `CONTROLE` de même projet, rôle et concessionnaire existe. Il faut d'abord le rejeter ou le retirer, ou l'autoriser (avec la revue de ses suppressions). Le retrait d'un jeu `AUTORISE` sans dépôt en attente reste possible : c'est un acte explicite et audité (`DELETE`), qui retire l'ensemble du jeu et non « quelques objets d'une nouvelle version » ; un dépôt ultérieur de cette clé n'a alors plus rien à remplacer.
-2. **Référence de la revue** (défense en profondeur, pour les bases qui portent déjà l'état obtenu par l'ancien contournement) : les suppressions d'un jeu en contrôle se calculent contre le jeu `AUTORISE` de même clé, **à défaut contre le jeu que ce dépôt devait remplacer (`remplaceId`), même retiré ou remplacé depuis**. Cette référence est utilisée par l'autorisation (`SUPPRESSIONS_A_REVOIR` / `SUPPRESSIONS_REFUSEES`), par `revue-suppressions` (plus de `AUCUNE_SUPPRESSION` à tort ; l'événement porte `statutComparaison`) et par le statut annoncé par `GET .../delta`. Un jeu retire reste invisible : `comparaison` reste `null`, aucun échantillon ni identifiant du jeu retiré n'est rendu, seul le statut et le nombre de suppressions le sont. Les objets d'un jeu retiré restent en base (suppression logique), le delta est calculable.
+### 13.3 Plafonds, cadence, verrou (réglages en section 12 de `API.md`)
 
-Limite connue : si un jeu `AUTORISE` de même clé existe, il est LA référence (il est celui qu'une autorisation remplacerait) ; la référence `remplaceId` ne sert qu'en son absence. Un seul jeu est comparé, une seule revue le couvre.
+Jobs actifs par compte 2, par projet 3, file globale 20, 12 créations par heure par compte et par projet, `Retry-After` sur les 429 et le 503. Au plus 2 chargements de résultat simultanés par processus (limiteur), 2 aperçus, 2 dépôts, 4 réceptions de fichier : ceux du socle.
 
-### 14.2 Un refus de revue est définitif (O1)
+### 13.4 La sortie du conteneur est NON FIABLE
 
-`POST .../revue-suppressions` avec `ACCEPTER` répond **409 `SUPPRESSIONS_REFUSEES`** si le statut des suppressions est déjà `REFUSEES` (même ensemble retiré, même empreinte) : le message de l'autorisation (« un refus ne peut plus qu'être rejeté, retiré, ou remplacé par un fichier corrigé ») est désormais vrai de bout en bout. Rester permis : `REFUSER` après `ACCEPTER` (sens prudent, il bloque l'autorisation), `REFUSER` après `REFUSER`, et une nouvelle revue quand l'ensemble retiré a changé (le statut redevient `A_REVOIR`). La sortie d'un refus : rejeter le dépôt (`rejeter`), puis déposer un fichier corrigé.
+Validée **avant toute lecture de géométrie** et **entièrement** (un écart refuse le job, jamais de sortie partielle) :
 
-**Décision réservée au DSI, non prise ici (O1, séparation des tâches)** : la même personne peut déposer, accepter les suppressions et autoriser (l'audit note `memePersonne` sans bloquer, comme au socle). Exiger un relecteur différent du déposant est une règle de gouvernance à valider.
+- `statut.json`, `resultat.json` : schémas `zod` stricts (clé inconnue refusée), tailles bornées (64 Kio, 4 Mo), lecture sans suivre de lien, chemin réel dans le dossier du job ;
+- cohérence : même identifiant de job, **même empreinte et même taille que le fichier envoyé**, format attendu, nombre d'objets et taille de fichier annoncés, couches nommées de façon unique (`couches/<nom ASCII>.geojson`) ;
+- **CRS explicite** : `crs` et `crsSource` du résultat ; document en WGS 84 sans membre `crs` ou en CRS84, jamais un autre ; coordonnées brutes sans membre `crs` (elles n'entrent jamais dans le pipeline : `CRS_REQUIS`) ;
+- GeoJSON lu **ligne à ligne** (une Feature par ligne, 8 Mo par ligne au plus, 80 Mo par couche), en-tête et pied en liste blanche, UTF-8 valide exigé ; chaque Feature validée contre un schéma strict : clés, types de géométrie, profondeur des coordonnées, valeurs finies et bornées, 2 ou 3 valeurs par position, sommets par objet et par fichier (plafonds du module), attributs plats (500 au plus, clés assainies, `__proto__` écarté, texte tronqué à 10 000 caractères, structures converties en texte) ;
+- messages : un code inconnu devient `CONVERSION_ECHEC` ; le message est **fixe** par code (jamais de chemin, de nom de couche ni de ligne de fichier issus du conteneur) ; les avertissements du conteneur gardent leur code et leur compte, avec un libellé fixe.
 
-### 14.3 Limites du téléversement multipart (m1)
+### 13.5 Ce que ce lot ne fait pas, et décisions pour le DSI
 
-La réception multipart du dépôt, de l'inventaire et de l'aperçu admet **40 champs texte et 45 parties** (le fichier compris), de 10 000 octets au plus chacun. Le dépôt en porte 26 au plus (`champsDepot` fusionné avec `champsImport`) ; au-delà de 40 champs, ou si un champ dépasse 10 000 octets : **400 `TELEVERSEMENT_INVALIDE`** (jamais 500). Avant : 20 champs et 25 parties, ce qui refusait à tort un dépôt portant 21 champs ou plus.
+Voir `docs/reports/LOT-B2-RAPPORT.md` : plafonds de production, hébergement et mise à jour de l'image, profil seccomp, analyse de vulnérabilités, antivirus, rétention du spool, droits d'écriture du backend sur `geoconv_sortie` pour la purge, DWG, DXF binaire, GML, LandXML, raster.
 
-### 14.4 CSV en UTF-16 (m2)
+## 14. Règles de CRS et d'unités des formats GDAL
 
-Un contenu commençant par un BOM UTF-16 (LE ou BE) est décodé, puis son premier caractère utile décide : `<` (XML : KML, GPX), `{` (JSON : GeoJSON) ou un contenu blanc suivent la branche texte structuré ; **tout autre texte est lu comme un tableau délimité** (règles de la section 4.1, aucune devinette : encodage `utf-16le` ou `utf-16be` reconnu à son BOM, délimiteur et séparateur décimal inchangés, CRS exigé). Avant : tout contenu à BOM UTF-16 passait par la branche XML/JSON et répondait 415 `FORMAT_NON_SUPPORTE`, ce qui rendait inatteignable le décodage UTF-16 des CSV exportés par un tableur.
+| Format | CRS | Unités |
+|---|---|---|
+| Shapefile ZIP | `epsgSource` **obligatoire** à la création du job ; le `.prj` est lu mais ne vaut jamais confirmation ; `.prj` d'un autre EPSG ou sans code EPSG : `CRS_CONFLIT` ; sans `.prj` : le CRS confirmé s'applique (`CRS_FOURNI_PAR_LA_DEMANDE`) | celles du CRS |
+| DXF | `epsgSource` **obligatoire** ; jamais déduit | `unitesDxf` (`metre`, `degre`) **obligatoire**, compatible avec le CRS (`DXF_UNITES_CONFLIT`) et avec `$INSUNITS` (absent, 0 ou 6) ; aucune mise à l'échelle |
+| GeoPackage | déclaré par le fichier ; 4326 : sans confirmation ; projeté : `epsgSource` identique exigé à l'aperçu (`CRS_REQUIS`, `CRS_CONFLIT`) ; sans CRS : `epsgSource` à la création | celles du CRS |
 
-### 14.5 Liste des couches bornée (O6)
+Dans tous les cas : liste blanche (`CRS_NON_AUTORISE`), un CRS déclaré ne se surcharge pas, couches de CRS source différents jamais mélangées (`CRS_MULTIPLES`), contrôle de plausibilité contre l'emprise de la Guinée et confirmation `confirmerHorsZone` comme pour les CSV. `resume.crs` d'un fichier converti : `methode` `GDAL <version> / PROJ <version> (conteneur isole)`, `transformation` `GDAL_PROJ`, `origine` `choisi_par_utilisateur` ou `declare_dans_le_fichier`. La précision de la transformation est celle des grilles PROJ de l'image (aucune grille réseau) : vérifiée pour EPSG:32629 vers WGS 84 par comparaison avec `ST_Transform` (banc), non pour un datum local.
 
-La réponse de `POST /:id/import/inventaire` liste **200 couches au plus** (dans l'ordre du fichier) et annonce `nbCouches` (total) et `couchesTronquees`. Au-delà, l'avertissement `COUCHES_TRONQUEES` est ajouté ; les couches suivantes restent choisissables par leur identifiant (`c200`, `c201`...) mais ne sont pas décrites. L'avertissement `COUCHES_MULTIPLES` porte le total.
-
-### 14.6 Mémoire d'un CSV de cellules vides (O5)
-
-Le nombre total de cellules d'un CSV (lignes par colonnes, **cellules vides comprises**) est plafonné : `PROJETS_VOIRIE_CSV_CELLULES_MAX`, défaut 5 000 000 (bornes 10 000 à 100 000 000, valeur de protection à valider par le DSI), au-delà 422 `CSV_TROP_DE_CELLULES`, détecté pendant l'analyse, avant d'avoir tout alloué. Constat de la revue : un fichier de 24 Mo de seuls délimiteurs tenait environ 536 Mo de mémoire. Limite restante : la mesure de mémoire du test est une borne large (400 Mo), pas une mesure de production.
-
-### 14.7 Constats documentés, non corrigés (décisions réservées au DSI ou hors périmètre de la correction)
-
-- **O2** : un retour arrière remet la version précédente comme `AUTORISE` sans nouvelle revue des objets propres à la version retirée du service (la revue des suppressions porte sur l'ensemble retiré lors de l'autorisation, pas sur le retour). Aucune perte de données ; acte audité (`RESTORE` et `UPDATE`).
-- **O3** : `sha256Attendu` et `confirmerHorsZone` sont facultatifs et ne sont pas liés à un aperçu précis (aucune session côté serveur) : un dépôt sans `sha256Attendu` n'est pas comparé à l'aperçu vu par l'utilisateur. Décision réservée au DSI : exiger `sha256Attendu` (et une confirmation explicite hors zone) pour tout dépôt.
-- **O4** : le fichier d'origine, s'il est conservé (`PROJETS_VOIRIE_CONSERVER_ORIGINAL=oui`), n'a aucune voie de purge (la table refuse la suppression physique). Décision DSI : durée de conservation et procédure de purge.
-- **O7** : un descripteur de réseau (lot B1) peut modifier la classe ou la précision effective d'un jeu `AUTORISE` utilisée par la détection de conflits (RC-3), par un seul `GESTIONNAIRE`, sans contrôle à quatre yeux. Décision DSI : droits de descripteur et double validation.
+**DXF : entités.** Lues : `LINE`, `LWPOLYLINE`, `POLYLINE` 2D, `POLYLINE` 3D. Ignorées et comptées : toutes les autres (blocs et `INSERT`, `HATCH`, `TEXT`, `MTEXT`, `POINT`, `CIRCLE`, `ARC`, `SPLINE`, cotes, maillages, espace papier). Les calques sont les couches du wizard (`calque:<nom>`). Le tri est fait par le worker avant GDAL (`CHAINE-GDAL.md` section 2) parce que le pilote GDAL ne distingue pas le type d'entité d'origine.

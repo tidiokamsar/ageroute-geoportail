@@ -7,7 +7,7 @@ etait compromis, il ne pourrait pas desserrer la protection.
 import os
 from dataclasses import dataclass, asdict
 
-VERSION_WORKER = "0.1.0"
+VERSION_WORKER = "0.2.0"
 VERSION_CONTRAT = 1
 
 # Liste blanche des pilotes. GPKG, ESRI Shapefile et DXF sont lus en entree ; GeoJSON sert a

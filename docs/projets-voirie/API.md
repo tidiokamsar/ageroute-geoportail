@@ -184,7 +184,7 @@ Axe A;Societe des Eaux Synthetique;EAU_POTABLE;r2.kml;1;AUTORISE;inconnue;PROXIM
 | 409 | `STATUT_INCOMPATIBLE` | autoriser / rejeter un jeu qui n'est pas en contrôle, retirer un jeu déjà retiré |
 | 409 | `CODE_DEJA_UTILISE`, `CONCESSIONNAIRE_DEJA_CONNU` | unicité |
 | 413 | `FICHIER_TROP_GROS` | plus de 25 Mo |
-| 415 | `FORMAT_NON_SUPPORTE` | GeoPackage, Shapefile (y compris dans un ZIP), DXF, DWG (formats non branchés, voir `MATRICE-FORMATS.md`), contenu texte qui n'est ni du KML, du GeoJSON, du GPX ni un tableau délimité. KMZ, GPX et CSV sont lus (`CONTRAT-IMPORT.md`, sections 4 à 6) |
+| 415 | `FORMAT_NON_SUPPORTE` | DWG, contenu texte qui n'est ni du KML, du GeoJSON, du GPX ni un tableau délimité. KMZ, GPX et CSV sont lus (`CONTRAT-IMPORT.md`, sections 4 à 6). GeoPackage, Shapefile ZIP et DXF : voir la section « Conversion GDAL asynchrone » (415 `FORMAT_GDAL_DESACTIVE` quand l'interrupteur est coupé, ce qui est le défaut) |
 | 422 | `CONTENU_NON_RECONNU` | HTML, PDF, exécutable, image, binaire, octets NUL |
 | 422 | `FICHIER_VIDE`, `TROP_D_OBJETS` (> 50 000), `GEOMETRIE_INVALIDE`, `HORS_GUINEE` | contenu refusé |
 | 422 | `XML_INVALIDE`, `DTD_REFUSEE`, `ENTITE_REFUSEE`, `XML_TROP_PROFOND`, `XML_TROP_VOLUMINEUX`, `JSON_INVALIDE`, `JSON_TROP_PROFOND`, `ENCODAGE_NON_SUPPORTE`, `CRS_NON_SUPPORTE` | document illisible ou dangereux |
@@ -513,7 +513,7 @@ Journaux en **ajout seul** (UPDATE et DELETE refusés, code 23001) : `conflits_p
 
 ## Import des formats ouverts, CRS, mapping et versions (lot A1)
 
-Contrat : `docs/projets-voirie/CONTRAT-IMPORT.md` (fait foi pour les règles) ; les exemples ci-dessous sont des réponses réelles du banc `backend/tests-integration/import-formats.integration.mts` (données 100 % synthétiques, identifiants raccourcis, listes tronquées). Formats lus : KML, KMZ, GeoJSON, GPX, CSV/TSV/TXT. Toujours refusés en 415 : GeoPackage, Shapefile (y compris en ZIP), DXF, DWG (chaîne GDAL, lot à part).
+Contrat : `docs/projets-voirie/CONTRAT-IMPORT.md` (fait foi pour les règles) ; les exemples ci-dessous sont des réponses réelles du banc `backend/tests-integration/import-formats.integration.mts` (données 100 % synthétiques, identifiants raccourcis, listes tronquées). Formats lus : KML, KMZ, GeoJSON, GPX, CSV/TSV/TXT. GeoPackage, Shapefile ZIP et DXF passent par la conversion asynchrone du lot B2 (section « Conversion GDAL asynchrone », désactivée par défaut) ; DWG reste refusé.
 
 ### Routes ajoutées (toutes `ADMIN` et `GESTIONNAIRE`, lectures comprises)
 
@@ -614,7 +614,7 @@ Retour arrière (`POST .../retour-arriere`, `{ "justification": "..." }`) :
 
 ### Codes d'erreur ajoutés par le lot A1
 
-Voir `CONTRAT-IMPORT.md`, sections 5.4, 6 et 11 (archives `ARCHIVE_*`, `KMZ_*`, CSV, CRS, mapping, couches, suppressions, retour arrière). Statuts : 400 `MAPPING_INVALIDE`, `CONCESSIONNAIRE_REQUIS` ; 404 `JEU_INTROUVABLE` ; 409 `EMPREINTE_DIVERGENTE`, `CONFIRMATION_HORS_ZONE_REQUISE`, `SUPPRESSIONS_A_REVOIR`, `SUPPRESSIONS_REFUSEES`, `AUCUNE_SUPPRESSION`, `AUCUNE_VERSION_PRECEDENTE`, `VERSION_PRECEDENTE_INDISPONIBLE` ; 415 `FORMAT_NON_SUPPORTE` (GeoPackage, Shapefile, DXF, DWG, archive de Shapefile) ; 422 tous les autres codes de lecture ; 504 `APERCU_TROP_LONG`.
+Voir `CONTRAT-IMPORT.md`, sections 5.4, 6 et 11 (archives `ARCHIVE_*`, `KMZ_*`, CSV, CRS, mapping, couches, suppressions, retour arrière). Statuts : 400 `MAPPING_INVALIDE`, `CONCESSIONNAIRE_REQUIS` ; 404 `JEU_INTROUVABLE` ; 409 `EMPREINTE_DIVERGENTE`, `CONFIRMATION_HORS_ZONE_REQUISE`, `SUPPRESSIONS_A_REVOIR`, `SUPPRESSIONS_REFUSEES`, `AUCUNE_SUPPRESSION`, `AUCUNE_VERSION_PRECEDENTE`, `VERSION_PRECEDENTE_INDISPONIBLE` ; 415 `FORMAT_NON_SUPPORTE` (DWG) et `FORMAT_GDAL_DESACTIVE` (GeoPackage, Shapefile, DXF, interrupteur coupé) ; 422 tous les autres codes de lecture ; 504 `APERCU_TROP_LONG`.
 
 ### Réglages serveur ajoutés
 
@@ -622,7 +622,7 @@ Voir `CONTRAT-IMPORT.md`, sections 5.4, 6 et 11 (archives `ARCHIVE_*`, `KMZ_*`, 
 
 ### Ce que le lot A1 ne fait pas
 
-- GeoPackage, Shapefile, DXF, DWG, raster, IFC, LAS : hors lot (chaîne GDAL, `CHAINE-GDAL.md`).
+- GeoPackage, Shapefile, DXF : lot B2 (conversion GDAL asynchrone). DWG, raster, IFC, LAS : hors lot.
 - Pas de traitement asynchrone : plafonds stricts et synchrones (25 Mo, 50 000 objets, 2 000 000 de sommets, 500 000 lignes CSV, 100 entrées d'archive), contrat d'un futur job dans `CONTRAT-IMPORT.md`, section 13.
 - CSV : pas de fichier sans en-tête, pas de séparateur de milliers, pas de délimiteur espace, pas de polygones construits depuis des points, pas de clés d'axe imbriquées ; la rupture de chaînage d'une ligne reconstruite n'est pas détectée.
 - Le fichier d'origine n'est conservé que si `PROJETS_VOIRIE_CONSERVER_ORIGINAL=oui`, et aucune route ne le relit.
@@ -1027,3 +1027,65 @@ Descripteur : un seul par objet ; objets d'un plan d'axes ou de limites de route
 - Les tolérances et le seuil de couverture sont des **valeurs provisoires** (le cahier demande de ne pas attribuer une précision standard) ; la classe d'un objet est une déclaration humaine justifiée et auditée, pas une mesure.
 - Pas de GET d'une relation seule (la liste filtrée par `objetId` suffit) ; pas de lot (un descripteur par requête) ; l'historique des valeurs d'un descripteur est dans l'audit (`before` et `after`), pas dans une table dédiée.
 - Jeux comptés par `GET /comptage` et propositions : les jeux de rôle `AUTRE` sont inclus ; les propositions n'examinent que les jeux `AUTORISE`.
+
+## Conversion GDAL asynchrone : GeoPackage, Shapefile ZIP, DXF (lot B2)
+
+Contrat : `CONTRAT-IMPORT.md` sections 13 et 14 (règles) ; spool et conteneur : `CHAINE-GDAL.md` ; preuves : banc `backend/tests-integration/gdal-jobs.integration.mts` (conteneur GDAL réel, fichiers 100 % synthétiques). **Interrupteur `PROJETS_VOIRIE_GDAL`, DÉSACTIVÉ par défaut** : désactivé, aucune dépendance au conteneur (ni au démarrage, ni dans les routes, ni dans le sondage).
+
+### Routes (toutes `ADMIN` et `GESTIONNAIRE`, lectures comprises ; mêmes gardes que l'import, projet supprimé : 404 à tous)
+
+| Méthode | Chemin | Rôle |
+|---|---|---|
+| POST | `/:id/import/jobs` | multipart : `fichier` + `epsgSource` (Shapefile et DXF : obligatoire ; GeoPackage : facultatif) + `unitesDxf` (`metre` ou `degre`, DXF : obligatoire). Répond **202** `{ job }` |
+| GET | `/:id/import/jobs?limite=` | jobs du projet, du plus récent au plus ancien, `limite` de 1 à 50 (20 par défaut) : `{ jobs, total, tronque }` |
+| GET | `/:id/import/jobs/:jobId` | `{ job }` ; un job d'un autre projet répond le même 404 `JOB_INTROUVABLE` qu'un job inexistant |
+| POST | `/:id/import/jobs/:jobId/annuler` | EN_ATTENTE ou EN_COURS vers ANNULE ; 409 `JOB_NON_ANNULABLE` sinon |
+| POST | `/:id/import/inventaire`, `/:id/import/apercu`, `/:id/jeux` | champ `jobId` **à la place de** `fichier` (les deux ensemble : 400 `CHAMPS_INVALIDES`) : le résultat validé du job entre dans le MÊME pipeline (CRS, mapping, validation géométrique, simulation, quarantaine `CONTROLE`, delta, revue des suppressions) |
+
+`GET /:id/import/options` annonce `formatsGdal` : `{ actif, disponible, raison, spoolConfigure, formats: [{ format, extensions, etat: "SUPPORTE" | "INDISPONIBLE", raison, crs, specifique, preuve }], limites }`. Désactivé (défaut) : les trois formats sont `INDISPONIBLE` avec la raison, `limites` est `null`. Un format n'est `SUPPORTE` que si l'interrupteur est actif, le dossier d'échange accessible, et qu'une preuve de bout en bout est citée (`preuve.verification`, vérifiée par un test unitaire).
+
+### Le job
+
+```
+{ "job": { "id", "projetId", "format": "GPKG" | "SHAPEFILE" | "DXF", "statut": "EN_ATTENTE" | "EN_COURS" | "TERMINE" | "ECHEC" | "ANNULE" | "EXPIRE",
+           "nomFichier", "tailleOctets", "sha256", "parametres": { "epsgSource", "unitesDxf" }, "etape", "progression": 0 a 100,
+           "codeErreur", "messageErreur" (libellé FIXE), "tentatives", "tentativesMax", "creeLe", "reclameLe", "finLe", "expireLe",
+           "fichiersPurges", "utilisable", "jeuId",
+           "resume": { "format", "source": { nom, octets, sha256 }, "gdal": { version, proj },
+                       "couches": [ { id, nom, nbObjets, parTypeGeom, typesReels, sommets, emprise, attributs, coordonnees, reprojete, crsSource: { origine: "fichier" | "demande", epsg, nom }, slug } ],
+                       "champsDisponibles", "dxf": { lues, ignorees, blocs, calques, unitesDeclarees, insunits, ... } | null, "avertissements", "integrite" } | null } }
+```
+
+`resume` n'existe que pour un job `TERMINE` et ne porte **jamais** une coordonnée d'objet. `utilisable` : TERMINE, non utilisé, non expiré, fichiers présents. Un seul dépôt par job (`jeuId`) : le job utilisé répond ensuite 409 `JOB_DEJA_UTILISE`.
+
+### Règles de CRS et d'unités (rien n'est deviné)
+
+- **Shapefile** : `epsgSource` obligatoire à la création (422 `CRS_REQUIS` sinon, aucun job créé). Le `.prj` est lu mais ne vaut jamais confirmation ; un `.prj` d'un autre EPSG fait échouer le job (`CRS_CONFLIT`), un `.prj` sans code EPSG identifiable aussi. Sans `.prj`, le CRS confirmé est appliqué (avertissement `CRS_FOURNI_PAR_LA_DEMANDE`).
+- **DXF** : `epsgSource` obligatoire, `unitesDxf` obligatoire (422 `UNITES_REQUISES`). `metre` exige un CRS en mètres, `degre` un CRS géographique (422 `DXF_UNITES_CONFLIT`). L'en-tête `$INSUNITS` doit être absent, 0 ou 6 (mètres) pour `metre` ; millimètres, pieds, pouces donnent un job en `ECHEC` `DXF_UNITES_CONFLIT` : **aucune mise à l'échelle silencieuse**.
+- **GeoPackage** : CRS déclaré par le fichier. WGS 84 : aucune confirmation. Projeté : l'aperçu exige `epsgSource` identique (422 `CRS_REQUIS`, 422 `CRS_CONFLIT` si différent). Fichier sans CRS : création avec `epsgSource`, sinon coordonnées brutes refusées à l'usage (`CRS_REQUIS`).
+- Dans tous les cas : liste blanche `PROJETS_VOIRIE_CRS_SOURCE_AUTORISES` (422 `CRS_NON_AUTORISE`) ; plusieurs couches de CRS source différents ne se mélangent pas (422 `CRS_MULTIPLES`, choisir `couche`).
+
+### DXF : entités et calques
+
+Lues : `LINE`, `LWPOLYLINE`, `POLYLINE` 2D, `POLYLINE` 3D (`3DPOLYLINE`). Ignorées **et comptées** (`resume.dxf.ignorees`, avertissement `DXF_ENTITES_IGNOREES`) : `TEXT`, `MTEXT`, `HATCH`, `POINT`, `CIRCLE`, `ARC`, `SPLINE`, cotes, maillages, espace papier ; les blocs (`INSERT` et définitions) sont ignorés et comptés (`DXF_BLOCS_IGNORES`). Les calques sont les couches du wizard : `couche=calque:<nom>`. Le DXF binaire est refusé (422 `DXF_BINAIRE_NON_PRIS_EN_CHARGE`). L'altitude est ignorée (GDAL l'écarte).
+
+### Codes d'erreur
+
+| Statut | Code | Cas |
+|---|---|---|
+| 415 | `FORMAT_GDAL_DESACTIVE` | interrupteur coupé : dépôt d'un job, aperçu ou dépôt synchrone d'un GeoPackage, d'un Shapefile ZIP ou d'un DXF (champ `format`) |
+| 503 | `GDAL_DESACTIVE` | interrupteur coupé : lecture, liste, annulation, `jobId` à l'aperçu ; `SPOOL_INDISPONIBLE` : dossier d'échange absent ou illisible |
+| 422 | `CONVERSION_ASYNCHRONE_REQUISE` | fichier GDAL envoyé aux routes synchrones alors que l'interrupteur est actif : créer un job |
+| 422 | `CRS_REQUIS`, `CRS_CONFLIT`, `CRS_NON_AUTORISE`, `CRS_MULTIPLES`, `UNITES_REQUISES`, `DXF_UNITES_CONFLIT`, `DXF_BINAIRE_NON_PRIS_EN_CHARGE`, `SHAPEFILE_INCOMPLET`, `ARCHIVE_*`, `COUCHE_INTROUVABLE`, `HORS_GUINEE` | règles ci-dessus ; mêmes codes que les autres formats pour le reste |
+| 415 | `FORMAT_NON_SUPPORTE` | contenu qui n'est ni GeoPackage, ni archive de Shapefile, ni DXF texte (création d'un job) |
+| 409 | `JOB_DEJA_EN_COURS` (`jobId`, `statut`), `JOB_NON_TERMINE` (`statut`, `codeErreur`), `JOB_DEJA_UTILISE` (`jeuId`), `JOB_NON_ANNULABLE`, `RESULTAT_ALTERE` | un fichier du spool ne correspond plus à ce qui a été validé |
+| 410 | `RESULTAT_EXPIRE` | fichiers temporaires retirés |
+| 404 | `JOB_INTROUVABLE` | job inexistant ou d'un autre projet |
+| 429 | `PLAFOND_JOBS_COMPTE`, `PLAFOND_JOBS_PROJET`, `JOBS_TROP_FREQUENTS` | plafonds de jobs actifs, cadence par heure ; `Retry-After` en secondes |
+| 503 | `FILE_JOBS_PLEINE` | file globale pleine ; `Retry-After` |
+
+`codeErreur` d'un job en `ECHEC` ou `EXPIRE` : code du conteneur (CHAINE-GDAL.md 4.3, `ENTREE_ABSENTE` à `ERREUR_INTERNE`, `DXF_*`) ou propre au backend (`SORTIE_INVALIDE`, `SORTIE_INCOHERENTE`, `SPOOL_INDISPONIBLE`, `JOB_PERDU`, `DXF_UNITES_CONFLIT`, `CONVERSION_EXPIREE`). Le message est **fixe** par code : le texte libre du conteneur n'est jamais renvoyé (il peut citer un chemin ou une ligne de fichier).
+
+### Réglages serveur (variables d'environnement, bornées : une valeur illisible redonne le défaut)
+
+`PROJETS_VOIRIE_GDAL` (absent = désactivé), `PROJETS_VOIRIE_GDAL_SPOOL` (aucun défaut), `_DELAI_S` 90 (10 à 120), `_SORTIE_MAX_OCTETS` 80 Mo (1 à 200 Mo), `_TENTATIVES` 3 (1 à 5), `_RETENTION_H` 24 (1 à 72), `_SONDAGE_S` 3 (1 à 60), `_CONCURRENCE` 2 (1 à 4), `_ACTIFS_COMPTE` 2, `_ACTIFS_PROJET` 3, `_FILE_MAX` 20, `_CREATIONS_HEURE` 12. Valeurs de départ à valider par le DSI.
