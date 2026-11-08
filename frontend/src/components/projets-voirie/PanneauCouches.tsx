@@ -51,6 +51,8 @@ export interface PropsPanneauCouches {
   enLigne: boolean;
   retirer: (jeuId: string) => Promise<unknown>;
   decider: (jeuId: string, decision: Decision, justification: string) => Promise<unknown>;
+  /** Ouvre l'assistant d'import sur ce jeu : comparaison avec la version precedente, revue des suppressions, retour arriere. */
+  onVersions?: (jeu: JeuProjet) => void;
   /** Jeu a mettre en avant (lien « voir le jeu existant » d'un 409) : la ligne prend le focus. */
   jeuMisEnAvant?: string | null;
 }
@@ -98,6 +100,11 @@ function LigneJeu({ j, p, enAvant }: { j: JeuProjet; p: PropsLigne; enAvant: boo
       </div>
       {p.peutEcrire && (
         <div className="mt-1 flex flex-wrap justify-end gap-2">
+          {p.onVersions && (quarantaine || j.statut === "AUTORISE") && (
+            <Button type="button" size="sm" variant="outline" className="min-h-[44px] xl:min-h-8" disabled={!p.enLigne} aria-label={`Versions et suppressions du jeu ${nomDuJeu(j)}, version ${j.version}`} onClick={() => p.onVersions?.(j)}>
+              Versions
+            </Button>
+          )}
           {quarantaine && (
             <>
               <Button type="button" size="sm" className="min-h-[44px] xl:min-h-8" disabled={!p.enLigne} aria-label={`Autoriser le jeu ${nomDuJeu(j)}, version ${j.version}`} onClick={() => p.onDecision(j, "autoriser")}>

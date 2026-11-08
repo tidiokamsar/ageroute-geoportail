@@ -20,7 +20,7 @@ import {
 
 // Leaflet n'est charge qu'a l'ouverture d'un projet.
 const CarteProjet = lazy(() => import("../components/projets-voirie/CarteProjet").then((m) => ({ default: m.CarteProjet })));
-const DialogueDepot = lazy(() => import("../components/projets-voirie/DialogueDepot").then((m) => ({ default: m.DialogueDepot })));
+const AssistantImport = lazy(() => import("../components/projets-voirie/assistant/AssistantImport").then((m) => ({ default: m.AssistantImport })));
 
 /**
  * Page d'un projet : carte plein cadre et panneau a trois onglets (Analyse, Couches, Conflits).
@@ -59,7 +59,8 @@ export function ProjetVoirieDetailPage() {
   const [requete, setRequete] = useState<{ bbox: Bbox; zoom: number } | null>(null);
   const [cadrageCle, setCadrageCle] = useState(0);
   const [selection, setSelection] = useState<ObjetCarte | null>(null);
-  const [depot, setDepot] = useState(false);
+  // Assistant d'import : ouvert pour un nouveau depot (`jeuReprise` nul) ou repris sur un jeu deja depose (versions, suppressions, approbation).
+  const [assistant, setAssistant] = useState<{ jeuReprise: JeuProjet | null } | null>(null);
   const [jeuEnAvant, setJeuEnAvant] = useState<string | null>(null);
   // Onglet « Conflits » : monte a la premiere visite puis conserve (filtres, dossier ouvert) ; sa geometrie en surbrillance va sur la carte.
   const [conflitsMonte, setConflitsMonte] = useState(false);
@@ -125,7 +126,7 @@ export function ProjetVoirieDetailPage() {
   }
 
   function voirJeu(jeuId: string) {
-    setDepot(false);
+    setAssistant(null);
     setOnglet("couches");
     // Un instant de retard : a la fermeture du dialogue, Radix rend le focus au bouton d'origine (setTimeout 0) ; le jeu doit le reprendre APRES.
     setTimeout(() => setJeuEnAvant(jeuId), 100);
@@ -182,7 +183,7 @@ export function ProjetVoirieDetailPage() {
             <Crosshair aria-hidden="true" /> Centrer sur le projet
           </Button>
           {peutEcrire && (
-            <Button type="button" className="min-h-[44px] xl:min-h-9" disabled={!enLigne} onClick={() => setDepot(true)}>
+            <Button type="button" className="min-h-[44px] xl:min-h-9" disabled={!enLigne} onClick={() => setAssistant({ jeuReprise: null })}>
               <FilePlus2 aria-hidden="true" /> Ajouter des données
             </Button>
           )}
@@ -270,7 +271,7 @@ export function ProjetVoirieDetailPage() {
                 {sansDonnee && (
                   <EtatVide titre="Ce projet n'a pas encore de données">
                     <p>Pour commencer : 1. déposez le plan d&apos;axes de travaux ; 2. déposez les réseaux des concessionnaires ; 3. autorisez les fichiers reçus (onglet Couches).</p>
-                    <p>Chaque dépôt est d&apos;abord simulé : rien n&apos;est écrit avant votre confirmation. Les formats acceptés sont KML et GeoJSON.</p>
+                    <p>Chaque dépôt est d&apos;abord simulé : rien n&apos;est écrit avant votre confirmation. Les formats acceptés sont KML, KMZ, GeoJSON, GPX et les tableaux CSV.</p>
                     {!peutEcrire && <p>Seuls un gestionnaire et un administrateur peuvent déposer des fichiers.</p>}
                   </EtatVide>
                 )}
@@ -290,6 +291,7 @@ export function ProjetVoirieDetailPage() {
                 conflitsVisibles={conflitsVisibles} onBasculerConflit={(c, v) => setConflitsVisibles((x) => ({ ...x, [c]: v }))} conflitsDisponibles={conflitsDisponibles}
                 tronques={tronques} objets={objets} onChoisirObjet={choisirObjet}
                 peutEcrire={peutEcrire} enLigne={enLigne}
+                onVersions={(j) => setAssistant({ jeuReprise: j })}
                 retirer={(jid) => retirer.mutateAsync(jid)}
                 decider={(jid, d, justification) => decision.mutateAsync({ jeuId: jid, decision: d, justification })}
                 jeuMisEnAvant={jeuEnAvant}
@@ -307,9 +309,12 @@ export function ProjetVoirieDetailPage() {
         </aside>
       </div>
 
-      {depot && (
+      {assistant && (
         <Suspense fallback={null}>
-          <DialogueDepot projetId={fiche.id} enLigne={enLigne} onFermer={() => setDepot(false)} onVoirJeu={voirJeu} />
+          <AssistantImport
+            key={assistant.jeuReprise?.id ?? "nouveau"} projetId={fiche.id} enLigne={enLigne} onFermer={() => setAssistant(null)} onVoirJeu={voirJeu}
+            jeuReprise={assistant.jeuReprise ? { id: assistant.jeuReprise.id, version: assistant.jeuReprise.version } : null}
+          />
         </Suspense>
       )}
     </div>

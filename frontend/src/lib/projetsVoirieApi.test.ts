@@ -107,8 +107,8 @@ describe("depot multipart", () => {
     h.post.mockResolvedValueOnce({ data: reponse });
     const r = await deposerJeu("p1", donnees(), { simuler: true });
     expect(r.resume).toMatchObject({ nbObjets: 3, longueurTotaleM: 100, longueurTraceFusionneM: 80, parTypeGeom: { LIGNE: 3 } });
-    expect(r.crs).toEqual({ source: "EPSG:4326", cible: "EPSG:4326", methode: "aucune", justification: "WGS84" });
-    expect(r.delta).toEqual({ ajoutes: 1, retires: 0, identiques: 2 });
+    expect(r.crs).toMatchObject({ source: "EPSG:4326", cible: "EPSG:4326", methode: "aucune", justification: "WGS84", plausibilite: null, epsgSource: null });
+    expect(r.delta).toEqual({ ajoutes: 1, modifies: 0, retires: 0, identiques: 2 });
     expect(r.avertissements).toEqual([{ code: "ALTITUDE_IGNOREE", message: "m", nb: 2 }]);
     expect(r.jeu?.statut).toBe("CONTROLE");
   });

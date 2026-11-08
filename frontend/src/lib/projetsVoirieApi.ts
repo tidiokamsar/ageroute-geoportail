@@ -106,15 +106,41 @@ export interface ResumeDepot {
   attributsDetectes: string[];
 }
 
-/** Bloc `crs` de la simulation : systeme source, cible, methode et justification (« WGS84 par norme KML/GeoJSON, aucune transformation »). */
-export interface BlocCrs { source: string | null; cible: string | null; methode: string | null; justification: string | null }
-/** Remplacement d'un jeu : comparaison avec la version precedente. INFORMATION SEULE, aucune suppression n'est appliquee automatiquement. */
-export interface Delta { ajoutes: number; retires: number; identiques: number }
+/** Controle de plausibilite du CRS (CONTRAT-IMPORT.md 5.2) : emprise du resultat contre la zone attendue. Tout hors zone n'est pas un statut : c'est l'erreur 422 HORS_GUINEE. */
+export interface Plausibilite {
+  zoneAttendue: { nom: string; bbox: Bbox } | null;
+  empriseResultat: Bbox | null;
+  nbElementsHorsZone: number;
+  nbObjets: number;
+  statut: "CONFORME" | "PARTIELLEMENT_HORS_ZONE" | null;
+  confirmationRequise: boolean;
+  confirmee: boolean;
+}
+/** Bloc `crs` : systeme source, cible, unites, methode, version de PROJ, justification et plausibilite. Les champs enrichis sont nuls pour un serveur plus ancien. */
+export interface BlocCrs {
+  source: string | null; cible: string | null; methode: string | null; justification: string | null;
+  epsgSource: number | null; epsgCible: number | null; uniteSource: string | null; uniteCible: string | null;
+  origine: "choisi_par_utilisateur" | "norme_du_format" | null; transformation: "ST_Transform" | "aucune" | null; versionProj: string | null;
+  plausibilite: Plausibilite | null;
+}
+/** Remplacement d'un jeu : comparaison avec la version precedente. `modifies` : meme cle, contenu different (0 pour un serveur plus ancien). Aucune suppression n'est appliquee automatiquement. */
+export interface Delta { ajoutes: number; modifies: number; retires: number; identiques: number }
+
+/** Statut de la revue des suppressions d'un jeu qui remplace une version autorisee (CONTRAT-IMPORT.md 8). */
+export interface BlocSuppressions { statut: "AUCUNE" | "A_REVOIR" | "ACCEPTEES" | "REFUSEES"; nb: number }
+export interface ProblemeGeometrique { ordre: number; nom: string | null; typeGeom: string; code: string; message: string }
+export interface ElementEcarte { element: number; nom: string | null; code: string; message: string }
+export interface BlocValidationGeometrique { nbProblemes: number; problemes: ProblemeGeometrique[]; tronque: boolean; elementsEcartes: ElementEcarte[] }
 
 /** Le jeu AUTORISE que ce depot remplacera quand il sera autorise (contrat v2, 4.2). */
 export interface Remplace { jeuId: string; version: number }
 
-export interface ReponseDepot { simulation: boolean; jeu: JeuProjet | null; resume: ResumeDepot; avertissements: Avertissement[]; crs: BlocCrs | null; delta: Delta | null; remplace: Remplace | null }
+export interface ReponseDepot {
+  simulation: boolean; jeu: JeuProjet | null; resume: ResumeDepot; avertissements: Avertissement[]; crs: BlocCrs | null; delta: Delta | null; remplace: Remplace | null;
+  suppressions: BlocSuppressions | null; validationGeometrique: BlocValidationGeometrique | null;
+  /** Version du jeu, y compris en simulation (le jeu n'a alors pas d'identifiant : `jeu` est nul, la version est lue ici). */
+  version: number | null;
+}
 
 export interface DonneesDepot {
   fichier: File;
@@ -130,6 +156,8 @@ export interface DonneesDepot {
   dateConstat?: string;
   natureObjet?: NatureObjet;
   confidentialite: Confidentialite;
+  /** Options d'import deja serialisees en texte (CONTRAT-IMPORT.md, section 3) : couche, CRS, colonnes CSV, mapping, empreinte attendue... Envoyees avant le fichier. */
+  options?: Readonly<Record<string, string>>;
 }
 
 /** Proprietes d'un objet de la carte. Le contrat ne les detaille pas : `attributs` est le JSON d'origine du fichier, conserve tel quel. */
@@ -257,7 +285,7 @@ export function lireJeu(v: unknown): JeuProjet | null {
     concessionnaire: conc,
     typeReseau: typeReseau(v.typeReseau),
     nomFichier: texte(v.nomFichier) ?? "Fichier sans nom",
-    format: v.format === "KML" || v.format === "GEOJSON" ? v.format : null,
+    format: v.format === "KML" || v.format === "KMZ" || v.format === "GEOJSON" || v.format === "GPX" || v.format === "CSV" ? v.format : null,
     sha256: texte(v.sha256),
     nbObjets: entier(v.nbObjets),
     longueurTotaleM: versNombre(v.longueurTotaleM),
@@ -366,8 +394,52 @@ export function lireReponseDepot(data: unknown): ReponseDepot {
     simulation: data.simulation === true,
     remplace: estObjet(data.remplace) && texte(data.remplace.jeuId) ? { jeuId: String(data.remplace.jeuId), version: Math.max(1, entier(data.remplace.version)) } : null,
     jeu: lireJeu(data.jeu), resume: lireResume(data.resume), avertissements,
-    crs: crsBrut ? { source: texte(crsBrut.source), cible: texte(crsBrut.cible), methode: texte(crsBrut.methode), justification: texte(crsBrut.justification) } : null,
-    delta: deltaBrut ? { ajoutes: entier(deltaBrut.ajoutes), retires: entier(deltaBrut.retires), identiques: entier(deltaBrut.identiques) } : null,
+    crs: crsBrut ? lireBlocCrs(crsBrut) : null,
+    delta: deltaBrut ? lireDelta(deltaBrut) : null,
+    version: estObjet(data.jeu) && versNombre(data.jeu.version) !== null ? Math.max(1, entier(data.jeu.version)) : null,
+    suppressions: lireSuppressions(data.suppressions ?? data.resume.suppressions),
+    validationGeometrique: lireValidationGeometrique(data.validationGeometrique),
+  };
+}
+
+export function lireDelta(d: Record<string, unknown>): Delta {
+  return { ajoutes: entier(d.ajoutes), modifies: entier(d.modifies), retires: entier(d.retires), identiques: entier(d.identiques) };
+}
+
+const STATUTS_SUPPRESSIONS = ["AUCUNE", "A_REVOIR", "ACCEPTEES", "REFUSEES"] as const;
+export function lireSuppressions(v: unknown): BlocSuppressions | null {
+  if (!estObjet(v) || typeof v.statut !== "string" || !(STATUTS_SUPPRESSIONS as readonly string[]).includes(v.statut)) return null;
+  return { statut: v.statut as BlocSuppressions["statut"], nb: entier(v.nb) };
+}
+
+export function lireValidationGeometrique(v: unknown): BlocValidationGeometrique | null {
+  if (!estObjet(v)) return null;
+  return {
+    nbProblemes: entier(v.nbProblemes),
+    tronque: v.tronque === true,
+    problemes: tableau(v.problemes).flatMap((p): ProblemeGeometrique[] => estObjet(p) && texte(p.code)
+      ? [{ ordre: entier(p.ordre), nom: texte(p.nom), typeGeom: texte(p.typeGeom) ?? "", code: String(p.code), message: texte(p.message) ?? String(p.code) }] : []),
+    elementsEcartes: tableau(v.elementsEcartes).flatMap((p): ElementEcarte[] => estObjet(p) && texte(p.code)
+      ? [{ element: entier(p.element), nom: texte(p.nom), code: String(p.code), message: texte(p.message) ?? String(p.code) }] : []),
+  };
+}
+
+export function lireBlocCrs(b: Record<string, unknown>): BlocCrs {
+  const p = estObjet(b.plausibilite) ? b.plausibilite : null;
+  const z = p && estObjet(p.zoneAttendue) ? p.zoneAttendue : null;
+  const zbbox = z ? lireBbox(z.bbox) : null;
+  return {
+    source: texte(b.source), cible: texte(b.cible), methode: texte(b.methode), justification: texte(b.justification),
+    epsgSource: versNombre(b.epsgSource), epsgCible: versNombre(b.epsgCible), uniteSource: texte(b.uniteSource), uniteCible: texte(b.uniteCible),
+    origine: b.origine === "choisi_par_utilisateur" || b.origine === "norme_du_format" ? b.origine : null,
+    transformation: b.transformation === "ST_Transform" || b.transformation === "aucune" ? b.transformation : null,
+    versionProj: texte(b.versionProj),
+    plausibilite: p ? {
+      zoneAttendue: z && zbbox ? { nom: texte(z.nom) ?? "Zone attendue", bbox: zbbox } : null,
+      empriseResultat: lireBbox(p.empriseResultat), nbElementsHorsZone: entier(p.nbElementsHorsZone), nbObjets: entier(p.nbObjets),
+      statut: p.statut === "CONFORME" || p.statut === "PARTIELLEMENT_HORS_ZONE" ? p.statut : null,
+      confirmationRequise: p.confirmationRequise === true, confirmee: p.confirmee === true,
+    } : null,
   };
 }
 
@@ -548,7 +620,7 @@ export async function listerJeux(projetId: string): Promise<JeuProjet[]> {
  * Depot d'un fichier. `simuler: true` : le serveur lit, valide et rend le resume SANS RIEN ECRIRE. Les champs viennent AVANT le fichier
  * (un serveur qui lit le flux voit les metadonnees avant les octets). Le fichier n'est lu par le navigateur que pour l'envoi.
  */
-export async function deposerJeu(projetId: string, d: DonneesDepot, opts: { simuler: boolean; onProgression?: (envoye: number, total: number | null) => void }): Promise<ReponseDepot> {
+export async function deposerJeu(projetId: string, d: DonneesDepot, opts: { simuler: boolean; onProgression?: (envoye: number, total: number | null) => void; signal?: AbortSignal }): Promise<ReponseDepot> {
   const corps = new FormData();
   corps.append("role", d.role);
   if (d.concessionnaireId) corps.append("concessionnaireId", d.concessionnaireId);
@@ -562,9 +634,11 @@ export async function deposerJeu(projetId: string, d: DonneesDepot, opts: { simu
   if (d.dateConstat) corps.append("dateConstat", d.dateConstat);
   if (d.natureObjet) corps.append("natureObjets", d.natureObjet);
   corps.append("confidentialite", d.confidentialite);
+  for (const [k, v] of Object.entries(d.options ?? {})) corps.append(k, v);
   corps.append("fichier", d.fichier);
   const { data } = await api.post(`${BASE}/${id(projetId)}/jeux`, corps, {
     params: opts.simuler ? { simuler: "true" } : undefined,
+    signal: opts.signal,
     onUploadProgress: (e) => opts.onProgression?.(e.loaded, typeof e.total === "number" && e.total > 0 ? e.total : null),
   });
   return lireReponseDepot(data);

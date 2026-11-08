@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   JUSTIFICATION_MIN, LIBELLE_NB_OBJETS, LIBELLE_TRACE_FUSIONNE, MESSAGE_CODE, STYLE_CONFLIT, STYLE_RESEAU, TYPES_RESEAU,
-  arrondirBbox, classeIncertaine, classerErreur, confidentialiteParDefaut, contientBbox, controlerFichier, elargirBbox, erreurLargeurs,
+  arrondirBbox, classeIncertaine, classerErreur, confidentialiteParDefaut, contientBbox, controlerFichier, elargirBbox, erreurLargeurs, estAnnulation,
   formaterDate, formaterLongueur, formaterNombre, formaterPourcent, libelleVerification, lireBbox, lireSaisieNombre, natureParDefaut, peutEcrireProjets, styleJeu, versNombre,
 } from "./projetsVoirie";
 
@@ -105,21 +105,39 @@ describe("emprises", () => {
   });
 });
 
-describe("controle local du fichier (le serveur reste l'autorite)", () => {
-  it("accepte KML et GeoJSON", () => {
-    expect(controlerFichier({ name: "a.KML", size: 10 })).toEqual({ ok: true, message: null, format: "KML" });
+describe("controle local du fichier (le serveur reste l'autorite, et detecte le format par le contenu)", () => {
+  it("reconnait les extensions des cinq formats lus (liste par defaut), comme indice seulement", () => {
+    expect(controlerFichier({ name: "a.KML", size: 10 })).toEqual({ ok: true, message: null, format: "KML", avertissement: null });
+    expect(controlerFichier({ name: "a.kmz", size: 10 }).format).toBe("KMZ");
     expect(controlerFichier({ name: "a.geojson", size: 10 }).format).toBe("GEOJSON");
     expect(controlerFichier({ name: "a.json", size: 10 }).format).toBe("GEOJSON");
+    expect(controlerFichier({ name: "a.gpx", size: 10 }).format).toBe("GPX");
+    for (const n of ["a.csv", "a.tsv", "a.txt"]) expect(controlerFichier({ name: n, size: 10 }).format).toBe("CSV");
   });
-  it.each(["a.kmz", "a.zip", "a.shp", "a.pdf", "a.html", "a.dxf"])("%s : « format prevu au lot suivant », jamais ouvert", (nom) => {
+  it("les formats viennent de l'API quand ils sont fournis", () => {
+    expect(controlerFichier({ name: "a.kml", size: 10 }, [{ format: "GPX", extensions: [".gpx"] }]).format).toBeNull();
+    expect(controlerFichier({ name: "a.gpx", size: 10 }, [{ format: "GPX", extensions: [".gpx"] }]).format).toBe("GPX");
+  });
+  it.each(["a.pdf", "a.html", "a.htm", "a.xlsx", "a.exe", "a.js"])("%s : document ou executable, refuse sans envoi", (nom) => {
     const v = controlerFichier({ name: nom, size: 10 });
     expect(v.ok).toBe(false);
-    expect(v.message).toMatch(/format prévu au lot suivant/i);
+    expect(v.message).toMatch(/pas une donnée SIG/);
   });
-  it("refuse un fichier vide, trop gros ou d'extension inconnue", () => {
+  it.each(["a.gpkg", "a.shp", "a.dxf", "a.dwg"])("%s : format d'une chaine a part, avertissement, le serveur decide par le contenu", (nom) => {
+    const v = controlerFichier({ name: nom, size: 10 });
+    expect(v.ok).toBe(true);
+    expect(v.format).toBeNull();
+    expect(v.avertissement).toMatch(/ne lit pas/);
+  });
+  it("une extension inconnue ne bloque pas : detection par le contenu", () => {
+    const v = controlerFichier({ name: "export.dat", size: 10 });
+    expect(v).toMatchObject({ ok: true, format: null });
+    expect(v.avertissement).toMatch(/contenu/);
+  });
+  it("refuse un fichier vide ou trop gros (limite par defaut, ou celle de l'API)", () => {
     expect(controlerFichier({ name: "a.kml", size: 0 }).message).toMatch(/vide/);
     expect(controlerFichier({ name: "a.kml", size: 26 * 1024 * 1024 }).message).toMatch(/25 Mo/);
-    expect(controlerFichier({ name: "a.txt", size: 10 }).message).toMatch(/Extension non reconnue/);
+    expect(controlerFichier({ name: "a.kml", size: 3000 }, undefined, 2048).message).toMatch(/maximum est de 2 Ko/);
     expect(controlerFichier(null).ok).toBe(false);
   });
 });
@@ -158,9 +176,10 @@ describe("classement des erreurs {error, code}", () => {
       expect(e.message).toBe(MESSAGE_CODE[code]);
       expect(e.message).not.toContain("message brut");
     }
-    expect(MESSAGE_CODE.FORMAT_NON_SUPPORTE).toMatch(/prévu au lot suivant/);
+    expect(MESSAGE_CODE.FORMAT_NON_SUPPORTE).toMatch(/KML, KMZ, GeoJSON, GPX/);
+    expect(MESSAGE_CODE.FORMAT_NON_SUPPORTE).toMatch(/GeoPackage, Shapefile, DXF et DWG sont prévus à un lot suivant/);
     expect(MESSAGE_CODE.HORS_GUINEE).toMatch(/Guinée/);
-    expect(MESSAGE_CODE.CRS_NON_SUPPORTE).toMatch(/WGS 84/);
+    expect(MESSAGE_CODE.CRS_NON_SUPPORTE).toMatch(/code EPSG/);
   });
   it("403 : permission ; 404 : introuvable ; 413 : trop gros ; 5xx : serveur", () => {
     expect(classerErreur(rep(403, { error: "non autorise" })).genre).toBe("permission");
@@ -204,5 +223,67 @@ describe("durcissement du serveur (revue de securite) : codes expliques en clair
   });
   it("un 404 avec code connu reste « introuvable »", () => {
     expect(classerErreur(rep(404, "PROJET_INTROUVABLE")).genre).toBe("introuvable");
+  });
+});
+
+describe("erreurs typees de l'assistant d'import (lot A1) : message en clair, texte du serveur ignore", () => {
+  const rep = (status: number, code: string, extra: Record<string, unknown> = {}, headers: Record<string, string> = {}) => ({ response: { status, data: { error: "texte brut du serveur", code, ...extra }, headers } });
+  it.each([
+    [422, "ENCODAGE_AMBIGU", "validation", /Choisissez l'encodage/],
+    [422, "DELIMITEUR_AMBIGU", "validation", /choisissez le délimiteur/],
+    [422, "SEPARATEUR_DECIMAL_AMBIGU", "validation", /séparateur décimal/],
+    [422, "CRS_REQUIS", "validation", /jamais deviné/],
+    [422, "CRS_NON_AUTORISE", "validation", /validée par le DSI/],
+    [422, "CRS_INCOHERENT", "validation", /ne sont pas des degrés/],
+    [422, "CRS_INCOMPATIBLE_FORMAT", "validation", /WGS 84 par la norme/],
+    [422, "CRS_CONFLIT", "validation", /ne se remplace pas/],
+    [422, "TRANSFORMATION_ECHEC", "validation", /transformation de coordonnées a échoué/],
+    [422, "HORS_GUINEE", "validation", /Guinée/],
+    [422, "ARCHIVE_CHEMIN_DANGEREUX", "validation", /chemin dangereux/],
+    [422, "ARCHIVE_TAUX_COMPRESSION", "validation", /bombe de décompression/],
+    [422, "KMZ_PLUSIEURS_KML", "validation", /plusieurs fichiers KML/],
+    [422, "MAPPING_COLONNE_INTROUVABLE", "validation", /Correspondance des champs/],
+    [400, "MAPPING_INVALIDE", "validation", /correspondance de champs est invalide/],
+    [409, "EMPREINTE_DIVERGENTE", "conflit", /empreinte SHA-256 différente/],
+    [409, "CONFIRMATION_HORS_ZONE_REQUISE", "conflit", /explicitement/],
+    [409, "SUPPRESSIONS_A_REVOIR", "conflit", /revue humaine justifiée/],
+    [409, "SUPPRESSIONS_REFUSEES", "conflit", /refusées à la revue/],
+    [409, "AUCUNE_VERSION_PRECEDENTE", "conflit", /rien à remettre en service/],
+    [409, "VERSION_PRECEDENTE_INDISPONIBLE", "conflit", /retour arrière est impossible/],
+    [404, "JEU_INTROUVABLE", "introuvable", /introuvable/],
+    [415, "FORMAT_NON_SUPPORTE", "validation", /GeoPackage/],
+    [503, "SERVICE_OCCUPE", "serveur", /Réessayez/],
+    [504, "APERCU_TROP_LONG", "serveur", /délai autorisé/],
+    [504, "DEPOT_TROP_LONG", "serveur", /rien n'a été enregistré/],
+    [413, "FICHIER_TROP_GROS", "trop-gros", /25 Mo/],
+  ])("%i %s : genre %s", (status, code, genre, motif) => {
+    const e = classerErreur(rep(status as number, code as string));
+    expect(e.genre).toBe(genre);
+    expect(e.message).toMatch(motif as RegExp);
+    expect(e.message).not.toContain("texte brut");
+    expect(e.code).toBe(code);
+  });
+  it("409 CONFIRMATION_HORS_ZONE_REQUISE : le nombre d'elements hors zone et d'objets est conserve", () => {
+    expect(classerErreur(rep(409, "CONFIRMATION_HORS_ZONE_REQUISE", { nbElementsHorsZone: 4, nbObjets: 10 }))).toMatchObject({ nbElementsHorsZone: 4, nbObjets: 10 });
+  });
+  it("409 SUPPRESSIONS_A_REVOIR : jeu et nombre d'objets retires conserves", () => {
+    expect(classerErreur(rep(409, "SUPPRESSIONS_A_REVOIR", { jeuId: "j1", nb: 3 }))).toMatchObject({ jeuId: "j1", nb: 3 });
+  });
+  it("429 : delai de la reponse (corps, sinon en-tete Retry-After), message de cadence", () => {
+    expect(classerErreur(rep(429, "ANALYSE_TROP_FREQUENTE", { retryAfterS: 42 })).retryAfterS).toBe(42);
+    const e = classerErreur(rep(429, "AUTRE_CODE", {}, { "retry-after": "7" }));
+    expect(e).toMatchObject({ genre: "serveur", retryAfterS: 7, status: 429 });
+    expect(e.message).toMatch(/Trop de demandes/);
+    expect(classerErreur(rep(503, "SERVICE_OCCUPE", {}, { "Retry-After": "5" })).retryAfterS).toBe(5);
+    expect(classerErreur(rep(429, "X", { retryAfterS: -3 })).retryAfterS).toBeNull();
+    expect(classerErreur(rep(409, "JEU_DEJA_CHARGE")).retryAfterS).toBeNull();
+  });
+  it("annulation (AbortController) : genre « annule », jamais un probleme de reseau", () => {
+    expect(classerErreur(Object.assign(new Error("canceled"), { code: "ERR_CANCELED", name: "CanceledError" })).genre).toBe("annule");
+    expect(classerErreur(Object.assign(new Error("aborted"), { name: "AbortError" })).genre).toBe("annule");
+    expect(estAnnulation(new Error("Network Error"))).toBe(false);
+  });
+  it("409 DEPOT_EN_ATTENTE : message en clair avec le jeu concerne", () => {
+    expect(classerErreur(rep(409, "DEPOT_EN_ATTENTE", { jeuId: "j2" }))).toMatchObject({ genre: "conflit", jeuId: "j2" });
   });
 });
