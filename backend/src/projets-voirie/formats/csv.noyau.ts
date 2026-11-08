@@ -46,6 +46,8 @@ export interface LimitesCsv {
   colonnesMax: number;
   /** Cellule ordinaire, en caracteres. */
   celluleMax: number;
+  /** Cellules au total (lignes x colonnes), vides comprises (revue de la vague 1, O5) : borne la memoire d'un fichier de delimiteurs. Absent : pas de borne. */
+  cellulesMax?: number;
 }
 export const CELLULE_WKT_MAX = 2_000_000;
 export const COLONNE_NOM_MAX = 200;
@@ -84,7 +86,7 @@ export function decoderCsv(b: Buffer, declare?: EncodageDeclare): Texte {
 
 export interface Enregistrements { lignes: string[][]; numeros: number[] }
 
-interface OptionsAnalyse { lignesMax: number; colonnesMax: number; celluleMax: number; /** Echantillon : tolere un guillemet non ferme en fin de texte et ignore la derniere ligne. */ partiel?: boolean }
+interface OptionsAnalyse { lignesMax: number; colonnesMax: number; celluleMax: number; cellulesMax?: number; /** Echantillon : tolere un guillemet non ferme en fin de texte et ignore la derniere ligne. */ partiel?: boolean }
 
 /** Analyse RFC 4180 : guillemets, `""`, retours a la ligne dans un champ guillemete. Les lignes vides sont ignorees. */
 export function analyserEnregistrements(texte: string, delim: Delimiteur, o: OptionsAnalyse): Enregistrements {
@@ -100,8 +102,10 @@ export function analyserEnregistrements(texte: string, delim: Delimiteur, o: Opt
   let vide = true;
   let courant = "";
   let termine = false;
+  let nbCellules = 0;
 
   const fermerChamp = (): void => {
+    if (o.cellulesMax !== undefined && ++nbCellules > o.cellulesMax) throw new ErreurLecture("CSV_TROP_DE_CELLULES", `plus de ${o.cellulesMax} cellules au total (ligne ${debutLigne})`);
     if (courant.length > o.celluleMax) throw new ErreurLecture("CSV_CELLULE_TROP_LONGUE", `une cellule depasse ${o.celluleMax} caracteres (ligne ${debutLigne})`);
     champs.push(courant);
     if (champs.length > o.colonnesMax) throw new ErreurLecture("CSV_TROP_DE_COLONNES", `plus de ${o.colonnesMax} colonnes (ligne ${debutLigne})`);
@@ -260,7 +264,7 @@ export function inspecterCsv(contenu: Buffer, o: OptionsCsv, lim: LimitesCsv): I
   const t = decoderCsv(contenu, o.encodage);
   const choix = choisirDelimiteur(t.texte, o.delimiteur);
   if (!choix) return null;
-  const rec = analyserEnregistrements(t.texte, choix.delimiteur, { lignesMax: lim.lignesMax, colonnesMax: lim.colonnesMax, celluleMax: CELLULE_WKT_MAX });
+  const rec = analyserEnregistrements(t.texte, choix.delimiteur, { lignesMax: lim.lignesMax, colonnesMax: lim.colonnesMax, celluleMax: CELLULE_WKT_MAX, cellulesMax: lim.cellulesMax });
   if (rec.lignes.length < 1) return null;
   const { colonnes, renommees } = normaliserEntetes(rec.lignes[0]);
   if (colonnes.length < 2) return null;
