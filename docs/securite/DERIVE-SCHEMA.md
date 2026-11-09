@@ -377,3 +377,16 @@ Condition : le conteneur `backend` doit avoir `DATABASE_URL` dans son environnem
 - Les corrections de type S : aucune n'a ete appliquee ni essayee sur le schema (pas de `prisma validate` du schema modifie).
 - Le classeur ne comprend que la sortie de Prisma 5.22.0. Une autre version peut formuler les ecarts autrement : toute
   instruction non reconnue est classee derive ("a lire a la main"), jamais ignoree.
+
+## 9. Lot D1 (documents du projet) : ce que Prisma ne représente pas
+
+Migration `20261104100000_completude_documentaire`, modèles `DocumentProjetVoirie` et `DocumentProjetVoirieHistorique` (fin de `schema.prisma`, sans relation Prisma : clés étrangères en SQL seulement, comme le lot B3). Ces objets n'apparaissent pas dans `prisma migrate diff` et ne sont pas des dérives :
+
+| Objet | Nature | Exception |
+|---|---|---|
+| `documents_projet_voirie_en_cours_key`, `documents_projet_voirie_valide_key` | index uniques **partiels** (une version en cours, une version `VALIDE` par lignée, lignes non retirées) | `EX-PARTIEL` |
+| `dpv_titre`, `dpv_description`, `dpv_type_forme`, `dpv_version`, `dpv_lignee`, `dpv_reference`, `dpv_nom_fichier`, `dpv_format`, `dpv_sha256`, `dpv_empreinte_taille`, `dpv_piece_exclusive`, `dpv_attendu_sans_piece`, `dpv_depot`, `dpv_dwg_non_exploitable`, `dpv_separation_validation`, `dpv_justification`, `dpv_justification_longueur`, `dpvh_action`, `dpvh_details` | contraintes `CHECK` | hors du périmètre de `migrate diff` (section 3.3) |
+| `documents_projet_voirie_controle` (matrice des transitions, champs et pièce figés, lignée, jeu du même projet, code `TYPE_DOCUMENT`), `documents_projet_voirie_historiser` (historique écrit par la base), `documents_projet_voirie_remplacement_verifie` (déclencheur de contrainte **différé**), suppression et troncature refusées, historique en ajout seul | déclencheurs et fonctions | idem |
+| clés étrangères vers `projets_voirie`, `documents_projet_voirie` (`remplaceId`), `concessionnaires_reseau`, `projets_voirie_jeux`, `users` | clés étrangères sans relation Prisma | à rapprocher de la section 5.4 (modèles sans relation) |
+
+La valeur `LANDXML` de `FormatJeuProjet` et le type `StatutDocumentProjetVoirie` sont déclarés dans `schema.prisma` (aucune dérive). Contrôle fait : `prisma validate` ; le banc des descentes (`verifier.sh --seulement 20261104100000_completude_documentaire`) compare le schéma complet avant et après la descente. Les lots T1 et S1 n'avaient pas ajouté leur section ici : leurs objets non représentables sont décrits en tête de leurs blocs de `schema.prisma` et dans leurs migrations.
