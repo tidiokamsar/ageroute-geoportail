@@ -16,9 +16,13 @@ export type OrigineValeur = "OBJET" | "JEU" | "INCONNUE";
 export type EtatVertical = "ABSENTE" | "INCOMPLETE" | "FOURNIE";
 export type NiveauConfiance = "ELEVE" | "MOYEN" | "FAIBLE";
 export type StatutQualite = "OBSERVE" | "IMPORTE_NON_VERIFIE" | "DERIVE" | "CONTREDIT" | "INCONNU";
-export type TypeRelation = "PORTE_PAR" | "CONTENU_DANS";
+/** Lot S1 : `CONNECTE_A`, connexion DECLAREE entre deux objets physiques (jamais deduite d'une proximite). */
+export type TypeRelation = "PORTE_PAR" | "CONTENU_DANS" | "CONNECTE_A";
 export type StatutRelation = "PROPOSEE" | "VALIDEE" | "REFUSEE" | "REVOQUEE";
-export type OrigineRelation = "AUTOMATIQUE" | "MANUELLE";
+export type OrigineRelation = "AUTOMATIQUE" | "MANUELLE" | "IMPORT_DECLARATIF";
+/** Lot S1 : preuve d'une connexion declaree. Obligatoire pour CONNECTE_A, absente pour les autres types. */
+export type PreuveConnexion = "CONFIRMEE_PAR_FOURNISSEUR" | "INCONNUE";
+export type EtatConnexion = "CONFIRMEE" | "INCONNUE" | "NON_FOURNIE";
 export type ActionRelation = "valider" | "refuser" | "revoquer";
 export type ClasseDeclarable = "A" | "B" | "C" | "D" | "E";
 
@@ -28,9 +32,22 @@ export const NATURES_FILTRE: readonly (NatureDeclarable | "INCONNUE")[] = ["ACTI
 export const CLASSES_DECLARABLES: readonly ClasseDeclarable[] = ["A", "B", "C", "D", "E"];
 export const NIVEAUX_CONFIANCE: readonly NiveauConfiance[] = ["ELEVE", "MOYEN", "FAIBLE"];
 export const STATUTS_QUALITE: readonly StatutQualite[] = ["OBSERVE", "IMPORTE_NON_VERIFIE", "DERIVE", "CONTREDIT", "INCONNU"];
-export const TYPES_RELATION: readonly TypeRelation[] = ["PORTE_PAR", "CONTENU_DANS"];
+export const TYPES_RELATION: readonly TypeRelation[] = ["PORTE_PAR", "CONTENU_DANS", "CONNECTE_A"];
+export const PREUVES_CONNEXION: readonly PreuveConnexion[] = ["INCONNUE", "CONFIRMEE_PAR_FOURNISSEUR"];
+export const ETATS_CONNEXION: readonly EtatConnexion[] = ["CONFIRMEE", "INCONNUE", "NON_FOURNIE"];
+export const LIBELLE_PREUVE: Readonly<Record<PreuveConnexion, string>> = {
+  INCONNUE: "Preuve inconnue : la connexion est affirmée sans document du fournisseur",
+  CONFIRMEE_PAR_FOURNISSEUR: "Confirmée par le fournisseur (document ou fichier du concessionnaire)",
+};
+export const LIBELLE_PREUVE_COURT: Readonly<Record<PreuveConnexion, string>> = { INCONNUE: "preuve inconnue", CONFIRMEE_PAR_FOURNISSEUR: "confirmée par le fournisseur" };
+export const LIBELLE_ETAT_CONNEXION: Readonly<Record<EtatConnexion, string>> = {
+  CONFIRMEE: "Connexion confirmée par le fournisseur",
+  INCONNUE: "Connexion déclarée, preuve inconnue",
+  NON_FOURNIE: "Aucune connexion fournie",
+};
+export const MENTION_CONNEXION = "Une connexion n'existe ici que si une source la déclare ou si une personne la saisit avec justification : aucune connexion n'est jamais déduite d'une proximité géométrique.";
 export const STATUTS_RELATION: readonly StatutRelation[] = ["PROPOSEE", "VALIDEE", "REFUSEE", "REVOQUEE"];
-export const ORIGINES_RELATION: readonly OrigineRelation[] = ["AUTOMATIQUE", "MANUELLE"];
+export const ORIGINES_RELATION: readonly OrigineRelation[] = ["AUTOMATIQUE", "MANUELLE", "IMPORT_DECLARATIF"];
 export const ACTIONS_RELATION: readonly ActionRelation[] = ["valider", "refuser", "revoquer"];
 export const ETATS_VERTICAUX: readonly EtatVertical[] = ["ABSENTE", "INCOMPLETE", "FOURNIE"];
 
@@ -102,9 +119,11 @@ export const MENTION_3D = "Aucune évaluation 3D n'est réalisée : même avec u
 export const MENTION_LIGNES_CABLES = "Un fichier de N lignes n'est pas N câbles : plusieurs circuits logiques (liaisons, fibres, services) peuvent suivre le même support physique. Le nombre de lignes d'un fichier n'est jamais un nombre d'équipements.";
 export const BANDEAU_RESEAUX = "Une association automatique n'est qu'une proposition : elle n'a aucun effet tant qu'une personne ne l'a pas validée, avec une justification. Une simple superposition géométrique ne prouve pas qu'un circuit est porté par une infrastructure.";
 
-export const LIBELLE_TYPE_RELATION: Readonly<Record<TypeRelation, string>> = { PORTE_PAR: "Circuit porté par une infrastructure", CONTENU_DANS: "Équipement contenu dans une chambre ou un regard" };
-export const LIBELLE_TYPE_RELATION_COURT: Readonly<Record<TypeRelation, string>> = { PORTE_PAR: "Porté par", CONTENU_DANS: "Contenu dans" };
-export const LIBELLE_ORIGINE_RELATION: Readonly<Record<OrigineRelation, string>> = { AUTOMATIQUE: "Proposition automatique", MANUELLE: "Déclarée par une personne" };
+export const LIBELLE_TYPE_RELATION: Readonly<Record<TypeRelation, string>> = {
+  PORTE_PAR: "Circuit porté par une infrastructure", CONTENU_DANS: "Équipement contenu dans une chambre ou un regard", CONNECTE_A: "Objet physique déclaré connecté à un autre",
+};
+export const LIBELLE_TYPE_RELATION_COURT: Readonly<Record<TypeRelation, string>> = { PORTE_PAR: "Porté par", CONTENU_DANS: "Contenu dans", CONNECTE_A: "Connecté à" };
+export const LIBELLE_ORIGINE_RELATION: Readonly<Record<OrigineRelation, string>> = { AUTOMATIQUE: "Proposition automatique", MANUELLE: "Déclarée par une personne", IMPORT_DECLARATIF: "Déclarée par le fichier du fournisseur" };
 
 export interface StyleStatutRelation { libelle: string; aide: string; forme: "sablier" | "coche" | "croix" | "barre"; classes: string }
 export const STYLE_STATUT_RELATION: Readonly<Record<StatutRelation, StyleStatutRelation>> = {
