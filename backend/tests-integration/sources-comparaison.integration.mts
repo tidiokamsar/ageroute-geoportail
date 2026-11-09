@@ -18,6 +18,7 @@
 //   Reseau electrique : connexions DECLAREES par une colonne du fichier (mapping connecteA), jamais deduites.
 import { writeFileSync } from "node:fs";
 import { ouvrirBancClone } from "./lib/banc-clone.mts";
+import { avecTerritoireParDefaut } from "./lib/territoire-par-defaut.mts";
 import { verifier, conclure, proche } from "./lib/verdict.ts";
 
 const banc = await ouvrirBancClone("essai_sources_s1", {
@@ -30,7 +31,9 @@ const request = (await import("supertest")).default;
 
 process.env.PROJETS_VOIRIE_ANALYSE_INTERVALLE_S = "0";
 process.env.PROJETS_VOIRIE_COMPARAISON_INTERVALLE_S = "0";
-const app = createApp();
+// Lot T1 : la creation d'un projet exige un territoire ; enveloppe commune des bancs anterieurs (tests-integration/README.md). Ajoutee au lot D1, ce banc
+// echouait sinon des sa premiere creation de projet (400 TERRITOIRE_REQUIS) sur la branche d'integration.
+const app = avecTerritoireParDefaut(createApp(), prisma);
 const BASE = "/api/v2/projets-voirie";
 const O = { x: 380000, y: 1015000 };
 
