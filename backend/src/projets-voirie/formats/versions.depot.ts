@@ -56,7 +56,7 @@ export async function deltaEntreJeux(tx: Tx, nouveau: { id: string; colonneId: s
 }
 
 /** Cle d'un jeu pour retrouver la version qu'il remplace (ou remplacera). */
-export interface CleJeuVersion { id: string; projetId: string; role: RoleJeuProjet; concessionnaireId: string | null; remplaceId: string | null; methodeAcquisition?: string | null }
+export interface CleJeuVersion { id: string; projetId: string; role: RoleJeuProjet; concessionnaireId: string | null; remplaceId: string | null; methodeAcquisition?: string | null; typeReseauCode?: string | null; typeReseau?: string | null }
 export interface JeuReference { id: string; version: number; statut: string; resume: unknown }
 
 /**

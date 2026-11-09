@@ -192,6 +192,20 @@ async function main() {
     && (await sql<{ e: number; s: string }>(`SELECT epsg e, resume->'crs'->>'source' s FROM comparaisons_sources_projet WHERE id = $1`, cT.body.comparaison.id))[0].s === "TERRITOIRE",
     [c1.body.resume.crs, crsImpose.body, cT.body.comparaison?.epsg, cT.body.resume?.crs]);
 
+  // ================================================================ 3 ter. Correctifs T1+S1 (M3) : le type configurable fait l'identite du reseau
+  const typeFibre = await envoyer("post", "/referentiels/TYPE_RESEAU", { code: "FIBRE_BANC", libelle: "Fibre optique (banc)", parametres: { famille: "TELECOM" } }, T.admin);
+  const dFibre = await deposer(PID, await geojson([ligne("Cable Concord", 0.2), ligne("Fourreau F", 600)]),
+    { role: "RESEAU_TIERS", concessionnaireId: CT, typeReseauCode: "FIBRE_BANC", methodeAcquisition: "NUMERISATION_PLAN", precisionHorizontaleM: "1" }, "telecom-fibre.geojson");
+  const JF = dFibre.id;
+  await autoriser(PID, JF);
+  const sF = await get(`/${PID}/sources`);
+  const grpTelecom = (sF.body.reseaux as { typeReseauCode: string | null; nbSources: number; concessionnaire: { id: string } | null }[]).filter((r) => r.concessionnaire?.id === CT);
+  const cmpFibre = await envoyer("post", `/${PID}/comparaisons`, { jeuAId: JA, jeuBId: JF });
+  verifier("3 ter. M3 : un second type de la MEME famille (FIBRE_BANC, famille TELECOM), meme concessionnaire et meme methode que JA : version 1, ne remplace pas JA, les deux restent AUTORISE (index de la base), deux reseaux distincts dans la vue des sources, et jamais compares (409 RESEAU_DIFFERENT)",
+    typeFibre.status === 201 && (dFibre.corps.jeu as { version: number }).version === 1 && dFibre.corps.remplace === null && (await statut(JA)) === "AUTORISE" && (await statut(JF)) === "AUTORISE"
+    && grpTelecom.length === 2 && grpTelecom.some((r) => r.typeReseauCode === "FIBRE_BANC" && r.nbSources === 1) && cmpFibre.status === 409 && cmpFibre.body.motif === "RESEAU_DIFFERENT",
+    [typeFibre.body, dFibre.corps.remplace, grpTelecom, cmpFibre.body]);
+
   // ================================================================ 4. Precision inconnue : rapprochement incertain, aucune mesure
   const JE1 = (await deposer(PID, await geojson([ligne("Conduite X", 100)]), { role: "RESEAU_TIERS", concessionnaireId: CE, methodeAcquisition: "TOPOGRAPHIE" }, "eau-topo.geojson")).id;
   await autoriser(PID, JE1);

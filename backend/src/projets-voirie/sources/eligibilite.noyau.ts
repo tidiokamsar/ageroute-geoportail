@@ -10,7 +10,7 @@
  * La reference (A) est toujours le jeu AUTORISE (en mode SOURCES : le depot le plus ancien) ; l autre est B.
  */
 
-import { memeLignee } from "./cle-version.noyau";
+import { memeLignee, memeReseau } from "./cle-version.noyau";
 
 export const ROLES_COMPARABLES = ["RESEAU_TIERS", "AXES_TRAVAUX"] as const;
 export type ModeComparaison = "SOURCES" | "VERSION_CANDIDATE";
@@ -18,6 +18,8 @@ export type MotifNonComparable = "MEME_JEU" | "STATUT" | "ROLE" | "RESEAU_DIFFER
 
 export interface JeuEligible {
   id: string; projetId: string; role: string; statut: string; concessionnaireId: string | null; typeReseau: string | null;
+  /** Correctifs T1+S1 (M3) : code configurable du type de reseau (referentiel TYPE_RESEAU) ; il fait l'identite du reseau quand il existe. */
+  typeReseauCode?: string | null;
   methodeAcquisition: string | null; remplaceId: string | null; createdAt: Date;
 }
 
@@ -34,8 +36,8 @@ export function evaluerEligibilite(j1: JeuEligible, j2: JeuEligible): VerdictEli
     if (!(ROLES_COMPARABLES as readonly string[]).includes(j.role)) return { ok: false, motif: "ROLE", message: `Seuls des réseaux de concessionnaire ou des plans d'axes se comparent (jeu ${j.id} : rôle ${j.role}).` };
   }
   if (j1.role !== j2.role) return { ok: false, motif: "ROLE", message: "Les deux jeux doivent avoir le même rôle (deux réseaux, ou deux plans d'axes)." };
-  if ((j1.concessionnaireId ?? null) !== (j2.concessionnaireId ?? null) || (j1.typeReseau ?? null) !== (j2.typeReseau ?? null)
-      || (j1.role === "RESEAU_TIERS" && !j1.concessionnaireId)) {
+  // Correctifs T1+S1 (M3) : le reseau est identifie par le concessionnaire et le TYPE (code configurable, sinon famille), pas par la seule famille.
+  if (!memeReseau(j1, j2) || (j1.typeReseau ?? null) !== (j2.typeReseau ?? null) || (j1.role === "RESEAU_TIERS" && !j1.concessionnaireId)) {
     return { ok: false, motif: "RESEAU_DIFFERENT", message: "Les deux jeux doivent décrire le même réseau : même concessionnaire et même type de réseau." };
   }
   const autorises = [j1, j2].filter((j) => j.statut === "AUTORISE");

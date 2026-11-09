@@ -56,7 +56,7 @@ export const SELECT_COMPARAISON = {
 type LigneComparaisonVue = Prisma.ComparaisonSourcesGetPayload<{ select: typeof SELECT_COMPARAISON }>;
 
 export interface JeuDansComparaison {
-  role: "A" | "B"; jeuId: string; sha256: string; version: number; methodeAcquisition: string | null; dateDonnees: string | null; classePrecision: string | null;
+  role: "A" | "B"; jeuId: string; sha256: string; version: number; methodeAcquisition: string | null; typeReseauCode?: string | null; dateDonnees: string | null; classePrecision: string | null;
   precisionHorizontaleM: number | null; nbObjets: number; nomFichier: string; confidentialite: string;
 }
 
@@ -146,7 +146,7 @@ export async function lancerComparaison(acteur: Acteur, projetId: string, d: { j
 }
 
 const jeuDansComparaison = (role: "A" | "B", j: LigneJeu): JeuDansComparaison => ({
-  role, jeuId: j.id, sha256: j.sha256, version: j.version, methodeAcquisition: j.methodeAcquisition, dateDonnees: jour(j.dateDonnees), classePrecision: j.classePrecision,
+  role, jeuId: j.id, sha256: j.sha256, version: j.version, methodeAcquisition: j.methodeAcquisition, typeReseauCode: j.typeReseauCode, dateDonnees: jour(j.dateDonnees), classePrecision: j.classePrecision,
   precisionHorizontaleM: j.precisionHorizontaleM === null ? null : Number(j.precisionHorizontaleM), nbObjets: j.nbObjets, nomFichier: j.nomFichier, confidentialite: j.confidentialite,
 });
 

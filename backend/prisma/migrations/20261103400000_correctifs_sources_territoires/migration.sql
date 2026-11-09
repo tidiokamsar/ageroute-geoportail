@@ -81,3 +81,22 @@ $fn$;
 DROP TRIGGER IF EXISTS projets_voirie_jeux_methode_acquisition ON "projets_voirie_jeux";
 CREATE TRIGGER projets_voirie_jeux_methode_acquisition BEFORE INSERT OR UPDATE ON "projets_voirie_jeux" FOR EACH ROW EXECUTE FUNCTION projets_voirie_jeux_methode_acquisition();
 COMMENT ON COLUMN "projets_voirie_jeux"."methodeAcquisition" IS 'Code du referentiel METHODE_ACQUISITION (lot T1 ; correctifs T1+S1, M2 : seule source de verite). Nul = non renseignee. Composante de la cle de version d''un reseau : deux methodes = deux sources du meme reseau.';
+
+-- ===== M3. L'identite d'un reseau inclut son type configurable (code du referentiel TYPE_RESEAU, sinon la famille) =====
+-- Deux types d'un meme concessionnaire, meme de la meme famille, sont deux reseaux : ni compares, ni versions l'un de l'autre. Les deux index uniques
+-- partiels (un seul AUTORISE, un seul depot en attente par cle) sont recrees avec le type en cinquieme composante, pour le role RESEAU_TIERS seulement.
+-- La conversion d'une valeur d'enumeration en texte n'est pas IMMUTABLE pour PostgreSQL (un libelle peut etre renomme) : la fonction ci-dessous
+-- l'est par declaration. Les libelles de TypeReseauTiers ne se renomment pas (une famille nouvelle s'ajoute ; renommer exigerait de reconstruire ces index).
+CREATE OR REPLACE FUNCTION pv_identite_type_reseau(p_code text, p_famille "TypeReseauTiers") RETURNS text
+LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $fn$ SELECT COALESCE(p_code, p_famille::text, '') $fn$;
+COMMENT ON FUNCTION pv_identite_type_reseau(text, "TypeReseauTiers") IS 'Identite du type d''un reseau (correctifs T1+S1, M3) : code du referentiel TYPE_RESEAU, sinon famille. Meme regle que identiteTypeReseau (sources/cle-version.noyau.ts).';
+DROP INDEX IF EXISTS "projets_voirie_jeux_cle_autorise_key";
+CREATE UNIQUE INDEX IF NOT EXISTS "projets_voirie_jeux_cle_autorise_key" ON "projets_voirie_jeux" ("projetId", "role", COALESCE("concessionnaireId", ''),
+  (CASE WHEN "role" = 'RESEAU_TIERS' THEN COALESCE("methodeAcquisition", '') ELSE '' END),
+  (CASE WHEN "role" = 'RESEAU_TIERS' THEN pv_identite_type_reseau("typeReseauCode", "typeReseau") ELSE '' END))
+  WHERE "statut" = 'AUTORISE' AND "role" <> 'AUTRE';
+DROP INDEX IF EXISTS "projets_voirie_jeux_cle_attente_key";
+CREATE UNIQUE INDEX IF NOT EXISTS "projets_voirie_jeux_cle_attente_key" ON "projets_voirie_jeux" ("projetId", "role", COALESCE("concessionnaireId", ''),
+  (CASE WHEN "role" = 'RESEAU_TIERS' THEN COALESCE("methodeAcquisition", '') ELSE '' END),
+  (CASE WHEN "role" = 'RESEAU_TIERS' THEN pv_identite_type_reseau("typeReseauCode", "typeReseau") ELSE '' END))
+  WHERE "statut" IN ('RECU', 'CONTROLE') AND "role" <> 'AUTRE';

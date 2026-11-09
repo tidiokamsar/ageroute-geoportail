@@ -343,7 +343,8 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
   let remplace: { id: string; version: number } | null = null;
   if (c.role !== "AUTRE") {
     // Lot S1 : la methode d'acquisition fait partie de la cle d'un reseau de concessionnaire (seconde source), pas des autres roles (CONTRAT-SOURCES.md, 3.1).
-    const cle = filtreCleVersion({ projetId: d.projetId, role: c.role, concessionnaireId: concId, methodeAcquisition: c.methodeAcquisition ?? null });
+    // Correctifs T1+S1 (M3) : et le type de reseau (code configurable, sinon famille) : deux types d'un meme concessionnaire ne sont jamais versions l'un de l'autre.
+    const cle = filtreCleVersion({ projetId: d.projetId, role: c.role, concessionnaireId: concId, methodeAcquisition: c.methodeAcquisition ?? null, typeReseauCode, typeReseau });
     const attente = await tx.jeuDonneesProjet.findFirst({ where: { ...cle, statut: { in: ["RECU", "CONTROLE"] } }, select: { id: true, version: true } });
     if (attente) {
       throw new ErreurMetier(409, "DEPOT_EN_ATTENTE", "Un dépôt de même rôle et de même concessionnaire attend déjà son autorisation : autorisez-le, rejetez-le ou retirez-le d'abord.", { jeuId: attente.id, version: attente.version });
