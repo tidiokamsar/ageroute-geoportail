@@ -30,7 +30,7 @@ function convGpkg(features: FeatureSpec[] = DEUX_AXES, crsSource: { origine: "fi
   const { l, octets } = lue(features);
   const c = assembler({
     format, resultat: validerResultat(resultatValide({ spoolId: ID, format: format === "GPKG" ? "GPKG" : "ZIP", nbObjets: features.length, octetsCouche: octets, octets: 1000, crsSource })),
-    attendus: attendus(format), parametres, lues: new Map([["axes", l]]), insunits: null, uniteCrsSource: null,
+    attendus: attendus(format), parametres, lues: new Map([["axes", l]]), insunits: null, uniteCrsSource: null, nomFichier: "axes.gpkg",
   });
   c.metaSource = META_UTM;
   return c;
@@ -128,10 +128,21 @@ describe("même pipeline que les formats simples", () => {
     const t = texteCouche(DEUX_AXES, { crs: null });
     const brutes = assembler({
       format: "GPKG", resultat: validerResultat(resultatValide({ spoolId: ID, nbObjets: 2, octetsCouche: Buffer.byteLength(t), octets: 1000, coordonnees: "brutes", crsSource: null })), attendus: attendus("GPKG"), parametres: {},
-      lues: new Map([["axes", { v: validerCoucheTexte(t, { limites: LIM, coordonnees: "brutes", retenir: true }), sha256: l.sha256, octets: Buffer.byteLength(t) }]]), insunits: null, uniteCrsSource: null,
+      lues: new Map([["axes", { v: validerCoucheTexte(t, { limites: LIM, coordonnees: "brutes", retenir: true }), sha256: l.sha256, octets: Buffer.byteLength(t) }]]), insunits: null, uniteCrsSource: null, nomFichier: "axes.gpkg",
     });
     void octets;
     expect(refus(() => lire(brutes))).toBe("CRS_REQUIS");
+    // m9 : l'inventaire annonce le choix OBLIGATOIRE des que l'apercu refusera (GeoPackage sans CRS : coordonnees brutes, aucun CRS source)
+    expect(inventaireConverti(brutes).crs).toEqual({ normeDuFormat: null, declareDansLeFichier: null, choixObligatoire: true });
+  });
+
+  it("inventaire : choixObligatoire suit exactement la regle de l'apercu (m9)", () => {
+    const wgs = { origine: "fichier" as const, epsg: 4326, nom: "WGS 84" };
+    expect(inventaireConverti(convGpkg(DEUX_AXES, wgs)).crs.choixObligatoire).toBe(false); // 4326 declare : admis tel quel
+    expect(inventaireConverti(convGpkg()).crs.choixObligatoire).toBe(true); // projete declare : confirmation exigee
+    expect(inventaireConverti(convGpkg(DEUX_AXES, { origine: "fichier", epsg: null, nom: "Perso" })).crs.choixObligatoire).toBe(true); // sans code EPSG
+    expect(inventaireConverti(convGpkg(DEUX_AXES, undefined, { epsgSource: 32629 })).crs.choixObligatoire).toBe(false); // deja confirme a la creation
+    expect(inventaireConverti(convGpkg(DEUX_AXES, wgs, {}, "SHAPEFILE")).crs.choixObligatoire).toBe(true); // le .prj ne vaut jamais confirmation
   });
 
   it("zone attendue : tout hors Guinée = HORS_GUINEE ; une partie = confirmation exigée (409), confirmée les autres sont gardés", () => {
@@ -192,7 +203,7 @@ describe("DXF converti : calques, entités ignorées comptées, noms absents", (
     const { l, octets } = lue(feats, true);
     const c = assembler({
       format: "DXF", resultat: validerResultat(resultatValide({ spoolId: ID, format: "DXF", slug: "entities", nbObjets: 3, octetsCouche: octets, octets: 1000, crsSource: { origine: "demande", epsg: 32629, nom: null }, dxf: INV })),
-      attendus: attendus("DXF"), parametres: { epsgSource: 32629, unitesDxf: unites }, lues: new Map([["entities", l]]), insunits: 6, uniteCrsSource: "metre",
+      attendus: attendus("DXF"), parametres: { epsgSource: 32629, unitesDxf: unites }, lues: new Map([["entities", l]]), insunits: 6, uniteCrsSource: "metre", nomFichier: "plan.dxf",
     });
     c.metaSource = META_UTM;
     return c;

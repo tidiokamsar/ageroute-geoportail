@@ -202,9 +202,53 @@ describe("GeoJSON de couche : lecture ligne à ligne, schéma strict par objet",
     expect(refus(() => validerCoucheTexte(texteCouche(f), { ...OPT, grouperPar: "Layer", groupesMax: 2 }))).toBe("SORTIE_INVALIDE");
   });
 
+  it("comptes PAR GROUPE (calque) : types reels, sommets et emprise du calque seul, jamais ceux du fichier entier (m11)", () => {
+    const f = [
+      { props: { Layer: "AXES" }, geom: ligne([-9, 10.8], [-8.9, 10.8]) }, { props: { Layer: "AXES" }, geom: ligne([-9, 10.9], [-8.9, 10.9], [-8.95, 10.95]) },
+      { props: { Layer: "RESEAU" }, geom: point(-9.5, 10.7) }, { props: { Layer: "VIDE" }, geom: null },
+    ];
+    const c = validerCoucheTexte(texteCouche(f), { ...OPT, grouperPar: "Layer" });
+    const g = Object.fromEntries(c.groupes!.entries());
+    expect(g.AXES).toEqual({ nb: 2, parFamille: { LIGNE: 2, POINT: 0, POLYGONE: 0 }, typesReels: { LineString: 2 }, sommets: 5, emprise: [-9, 10.8, -8.9, 10.95] });
+    expect(g.RESEAU).toEqual({ nb: 1, parFamille: { LIGNE: 0, POINT: 1, POLYGONE: 0 }, typesReels: { Point: 1 }, sommets: 1, emprise: [-9.5, 10.7, -9.5, 10.7] });
+    expect(g.VIDE).toEqual({ nb: 1, parFamille: { LIGNE: 0, POINT: 0, POLYGONE: 0 }, typesReels: { null: 1 }, sommets: 0, emprise: null });
+    // le fichier entier reste compte a part
+    expect(c.sommets).toBe(6);
+    expect(c.emprise).toEqual([-9.5, 10.7, -8.9, 10.95]);
+  });
+
   it("le validateur n'accepte rien après la fin ni avant le début (machine à états)", () => {
     const v = new ValidateurCouche(OPT);
     expect(refus(() => v.terminer())).toBe("SORTIE_INVALIDE");
+  });
+});
+
+describe("chaines du conteneur dans le resume et l'audit : plafonnees et assainies (m5)", () => {
+  const base = () => resultatValide({ spoolId: ID }) as Record<string, unknown> & { couches: Record<string, unknown>[]; gdal: Record<string, unknown> };
+  const dxfOk = { version: "AC1015", codepage: null, entitesSupportees: ["LINE"], lues: { LINE: 1 }, ignorees: {}, blocs: { definitions: 0, entitesDansBlocs: 0 }, calques: [{ nom: "AXES", lues: 1, ignorees: 0 }], nbEntitesTotal: 1 };
+  const comptes = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`T${i}`, 1]));
+
+  it("tables de comptes DXF : 200 cles au plus ; types reels d'une couche : 50 au plus", () => {
+    expect(refus(() => validerResultat({ ...base(), dxf: { ...dxfOk, ignorees: comptes(200) } }))).toBe("AUCUN");
+    expect(refus(() => validerResultat({ ...base(), dxf: { ...dxfOk, ignorees: comptes(201) } }))).toBe("SORTIE_INVALIDE");
+    expect(refus(() => validerResultat({ ...base(), dxf: { ...dxfOk, lues: comptes(201) } }))).toBe("SORTIE_INVALIDE");
+    const r = base();
+    expect(refus(() => validerResultat({ ...r, couches: [{ ...r.couches[0], typesGeometrieReels: comptes(51) }] }))).toBe("SORTIE_INVALIDE");
+    expect(refus(() => validerResultat({ ...r, couches: [{ ...r.couches[0], typesGeometrieReels: comptes(50) }] }))).toBe("AUCUN");
+  });
+
+  it("versions GDAL et PROJ, pilotes : motif etroit ; noms de couche, de CRS, de calque, de source : aucun caractere de controle", () => {
+    const r = base();
+    expect(refus(() => validerResultat({ ...r, gdal: { ...r.gdal, version: "3.13.3 <script>" } }))).toBe("SORTIE_INVALIDE");
+    expect(refus(() => validerResultat({ ...r, gdal: { ...r.gdal, proj: "9.8.1\n" } }))).toBe("SORTIE_INVALIDE");
+    expect(refus(() => validerResultat({ ...r, gdal: { ...r.gdal, pilotesActifs: ["GPKG", "../x"] } }))).toBe("SORTIE_INVALIDE");
+    expect(refus(() => validerResultat({ ...r, gdal: { version: "3.13.3dev-abc+1", proj: "9.8.1", pilotesActifs: ["ESRI Shapefile", "GPKG"] } }))).toBe("AUCUN");
+    expect(refus(() => validerResultat({ ...r, couches: [{ ...r.couches[0], nom: "axes\u0007" }] }))).toBe("SORTIE_INVALIDE");
+    expect(refus(() => validerResultat({ ...r, couches: [{ ...r.couches[0], nom: "Réseau d'eau (2026)" }] }))).toBe("AUCUN");
+    expect(refus(() => validerResultat({ ...r, couches: [{ ...r.couches[0], crsSource: { origine: "fichier", epsg: 32629, nom: "UTM\u001b[31m" } }] }))).toBe("SORTIE_INVALIDE");
+    expect(refus(() => validerResultat({ ...r, couches: [{ ...r.couches[0], avertissements: ["pas un code"] }] }))).toBe("SORTIE_INVALIDE");
+    expect(refus(() => validerResultat({ ...r, source: { nom: "fichier.gpkg\u0000", octets: 1000, sha256: SHA_A } }))).toBe("SORTIE_INVALIDE");
+    expect(refus(() => validerResultat({ ...r, dxf: { ...dxfOk, calques: [{ nom: "AX\u0001ES", lues: 1, ignorees: 0 }] } }))).toBe("SORTIE_INVALIDE");
   });
 });
 

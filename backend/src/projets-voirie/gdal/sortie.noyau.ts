@@ -33,6 +33,15 @@ const sha256 = z.string().regex(/^[0-9a-f]{64}$/);
 const entier = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const texteCourt = z.string().max(600);
 const codeMajuscule = z.string().regex(/^[A-Z][A-Z0-9_]{2,60}$/);
+// Chaines du conteneur qui entrent dans le resume (jsonb) et dans l'audit (m5 de la revue) : longueur bornee ET aucun caractere de controle ; les versions
+// et noms de pilotes suivent un motif etroit ; les tables de comptes ont un nombre de cles plafonne.
+// eslint-disable-next-line no-control-regex
+const RE_SANS_CONTROLE = /^[^\u0000-\u001f\u007f]*$/;
+const nomBorne = (max: number) => z.string().max(max).regex(RE_SANS_CONTROLE);
+const version = z.string().regex(/^[0-9A-Za-z][0-9A-Za-z._+ -]{0,39}$/);
+const nomPilote = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9 _.-]{0,39}$/);
+export const CLES_COMPTES_MAX = 200;
+const comptesParNom = (clesMax: number) => z.record(z.string().max(40).regex(RE_SANS_CONTROLE), entier).refine((o) => Object.keys(o).length <= clesMax, { message: "trop de cles" });
 
 export const SchemaStatut = z.object({
   jobId: z.string().max(80),
@@ -59,28 +68,28 @@ const SchemaAvertissementWorker = z.object({
 }).strict();
 
 const SchemaCoucheResultat = z.object({
-  nom: z.string().max(300),
+  nom: nomBorne(300),
   fichier: z.string().max(100),
   octets: entier,
   nbObjets: entier,
-  typesGeometrieReels: z.record(z.string().max(40), entier),
+  typesGeometrieReels: comptesParNom(50),
   sommets: entier.optional(),
   emprise: z.array(z.number().finite()).length(4).nullable().optional(),
-  crs: z.object({ epsg: z.literal(4326), nom: z.string().max(80) }).strict().nullable(),
+  crs: z.object({ epsg: z.literal(4326), nom: nomBorne(80) }).strict().nullable(),
   reprojete: z.boolean(),
-  crsSource: z.object({ origine: z.enum(["fichier", "demande"]), epsg: z.number().int().min(1).max(999999).nullable(), nom: z.string().max(200).nullable() }).strict().nullable(),
+  crsSource: z.object({ origine: z.enum(["fichier", "demande"]), epsg: z.number().int().min(1).max(999999).nullable(), nom: nomBorne(200).nullable() }).strict().nullable(),
   coordonnees: z.enum(["wgs84", "brutes"]),
-  avertissements: z.array(z.string().max(80)).max(100),
+  avertissements: z.array(codeMajuscule).max(100),
 }).strict();
 
 export const SchemaDxf = z.object({
-  version: z.string().max(40).nullable(),
-  codepage: z.string().max(40).nullable(),
-  entitesSupportees: z.array(z.string().max(30)).max(10),
-  lues: z.record(z.string().max(40), entier),
-  ignorees: z.record(z.string().max(40), entier),
+  version: nomBorne(40).nullable(),
+  codepage: nomBorne(40).nullable(),
+  entitesSupportees: z.array(nomBorne(30)).max(10),
+  lues: comptesParNom(CLES_COMPTES_MAX),
+  ignorees: comptesParNom(CLES_COMPTES_MAX),
   blocs: z.object({ definitions: entier, entitesDansBlocs: entier }).strict(),
-  calques: z.array(z.object({ nom: z.string().max(300), lues: entier, ignorees: entier }).strict()).max(1000),
+  calques: z.array(z.object({ nom: nomBorne(300), lues: entier, ignorees: entier }).strict()).max(1000),
   nbEntitesTotal: entier,
 }).strict();
 export type InventaireDxf = z.infer<typeof SchemaDxf>;
@@ -92,17 +101,17 @@ export const SchemaResultat = z.object({
   code: codeMajuscule.nullable(),
   message: texteCourt.nullable(),
   details: z.record(z.string().max(80), z.unknown()),
-  source: z.object({ nom: z.string().max(100), octets: entier, sha256 }).strict().nullable(),
+  source: z.object({ nom: nomBorne(100), octets: entier, sha256 }).strict().nullable(),
   format: z.object({
-    famille: z.enum(["GPKG", "ZIP", "DXF"]), pilote: z.string().max(40), detection: z.literal("contenu"),
-    extensionDeclaree: z.string().max(20), extensionCoherente: z.boolean(),
+    famille: z.enum(["GPKG", "ZIP", "DXF"]), pilote: nomPilote, detection: z.literal("contenu"),
+    extensionDeclaree: nomBorne(20), extensionCoherente: z.boolean(),
   }).strict().nullable(),
   dxf: SchemaDxf.nullable(),
   couches: z.array(SchemaCoucheResultat).max(50),
   avertissements: z.array(SchemaAvertissementWorker).max(200),
   limitesAppliquees: z.record(z.string().max(80), z.number()),
   mesures: z.object({ dureeMs: entier, etapes: z.array(z.record(z.string().max(80), z.union([z.string().max(100), z.number()]))).max(200), picMemoireWorkerKo: entier }).strict(),
-  gdal: z.object({ version: z.string().max(40), proj: z.string().max(40).nullable(), pilotesActifs: z.array(z.string().max(40)).max(20) }).strict(),
+  gdal: z.object({ version, proj: version.nullable(), pilotesActifs: z.array(nomPilote).max(20) }).strict(),
 }).strict();
 export type ResultatWorker = z.infer<typeof SchemaResultat>;
 export type CoucheResultat = z.infer<typeof SchemaCoucheResultat>;
@@ -216,7 +225,14 @@ export interface OptionsCouche {
   groupesMax?: number;
 }
 
-export interface GroupeCouche { nb: number; parFamille: { LIGNE: number; POINT: number; POLYGONE: number } }
+/** Comptes d'un groupe (calque DXF) : calcules par le backend sur les Features lues, jamais recopies du fichier entier (m11 de la revue). */
+export interface GroupeCouche {
+  nb: number;
+  parFamille: { LIGNE: number; POINT: number; POLYGONE: number };
+  typesReels: Record<string, number>;
+  sommets: number;
+  emprise: [number, number, number, number] | null;
+}
 
 export interface CoucheValidee {
   nb: number;
@@ -267,6 +283,8 @@ export class ValidateurCouche {
   private readonly types: Record<string, number> = {};
   private readonly parFamille = { LIGNE: 0, POINT: 0, POLYGONE: 0 };
   private readonly bbox: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
+  /** Emprise de la Feature en cours (pour les comptes par groupe). */
+  private bboxObjet: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
   private readonly attributs = new Set<string>();
   private readonly groupes: Map<string, GroupeCouche> | null;
   private readonly features: FeatureValide[] | null;
@@ -327,14 +345,15 @@ export class ValidateurCouche {
     for (const k of Object.keys(f)) if (k !== "type" && k !== "properties" && k !== "geometry" && k !== "id") throw invalide("cle inattendue dans une Feature");
     const props = this.proprietes(f.properties);
     let geometrie: GeometrieSortie | null = null;
+    const sommetsAvant = this.sommets;
+    this.bboxObjet = [Infinity, Infinity, -Infinity, -Infinity];
     if (f.geometry === null || f.geometry === undefined) this.sansGeometrie++;
     else geometrie = this.geometrie(f.geometry, 0);
 
     // comptes
-    if (geometrie) {
-      this.types[geometrie.type] = (this.types[geometrie.type] ?? 0) + 1;
-      for (const fam of this.famillesDe(geometrie)) this.parFamille[fam]++;
-    } else this.types.null = (this.types.null ?? 0) + 1;
+    const typeReel = geometrie ? geometrie.type : "null";
+    this.types[typeReel] = (this.types[typeReel] ?? 0) + 1;
+    if (geometrie) for (const fam of this.famillesDe(geometrie)) this.parFamille[fam]++;
 
     let groupe: string | undefined;
     if (this.groupes) {
@@ -343,11 +362,19 @@ export class ValidateurCouche {
       let g = this.groupes.get(groupe);
       if (!g) {
         if (this.groupes.size >= (this.o.groupesMax ?? 1000)) throw invalide("trop de groupes (calques) distincts");
-        g = { nb: 0, parFamille: { LIGNE: 0, POINT: 0, POLYGONE: 0 } };
+        g = { nb: 0, parFamille: { LIGNE: 0, POINT: 0, POLYGONE: 0 }, typesReels: {}, sommets: 0, emprise: null };
         this.groupes.set(groupe, g);
       }
       g.nb++;
-      if (geometrie) for (const fam of this.famillesDe(geometrie)) g.parFamille[fam]++;
+      g.typesReels[typeReel] = (g.typesReels[typeReel] ?? 0) + 1;
+      g.sommets += this.sommets - sommetsAvant;
+      if (geometrie) {
+        for (const fam of this.famillesDe(geometrie)) g.parFamille[fam]++;
+        const b = this.bboxObjet;
+        if (Number.isFinite(b[0])) {
+          g.emprise = g.emprise === null ? [b[0], b[1], b[2], b[3]] : [Math.min(g.emprise[0], b[0]), Math.min(g.emprise[1], b[1]), Math.max(g.emprise[2], b[2]), Math.max(g.emprise[3], b[3])];
+        }
+      }
     }
     if (this.features) this.features.push({ properties: props, geometry: geometrie, ...(groupe !== undefined ? { groupe } : {}) });
   }
@@ -399,11 +426,12 @@ export class ValidateurCouche {
     if (p.length === 3 && (typeof p[2] !== "number" || !Number.isFinite(p[2]))) throw invalide("altitude non finie");
     this.sommets++;
     if (this.sommets > this.o.limites.sommetsParFichier) throw new ErreurSortie("TROP_DE_SOMMETS", "plus de sommets que le plafond du fichier");
-    const b = this.bbox;
-    if (x < b[0]) b[0] = x;
-    if (y < b[1]) b[1] = y;
-    if (x > b[2]) b[2] = x;
-    if (y > b[3]) b[3] = y;
+    for (const b of [this.bbox, this.bboxObjet]) {
+      if (x < b[0]) b[0] = x;
+      if (y < b[1]) b[1] = y;
+      if (x > b[2]) b[2] = x;
+      if (y > b[3]) b[3] = y;
+    }
     return [x, y];
   }
 
