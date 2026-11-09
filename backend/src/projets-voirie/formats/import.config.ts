@@ -11,6 +11,7 @@
  *   PROJETS_VOIRIE_CSV_LIGNES_MAX                    defaut 500 000            (100 a 5 000 000)
  *   PROJETS_VOIRIE_APERCU_ECHANTILLON                defaut 20                 (1 a 100)
  *   PROJETS_VOIRIE_DELAI_APERCU_MS                   defaut 30 000             (1 000 a 300 000)
+ *   PROJETS_VOIRIE_LANDXML_TOLERANCE_ARC_MM          defaut 10                 (1 a 1 000) lot D1 : fleche maximale (mm) entre un arc LandXML et ses cordes
  */
 
 import { sommetsParFichierMax, sommetsParObjetMax } from "../config";
@@ -78,4 +79,8 @@ export const limitesImport = (): LimitesImport => ({
   zip: limitesZip(),
   csv: limitesCsv(),
   crsAutorises: crsSourceAutorises(),
+  landxml: { toleranceArcM: toleranceArcLandXmlMm() / 1000 },
 });
+
+/** Lot D1 : tolerance de discretisation des arcs d'un LandXML, en millimetres (borne de protection, a valider par le DSI). */
+export const toleranceArcLandXmlMm = () => borne("PROJETS_VOIRIE_LANDXML_TOLERANCE_ARC_MM", 10, 1, 1_000);

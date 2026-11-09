@@ -15,7 +15,8 @@ export type GeometrieLue =
   | { type: "MultiPolygon"; coordinates: Pos[][][] };
 
 export type TypeGeom = "LIGNE" | "POINT" | "POLYGONE";
-export type FormatFichier = "KML" | "KMZ" | "GEOJSON" | "GPX" | "CSV" | "GPKG" | "SHAPEFILE" | "DXF";
+// Lot D1 : LANDXML (axes en plan et points, lecteur XML du module).
+export type FormatFichier = "KML" | "KMZ" | "GEOJSON" | "GPX" | "CSV" | "GPKG" | "SHAPEFILE" | "DXF" | "LANDXML";
 
 export interface ObjetLu {
   nom: string | null;
@@ -115,7 +116,9 @@ export type CodeErreurImport =
   // CRS
   | "SHAPEFILE_INCOMPLET" | "DXF_BINAIRE_NON_PRIS_EN_CHARGE" | "UNITES_REQUISES" | "DXF_UNITES_CONFLIT"
   | "CRS_MULTIPLES" | "CRS_REQUIS" | "CRS_NON_AUTORISE" | "CRS_NON_DISPONIBLE" | "CRS_INCOMPATIBLE_FORMAT" | "CRS_CONFLIT" | "CRS_INCOHERENT" | "TRANSFORMATION_ECHEC"
-  | "CONFIRMATION_HORS_ZONE_REQUISE";
+  | "CONFIRMATION_HORS_ZONE_REQUISE"
+  // lot D1 : LandXML (CONTRAT-DOCUMENTS.md, section 7.1)
+  | "LANDXML_SPIRALE_NON_PRISE_EN_CHARGE" | "LANDXML_ARC_DEGENERE" | "LANDXML_UNITES_NON_SUPPORTEES" | "LANDXML_POINT_INTROUVABLE";
 
 /** Avertissements ajoutes par le lot A1. */
 export type CodeAvertissementImport =
@@ -128,7 +131,9 @@ export type CodeAvertissementImport =
   | "AVERTISSEMENTS_GDAL" | "ANALYSE_GEOMETRIE_PARTIELLE" | "COUCHE_VIDE" | "UNITES_ABSENTES" | "COUCHE_SANS_GEOMETRIE_IGNOREE" | "COUCHE_SANS_GEOMETRIE"
   | "COUCHE_NOM_REFUSE" | "FICHIERS_ORPHELINS" | "NOM_FICHIER_RENOMME"
   // lot S1 : connexions declarees par le fichier (mapping connecteA) dont l objet designe est introuvable ou ambigu dans le meme fichier
-  | "CONNEXIONS_NON_RESOLUES";
+  | "CONNEXIONS_NON_RESOLUES"
+  // lot D1 : LandXML (elements ignores et comptes, discretisation des arcs)
+  | "LANDXML_ARCS_DISCRETISES" | "LANDXML_SPIRALES" | "LANDXML_DISCONTINUITES" | "LANDXML_PROFILS_IGNORES" | "LANDXML_SURFACES_IGNOREES" | "LANDXML_ELEMENTS_IGNORES";
 
 export class ErreurLecture extends Error {
   constructor(public readonly code: CodeErreurLecture, message: string) {

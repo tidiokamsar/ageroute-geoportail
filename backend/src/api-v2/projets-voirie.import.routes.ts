@@ -97,10 +97,13 @@ const FORMATS = [
   { format: "GEOJSON", extensions: [".geojson", ".json"], detection: "contenu", crsParDefinition: "EPSG:4326", choixCrs: "facultatif" },
   { format: "GPX", extensions: [".gpx"], detection: "contenu", crsParDefinition: "EPSG:4326", choixCrs: "interdit" },
   { format: "CSV", extensions: [".csv", ".tsv", ".txt"], detection: "contenu", crsParDefinition: null, choixCrs: "obligatoire" },
+  // Lot D1 : axes en plan (lignes, arcs discretises) et points ; spirales refusees ; CRS projete en metres toujours choisi (CONTRAT-DOCUMENTS.md, 7.1).
+  { format: "LANDXML", extensions: [".xml", ".landxml"], detection: "contenu", crsParDefinition: null, choixCrs: "obligatoire" },
 ] as const;
 // GeoPackage, Shapefile ZIP et DXF ne sont plus ici : ils sont annonces par `formatsGdal` (supportes ou indisponibles, avec la raison).
 const NON_SUPPORTES = [
-  { format: "DWG", raison: "convertisseur approuve et licence verifiee requis" },
+  // Lot D1 : aucun convertisseur ; exporter en DXF, et conserver le DWG comme document du projet (POST /:id/documents, statut RECU, non exploitable).
+  { format: "DWG", raison: "aucun convertisseur (format proprietaire) : exportez en DXF ; le DWG se conserve comme document du projet, non exploitable" },
 ] as const;
 
 export function monterRoutesImport(router: Router, o: OutilsImportRoutes): void {

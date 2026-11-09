@@ -70,6 +70,23 @@ export function choisirCrs(format: FormatFichier, epsgSource: number | undefined
     return { epsg: choisi, origine: "choisi_par_utilisateur", transformer: choisi !== EPSG_CIBLE };
   }
 
+  // Lot D1 : LandXML. Le CRS est TOUJOURS choisi par l'utilisateur (un `CoordinateSystem/@epsgCode` du fichier ne vaut jamais confirmation, il doit
+  // seulement concorder) ; il doit etre projete en metres : les arcs sont discretises en unites lineaires et les axes en plan d'un LandXML ne sont pas
+  // en degres. Le caractere projete d'un autre CRS de la liste blanche est verifie apres lecture de `spatial_ref_sys` (lecture-import.noyau.ts, terminer).
+  if (format === "LANDXML") {
+    if (epsgSource === undefined) {
+      throw new ErreurLecture("CRS_REQUIS", `le CRS des coordonnees d'un LandXML doit etre choisi (epsgSource) : il n'est jamais deduit du fichier${declare?.epsg ? ` (qui declare EPSG:${declare.epsg})` : ""}. Liste blanche : ${autorises.map((e) => `EPSG:${e}`).join(", ")}`);
+    }
+    if (declare && declare.epsg !== null && declare.epsg !== epsgSource) {
+      throw new ErreurLecture("CRS_CONFLIT", `le fichier declare EPSG:${declare.epsg} mais EPSG:${epsgSource} est demande : un CRS declare ne se surcharge pas`);
+    }
+    if (epsgSource === EPSG_CIBLE) {
+      throw new ErreurLecture("CRS_INCOMPATIBLE_FORMAT", "un LandXML decrit des axes en plan en coordonnees projetees (metres) : EPSG:4326 (degres) ne peut pas lui etre applique");
+    }
+    verifierListeBlanche(epsgSource, autorises);
+    return { epsg: epsgSource, origine: "choisi_par_utilisateur", transformer: true };
+  }
+
   // CSV : jamais devine.
   if (epsgSource === undefined) {
     throw new ErreurLecture("CRS_REQUIS", `le CRS des coordonnees d'un CSV doit etre choisi (epsgSource) : il n'est jamais devine. Liste blanche : ${autorises.map((e) => `EPSG:${e}`).join(", ")}`);
