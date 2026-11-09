@@ -206,6 +206,21 @@ async function main() {
     && grpTelecom.length === 2 && grpTelecom.some((r) => r.typeReseauCode === "FIBRE_BANC" && r.nbSources === 1) && cmpFibre.status === 409 && cmpFibre.body.motif === "RESEAU_DIFFERENT",
     [typeFibre.body, dFibre.corps.remplace, grpTelecom, cmpFibre.body]);
 
+  // ================================================================ 3 quater. Correctifs T1+S1 (M5) : objets de meme nom
+  const CD = await conc("Operateur Doublons Synthetique", "TELECOM");
+  const JD1 = (await deposer(PID, await geojson([ligne("Fourreau", 3000), ligne("Fourreau", 3100)]), { role: "RESEAU_TIERS", concessionnaireId: CD, methodeAcquisition: "NUMERISATION_PLAN", precisionHorizontaleM: "1" }, "doublons-plan.geojson")).id;
+  await autoriser(PID, JD1);
+  const JD2 = (await deposer(PID, await geojson([ligne("Fourreau", 3000.5), ligne("Fourreau", 3106)]), { role: "RESEAU_TIERS", concessionnaireId: CD, methodeAcquisition: "GNSS_RTK", precisionHorizontaleM: "1" }, "doublons-gnss.geojson")).id;
+  await autoriser(PID, JD2);
+  const cD = await envoyer("post", `/${PID}/comparaisons`, { jeuAId: JD1, jeuBId: JD2 });
+  const cD2 = await envoyer("post", `/${PID}/comparaisons`, { jeuAId: JD1, jeuBId: JD2 });
+  const oD = await get(`/${PID}/comparaisons/${cD.body.comparaison?.id}/objets`);
+  const statutsD = (oD.body.resultats as { statut: string; objetA: { id: string } | null; objetB: { id: string } | null }[] ?? []).map((r) => r.statut).sort();
+  verifier("3 quater. M5 : deux objets « Fourreau » dans chaque source (l'un concordant, l'autre divergent de 6 m) : deux resultats, une CONCORDANCE et une DIVERGENCE (Hausdorff 6 m), aucun objet hors des totaux, cles uniques et identiques au rejeu",
+    cD.status === 201 && JSON.stringify(statutsD) === JSON.stringify(["CONCORDANCE", "DIVERGENCE"]) && cD.body.resume.totaux.resultats === 2 && cD.body.resume.totaux.SANS_CORRESPONDANCE_B === 0
+    && proche((oD.body.resultats as { statut: string; mesure: { hausdorffM: number } }[]).find((r) => r.statut === "DIVERGENCE")!.mesure.hausdorffM, 6, 0.02)
+    && (await cles(cD.body.comparaison.id)) === (await cles(cD2.body.comparaison.id)) && new Set((oD.body.resultats as { cle: string }[]).map((r) => r.cle)).size === 2, [cD.body.resume?.totaux, oD.body.resultats]);
+
   // ================================================================ 4. Precision inconnue : rapprochement incertain, aucune mesure
   const JE1 = (await deposer(PID, await geojson([ligne("Conduite X", 100)]), { role: "RESEAU_TIERS", concessionnaireId: CE, methodeAcquisition: "TOPOGRAPHIE" }, "eau-topo.geojson")).id;
   await autoriser(PID, JE1);

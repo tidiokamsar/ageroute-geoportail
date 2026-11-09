@@ -382,7 +382,8 @@ export async function ouvrirDossierDivergence(acteur: Acteur, projetId: string, 
       const estAxe = jeuA.role === "AXES_TRAVAUX";
       const cle = cleConflit({
         projetId, axe: AXE_DIVERGENCE_SOURCES, type: "DIVERGENCE_SOURCES", cellule: cellule(geo.lon, geo.lat),
-        reseau: `${cleReseau(jeuA.concessionnaireId, oa.nom, oa.empreinte)}|b:${identiteObjet(ob.nom, ob.empreinte)}`,
+        // Correctifs T1+S1 (M5) : les identifiants des deux objets entrent dans la cle : deux couples d'objets de meme nom font deux dossiers distincts.
+        reseau: `${cleReseau(jeuA.concessionnaireId, oa.nom, oa.empreinte)}|b:${identiteObjet(ob.nom, ob.empreinte)}|ida:${objetA}|idb:${objetB}`,
       });
       const deja = await tx.conflitProjet.findFirst({ where: { projetId, cle }, select: { id: true } });
       if (deja) throw new ErreurMetier(409, "DOSSIER_DEJA_OUVERT", "Un dossier de conflit existe déjà pour ce couple d'objets (ouvert depuis une autre comparaison).", { conflitId: deja.id });
