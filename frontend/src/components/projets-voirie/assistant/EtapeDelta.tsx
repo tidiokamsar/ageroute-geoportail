@@ -43,6 +43,7 @@ export function EtapeDelta({ simulation, depot, delta, chargementDelta, occupe, 
   const source = depot ?? simulation;
   const suppressions = delta?.suppressions ?? source?.suppressions ?? null;
   const peutRevoir = delta !== null && (delta.jeu.statut === "CONTROLE" || delta.jeu.statut === "RECU") && delta.suppressions.nb > 0;
+  const refusDefinitif = delta !== null && delta.suppressions.statut === "REFUSEES";
   const ok = justificationValide(justification);
 
   async function revue(d: "ACCEPTER" | "REFUSER") {
@@ -124,14 +125,18 @@ export function EtapeDelta({ simulation, depot, delta, chargementDelta, occupe, 
               {delta.suppressions.revue && (
                 <p className="text-sm text-gray-900" data-testid="derniere-revue">
                   Dernière revue : <strong>{delta.suppressions.revue.decision === "ACCEPTER" ? "acceptée" : "refusée"}</strong> par {delta.suppressions.revue.par?.nomComplet ?? "un compte inconnu"}
-                  {delta.suppressions.revue.le ? ` le ${formaterDate(delta.suppressions.revue.le)}` : ""} : « {texteAttribut(delta.suppressions.revue.justification, 300)} ». Une nouvelle revue remplace celle-ci ; toutes sont conservées.
+                  {delta.suppressions.revue.le ? ` le ${formaterDate(delta.suppressions.revue.le)}` : ""} : « {texteAttribut(delta.suppressions.revue.justification, 300)} ».{" "}
+                  {refusDefinitif
+                    ? "Ce refus est définitif pour ces suppressions : la version ne peut plus qu'être rejetée ou retirée, ou remplacée par un fichier corrigé. Toutes les revues sont conservées."
+                    : "Une nouvelle revue remplace celle-ci ; toutes sont conservées."}
                 </p>
               )}
               {peutRevoir ? (
                 <>
                   <ChampJustification id={`${id}-justif`} libelle="Justification de la revue" valeur={justification} onChange={setJustification} disabled={occupe} minimum={JUSTIFICATION_MIN} />
                   <div className="flex flex-wrap gap-2">
-                    <Button type="button" disabled={occupe || !enLigne || !ok} onClick={() => void revue("ACCEPTER")}>Accepter les suppressions</Button>
+                    {/* Regle O1 du serveur : apres un refus, l'acceptation est refusee (409 SUPPRESSIONS_REFUSEES) ; ne pas proposer un geste impossible (defaut C1-02). */}
+                    {!refusDefinitif && <Button type="button" disabled={occupe || !enLigne || !ok} onClick={() => void revue("ACCEPTER")}>Accepter les suppressions</Button>}
                     <Button type="button" variant="outline" disabled={occupe || !enLigne || !ok} onClick={() => void revue("REFUSER")}>Refuser les suppressions</Button>
                   </div>
                 </>
