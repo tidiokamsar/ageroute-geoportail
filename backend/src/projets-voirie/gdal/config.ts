@@ -14,6 +14,9 @@
  *   PROJETS_VOIRIE_GDAL_ACTIFS_PROJET         defaut 3    (1 a 20)         jobs actifs par projet
  *   PROJETS_VOIRIE_GDAL_FILE_MAX              defaut 20   (1 a 200)        jobs EN_ATTENTE au total
  *   PROJETS_VOIRIE_GDAL_CREATIONS_HEURE       defaut 12   (1 a 200)        creations de jobs par heure, par compte ET par projet (cadence)
+ *   PROJETS_VOIRIE_GDAL_RESULTATS_MAX         defaut 20   (1 a 500)        jobs TERMINE non encore utilises, au total (chacun garde jusqu'a sortieOctetsMax dans le spool)
+ *   PROJETS_VOIRIE_GDAL_DELAI_TOUR_S          defaut 120  (1 a 600)        budget de temps d'un tour du sondage (garde contre un acces au spool qui bloque)
+ *   PROJETS_VOIRIE_GDAL_PRIVE                 defaut <spool>/prive         dossier PRIVE du backend ou le fichier attend sa reclamation (jamais monte dans le conteneur)
  *
  * Le conteneur n'est JAMAIS sollicite tant que l'interrupteur est desactive : ni au demarrage, ni dans les routes (voir `disponibilite()` de `jobs.service.ts`).
  */
@@ -34,6 +37,12 @@ export function spoolRacine(): string | null {
   return v === "" || v.includes("\u0000") ? null : v;
 }
 
+/** Dossier prive du backend (M2 de la revue), ou `null` pour le defaut `<spool>/prive`. */
+export function spoolPrive(): string | null {
+  const v = (process.env.PROJETS_VOIRIE_GDAL_PRIVE ?? "").trim();
+  return v === "" || v.includes("\u0000") ? null : v;
+}
+
 export interface ReglagesGdal {
   delaiJobS: number;
   /** Plafond d'objets demande au conteneur (jamais au-dessus du plafond du module). */
@@ -49,6 +58,10 @@ export interface ReglagesGdal {
   actifsParProjet: number;
   fileMax: number;
   creationsParHeure: number;
+  /** Jobs TERMINE non utilises conserves au total (chacun retient sa sortie dans le spool jusqu'a usage ou expiration). */
+  resultatsMax: number;
+  /** Budget d'un tour du sondage, en secondes. */
+  delaiTourS: number;
 }
 
 export function reglagesGdal(): ReglagesGdal {
@@ -65,8 +78,13 @@ export function reglagesGdal(): ReglagesGdal {
     actifsParProjet: borneEnv("PROJETS_VOIRIE_GDAL_ACTIFS_PROJET", 3, 1, 20),
     fileMax: borneEnv("PROJETS_VOIRIE_GDAL_FILE_MAX", 20, 1, 200),
     creationsParHeure: borneEnv("PROJETS_VOIRIE_GDAL_CREATIONS_HEURE", 12, 1, 200),
+    resultatsMax: borneEnv("PROJETS_VOIRIE_GDAL_RESULTATS_MAX", 20, 1, 500),
+    delaiTourS: borneEnv("PROJETS_VOIRIE_GDAL_DELAI_TOUR_S", 120, 1, 600),
   };
 }
+
+/** Plafond par acces court au spool (lecture d'un statut, purge, copie) a l'interieur du budget d'un tour. */
+export const DELAI_ACCES_SPOOL_MS = 10_000;
 
 /** Marge ajoutee au delai du conteneur avant de considerer un job comme perdu (file d'attente derriere les autres jobs comprise). */
 export const MARGE_PERTE_S = 30;

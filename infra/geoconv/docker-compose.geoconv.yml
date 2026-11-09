@@ -52,6 +52,10 @@ services:
     stop_grace_period: 20s
 
     # --- Donnees -----------------------------------------------------------------------------
+    # Seuls ces deux volumes sont montes. Le DEPOT PRIVE du backend (PROJETS_VOIRIE_GDAL_PRIVE, defaut
+    # <spool>/prive, ou les fichiers attendent leur reclamation) ne doit JAMAIS etre monte ici : le
+    # backend ne copie un fichier dans entree/<id>/ qu'au moment ou il le transmet, et l'en retire des la
+    # fin du job (CONTRAT-IMPORT.md 13.5 : limite residuelle entre jobs en vol, CONCURRENCE=1 pour l'annuler).
     volumes:
       - geoconv_entree:/spool/entree:ro   # le backend y depose ; le worker ne peut pas y ecrire
       - geoconv_sortie:/spool/sortie      # le worker y ecrit ; le backend la lit (et la purge)
@@ -99,3 +103,11 @@ volumes:
     name: ${GEOCONV_VOLUME_ENTREE:-geoconv_entree}
   geoconv_sortie:
     name: ${GEOCONV_VOLUME_SORTIE:-geoconv_sortie}
+    # Le pilote `local` ne pose aucun quota. Borne par construction cote backend : RESULTATS_MAX x SORTIE_MAX_OCTETS
+    # + concurrence x GEOCONV_LIMITE_SORTIE (environ 2 Go avec les defauts), purge du worker a GEOCONV_RETENTION_H.
+    # Option de borne dure (decision DSI, voir CHAINE-GDAL.md section 7) : sortie en tmpfs, perdue au redemarrage de l'HOTE.
+    # driver: local
+    # driver_opts:
+    #   type: tmpfs
+    #   device: tmpfs
+    #   o: "size=3g,uid=10001,gid=10001,mode=0755"

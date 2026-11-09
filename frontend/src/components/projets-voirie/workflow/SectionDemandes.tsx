@@ -144,11 +144,11 @@ function FicheDemandeVue({ requete, projetId, profil, enLigne, onRetour }: { req
       </SectionFiche>
 
       <SectionFiche id="pv-fd-preuves" titre={`Preuves (${f.preuves.length})`}>
-        <ListePreuves preuves={f.preuves} />
+        <ListePreuves preuves={f.preuves} ignores={f.preuvesIgnorees} />
         {peutPreuve && <Button type="button" variant="outline" size="sm" className="min-h-[44px] xl:min-h-8" disabled={!enLigne} onClick={() => ouvrir({ genre: "preuve" })}><FilePlus2 aria-hidden="true" /> Ajouter une preuve</Button>}
       </SectionFiche>
 
-      <SectionFiche id="pv-fd-historique" titre="Historique"><HistoriqueWorkflow historique={f.historique} /></SectionFiche>
+      <SectionFiche id="pv-fd-historique" titre="Historique"><HistoriqueWorkflow historique={f.historique} ignores={f.historiqueIgnores} /></SectionFiche>
 
       {dialogue?.genre === "envoi" && <DialogueEnvoi demande={d} enLigne={enLigne} onFermer={fermer} onValider={(c) => statut.mutateAsync(c)} />}
       {dialogue?.genre === "reception" && <DialogueReception demande={d} jeuxLiables={jeuxLiables} enLigne={enLigne} onFermer={fermer} onValider={(c) => statut.mutateAsync(c)} />}

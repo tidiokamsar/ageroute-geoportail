@@ -3,9 +3,11 @@
  * CONTRAT-IMPORT.md section 13 et API.md.
  *
  *   - TOUT est derriere l'interrupteur `PROJETS_VOIRIE_GDAL` (DESACTIVE par defaut) : desactive, aucun acces au spool ni au conteneur ;
- *   - le fichier est depose dans le spool (entree/, SANS demande.json) APRES l'insertion de la ligne : une ligne existe toujours pour un dossier du spool ;
- *     le sondage (`traiteur.ts`) publie `demande.json` quand une place se libere ;
- *   - cadence, plafonds par compte et par projet, file globale : sous le VERROU DU PROJET (une creation a la fois par projet) ;
+ *   - le fichier est depose dans le dossier PRIVE du backend (prive/<jobId>/, jamais monte dans le conteneur) APRES l'insertion de la ligne : une ligne existe
+ *     toujours pour un depot ; le sondage (`traiteur.ts`) le copie dans entree/<spoolId>/ et publie `demande.json` A LA RECLAMATION seulement, puis retire
+ *     entree/<spoolId>/ des la fin du job : le conteneur ne voit que les fichiers des jobs qu'il traite (M2 de la revue) ;
+ *   - cadence, plafonds par compte et par projet, file globale, resultats non utilises : sous le VERROU DU PROJET puis un VERROU CONSULTATIF GLOBAL (les
+ *     compteurs qui depassent le projet ne se comptent pas entre deux projets en meme temps : m6 de la revue) ;
  *   - un job n'est utilisable qu'une fois (un depot) : la consommation est ecrite dans la transaction du depot (`consommerDansTx`) ;
  *   - le resultat est RE-VALIDE a chaque usage et son empreinte comparee a celle du resume : un fichier du spool modifie apres validation est refuse ;
  *   - audit sans geometrie : fichier, empreinte, taille, format, parametres, codes.
@@ -22,19 +24,26 @@ import { resoudreCrs } from "../formats/crs.service";
 import { ErreurLecture, type Avertissement } from "../lecture.types";
 import { sommetsParFichierMax, sommetsParObjetMax } from "../config";
 import { verrouillerProjet, type Acteur, type Tx } from "../projets.service";
-import { gdalActif, reglagesGdal, spoolRacine } from "./config";
+import { gdalActif, reglagesGdal, spoolPrive, spoolRacine } from "./config";
 import {
   ERREURS_JOB, FORMATS_GDAL, STATUTS_ACTIFS, messageErreur, spoolIdDe, type FormatGdal, type StatutJob, type UniteDxf,
 } from "./contrat.noyau";
-import { assembler, resumer, type ConversionValidee, type CoucheLue, type ParametresJob, type ResumeJob } from "./conversion.noyau";
+import { assembler, ecartsAvecResume, resumer, type ConversionValidee, type CoucheLue, type ParametresJob, type ResumeJob } from "./conversion.noyau";
+import { classerErreurFinalisation } from "./finalisation.noyau";
 import { detecterFormatGdal, EXTENSION_DE_FORMAT } from "./format.noyau";
 import {
-  disponibiliteSpool, lireCoucheVersValidateur, lireInventaireBrut, lireResultatBrut, ouvrirSpool, purger, stagerEntree, type Spool,
+  disponibiliteSpool, lireCoucheVersValidateur, lireInventaireBrut, lireResultatBrut, ouvrirSpool, purger, purgerEntree, purgerPrive, stagerPrive, type Spool,
 } from "./spool";
 import {
   ErreurSortie, LIMITES_COUCHE_DEFAUT, ValidateurCouche, codeDeErreurSortie, controlerResultat, controlerUniteContreCrs, slugDeFichier, validerResultat,
   type AttendusJob,
 } from "./sortie.noyau";
+
+/** Journal sans chemin ni contenu : le type de l'erreur et son code. */
+const journalErreur = (contexte: string, e: unknown): void => {
+  const code = (e as NodeJS.ErrnoException)?.code;
+  console.warn(`[gdal] ${contexte} : ${e instanceof Error ? e.name : "erreur"}${typeof code === "string" ? ` (${code})` : ""}`);
+};
 
 // ------------------------------------------------------------------------------------------------ Disponibilite
 
@@ -45,7 +54,7 @@ export async function disponibilite(): Promise<Disponibilite> {
   if (!gdalActif()) return { actif: false, disponible: false, raison: "interrupteur PROJETS_VOIRIE_GDAL desactive" };
   const racine = spoolRacine();
   if (racine === null) return { actif: true, disponible: false, raison: "PROJETS_VOIRIE_GDAL_SPOOL non configure" };
-  const d = await disponibiliteSpool(ouvrirSpool(racine));
+  const d = await disponibiliteSpool(ouvrirSpool(racine, spoolPrive()));
   return d.ok ? { actif: true, disponible: true, raison: null } : { actif: true, disponible: false, raison: d.raison };
 }
 
@@ -54,7 +63,7 @@ export function spoolOuvert(): Spool {
   if (!gdalActif()) throw new ErreurMetier(503, "GDAL_DESACTIVE", "Le traitement GDAL est désactivé sur ce serveur (interrupteur PROJETS_VOIRIE_GDAL).");
   const racine = spoolRacine();
   if (racine === null) throw new ErreurMetier(503, "SPOOL_INDISPONIBLE", ERREURS_JOB.SPOOL_INDISPONIBLE.message);
-  return ouvrirSpool(racine);
+  return ouvrirSpool(racine, spoolPrive());
 }
 
 // ------------------------------------------------------------------------------------------------ Vue
@@ -162,9 +171,12 @@ export async function creerJob(d: DemandeJob): Promise<JobVue> {
   const maintenant = new Date();
   const expireLe = new Date(maintenant.getTime() + reg.retentionH * 3_600_000);
 
-  // 3. Ligne du job, SOUS LE VERROU DU PROJET : doublon, plafonds, cadence, file.
+  // 3. Ligne du job, SOUS LE VERROU DU PROJET puis le VERROU GLOBAL des jobs : doublon, plafonds, cadence, file, resultats non utilises.
   const job = await prisma.$transaction(async (tx) => {
     await verrouillerProjet(tx, d.projetId);
+    // Verrou consultatif global (toujours pris APRES celui du projet, dans ce seul endroit : aucun interblocage possible) : les compteurs par compte, la
+    // file globale et les resultats non utilises se comptent une creation a la fois, quel que soit le projet (m6 de la revue).
+    await tx.$queryRaw`SELECT 1 AS "ok" FROM (SELECT pg_advisory_xact_lock(hashtextextended(${"pv-gdal-jobs"}, 0))) v`;
     const doublon = await tx.jobImportProjet.findFirst({
       where: { projetId: d.projetId, sha256, statut: { in: ["EN_ATTENTE", "EN_COURS"] }, parametres: { equals: parametres as Prisma.InputJsonValue } }, select: { id: true, statut: true },
     });
@@ -188,6 +200,11 @@ export async function creerJob(d: DemandeJob): Promise<JobVue> {
     }
     const enFile = await tx.jobImportProjet.count({ where: { statut: "EN_ATTENTE" } });
     if (enFile >= reg.fileMax) throw new ErreurMetier(503, "FILE_JOBS_PLEINE", "La file de conversion est pleine : reessayez dans quelques minutes.", { retryAfterS: 60 });
+    // Chaque resultat TERMINE non utilise retient jusqu'a `sortieOctetsMax` dans le spool jusqu'a son usage ou son expiration : plafond global (m6 de la revue).
+    const enAttenteUsage = await tx.jobImportProjet.count({ where: { statut: "TERMINE", jeuId: null, purgeLe: null, expireLe: { gt: maintenant } } });
+    if (enAttenteUsage >= reg.resultatsMax) {
+      throw new ErreurMetier(503, "PLAFOND_RESULTATS_EN_ATTENTE", `Trop de conversions terminees attendent d'etre utilisees (maximum ${reg.resultatsMax}) : deposez ou annulez-en avant d'en creer une nouvelle.`, { retryAfterS: 60 });
+    }
 
     const cree = await tx.jobImportProjet.create({
       data: {
@@ -203,9 +220,9 @@ export async function creerJob(d: DemandeJob): Promise<JobVue> {
     return cree;
   }, { timeout: 30_000, maxWait: 15_000 });
 
-  // 4. Fichier dans le spool. Un echec de depot termine le job (jamais un job EN_ATTENTE sans fichier).
+  // 4. Fichier dans le depot PRIVE du backend (copie dans entree/ a la reclamation seulement). Un echec de depot termine le job (jamais un job EN_ATTENTE sans fichier).
   try {
-    await stagerEntree(spool, job.spoolId!, EXTENSION_DE_FORMAT[format], d.fichier);
+    await stagerPrive(spool, job.id, EXTENSION_DE_FORMAT[format], d.fichier);
   } catch {
     await terminerEnEchec(job.id, "SPOOL_INDISPONIBLE", ["EN_ATTENTE"]);
     throw new ErreurMetier(503, "SPOOL_INDISPONIBLE", ERREURS_JOB.SPOOL_INDISPONIBLE.message);
@@ -361,7 +378,7 @@ export async function lireEtAssembler(spool: Spool, j: JobImportProjet, o: Lectu
     const { sha256, octets } = await lireCoucheVersValidateur(spool, spoolId, slug, v, { octetsMax: reg.sortieOctetsMax, ligneMax: LIMITES_COUCHE_DEFAUT.ligneMax });
     lues.set(slug, { v: v.terminer(), sha256, octets });
   }
-  const conv = assembler({ format: j.format as FormatGdal, resultat, attendus, parametres, lues, insunits, uniteCrsSource });
+  const conv = assembler({ format: j.format as FormatGdal, resultat, attendus, parametres, lues, insunits, uniteCrsSource, nomFichier: j.nomFichier });
   // Meta du CRS source (nom, unite) lue dans la base, pour `resume.crs` ; jamais devinee.
   const epsg = conv.couches[0]?.crsSource?.epsg ?? parametres.epsgSource;
   if (epsg) {
@@ -377,22 +394,37 @@ export function codeDeErreurLecture(e: unknown): string {
   return "SORTIE_INVALIDE";
 }
 
-/** Finalise un job EN_COURS dont le conteneur a rendu `termine` : validation stricte, puis TERMINE avec le resume, ou ECHEC avec un code. */
+/**
+ * Finalise un job EN_COURS dont le conteneur a rendu `termine` : validation stricte, puis TERMINE avec le resume, ou ECHEC avec un code. Une erreur
+ * TRANSITOIRE (limiteur sature, base, descripteurs, delai du sondage) est RELANCEE a l'appelant : le job reste EN_COURS et la validation est retentee
+ * au tour suivant, bornee par l'expiration du job (M3 de la revue). Apres TERMINE, l'entree du conteneur et le depot prive sont retires (M2, m6) : seule
+ * la sortie validee reste, jusqu'a l'usage ou l'expiration.
+ */
 export async function finaliserJob(spool: Spool, j: JobImportProjet): Promise<"TERMINE" | "ECHEC" | "CONCURRENT"> {
+  let resume: ResumeJob;
   try {
     const conv = await limiteurConversions.executer(() => lireEtAssembler(spool, j, { retenir: false }));
-    const resume = resumer(conv);
-    const ok = await changerStatut(j.id, {
-      de: ["EN_COURS"], vers: "TERMINE",
-      champs: { resume: resume as unknown as Prisma.InputJsonValue, etape: "termine", progression: 100, codeErreur: null, messageErreur: null },
-      audit: { format: j.format, nbCouches: resume.couches.length, nbObjets: resume.couches.reduce((s, c) => s + c.nbObjets, 0), gdal: resume.gdal, avertissements: resume.avertissements.map((a: Avertissement) => ({ code: a.code, nb: a.nb ?? null })) },
-    });
-    return ok ? "TERMINE" : "CONCURRENT";
+    resume = resumer(conv);
   } catch (e) {
-    const code = codeDeErreurLecture(e);
-    const ok = await terminerEnEchec(j.id, code, ["EN_COURS"]);
+    const verdict = classerErreurFinalisation(e);
+    if (verdict.type === "REESSAYER") throw e;
+    const ok = await terminerEnEchec(j.id, verdict.code, ["EN_COURS"]);
     return ok ? "ECHEC" : "CONCURRENT";
   }
+  const ok = await changerStatut(j.id, {
+    de: ["EN_COURS"], vers: "TERMINE",
+    champs: { resume: resume as unknown as Prisma.InputJsonValue, etape: "termine", progression: 100, codeErreur: null, messageErreur: null },
+    audit: { format: j.format, nbCouches: resume.couches.length, nbObjets: resume.couches.reduce((s, c) => s + c.nbObjets, 0), gdal: resume.gdal, avertissements: resume.avertissements.map((a: Avertissement) => ({ code: a.code, nb: a.nb ?? null })) },
+  });
+  if (!ok) return "CONCURRENT";
+  await purgerEntreeEtPrive(spool, j);
+  return "TERMINE";
+}
+
+/** Retire entree/<spoolId>/ et prive/<jobId>/ (le conteneur n'a plus rien a lire) ; une erreur est journalisee, la purge complete du sondage reprendra. */
+export async function purgerEntreeEtPrive(spool: Spool, j: Pick<JobImportProjet, "id" | "spoolId">): Promise<void> {
+  if (j.spoolId) await purgerEntree(spool, j.spoolId).catch((e) => journalErreur(`purge de l'entree du job ${j.id}`, e));
+  await purgerPrive(spool, j.id).catch((e) => journalErreur(`purge du depot prive du job ${j.id}`, e));
 }
 
 /**
@@ -419,9 +451,10 @@ export async function chargerConversion(projetId: string, jobId: string, o: { co
     if (code404) throw new ErreurMetier(410, "RESULTAT_EXPIRE", "Le resultat de ce job n'est plus dans le dossier d'echange : creez un nouveau job.");
     throw new ErreurMetier(409, "RESULTAT_ALTERE", ERREURS_JOB[code]?.message ?? ERREURS_JOB.SORTIE_INVALIDE.message, { codeErreur: code });
   }
-  for (const i of conversion.integrite) {
-    const vu = resume.integrite.find((x) => x.slug === i.slug);
-    if (!vu || vu.sha256 !== i.sha256 || vu.octets !== i.octets) throw new ErreurMetier(409, "RESULTAT_ALTERE", "Un fichier du dossier d'echange ne correspond plus a ce qui a ete valide : creez un nouveau job.");
+  // Empreintes des couches ET champs qui gouvernent le CRS (crsSource, coordonnees, reprojete), comptes, inventaire DXF, versions GDAL, avertissements du
+  // conteneur : tout ce qui a ete valide au TERMINE doit etre identique a la relecture (m4 de la revue).
+  if (ecartsAvecResume(conversion, resume) !== null) {
+    throw new ErreurMetier(409, "RESULTAT_ALTERE", "Un fichier du dossier d'echange ne correspond plus a ce qui a ete valide : creez un nouveau job.");
   }
   return { job: j, conversion };
 }
@@ -439,6 +472,7 @@ export async function purgerApresDepot(jobId: string): Promise<void> {
     const spool = spoolOuvert();
     const j = await prisma.jobImportProjet.findUnique({ where: { id: jobId }, select: { spoolId: true } });
     if (j?.spoolId) await purger(spool, j.spoolId);
+    await purgerPrive(spool, jobId);
     await prisma.jobImportProjet.updateMany({ where: { id: jobId, purgeLe: null }, data: { purgeLe: new Date(), updatedAt: new Date() } });
   } catch {
     // Le sondage purge les jobs utilises dont `purgeLe` est vide.

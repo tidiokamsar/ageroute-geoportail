@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ErreurLecture } from "../lecture.types";
-import { assembler, avertissementsDuConteneur, documentGeoJson, resumer, selectionner, type CoucheLue, type EntreeAssemblage } from "./conversion.noyau";
+import { assembler, avertissementsDuConteneur, documentGeoJson, ecartsAvecResume, resumer, selectionner, type CoucheLue, type EntreeAssemblage } from "./conversion.noyau";
 import { ErreurSortie, LIMITES_COUCHE_DEFAUT, validerCoucheTexte, validerResultat, type AttendusJob, type InventaireDxf } from "./sortie.noyau";
 import { DEUX_AXES, SHA_A, ligne, resultatValide, texteCouche } from "./fixtures.gdal";
 
@@ -20,8 +20,8 @@ function gpkg(over: Partial<EntreeAssemblage> = {}, resultat: Record<string, unk
   const t = texteCouche(DEUX_AXES);
   return {
     format: "GPKG", resultat: validerResultat(resultatValide({ spoolId: ID, octets: 1000, octetsCouche: Buffer.byteLength(t), ...resultat })), attendus: attendus("GPKG"), parametres: {},
-    lues: new Map([["axes", lue(t)]]), insunits: null, uniteCrsSource: null, ...over,
-  };
+    lues: new Map([["axes", lue(t)]]), insunits: null, uniteCrsSource: null, nomFichier: "reseau-eau.gpkg", ...over,
+  } as EntreeAssemblage;
 }
 
 const INV_DXF: InventaireDxf = {
@@ -38,8 +38,8 @@ function dxf(over: Partial<EntreeAssemblage> = {}): EntreeAssemblage {
   return {
     format: "DXF",
     resultat: validerResultat(resultatValide({ spoolId: ID, format: "DXF", slug: "entities", nbObjets: 3, octetsCouche: Buffer.byteLength(t), octets: 1000, crsSource: { origine: "demande", epsg: 32629, nom: null }, dxf: INV_DXF })),
-    attendus: attendus("DXF"), parametres: { epsgSource: 32629, unitesDxf: "metre" }, lues: new Map([["entities", lue(t, { dxf: true })]]), insunits: 6, uniteCrsSource: "metre", ...over,
-  };
+    attendus: attendus("DXF"), parametres: { epsgSource: 32629, unitesDxf: "metre" }, lues: new Map([["entities", lue(t, { dxf: true })]]), insunits: 6, uniteCrsSource: "metre", nomFichier: "plan.dxf", ...over,
+  } as EntreeAssemblage;
 }
 
 describe("GeoPackage et Shapefile : une couche par fichier converti", () => {
@@ -48,7 +48,7 @@ describe("GeoPackage et Shapefile : une couche par fichier converti", () => {
     expect(c.couches).toHaveLength(1);
     expect(c.couches[0]).toMatchObject({ id: "axes", nbObjets: 2, parTypeGeom: { LIGNE: 2, POINT: 0, POLYGONE: 0 }, coordonnees: "wgs84", reprojete: true, crsSource: { origine: "fichier", epsg: 32629 } });
     expect(c.champsDisponibles).toEqual(["n", "nom"]);
-    expect(c.source).toMatchObject({ sha256: SHA_A, octets: 1000 });
+    expect(c.source).toEqual({ nom: "reseau-eau.gpkg", sha256: SHA_A, octets: 1000 }); // le nom est celui de la ligne du job, jamais source.nom du conteneur (m5)
     expect(c.gdal).toEqual({ version: "3.13.3", proj: "9.8.1" });
     expect(c.integrite).toEqual([{ slug: "axes", sha256: "c".repeat(64), octets: expect.any(Number) }]);
   });
@@ -68,6 +68,13 @@ describe("DXF : les calques sont les couches", () => {
     expect(c.couches.map((x) => [x.id, x.nbObjets])).toEqual([["calque:AXES", 2], ["calque:RESEAU", 1]]);
     expect(c.couches[0].features!.map((f) => f.properties.EntityHandle)).toEqual(["A1", "A2"]);
     expect(c.dxf).toMatchObject({ unitesDeclarees: "metre", insunits: 6, lues: { LINE: 2, LWPOLYLINE: 1 }, ignorees: { TEXT: 1, HATCH: 1, INSERT: 1 }, blocs: { definitions: 1 } });
+  });
+
+  it("types reels, sommets et emprise d'un calque sont CEUX DU CALQUE, pas ceux du fichier entier (m11)", () => {
+    const c = assembler(dxf());
+    expect(c.couches[0]).toMatchObject({ id: "calque:AXES", typesReels: { LineString: 2 }, sommets: 4, emprise: [-9, 10.8, -8.9, 10.9] });
+    expect(c.couches[1]).toMatchObject({ id: "calque:RESEAU", typesReels: { LineString: 1 }, sommets: 2, emprise: [-9, 10.7, -8.9, 10.7] });
+    expect(c.couches[0].sommets + c.couches[1].sommets).toBe(6);
   });
 
   it("exige des unités déclarées et un CRS confirmé : jamais devinés", () => {
@@ -96,10 +103,13 @@ describe("DXF : les calques sont les couches", () => {
 describe("sélection de couches pour le pipeline", () => {
   const c = assembler(dxf());
 
-  it("sans choix : toutes les couches non vides ; un identifiant inconnu : COUCHE_INTROUVABLE", () => {
+  it("sans choix : toutes les couches non vides ; un identifiant inconnu : COUCHE_INTROUVABLE avec un message FIXE (ni la valeur demandee ni un nom de couche du conteneur)", () => {
     expect(selectionner(c.couches, undefined).map((x) => x.id)).toEqual(["calque:AXES", "calque:RESEAU"]);
     expect(selectionner(c.couches, "calque:RESEAU").map((x) => x.id)).toEqual(["calque:RESEAU"]);
     expect(refus(() => selectionner(c.couches, "calque:INCONNU"))).toBe("COUCHE_INTROUVABLE");
+    try { selectionner(c.couches, "calque:<script>INCONNU"); } catch (e) {
+      expect(String((e as Error).message)).not.toMatch(/INCONNU|script|AXES|RESEAU/);
+    }
   });
 
   it("des couches de CRS source différents ne sont jamais mélangées (CRS_MULTIPLES), mais s'importent une à une", () => {
@@ -116,6 +126,35 @@ describe("sélection de couches pour le pipeline", () => {
     const deux = documentGeoJson(selectionner(c.couches, undefined)) as { features: { properties: Record<string, unknown> }[] };
     expect(deux.features).toHaveLength(3);
     expect(deux.features.map((f) => f.properties._couche)).toEqual(["AXES", "AXES", "RESEAU"]);
+  });
+});
+
+describe("relecture a l'usage comparee au resume fige (m4)", () => {
+  const conv = assembler(gpkg());
+  const resume = resumer(conv);
+  const modifie = (over: Partial<EntreeAssemblage>, resultat: Record<string, unknown> = {}) => assembler(gpkg(over, resultat));
+
+  it("une relecture identique ne presente aucun ecart, meme avec les cles reordonnees par jsonb ; une couche non relue (selection) n'est pas comparee", () => {
+    expect(ecartsAvecResume(conv, resume)).toBeNull();
+    const reordonne = (v: unknown): unknown => (Array.isArray(v) ? v.map(reordonne) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v as object).sort().reverse().map((k) => [k, reordonne((v as Record<string, unknown>)[k])])) : v);
+    expect(ecartsAvecResume(conv, reordonne(JSON.parse(JSON.stringify(resume))) as typeof resume)).toBeNull();
+    expect(ecartsAvecResume({ ...conv, couches: [], integrite: [] }, resume)).toBeNull();
+  });
+
+  it("empreinte, crsSource, coordonnees, reprojete, nbObjets, versions GDAL, source, inventaire DXF, avertissements du conteneur : tout ecart est detecte", () => {
+    expect(ecartsAvecResume({ ...conv, integrite: [{ ...conv.integrite[0], sha256: "d".repeat(64) }] }, resume)).toBe("empreinte d'une couche differente");
+    expect(ecartsAvecResume(modifie({}, { crsSource: { origine: "demande", epsg: 32628, nom: null } }), resume)).toBe("couche differente du resume");
+    expect(ecartsAvecResume({ ...conv, couches: [{ ...conv.couches[0], reprojete: false }] }, resume)).toBe("couche differente du resume");
+    expect(ecartsAvecResume({ ...conv, couches: [{ ...conv.couches[0], coordonnees: "brutes" }] }, resume)).toBe("couche differente du resume");
+    expect(ecartsAvecResume({ ...conv, couches: [{ ...conv.couches[0], id: "autre" }] }, resume)).toBe("couche absente du resume");
+    expect(ecartsAvecResume({ ...conv, gdal: { version: "3.9.0", proj: "9.8.1" } }, resume)).toBe("versions GDAL ou PROJ differentes");
+    expect(ecartsAvecResume({ ...conv, source: { ...conv.source, octets: 999 } }, resume)).toBe("source differente");
+    expect(ecartsAvecResume(modifie({}, { surcharge: { avertissements: [{ code: "CRS_SURCHARGE", message: "x" }] } }), resume)).toBe("avertissements du conteneur differents");
+    const d = assembler(dxf());
+    expect(ecartsAvecResume({ ...d, dxf: { ...d.dxf!, lues: { LINE: 99 } } }, resumer(d))).toBe("inventaire DXF different");
+    // un avertissement CALCULE par le backend (il varie avec la selection) n'est pas un ecart
+    expect(ecartsAvecResume({ ...conv, avertissements: [...conv.avertissements, { code: "ATTRIBUTS_ADAPTES" as never, message: "x", nb: 1 }] }, resume)).toBeNull();
+    expect(JSON.stringify([ecartsAvecResume({ ...conv, source: { ...conv.source, nom: "/etc/passwd" } }, resume)])).not.toContain("passwd");
   });
 });
 

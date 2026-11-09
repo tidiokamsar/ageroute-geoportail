@@ -12,7 +12,8 @@ import type { Avertissement, Bbox } from "../lecture.types";
 import { ErreurLecture } from "../lecture.types";
 import type { FormatGdal, UniteDxf } from "./contrat.noyau";
 import {
-  ErreurSortie, controlerResultat, controlerUnitesDxf, slugDeFichier, type AttendusJob, type CoucheValidee, type FeatureValide, type InventaireDxf, type ResultatWorker,
+  ErreurSortie, controlerResultat, controlerUnitesDxf, slugDeFichier, type AttendusJob, type CoucheValidee, type FeatureValide, type GroupeCouche, type InventaireDxf,
+  type ResultatWorker,
 } from "./sortie.noyau";
 
 export interface FamilleCompte { LIGNE: number; POINT: number; POLYGONE: number }
@@ -107,6 +108,8 @@ export interface EntreeAssemblage {
   insunits: number | null;
   /** Unite du CRS source choisi (`metre`, `degre`), pour controler les unites d'un DXF. */
   uniteCrsSource: string | null;
+  /** Nom du fichier tel que l'utilisateur l'a depose (ligne du job) : c'est lui qui entre dans le resume, jamais `source.nom` du conteneur (m5 de la revue). */
+  nomFichier: string;
 }
 
 /** Assemble le resultat valide : controle de coherence, couches du wizard, avertissements, integrite. Leve `ErreurSortie` en cas d'incoherence. */
@@ -137,10 +140,11 @@ export function assembler(e: EntreeAssemblage): ConversionValidee {
     if (lue.octets !== c.octets) throw new ErreurSortie("SORTIE_INCOHERENTE", "taille du fichier de couche differente de celle annoncee");
 
     if (e.format === "DXF") {
-      for (const [nomCalque, g] of [...(lue.v.groupes ?? new Map()).entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+      // Comptes PAR CALQUE (types, sommets, emprise) calcules par le validateur sur les Features du calque, jamais ceux du fichier entier (m11 de la revue).
+      for (const [nomCalque, g] of [...(lue.v.groupes ?? new Map<string, GroupeCouche>()).entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
         couches.push({
-          id: `calque:${nomCalque}`, nom: nomCalque, nbObjets: g.nb, parTypeGeom: { ...g.parFamille }, typesReels: lue.v.typesReels, sommets: lue.v.sommets,
-          emprise: lue.v.emprise, attributs: lue.v.attributs, coordonnees: c.coordonnees, reprojete: c.reprojete, crsSource: c.crsSource, slug,
+          id: `calque:${nomCalque}`, nom: nomCalque, nbObjets: g.nb, parTypeGeom: { ...g.parFamille }, typesReels: { ...g.typesReels }, sommets: g.sommets,
+          emprise: g.emprise ? [...g.emprise] : null, attributs: lue.v.attributs, coordonnees: c.coordonnees, reprojete: c.reprojete, crsSource: c.crsSource, slug,
           ...(lue.v.features ? { features: lue.v.features.filter((f) => f.groupe === nomCalque) } : {}),
         });
       }
@@ -158,10 +162,42 @@ export function assembler(e: EntreeAssemblage): ConversionValidee {
     avert.push({ code: "COMPTE_DXF_DIVERGENT" as Avertissement["code"], message: "Le nombre d'entités DXF retenues diffère du nombre d'objets convertis." });
   }
   return {
-    // Identifiant du JOB de l'API (le conteneur nomme son dossier `<job>-t<n>`).
-    format: e.format, jobId: r.jobId.replace(/-t[1-9]$/, ""), source: r.source!, gdal: { version: r.gdal.version, proj: r.gdal.proj }, parametres: e.parametres,
+    // Identifiant du JOB de l'API (le conteneur nomme son dossier `<job>-t<n>`). Le nom du fichier est celui de la ligne du job (deja assaini), pas celui du conteneur.
+    format: e.format, jobId: r.jobId.replace(/-t[1-9]$/, ""), source: { nom: e.nomFichier, octets: r.source!.octets, sha256: r.source!.sha256 },
+    gdal: { version: r.gdal.version, proj: r.gdal.proj }, parametres: e.parametres,
     couches, champsDisponibles: [...champs].sort().slice(0, 500), dxf, avertissements: avert, integrite, attributsAdaptes: adaptes,
   };
+}
+
+/** Avertissements calcules par le backend a partir des couches lues (ils varient avec la selection) : exclus de la comparaison au resume. */
+const AVERTISSEMENTS_CALCULES = new Set(["ATTRIBUTS_ADAPTES", "COMPTE_DXF_DIVERGENT"]);
+
+/**
+ * Compare une conversion RELUE au resume fige au TERMINE (m4 de la revue) : empreinte et taille de chaque couche lue, et tout ce qui gouverne le CRS et
+ * l'interpretation (crsSource, coordonnees, reprojete, nbObjets, inventaire DXF, versions GDAL et PROJ, source, codes d'avertissement du conteneur). Rend
+ * `null` si tout concorde, sinon un libelle FIXE de l'ecart (jamais une valeur du fichier). Seules les couches lues (selection) sont comparees.
+ */
+export function ecartsAvecResume(conv: ConversionValidee, resume: ResumeJob): string | null {
+  // Forme canonique (cles triees a tous les niveaux) : le resume relu depuis jsonb n'a pas l'ordre de cles de l'objet d'origine.
+  const canonique = (v: unknown): unknown => (Array.isArray(v) ? v.map(canonique) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, canonique((v as Record<string, unknown>)[k])])) : v ?? null);
+  const json = (v: unknown): string => JSON.stringify(canonique(v));
+  for (const i of conv.integrite) {
+    const vu = resume.integrite.find((x) => x.slug === i.slug);
+    if (!vu || vu.sha256 !== i.sha256 || vu.octets !== i.octets) return "empreinte d'une couche differente";
+  }
+  for (const c of conv.couches) {
+    const vu = resume.couches.find((x) => x.id === c.id);
+    if (!vu) return "couche absente du resume";
+    if (vu.slug !== c.slug || vu.nbObjets !== c.nbObjets || vu.coordonnees !== c.coordonnees || vu.reprojete !== c.reprojete || json(vu.crsSource) !== json(c.crsSource)) {
+      return "couche differente du resume";
+    }
+  }
+  if (json(conv.gdal) !== json(resume.gdal)) return "versions GDAL ou PROJ differentes";
+  if (json(conv.source) !== json(resume.source)) return "source differente";
+  if (json(conv.dxf) !== json(resume.dxf)) return "inventaire DXF different";
+  const codes = (a: readonly Avertissement[]) => a.map((x) => x.code as string).filter((x) => !AVERTISSEMENTS_CALCULES.has(x)).sort().join(",");
+  if (codes(conv.avertissements) !== codes(resume.avertissements)) return "avertissements du conteneur differents";
+  return null;
 }
 
 // ------------------------------------------------------------------------------------------------ Resume (sans geometrie)
@@ -201,7 +237,8 @@ export function selectionner(couches: readonly CoucheConvertie[], demandee: stri
   let choisies: CoucheConvertie[];
   if (demandee !== undefined) {
     const c = couches.find((x) => x.id === demandee);
-    if (!c) throw new ErreurLecture("COUCHE_INTROUVABLE", `la couche « ${demandee.slice(0, 40)} » n'existe pas dans ce fichier (couches : ${couches.map((x) => x.id.slice(0, 40)).slice(0, 20).join(", ") || "aucune"})`);
+    // Message FIXE : ni la valeur demandee, ni les identifiants de couche issus du conteneur (CONTRAT-IMPORT.md 13.4) ; la liste des couches est dans l'inventaire du job.
+    if (!c) throw new ErreurLecture("COUCHE_INTROUVABLE", "la couche demandee n'existe pas dans ce fichier : la liste des couches est celle de l'inventaire du job (import/inventaire avec jobId)");
     choisies = [c];
   } else choisies = couches.filter((x) => x.nbObjets > 0);
   const epsgs = new Set(choisies.map((c) => `${c.crsSource?.epsg ?? "?"}|${c.coordonnees}`));

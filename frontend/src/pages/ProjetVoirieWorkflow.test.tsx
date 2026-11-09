@@ -863,6 +863,37 @@ describe("referents : administrateur seulement", () => {
     await waitFor(() => expect(h.post).toHaveBeenCalledWith(`${W}/referents`, { userId: U_REF, concessionnaireId: CONC_A, motif: "Referent designe par le concessionnaire" }));
     expect(h.get.mock.calls.some((c) => c[0] === "/users" && (c[1]?.params as Record<string, unknown>).role === "LECTEUR" && (c[1]?.params as Record<string, unknown>).actif === "true")).toBe(true);
   });
+  it("u1 : la saisie filtre la liste COTE CLIENT (aucun parametre de recherche envoye) ; un compte sans la cle de module est montre mais pas proposable ; liste incomplete dite", async () => {
+    const comptes = {
+      data: [
+        { id: U_REF, nomComplet: "Ibrahima Referent", email: "ibrahima@example.test", role: "LECTEUR", actif: true, modulesAutorises: ["projets-voirie"] },
+        { id: "00000000-0000-4000-8000-0000000000aa", nomComplet: "Fanta Sans Cle", email: "fanta@example.test", role: "LECTEUR", actif: true, modulesAutorises: ["troncons"] },
+      ],
+      total: 250,
+    };
+    await ouvrir("ADMIN", { comptes }, "Référents");
+    await userEvent.click(await screen.findByRole("button", { name: "Rattacher un compte" }));
+    const d = await dialogue();
+    const sansCle = await within(d).findByRole("radio", { name: /Fanta Sans Cle/ });
+    expect(sansCle).toBeDisabled();
+    expect(within(d).getByTestId("compte-sans-cle").textContent).toMatch(/Sans la clé de module/);
+    expect(within(d).getByTestId("comptes-liste-incomplete").textContent).toMatch(/200 premiers comptes.*250 au total/);
+    await userEvent.type(within(d).getByLabelText(/Filtrer les comptes lecteurs/), "ibra");
+    await waitFor(() => expect(within(d).queryByRole("radio", { name: /Fanta Sans Cle/ })).toBeNull());
+    expect(within(d).getByRole("radio", { name: /Ibrahima Referent/ })).toBeInTheDocument();
+    const appelsUsers = h.get.mock.calls.filter((c) => c[0] === "/users");
+    expect(appelsUsers.length).toBe(1);
+    expect(JSON.stringify(appelsUsers)).not.toMatch(/search|ibra/);
+  });
+  it("u2 : une preuve et une entree d'historique illisibles sont comptees et dites dans la fiche, jamais tues", async () => {
+    await ouvrir("GESTIONNAIRE", { fichesDemandes: { [D1]: ficheDemandeServeur(demandeServeur(), ["ENVOYEE", "ANNULEE"], [preuveServeur(), { type: "VIDEO", id: "x" }], [historiqueServeur(), { action: "SANS_ID" }]) } }, "Demandes");
+    await screen.findByRole("list", { name: "Liste : demandes" });
+    await userEvent.click(bouton("demande", D1));
+    const f = await screen.findByTestId("fiche-demande");
+    expect(within(f).getByTestId("ignores-preuves").textContent).toMatch(/^1 élément\(s\) de la réponse du serveur n'ont pas pu être lus/);
+    expect(within(f).getByTestId("ignores-historique").textContent).toMatch(/^1 élément\(s\)/);
+    expect(within(f).getByRole("list", { name: "Preuves" }).querySelectorAll("li")).toHaveLength(1);
+  });
   it.each([
     [422, "COMPTE_NON_ELIGIBLE", /lecteur actif|actif de rôle lecteur/],
     [422, "COMPTE_SANS_MODULE", /clé de module/],

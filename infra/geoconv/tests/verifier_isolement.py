@@ -108,6 +108,21 @@ def _():
     assert not ecrivables, f"montages inscriptibles inattendus : {ecrivables}"
 
 
+@controle("isolement entre jobs (lot V2) : aucun depot prive du backend monte, aucun fichier a la racine de l'entree, seuls des dossiers de job")
+def _():
+    # Le depot prive (prive/<jobId>/) ne doit JAMAIS etre visible du conteneur : il contient les fichiers de TOUS les jobs en file.
+    for p in ("/spool/prive", "/prive", "/spool/entree/prive"):
+        assert not os.path.lexists(p), f"{p} present dans le conteneur"
+    with open("/proc/mounts") as f:
+        points = [l.split()[1] for l in f]
+    suspects = [p for p in points if p.startswith("/spool/") and p not in ("/spool/entree", "/spool/sortie")]
+    assert not suspects, f"montages inattendus sous /spool : {suspects}"
+    motif_job = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{7,63}$")
+    racine = [n for n in os.listdir("/spool/entree") if not (motif_job.fullmatch(n) and os.path.isdir(os.path.join("/spool/entree", n)) and not os.path.islink(os.path.join("/spool/entree", n)))]
+    assert not racine, f"entrees hors protocole a la racine de /spool/entree : {racine[:5]}"
+    return f"{len(os.listdir('/spool/entree'))} dossier(s) de job visibles"
+
+
 @controle("tmpfs /tmp borne (ENOSPC avant 600 Mo)")
 def _():
     ecrit = 0

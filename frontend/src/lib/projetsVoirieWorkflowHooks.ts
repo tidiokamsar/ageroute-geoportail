@@ -1,8 +1,8 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ajouterPreuveWorkflow, changerStatutDemande, changerStatutRecolement, changerStatutTache, creerDemande, creerRattachement, creerRecolement, creerTache, lireDemandeFiche, lireMonProfil,
-  lireRecolementFiche, lireTacheFiche, listerConflitsVue, listerDemandes, listerJeuxVue, listerRecolements, listerReferents, listerTaches, modifierDemande, modifierRecolement, modifierTache,
-  rechercherComptes, revoquerRattachement,
+  lireRecolementFiche, lireTacheFiche, listerComptesLecteurs, listerConflitsVue, listerDemandes, listerJeuxVue, listerRecolements, listerReferents, listerTaches, modifierDemande, modifierRecolement,
+  modifierTache, revoquerRattachement,
   type CorpsCreationDemande, type CorpsCreationRecolement, type CorpsCreationTache, type CorpsModifDemande, type CorpsModifRecolement, type CorpsModifTache, type CorpsStatutDemande,
   type CorpsStatutRecolement, type CorpsStatutTache,
 } from "./projetsVoirieWorkflowApi";
@@ -70,8 +70,9 @@ export function useConflitsVue(projetId: string | undefined, statuts: StatutConf
     initialPageParam: null as string | null, getNextPageParam: (d) => d.suivant, enabled: !!projetId && actif, staleTime: 15_000, gcTime: 60_000, ...OPTIONS,
   });
 }
-export function useRechercheComptes(q: string, actif: boolean) {
-  return useQuery({ queryKey: [...CLE, W, "comptes", q.trim()], queryFn: ({ signal }) => rechercherComptes(q, signal), enabled: actif, gcTime: 30_000, ...OPTIONS });
+/** Comptes lecteurs actifs, charges UNE fois ; la saisie est filtree cote client (`filtrerComptes`), jamais envoyee au serveur. */
+export function useComptesLecteurs(actif: boolean) {
+  return useQuery({ queryKey: [...CLE, W, "comptes"], queryFn: ({ signal }) => listerComptesLecteurs(signal), enabled: actif, gcTime: 30_000, ...OPTIONS });
 }
 
 /** Une ecriture du workflow touche les listes, les fiches, les compteurs et les listes de choix (pas le profil, ni la recherche de comptes). */

@@ -284,10 +284,10 @@ function FicheRecolementVue({ requete, projetId, profil, estAdmin, enLigne, onRe
         )}
       </SectionFiche>
       <SectionFiche id="pv-fr-preuves" titre={`Preuves (${f.preuves.length})`}>
-        <ListePreuves preuves={f.preuves} />
+        <ListePreuves preuves={f.preuves} ignores={f.preuvesIgnorees} />
         {peutPreuve && <Button type="button" variant="outline" size="sm" className="min-h-[44px] xl:min-h-8" disabled={!enLigne} onClick={() => ouvrir({ genre: "preuve" })}><FilePlus2 aria-hidden="true" /> Ajouter une preuve</Button>}
       </SectionFiche>
-      <SectionFiche id="pv-fr-historique" titre="Historique (avant et après)"><HistoriqueWorkflow historique={f.historique} /></SectionFiche>
+      <SectionFiche id="pv-fr-historique" titre="Historique (avant et après)"><HistoriqueWorkflow historique={f.historique} ignores={f.historiqueIgnores} /></SectionFiche>
 
       {dialogue?.genre === "transition" && <DialogueTransitionRecolement fiche={f} transition={dialogue.transition} estAdmin={estAdmin} enLigne={enLigne} onFermer={fermer} onValider={(c) => statut.mutateAsync(c)} />}
       {dialogue?.genre === "modifier" && <DialogueModifRecolement recolement={r} enLigne={enLigne} onFermer={fermer} onValider={(c) => modifier.mutateAsync(c)} />}

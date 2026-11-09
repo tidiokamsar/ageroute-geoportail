@@ -332,7 +332,10 @@ export function inventaireConverti(conv: ConversionValidee): InventaireFichier &
     csv: null,
     crs: {
       normeDuFormat: null, declareDansLeFichier: declare,
-      choixObligatoire: conv.parametres.epsgSource === undefined && (conv.format !== "GPKG" || (src?.epsg ?? 4326) !== EPSG_CIBLE),
+      // Choix obligatoire des que l'apercu refusera sans confirmation (`CRS_REQUIS`) : CRS confirme absent ET (format autre que GeoPackage, OU coordonnees brutes,
+      // OU aucun CRS source connu, OU CRS source sans code EPSG, OU CRS source projete). Un GeoPackage SANS CRS exige donc un choix (m9 de la revue).
+      choixObligatoire: conv.parametres.epsgSource === undefined
+        && (conv.format !== "GPKG" || src === null || src.epsg === null || src.epsg !== EPSG_CIBLE || conv.couches.some((c) => c.coordonnees === "brutes")),
     },
     champsDisponibles: conv.champsDisponibles, suggestionsMapping: suggererMapping(conv.champsDisponibles), avertissements,
     conversion: {
