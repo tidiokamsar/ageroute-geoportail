@@ -27,6 +27,7 @@ import {
   modifierProjet, regionDuTerritoire, regionsDuProjet, retirerJeu, retirerProjet, voitTousLesJeux, type Acteur, type Portee,
 } from "../projets-voirie/projets.service";
 import { monterRoutesTerritoires } from "./projets-voirie.territoires.routes";
+import { monterRoutesDocuments } from "./projets-voirie.documents.routes";
 
 /**
  * `/api/v2/projets-voirie` -- Projets de voirie et reseaux (contrat : docs/projets-voirie/CONTRAT.md, v2 ; reference :
@@ -431,3 +432,7 @@ monterRoutesReseaux(projetsVoirieV2Router, { ecriture, gardeProjet, acteurDe, en
 // ------------------------------------------------------------------------------------------------
 
 monterRoutesSources(projetsVoirieV2Router, { ecriture, administrateur, gardeProjet, acteurDe, enveloppe, refuser, UUID });
+// Documents du dossier et « ce que les documents permettent » (lot D1) : memes gardes, meme ordre (voir projets-voirie.documents.routes.ts).
+// ------------------------------------------------------------------------------------------------
+
+monterRoutesDocuments(projetsVoirieV2Router, { ecriture, gardeProjet, acteurDe, enveloppe, refuser, UUID, placeDeReception, recevoir, refuserNul });

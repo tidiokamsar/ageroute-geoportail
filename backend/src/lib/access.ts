@@ -128,6 +128,8 @@ export const MODULE_PAR_ENTITE: Record<string, ModuleKey | null> = {
   // Sources multiples et comparaison entre sources (lot S1) : regles de rapprochement, comparaisons persistees. Aucune geometrie dans l audit.
   RegleRapprochementSources: "projets-voirie",
   ComparaisonSources: "projets-voirie",
+  // Documents du dossier d'un projet (lot D1) : creation, depot, version, statut, retrait. Reference et empreinte seulement, jamais de contenu de fichier.
+  DocumentProjetVoirie: "projets-voirie",
   User: null,
   AppSetting: null,
 };

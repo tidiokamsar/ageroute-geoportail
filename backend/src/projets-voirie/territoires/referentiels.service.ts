@@ -109,6 +109,8 @@ async function usagesDuCode(tx: Tx, domaine: Domaine, code: string): Promise<Rec
     };
   }
   if (domaine === "CATEGORIE_PROJET") return { projets: await tx.projetVoirie.count({ where: { categorieCode: code, deletedAt: null } }) };
+  // Lot D1 : un type porte par un document non retire se desactive, il ne se retire pas.
+  if (domaine === "TYPE_DOCUMENT") return { documents: await tx.documentProjetVoirie.count({ where: { typeCode: code, deletedAt: null } }) };
   return {};
 }
 
