@@ -2,8 +2,8 @@
  * ACCES SQL DE LA COMPARAISON ENTRE SOURCES (PostGIS, lot S1). Toutes les requetes sont `$queryRaw` / `$executeRaw` ETIQUETEES : les valeurs
  * (identifiants, SRID, rayons, tableaux) sont LIEES par le pilote, jamais concatenees (lib/sql-parametre.test.ts interdit la forme non etiquetee).
  *
- * GEOMETRIE : les objets sont stockes en WGS 84 ; l appariement se fait en metres dans la projection UTM choisie comme pour l analyse 2D
- * (`epsgPourLongitude`), geometries simplifiees a 0,05 m comme les reseaux du socle. Les longueurs d un couple (A, B, recouvrement) sont toutes
+ * GEOMETRIE : les objets sont stockes en WGS 84 ; l appariement se fait en metres dans le CRS metrique du projet, choisi comme pour l analyse 2D
+ * (`contexteSpatialDuProjet` : CRS impose par le territoire, sinon regle par bandes de la configuration), geometries simplifiees a 0,05 m comme les reseaux du socle. Les longueurs d un couple (A, B, recouvrement) sont toutes
  * mesurees dans le MEME plan, pour que « hors corridor » ne soit jamais un artefact de deux methodes de mesure.
  *
  * AUCUNE geometrie n est rendue a l API ; AUCUNE geometrie n est modifiee ni fusionnee : les objets des deux sources ne sont que LUS.

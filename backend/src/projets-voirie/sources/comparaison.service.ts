@@ -17,7 +17,6 @@ import { prisma } from "../../lib/prisma";
 import { logAuditTransactionnelle } from "../../utils/audit";
 import { Budget, avecErreurDelai, estDelaiDepasse, poserDelais } from "../bd";
 import { comparaisonIntervalleMinS, comparaisonObjetsMax, delaiAnalyseMs, delaiDepotMs, delaiVerrouMs } from "../config";
-import { epsgPourLongitude } from "../analyse.noyau";
 import * as socle from "../analyse.depot";
 import { SOMMETS_RESEAU_ANALYSE_MAX } from "../analyse.service";
 import { verifierCadence } from "../conflits/cadence.noyau";
@@ -29,6 +28,7 @@ import { donneesReseauLisibles, dossierVisible, jeuLisible } from "../conflits/v
 import { tracerConsultation } from "../consultation";
 import { ErreurMetier, introuvable } from "../erreurs";
 import { limiteurAnalyses } from "../limiteurs";
+import { contexteSpatialDuProjet, type ContexteSpatial } from "../territoires/contexte-spatial";
 import { verrouillerProjet, type Acteur } from "../projets.service";
 import { descripteursDesObjets } from "../reseaux/reseaux.depot";
 import { classeEffective } from "../reseaux/types.noyau";
@@ -116,6 +116,8 @@ export interface ResumeComparaison {
   versionAlgorithme: string;
   totaux: Record<StatutResultatComparaison, number> & { resultats: number; objetsA: number; objetsB: number; nonEvaluesA: number; nonEvaluesB: number };
   corridor: { minM: number | null; maxM: number | null; couplesSansCorridor: number; margeM: number; rayonAppariementM: number };
+  /** Correctifs T1+S1 (M1) : CRS metrique de calcul et son origine. */
+  crs: { epsg: number; source: "TERRITOIRE" | "BANDES"; crsImpose: number | null; territoireId: string | null };
   limites: string[];
 }
 
@@ -124,12 +126,15 @@ export async function lancerComparaison(acteur: Acteur, projetId: string, d: { j
   if (!projet) throw introuvable("Projet", "PROJET_INTROUVABLE");
   const { a, b, mode } = await jeuxOrdonnes(prisma, acteur, projetId, d.jeuAId, d.jeuBId);
   await exigerCadence(prisma, projetId);
+  // Correctifs T1+S1 (M1) : meme CRS metrique que l'analyse 2D, les conflits et les associations (CRS impose par le territoire du projet ou son ancetre,
+  // sinon regle par bandes de la configuration). Lu AVANT le delai : la lecture rafraichit aussi le cache de la configuration.
+  const spatial = await contexteSpatialDuProjet(projetId);
   const debut = performance.now();
   const delai = delaiAnalyseMs();
   const trop = () => new ErreurMetier(504, "COMPARAISON_TROP_LONGUE", `La comparaison a dépassé ${Math.round(delai / 1000)} s et a été interrompue : les deux sources sont trop volumineuses pour un calcul immédiat.`);
   try {
     return await limiteurAnalyses.executer(() => avecErreurDelai("COMPARAISON_TROP_LONGUE", trop().message, () => prisma.$transaction(
-      (tx) => executer(tx, acteur, projet, a, b, mode, debut, delai, trop),
+      (tx) => executer(tx, acteur, projet, a, b, mode, debut, delai, trop, spatial),
       { timeout: delai + delaiDepotMs() + 15_000, maxWait: 10_000 },
     )));
   } catch (e) {
@@ -145,7 +150,7 @@ const jeuDansComparaison = (role: "A" | "B", j: LigneJeu): JeuDansComparaison =>
   precisionHorizontaleM: j.precisionHorizontaleM === null ? null : Number(j.precisionHorizontaleM), nbObjets: j.nbObjets, nomFichier: j.nomFichier, confidentialite: j.confidentialite,
 });
 
-async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: { id: string; code: string }, a: LigneJeu, b: LigneJeu, mode: ModeComparaison, debut: number, delai: number, trop: () => Error) {
+async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: { id: string; code: string }, a: LigneJeu, b: LigneJeu, mode: ModeComparaison, debut: number, delai: number, trop: () => Error, spatial: ContexteSpatial) {
   const verrou = await tx.$queryRaw<{ ok: boolean }[]>`SELECT pg_try_advisory_xact_lock(hashtextextended(${cleVerrou(projet.id)}, 0)) AS "ok"`;
   if (!verrou[0]?.ok) throw new ErreurMetier(503, "PROJET_OCCUPE", "Une comparaison de sources est déjà en cours sur ce projet : réessayez dans quelques instants.");
   await exigerCadence(tx, projet.id);
@@ -171,7 +176,9 @@ async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: { 
     throw new ErreurMetier(422, "COMPARAISON_TROP_VOLUMINEUSE", `Les deux sources portent ${lignesA.length + lignesB.length} objets linéaires (maximum ${plafond}) : découpez les fichiers.`, { objetsMax: plafond });
   }
   const etendue = await budget.etape(() => socle.etendueLongitude(tx, [a.id, b.id]), "etendue");
-  const epsg = etendue ? epsgPourLongitude((etendue.ouest + etendue.est) / 2) : 32629;
+  const epsg = etendue ? spatial.epsgPour((etendue.ouest + etendue.est) / 2) : spatial.epsgDefaut;
+  // CRS de calcul persiste avec la comparaison (colonne `epsg`) et explique dans le resume : impose par un territoire, ou regle par bandes.
+  const crs = { epsg, source: spatial.crsImpose !== null ? "TERRITOIRE" as const : "BANDES" as const, crsImpose: spatial.crsImpose, territoireId: spatial.territoireId };
 
   // Precision retenue par objet : descripteur B1, sinon jeu, sinon classe convertie par la regle, sinon inconnue (jamais inventee).
   const precA = (o: depot.LigneObjetSource) => precisionRetenue({ precisionObjetM: o.precisionObjetM, precisionJeuM: a.precisionHorizontaleM === null ? null : Number(a.precisionHorizontaleM), classeObjet: o.classeObjet, classeJeu: a.classePrecision }, regle.precisionParClasseM);
@@ -198,6 +205,7 @@ async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: { 
     statut: "TERMINEE", versionAlgorithme: VERSION_ALGORITHME_COMPARAISON,
     totaux: { ...totaux.parStatut, resultats: resultats.length, objetsA: objetsA.length, objetsB: objetsB.length, nonEvaluesA: objetsA.length - lignesA.length, nonEvaluesB: objetsB.length - lignesB.length },
     corridor: { minM: totaux.corridorMinM, maxM: totaux.corridorMaxM, couplesSansCorridor: totaux.couplesSansCorridor, margeM: regle.margeM, rayonAppariementM: regle.rayonAppariementM },
+    crs,
     limites: [
       ...LIMITES_COMPARAISON,
       ...(totaux.couplesSansCorridor > 0 ? [`${totaux.couplesSansCorridor} couple(s) sans corridor (une précision déclarée manque) : rapprochement incertain, aucune mesure de divergence.`] : []),

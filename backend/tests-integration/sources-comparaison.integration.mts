@@ -181,6 +181,17 @@ async function main() {
   verifier("3. les geometries d'origine ne sont ni modifiees ni fusionnees (empreinte de tous les objets identique)",
     (await sql<{ h: string }>(`SELECT md5(string_agg(encode(ST_AsEWKB(geom), 'hex'), '|' ORDER BY id)) h FROM projets_voirie_objets`))[0].h === geomAvant[0].h);
 
+  // ================================================================ 3 bis. Correctifs T1+S1 (M1) : CRS du territoire, comme l'analyse 2D
+  const TID = (await sql<{ t: string }>(`SELECT "territoireId" t FROM projets_voirie WHERE id = $1`, PID))[0].t;
+  const crsImpose = await envoyer("patch", `/territoires/${TID}`, { crsMetriqueEpsg: 32628 }, T.admin);
+  const cT = await envoyer("post", `/${PID}/comparaisons`, { jeuAId: JA, jeuBId: JB });
+  await envoyer("patch", `/territoires/${TID}`, { crsMetriqueEpsg: null }, T.admin);
+  verifier("3 bis. M1 : sans CRS impose, la regle par bandes (32629 a cette longitude) est enregistree avec son origine ; un territoire qui impose 32628 : la comparaison calcule et persiste 32628 (origine TERRITOIRE), comme l'analyse 2D",
+    c1.body.comparaison.epsg === 32629 && c1.body.resume.crs?.source === "BANDES" && crsImpose.status === 200 && cT.status === 201 && cT.body.comparaison.epsg === 32628
+    && cT.body.resume.crs?.source === "TERRITOIRE" && cT.body.resume.crs?.crsImpose === 32628 && cT.body.resume.crs?.territoireId === TID
+    && (await sql<{ e: number; s: string }>(`SELECT epsg e, resume->'crs'->>'source' s FROM comparaisons_sources_projet WHERE id = $1`, cT.body.comparaison.id))[0].s === "TERRITOIRE",
+    [c1.body.resume.crs, crsImpose.body, cT.body.comparaison?.epsg, cT.body.resume?.crs]);
+
   // ================================================================ 4. Precision inconnue : rapprochement incertain, aucune mesure
   const JE1 = (await deposer(PID, await geojson([ligne("Conduite X", 100)]), { role: "RESEAU_TIERS", concessionnaireId: CE, methodeAcquisition: "TOPOGRAPHIE" }, "eau-topo.geojson")).id;
   await autoriser(PID, JE1);
@@ -393,7 +404,7 @@ async function main() {
   // ================================================================ 12. Isolation et audit
   const apresTout = await etat();
   const diff = Object.keys(apresTout).filter((t) => apresTout[t] !== avantTout[t]);
-  const permis = new Set(["audit_logs", "territoires_voirie", "projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau", "reseau_relations", "regles_rapprochement_sources",
+  const permis = new Set(["audit_logs", "territoires_voirie", "territoires_voirie_historique", "projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau", "reseau_relations", "regles_rapprochement_sources",
     "comparaisons_sources_projet", "comparaisons_sources_resultats", "conflits_projet", "conflits_projet_historique", "analyses_conflit_projet"]);
   verifier("12. ISOLATION : seules les tables du module et l'audit changent ; le referentiel est intact", diff.every((t) => permis.has(t)) && (await empreinteTroncons()) === empreinteAvant, diff.filter((t) => !permis.has(t)));
   const audits = await sql<{ t: string; n: bigint }>(`SELECT "entityType" t, count(*) n FROM audit_logs WHERE "entityType" IN ('ComparaisonSources','RegleRapprochementSources') GROUP BY 1 ORDER BY 1`);
