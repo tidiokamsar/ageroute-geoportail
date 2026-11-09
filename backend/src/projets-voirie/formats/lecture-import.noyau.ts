@@ -338,7 +338,7 @@ export interface Preparation {
 }
 
 function justification(format: FormatFichier, choix: ChoixCrs, meta: MetaCrs): string {
-  if (choix.transformer && choix.origine === "declare_par_fichier") {
+  if (choix.transformer && choix.origine === "declare_dans_le_fichier") {
     return `CRS ${libelleCrs(meta)} declare par le fichier et confirme par l'utilisateur (liste blanche) : coordonnees en ${meta.unite} transformees en WGS 84 (EPSG:4326, degres) par PostGIS ST_Transform (PROJ), puis controlees contre l'emprise nationale.`;
   }
   if (choix.transformer) {
@@ -433,7 +433,7 @@ export function preparer(d: Detection, opts: OptionsImport, lim: LimitesImport):
 
       const nbHors = res.avertissements.find((a) => a.code === "ELEMENTS_HORS_GUINEE")?.nb ?? 0;
       // Un CRS projete confirme par l'utilisateur, declare ou non par le fichier, reste soumis a la confirmation hors zone.
-      const confirmationApplicable = d.format === "CSV" || choix.origine === "choisi_par_utilisateur" || choix.origine === "declare_par_fichier";
+      const confirmationApplicable = d.format === "CSV" || choix.origine === "choisi_par_utilisateur" || choix.origine === "declare_dans_le_fichier";
       const confirmationRequise = confirmationApplicable && nbHors > 0;
       if (confirmationRequise && !opts.confirmerHorsZone) {
         throw new ErreurMetier(409, "CONFIRMATION_HORS_ZONE_REQUISE",

@@ -95,7 +95,7 @@ Valeur de `format` stockée : `KML`, `KMZ`, `GEOJSON`, `GPX`, `CSV`. Un TSV ou u
   "justification": "CRS choisi par l'utilisateur ...",  // champ historique
   "epsgSource": 32629, "epsgCible": 4326,
   "uniteSource": "metre", "uniteCible": "degre",
-  "origine": "choisi_par_utilisateur" | "norme_du_format" | "declare_par_fichier",
+  "origine": "choisi_par_utilisateur" | "norme_du_format" | "declare_dans_le_fichier",
   "transformation": "ST_Transform" | "aucune",
   "versionProj": "9.x.y" | null,
   "plausibilite": {

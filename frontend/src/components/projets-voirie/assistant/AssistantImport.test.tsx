@@ -339,7 +339,7 @@ describe("etape 3 : systeme de coordonnees et unites", () => {
     expect(screen.getByTestId("crs-obligatoire")).toHaveTextContent(/déclare lui-même EPSG:32629/);
     expect(bouton("Vérifier la transformation")).toBeDisabled();
     // Defaut D5 du pilote : un CRS declare par le fichier puis confirme n'est pas presente comme un choix inverifiable.
-    s.apercu = apercu({ resume: { ...apercu().resume, crs: { ...CRS_UTM29, origine: "declare_par_fichier" } } });
+    s.apercu = apercu({ resume: { ...apercu().resume, crs: { ...CRS_UTM29, origine: "declare_dans_le_fichier" } } });
     await u.selectOptions(sel, "32629");
     await u.click(bouton("Vérifier la transformation"));
     const crs = await screen.findByTestId("bloc-crs");
