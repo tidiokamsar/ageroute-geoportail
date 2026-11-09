@@ -21,7 +21,9 @@ export function avecTerritoireParDefaut(app: Express, prisma: Prisma, base = "/a
     const nation = (await prisma.$queryRawUnsafe(`SELECT "id" FROM "territoires_voirie" WHERE "niveau" = 'NATION' AND "deletedAt" IS NULL ORDER BY "createdAt" LIMIT 1`))[0]?.id as string | undefined;
     if (!nation) throw new Error("banc : aucune nation dans territoires_voirie (la migration 20261103100000 doit etre appliquee au clone)");
     let id = nation;
-    if (regionId !== null) {
+    // Une region inexistante (test d'une region inconnue) garde la nation : le service repond lui-meme 400 REGION_INCONNUE.
+    const regionExiste = regionId !== null && (await prisma.$queryRawUnsafe(`SELECT 1 FROM "regions" WHERE "id" = $1`, regionId)).length > 0;
+    if (regionId !== null && regionExiste) {
       const trouve = (await prisma.$queryRawUnsafe(`SELECT "id" FROM "territoires_voirie" WHERE "niveau" = 'REGION' AND "regionId" = $1 AND "deletedAt" IS NULL LIMIT 1`, regionId))[0]?.id as string | undefined;
       id = trouve ?? ((await prisma.$queryRawUnsafe(
         `INSERT INTO "territoires_voirie" ("id", "parentId", "niveau", "code", "nom", "chemin", "profondeur", "regionId", "source")

@@ -497,7 +497,9 @@ async function main() {
 
   // ---------------------------------------------------------------- 13. Ecritures hors module, absence de geometrie dans les reponses, performances
   const etatFinal = await instantane();
-  const TABLES_MODULE = new Set(["projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau", "audit_logs", "projets_voirie_import_evenements", "projets_voirie_fichiers_origine", "users", "regions", "perimetres_comptes"]);
+  const TABLES_MODULE = new Set(["projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau", "audit_logs", "projets_voirie_import_evenements", "projets_voirie_fichiers_origine", "users", "regions", "perimetres_comptes",
+    // Lot T1 : territoire par defaut ajoute par lib/territoire-par-defaut.mts (table du module).
+    "territoires_voirie"]);
   const horsModule = Object.keys(etatFinal).filter((t) => etatFinal[t] !== etatInitial[t] && !TABLES_MODULE.has(t));
   verifier("13. apres tout le banc, SEULES les tables du module (et audit, comptes et perimetres des fixtures) ont change : troncons, ouvrages, portions, chantiers... intacts", horsModule.length === 0, horsModule);
   const refJeuxLecteur = JSON.stringify((await get(`/${PID}/jeux`, T.lecteur)).body);
