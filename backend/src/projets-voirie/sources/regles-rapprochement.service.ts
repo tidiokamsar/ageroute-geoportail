@@ -98,7 +98,7 @@ export async function creerRegleRapprochement(acteur: Acteur, projetId: string, 
       });
       const p = await personnes([acteur.id]);
       return { regle: vueRegleRapprochement(r, p) };
-    });
+    }, { timeout: 30_000, maxWait: 10_000 });
   } catch (e) {
     if (estDelaiDepasse(e)) throw new ErreurMetier(503, "PROJET_OCCUPE", "Le projet est occupé par une autre opération : réessayez dans quelques instants.");
     throw e;
@@ -127,7 +127,7 @@ export async function approuverRegleRapprochement(acteur: Acteur, projetId: stri
       const apres = await tx.regleRapprochementSources.findUniqueOrThrow({ where: { id: regleId } });
       const p = await personnes([apres.creeParId, apres.approuveParId]);
       return { regle: vueRegleRapprochement(apres, p) };
-    });
+    }, { timeout: 30_000, maxWait: 10_000 });
   } catch (e) {
     if (estDelaiDepasse(e)) throw new ErreurMetier(503, "PROJET_OCCUPE", "Le projet est occupé par une autre opération : réessayez dans quelques instants.");
     throw e;

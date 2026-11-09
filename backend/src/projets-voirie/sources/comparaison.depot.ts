@@ -17,8 +17,11 @@ import type { ResultatCalcule } from "./classification-sources.noyau";
 export type TxLecture = Pick<PrismaClient, "$queryRaw">;
 export type TxEcriture = Pick<Prisma.TransactionClient, "$queryRaw" | "$executeRaw">;
 
-/** Valeur liee qui tient lieu de precision INCONNUE dans un tableau (les tableaux lies ne portent pas de NULL) ; `NULLIF` la retire cote base. */
-export const PRECISION_INCONNUE = -1;
+/**
+ * Les precisions passent en tableau de TEXTES (texte vide = inconnue), converties par la base : un tableau lie de nombres JavaScript entiers est
+ * encode en entiers binaires et refuse par `::float8[]` (22P03, mesure du banc) ; un tableau lie ne porte pas non plus de NULL.
+ */
+const precisionTexte = (p: number | null): string => (p === null ? "" : String(p));
 
 export interface LigneObjetSource {
   id: string; nom: string | null; empreinte: string; typeGeom: string;
@@ -80,12 +83,12 @@ export interface LigneAppariement {
  */
 export async function apparier(tx: TxLecture, d: DemandeAppariement): Promise<LigneAppariement[]> {
   const idsA = d.precisionsA.map((p) => p.id);
-  const precA = d.precisionsA.map((p) => (p.precisionM === null ? PRECISION_INCONNUE : p.precisionM));
+  const precA = d.precisionsA.map((p) => precisionTexte(p.precisionM));
   const idsB = d.precisionsB.map((p) => p.id);
-  const precB = d.precisionsB.map((p) => (p.precisionM === null ? PRECISION_INCONNUE : p.precisionM));
+  const precB = d.precisionsB.map((p) => precisionTexte(p.precisionM));
   const r = await tx.$queryRaw<{ aid: string; bid: string | null; corr: number | null; hd: number | null; dmin: number | null; rec: number | null; la: number; lb: number | null }[]>`
-    WITH pa AS MATERIALIZED (SELECT t."id", NULLIF(t."prec", ${PRECISION_INCONNUE}::float8) AS "prec" FROM unnest(${idsA}::bigint[], ${precA}::float8[]) AS t("id", "prec")),
-    pb AS MATERIALIZED (SELECT t."id", NULLIF(t."prec", ${PRECISION_INCONNUE}::float8) AS "prec" FROM unnest(${idsB}::bigint[], ${precB}::float8[]) AS t("id", "prec")),
+    WITH pa AS MATERIALIZED (SELECT t."id"::bigint AS "id", NULLIF(t."prec", '')::float8 AS "prec" FROM unnest(${idsA}::text[], ${precA}::text[]) AS t("id", "prec")),
+    pb AS MATERIALIZED (SELECT t."id"::bigint AS "id", NULLIF(t."prec", '')::float8 AS "prec" FROM unnest(${idsB}::text[], ${precB}::text[]) AS t("id", "prec")),
     oa AS MATERIALIZED (
       SELECT o."id" AS "id", o."geom" AS "geom", ST_Simplify(ST_Transform(o."geom", ${d.epsg}::int), ${TOLERANCE_RESEAU_M}::float8, true) AS "g", p."prec" AS "prec"
         FROM "projets_voirie_objets" o JOIN pa p ON p."id" = o."id"
@@ -96,13 +99,13 @@ export async function apparier(tx: TxLecture, d: DemandeAppariement): Promise<Li
        WHERE o."jeuId" = ${d.jeuBId} AND o."typeGeom" = 'LIGNE'),
     cand AS MATERIALIZED (
       SELECT a."id" AS "aid", b."id" AS "bid", a."g" AS "ag", b."g" AS "bg",
-             CASE WHEN a."prec" IS NOT NULL AND b."prec" IS NOT NULL THEN GREATEST(a."prec", b."prec") + ${d.margeM}::float8 END AS "corr"
+             CASE WHEN a."prec" IS NOT NULL AND b."prec" IS NOT NULL THEN GREATEST(a."prec", b."prec") + ${String(d.margeM)}::float8 END AS "corr"
         FROM oa a
-        JOIN ob b ON b."geom" && ST_Expand(a."geom", ${d.rayonAppariementM}::float8 / 100000.0) AND ST_DWithin(a."g", b."g", ${d.rayonAppariementM}::float8)),
+        JOIN ob b ON b."geom" && ST_Expand(a."geom", ${String(d.rayonAppariementM)}::float8 / 100000.0) AND ST_DWithin(a."g", b."g", ${String(d.rayonAppariementM)}::float8)),
     mes AS (
       SELECT c."aid", c."bid", c."corr",
              ST_HausdorffDistance(c."ag", c."bg") AS "hd", ST_Distance(c."ag", c."bg") AS "dmin",
-             ST_Length(ST_Intersection(c."ag", ST_Buffer(c."bg", COALESCE(c."corr", ${d.rayonAppariementM}::float8), ${QUART_DE_CERCLE}))) AS "rec",
+             ST_Length(ST_Intersection(c."ag", ST_Buffer(c."bg", COALESCE(c."corr", ${String(d.rayonAppariementM)}::float8), ${QUART_DE_CERCLE}))) AS "rec",
              ST_Length(c."bg") AS "lb"
         FROM cand c),
     cls AS (SELECT m.*, row_number() OVER (PARTITION BY m."aid" ORDER BY m."rec" DESC, m."hd" ASC, m."bid" ASC) AS "rg" FROM mes m)

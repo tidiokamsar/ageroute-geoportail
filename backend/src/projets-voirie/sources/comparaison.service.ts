@@ -403,7 +403,7 @@ export async function ouvrirDossierDivergence(acteur: Acteur, projetId: string, 
         ipAddress: acteur.ip,
       });
       return { conflit: { id, projetId, cle, type: "DIVERGENCE_SOURCES", statut: "A_INVESTIGUER", axe: AXE_DIVERGENCE_SOURCES, comparaisonId: c.id, resultatId: r.id, jeuReseauId: estAxe ? null : c.jeuAId, jeuAxesId: estAxe ? c.jeuAId : null } };
-    });
+    }, { timeout: 30_000, maxWait: 10_000 });
   } catch (e) {
     if (estDelaiDepasse(e)) throw new ErreurMetier(503, "PROJET_OCCUPE", "Le projet est occupé par une autre opération : réessayez dans quelques instants.");
     throw e;
