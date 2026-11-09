@@ -36,7 +36,7 @@ import {
   assemblerResultats, identiteObjet, instantaneDe, totauxDe, type AppariementBrut, type ObjetCompare,
 } from "./classification-sources.noyau";
 import * as depot from "./comparaison.depot";
-import { precisionRetenue, resoudreRegleRapprochement, type RegleRapprochementLue } from "./regle-rapprochement.noyau";
+import { baremeApprouve, precisionRetenue, resoudreRegleRapprochement, type RegleRapprochementLue } from "./regle-rapprochement.noyau";
 import { regleLue } from "./regles-rapprochement.service";
 import { evaluerEligibilite, type ModeComparaison, type MotifNonComparable } from "./eligibilite.noyau";
 import { AXE_DIVERGENCE_SOURCES, LIMITES_COMPARAISON, STATUTS_RESULTAT_COMPARAISON, VERSION_ALGORITHME_COMPARAISON, type StatutResultatComparaison } from "./types.noyau";
@@ -116,6 +116,8 @@ export interface ResumeComparaison {
   versionAlgorithme: string;
   totaux: Record<StatutResultatComparaison, number> & { resultats: number; objetsA: number; objetsB: number; nonEvaluesA: number; nonEvaluesB: number };
   corridor: { minM: number | null; maxM: number | null; couplesSansCorridor: number; margeM: number; rayonAppariementM: number };
+  /** Correctifs T1+S1 (M6) : corridors fondes sur une classe convertie par un bareme approuve (regle, version, approbateur). */
+  bareme: { applique: boolean; couples: number; regle: { regleId: string | null; code: string; version: number; approuveParId: string | null } | null };
   /** Correctifs T1+S1 (M1) : CRS metrique de calcul et son origine. */
   crs: { epsg: number; source: "TERRITOIRE" | "BANDES"; crsImpose: number | null; territoireId: string | null };
   limites: string[];
@@ -180,9 +182,11 @@ async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: { 
   // CRS de calcul persiste avec la comparaison (colonne `epsg`) et explique dans le resume : impose par un territoire, ou regle par bandes.
   const crs = { epsg, source: spatial.crsImpose !== null ? "TERRITOIRE" as const : "BANDES" as const, crsImpose: spatial.crsImpose, territoireId: spatial.territoireId };
 
-  // Precision retenue par objet : descripteur B1, sinon jeu, sinon classe convertie par la regle, sinon inconnue (jamais inventee).
-  const precA = (o: depot.LigneObjetSource) => precisionRetenue({ precisionObjetM: o.precisionObjetM, precisionJeuM: a.precisionHorizontaleM === null ? null : Number(a.precisionHorizontaleM), classeObjet: o.classeObjet, classeJeu: a.classePrecision }, regle.precisionParClasseM);
-  const precB = (o: depot.LigneObjetSource) => precisionRetenue({ precisionObjetM: o.precisionObjetM, precisionJeuM: b.precisionHorizontaleM === null ? null : Number(b.precisionHorizontaleM), classeObjet: o.classeObjet, classeJeu: b.classePrecision }, regle.precisionParClasseM);
+  // Precision retenue par objet : descripteur B1, sinon jeu, sinon classe convertie par le BAREME APPROUVE de la regle (M6 : regle creee par une
+  // personne et approuvee par un autre ADMIN ; la regle systeme n'en a aucun), sinon inconnue (jamais inventee).
+  const bareme = baremeApprouve(regle);
+  const precA = (o: depot.LigneObjetSource) => precisionRetenue({ precisionObjetM: o.precisionObjetM, precisionJeuM: a.precisionHorizontaleM === null ? null : Number(a.precisionHorizontaleM), classeObjet: o.classeObjet, classeJeu: a.classePrecision }, bareme);
+  const precB = (o: depot.LigneObjetSource) => precisionRetenue({ precisionObjetM: o.precisionObjetM, precisionJeuM: b.precisionHorizontaleM === null ? null : Number(b.precisionHorizontaleM), classeObjet: o.classeObjet, classeJeu: b.classePrecision }, bareme);
   const compA = new Map(lignesA.map((o) => { const p = precA(o); return [o.id, { id: o.id, nom: o.nom, empreinte: o.empreinte, longueurM: 0, precisionM: p.precisionM, originePrecision: p.origine } as ObjetCompare] as const; }));
   const compB = new Map(lignesB.map((o) => { const p = precB(o); return [o.id, { id: o.id, nom: o.nom, empreinte: o.empreinte, longueurM: 0, precisionM: p.precisionM, originePrecision: p.origine } as ObjetCompare] as const; }));
 
@@ -201,20 +205,27 @@ async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: { 
   });
   const resultats = assemblerResultats(projet.id, appariements, [...compB.values()], regle.partHorsCorridorMax);
   const totaux = totauxDe(resultats);
+  // M6 : couples dont le corridor repose sur une classe convertie par le bareme approuve (origine CLASSE d'un cote au moins).
+  const couplesBareme = resultats.filter((r) => r.corridorM !== null && (r.origineA === "CLASSE" || r.origineB === "CLASSE")).length;
+  const origineBareme = bareme === null ? null : { regleId: regle.regleId, code: regle.code, version: regle.version, approuveParId: regle.approuveParId ?? null };
   const resume: ResumeComparaison = {
     statut: "TERMINEE", versionAlgorithme: VERSION_ALGORITHME_COMPARAISON,
     totaux: { ...totaux.parStatut, resultats: resultats.length, objetsA: objetsA.length, objetsB: objetsB.length, nonEvaluesA: objetsA.length - lignesA.length, nonEvaluesB: objetsB.length - lignesB.length },
     corridor: { minM: totaux.corridorMinM, maxM: totaux.corridorMaxM, couplesSansCorridor: totaux.couplesSansCorridor, margeM: regle.margeM, rayonAppariementM: regle.rayonAppariementM },
     crs,
+    bareme: { applique: couplesBareme > 0, couples: couplesBareme, regle: couplesBareme > 0 ? origineBareme : null },
     limites: [
       ...LIMITES_COMPARAISON,
       ...(totaux.couplesSansCorridor > 0 ? [`${totaux.couplesSansCorridor} couple(s) sans corridor (une précision déclarée manque) : rapprochement incertain, aucune mesure de divergence.`] : []),
-      ...(resolue.portee === "DEFAUT" ? ["Règle de rapprochement par défaut (valeurs provisoires, à valider par le DSI)."] : []),
+      ...(resolue.portee === "DEFAUT" ? ["Règle de rapprochement par défaut (valeurs provisoires, à valider par le DSI) : aucun barème par classe, une classe de précision seule laisse le rapprochement incertain."] : []),
+      ...(couplesBareme > 0 && origineBareme ? [`${couplesBareme} corridor(s) calculé(s) depuis une classe de précision convertie par le barème approuvé de la règle ${origineBareme.code} version ${origineBareme.version} (une classe n'est pas une précision mesurée).`] : []),
     ],
   };
   const regleAppliquee = {
     regleId: regle.regleId, code: regle.code, version: regle.version, famille: a.typeReseau, portee: resolue.portee,
     margeM: regle.margeM, rayonAppariementM: regle.rayonAppariementM, partHorsCorridorMax: regle.partHorsCorridorMax, precisionParClasseM: regle.precisionParClasseM,
+    // M6 : le bareme n'est applicable que s'il est approuve par un ADMIN autre que l'auteur ; la comparaison persistee le dit, avec la version de la regle.
+    bareme: { applicable: bareme !== null, applique: couplesBareme > 0, source: bareme === null ? null : "REGLE_APPROUVEE", approuveParId: bareme === null ? null : regle.approuveParId ?? null },
   };
 
   // ---------------------------------------------------------------- Ecriture : comparaison immuable d abord, puis resultats

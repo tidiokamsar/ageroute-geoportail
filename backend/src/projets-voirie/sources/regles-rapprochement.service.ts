@@ -16,7 +16,7 @@ import { exigerProjetActif } from "../conflits/dossiers.service";
 import { ErreurMetier, introuvable } from "../erreurs";
 import { verrouillerProjet, type Acteur } from "../projets.service";
 import {
-  PRECISION_PAR_CLASSE_DEFAUT, lirePrecisionParClasse, prochaineVersionRegleRapprochement, resoudreRegleRapprochement, verifierCreationRegleRapprochement,
+  baremeApprouve, lirePrecisionParClasse, prochaineVersionRegleRapprochement, resoudreRegleRapprochement, verifierCreationRegleRapprochement,
   type RegleRapprochementLue, type TablePrecisionParClasse,
 } from "./regle-rapprochement.noyau";
 
@@ -25,12 +25,13 @@ export type FamilleReseau = (typeof FAMILLES_RESEAU)[number];
 
 type LigneRegle = Prisma.RegleRapprochementSourcesGetPayload<Record<string, never>>;
 
-/** Table de precision par classe d une ligne : celle de la regle si elle est bien formee, sinon le defaut (jamais une valeur partielle). */
-const tableDe = (json: unknown): TablePrecisionParClasse => lirePrecisionParClasse(json) ?? PRECISION_PAR_CLASSE_DEFAUT;
+/** Bareme d une ligne : sa table si elle est complete et bien formee, sinon AUCUN (`{}` = pas de bareme ; jamais une valeur par defaut : M6). */
+const tableDe = (json: unknown): TablePrecisionParClasse | null => lirePrecisionParClasse(json);
 
 export const regleLue = (r: LigneRegle): RegleRapprochementLue => ({
   regleId: r.id, projetId: r.projetId, famille: r.famille, code: r.code, version: r.version, margeM: Number(r.margeM), rayonAppariementM: Number(r.rayonAppariementM),
   partHorsCorridorMax: Number(r.partHorsCorridorMax), precisionParClasseM: tableDe(r.precisionParClasseM), statut: r.statut, approuveLe: r.approuveLe,
+  creeParId: r.creeParId, approuveParId: r.approuveParId,
 });
 
 async function personnes(ids: (string | null)[]): Promise<Map<string, { id: string; nomComplet: string }>> {
@@ -44,6 +45,8 @@ export function vueRegleRapprochement(r: LigneRegle, p: ReadonlyMap<string, { id
   return {
     id: r.id, projetId: r.projetId, portee: r.projetId ? "PROJET" : "GENERALE", famille: r.famille, code: r.code, version: r.version,
     margeM: Number(r.margeM), rayonAppariementM: Number(r.rayonAppariementM), partHorsCorridorMax: Number(r.partHorsCorridorMax), precisionParClasseM: tableDe(r.precisionParClasseM),
+    // M6 : le bareme ne s'applique que s'il a ete approuve par un ADMIN autre que l'auteur ; la vue le dit.
+    baremeApplicable: baremeApprouve(regleLue(r)) !== null,
     statut: r.statut, justification: r.justification, systeme: r.creeParId === null,
     creePar: r.creeParId ? p.get(r.creeParId) ?? null : null, approuvePar: r.approuveParId ? p.get(r.approuveParId) ?? null : null, approuveLe: r.approuveLe,
     motifApprobation: r.motifApprobation, derogationApprobation: r.derogationApprobation, createdAt: r.createdAt,
@@ -61,11 +64,15 @@ export async function listerReglesRapprochement(projetId: string) {
     return {
       famille, regleId: r.regle.regleId, code: r.regle.code, version: r.regle.version, portee: r.portee,
       margeM: r.regle.margeM, rayonAppariementM: r.regle.rayonAppariementM, partHorsCorridorMax: r.regle.partHorsCorridorMax, precisionParClasseM: r.regle.precisionParClasseM,
+      baremeApplicable: baremeApprouve(r.regle) !== null,
     };
   });
   return {
     regles: lignes.map((r) => vueRegleRapprochement(r, p)), effectives,
-    avertissements: ["Les valeurs par défaut (marge 1 m, rayon d'appariement 10 m, concordance stricte, précisions par classe) sont provisoires : à valider par le DSI (CONTRAT-SOURCES.md, section 7)."],
+    avertissements: [
+      "Les valeurs par défaut (marge 1 m, rayon d'appariement 10 m, concordance stricte) sont provisoires : à valider par le DSI (CONTRAT-SOURCES.md, section 7).",
+      "Une classe de précision (A à E) n'est pas une précision en mètres : la règle système n'a aucun barème ; un barème par classe ne s'applique que dans une règle créée par une personne et approuvée par un autre administrateur.",
+    ],
   };
 }
 
@@ -77,7 +84,8 @@ export interface CreationRegleRapprochement {
 export async function creerRegleRapprochement(acteur: Acteur, projetId: string, d: CreationRegleRapprochement) {
   const v = verifierCreationRegleRapprochement(d);
   if (!v.ok) throw new ErreurMetier(v.status, v.code, v.message);
-  const table = d.precisionParClasseM ?? PRECISION_PAR_CLASSE_DEFAUT;
+  // M6 : sans bareme demande, la regle n'en porte AUCUN (`{}`) ; une classe seule restera une precision inconnue.
+  const table: TablePrecisionParClasse | Record<string, never> = d.precisionParClasseM ?? {};
   try {
     return await prisma.$transaction(async (tx) => {
       await verrouillerProjet(tx, projetId);
@@ -113,6 +121,10 @@ export async function approuverRegleRapprochement(acteur: Acteur, projetId: stri
       if (!r) throw introuvable("Règle", "REGLE_INTROUVABLE");
       const v = verifierApprobationRegle({ statut: r.statut, creeParId: r.creeParId, acteurId: acteur.id, justification: d.justification, derogation: d.derogation });
       if (!v.ok) throw new ErreurMetier(v.status, v.code, v.message);
+      // M6 (decision de l'architecte) : un bareme classe vers metres n'est admis que s'il est approuve par un ADMIN AUTRE que l'auteur, sans derogation.
+      if (lirePrecisionParClasse(r.precisionParClasseM) !== null && r.creeParId === acteur.id) {
+        throw new ErreurMetier(409, "SEPARATION_DES_TACHES", "Une règle qui porte un barème par classe de précision ne s'approuve que par un administrateur autre que son auteur (aucune dérogation possible).", { bareme: true });
+      }
       const n = await tx.regleRapprochementSources.updateMany({
         where: { id: regleId, statut: "BROUILLON" },
         data: { statut: "APPROUVEE", approuveParId: acteur.id, approuveLe: new Date(), motifApprobation: (d.justification ?? "").trim(), derogationApprobation: v.derogation },

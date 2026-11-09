@@ -153,7 +153,7 @@ async function main() {
   exemples["comparaison_creee"] = c1.body;
   verifier("2. comparaison 201, mode SOURCES, A = la source deposee la premiere quel que soit l'ordre de la demande, version d'algorithme et regle par defaut enregistrees",
     c1.status === 201 && c1.body.comparaison.mode === "SOURCES" && c1.body.comparaison.jeuAId === JA && c1.body.comparaison.jeuBId === JB
-    && c1.body.comparaison.versionAlgorithme === "S1-CORRIDOR-UTM-1" && c1.body.comparaison.regle.code === "S1-CORRIDOR-0.1" && c1.body.comparaison.regle.margeM === 1, c1.body);
+    && c1.body.comparaison.versionAlgorithme === "S1-CORRIDOR-UTM-1" && c1.body.comparaison.regle.code === "S1-CORRIDOR-0.2" && c1.body.comparaison.regle.margeM === 1, c1.body);
   verifier("2. resume : 1 concordance, 1 divergence, 1 sans correspondance A, 1 sans correspondance B, aucun incertain ; corridor 2 m (max 1, 1 + 1)",
     c1.body.resume.totaux.CONCORDANCE === 1 && c1.body.resume.totaux.DIVERGENCE === 1 && c1.body.resume.totaux.SANS_CORRESPONDANCE_A === 1 && c1.body.resume.totaux.SANS_CORRESPONDANCE_B === 1
     && c1.body.resume.totaux.RAPPROCHEMENT_INCERTAIN === 0 && c1.body.resume.corridor.minM === 2 && c1.body.resume.corridor.maxM === 2, c1.body.resume);
@@ -251,7 +251,7 @@ async function main() {
   verifier("5. BASE : une regle approuvee est immuable (23001)", imm === "23001", imm);
   const lr = await get(`/${PID}/regles-rapprochement`, T.lecteur);
   verifier("5. la regle effective TELECOM est la nouvelle (portee PROJET_FAMILLE), les autres familles gardent la regle par defaut",
-    lr.status === 200 && lr.body.effectives.find((e: { famille: string }) => e.famille === "TELECOM").code === "S1-TELECOM" && lr.body.effectives.find((e: { famille: string }) => e.famille === "EAU_POTABLE").code === "S1-CORRIDOR-0.1", lr.body.effectives);
+    lr.status === 200 && lr.body.effectives.find((e: { famille: string }) => e.famille === "TELECOM").code === "S1-TELECOM" && lr.body.effectives.find((e: { famille: string }) => e.famille === "EAU_POTABLE").code === "S1-CORRIDOR-0.2", lr.body.effectives);
   const c3 = await envoyer("post", `/${PID}/comparaisons`, { jeuAId: JA, jeuBId: JB });
   verifier("5. la comparaison suivante applique et enregistre la regle approuvee : corridor 3,5 m, le cable decale de 3 m devient CONCORDANCE (2 concordances)",
     c3.body.comparaison.regle.code === "S1-TELECOM" && c3.body.comparaison.regle.version === 1 && c3.body.resume.corridor.maxM === 3.5 && c3.body.resume.totaux.CONCORDANCE === 2 && c3.body.resume.totaux.DIVERGENCE === 0, c3.body.resume);
@@ -290,7 +290,36 @@ async function main() {
   const grpAx = sAx.body.reseaux.find((r: { role: string }) => r.role === "AXES_TRAVAUX"), grpAxL = sAxL.body.reseaux.find((r: { role: string }) => r.role === "AXES_TRAVAUX");
   verifier("7. la vue des sources montre au gestionnaire la version candidate du plan d'axes ; au lecteur, ni le jeu en controle ni sa presence (aucune cle versionsCandidates)",
     grpAx?.statut === "SOURCE_UNIQUE_COMPARAISON_INDISPONIBLE" && grpAx.versionsCandidates?.[0]?.jeuId === AX2 && grpAxL && !("versionsCandidates" in grpAxL) && !JSON.stringify(sAxL.body).includes(AX2), [grpAx, grpAxL]);
+  // Correctifs T1+S1 (M6, decision de l'architecte) : la regle systeme n'a AUCUN bareme : le plan PDF qui ne declare qu'une classe (C) laisse le
+  // rapprochement incertain, sans distance.
+  const cAx0 = await envoyer("post", `/${PID}/comparaisons`, { jeuAId: AX2, jeuBId: AX1 });
+  const oAx0 = await get(`/${PID}/comparaisons/${cAx0.body.comparaison?.id}/objets`);
+  verifier("7. M6 : regle systeme S1-CORRIDOR-0.2 sans bareme : une classe seule n'est pas une precision en metres : RAPPROCHEMENT_INCERTAIN pour les deux axes, aucune distance, origine INCONNUE, aucun bareme applique",
+    cAx0.status === 201 && cAx0.body.comparaison.regle.code === "S1-CORRIDOR-0.2" && cAx0.body.comparaison.regle.precisionParClasseM === null && cAx0.body.comparaison.regle.bareme?.applicable === false
+    && cAx0.body.resume.totaux.RAPPROCHEMENT_INCERTAIN === 2 && cAx0.body.resume.totaux.DIVERGENCE === 0 && cAx0.body.resume.bareme?.applique === false
+    && (oAx0.body.resultats as { statut: string; mesure: unknown; corridorM: unknown; objetA: { originePrecision: string } }[]).every((r) => r.statut === "RAPPROCHEMENT_INCERTAIN" && r.mesure === null && r.corridorM === null && r.objetA.originePrecision === "INCONNUE"),
+    [cAx0.body.comparaison?.regle, cAx0.body.resume, oAx0.body.resultats]);
+  const systemes = await sql<{ code: string; statut: string; p: unknown }>(`SELECT code, statut::text, "precisionParClasseM" p FROM regles_rapprochement_sources WHERE "creeParId" IS NULL ORDER BY code`);
+  verifier("7. M6 : la regle systeme S1-CORRIDOR-0.1 (bareme provisoire) est RETIREE, sans modification de son contenu ; S1-CORRIDOR-0.2 n'a aucun bareme",
+    systemes.length === 2 && systemes[0].code === "S1-CORRIDOR-0.1" && systemes[0].statut === "RETIREE" && JSON.stringify(systemes[0].p) === JSON.stringify({ A: 0.5, B: 1, C: 2, D: 5 })
+    && systemes[1].code === "S1-CORRIDOR-0.2" && systemes[1].statut === "APPROUVEE" && JSON.stringify(systemes[1].p) === "{}", systemes);
+  // Un bareme n'est admis que dans une regle creee par une personne et approuvee par un ADMIN AUTRE que l'auteur : l'auteur ne l'approuve pas, meme avec derogation.
+  const BAREME_BANC = { A: 0.5, B: 1, C: 2, D: 5 };
+  const rgAdminBareme = await envoyer("post", `/${PID}/regles-rapprochement`, { code: "S1-AXES-ADMIN", precisionParClasseM: BAREME_BANC, justification: "Bareme propose par l'administrateur" }, T.admin);
+  const autoBareme = await envoyer("post", `/${PID}/regles-rapprochement/${rgAdminBareme.body.regle?.id}/approuver`, { justification: "Relue et approuvee", derogation: "Seul administrateur disponible ce jour" }, T.admin);
+  const rgBareme = await envoyer("post", `/${PID}/regles-rapprochement`, { code: "S1-AXES-BAREME", precisionParClasseM: BAREME_BANC, justification: "Bareme des classes valide par le bureau d'etudes" });
+  const apBareme = await envoyer("post", `/${PID}/regles-rapprochement/${rgBareme.body.regle?.id}/approuver`, { justification: "Bareme relu et approuve" }, T.admin);
+  const autoBase = await essaiAnnule((tx) => tx.$executeRawUnsafe(`UPDATE regles_rapprochement_sources SET statut = 'APPROUVEE', "approuveParId" = "creeParId", "approuveLe" = now() WHERE id = $1`, rgAdminBareme.body.regle?.id));
+  verifier("7. M6 : une regle a bareme ne s'approuve pas par son auteur, meme avec derogation (409 SEPARATION_DES_TACHES ; la base le refuse aussi, 23514) ; creee par le gestionnaire, approuvee par l'ADMIN : bareme applicable",
+    rgAdminBareme.status === 201 && autoBareme.status === 409 && autoBareme.body.code === "SEPARATION_DES_TACHES" && autoBareme.body.bareme === true && autoBase === "23514"
+    && rgBareme.status === 201 && apBareme.status === 200 && apBareme.body.regle.baremeApplicable === true, [autoBareme.body, autoBase, apBareme.body]);
   const cAx = await envoyer("post", `/${PID}/comparaisons`, { jeuAId: AX2, jeuBId: AX1 });
+  verifier("7. M6 : la reponse et la comparaison persistee disent que le corridor provient d'un bareme approuve, avec la regle et sa version",
+    cAx.status === 201 && cAx.body.comparaison.regle.code === "S1-AXES-BAREME" && cAx.body.comparaison.regle.bareme?.source === "REGLE_APPROUVEE" && cAx.body.comparaison.regle.bareme?.applique === true
+    && cAx.body.resume.bareme?.applique === true && cAx.body.resume.bareme.regle?.code === "S1-AXES-BAREME" && cAx.body.resume.bareme.regle?.version === 1 && cAx.body.resume.bareme.regle?.approuveParId === admin.id
+    && (cAx.body.resume.limites as string[]).some((l) => /barème approuvé de la règle S1-AXES-BAREME version 1/.test(l))
+    && (await sql<{ s: string }>(`SELECT resume->'bareme'->'regle'->>'code' s FROM comparaisons_sources_projet WHERE id = $1`, cAx.body.comparaison.id))[0].s === "S1-AXES-BAREME",
+    [cAx.body.comparaison?.regle, cAx.body.resume?.bareme]);
   exemples["comparaison_version_candidate_axes"] = cAx.body;
   const oAx = await get(`/${PID}/comparaisons/${cAx.body.comparaison?.id}/objets`);
   const ax = (n: string) => oAx.body.resultats?.find((r: { objetA: { nom: string } | null }) => r.objetA?.nom === n);
@@ -472,9 +501,9 @@ async function main() {
   const audits = await sql<{ t: string; n: bigint }>(`SELECT "entityType" t, count(*) n FROM audit_logs WHERE "entityType" IN ('ComparaisonSources','RegleRapprochementSources') GROUP BY 1 ORDER BY 1`);
   const geomAudit = await compter(`SELECT count(*) n FROM audit_logs WHERE "entityType" IN ('ComparaisonSources','RegleRapprochementSources','ConflitProjet','ReseauRelation','JeuDonneesProjet') AND (after::text ~* '(coordinates|LINESTRING|POINT\\()' OR before::text ~* '(coordinates|LINESTRING|POINT\\()')`);
   const nbCmp = await compter(`SELECT count(*) n FROM comparaisons_sources_projet`);
-  // Regles : deux creations (gestionnaire, administrateur) et une approbation ; l'auto-approbation refusee n'ecrit rien.
+  // Regles : quatre creations (gestionnaire, administrateur, deux regles a bareme) et deux approbations ; les auto-approbations refusees n'ecrivent rien.
   verifier("12. AUDIT : une ligne par comparaison (terminee ou en echec) et par acte reussi sur une regle (2 creations, 1 approbation) ; aucune geometrie dans l'audit",
-    Number(audits.find((a) => a.t === "ComparaisonSources")?.n) === nbCmp && Number(audits.find((a) => a.t === "RegleRapprochementSources")?.n) === 3 && geomAudit === 0,
+    Number(audits.find((a) => a.t === "ComparaisonSources")?.n) === nbCmp && Number(audits.find((a) => a.t === "RegleRapprochementSources")?.n) === 6 && geomAudit === 0,
     [audits.map((a) => [a.t, Number(a.n)]), nbCmp, geomAudit]);
 
   // ================================================================ 13. Projet supprime : 404 pour tous

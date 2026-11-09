@@ -100,3 +100,30 @@ CREATE UNIQUE INDEX IF NOT EXISTS "projets_voirie_jeux_cle_attente_key" ON "proj
   (CASE WHEN "role" = 'RESEAU_TIERS' THEN COALESCE("methodeAcquisition", '') ELSE '' END),
   (CASE WHEN "role" = 'RESEAU_TIERS' THEN pv_identite_type_reseau("typeReseauCode", "typeReseau") ELSE '' END))
   WHERE "statut" IN ('RECU', 'CONTROLE') AND "role" <> 'AUTRE';
+
+-- ===== M6. Une classe de precision n'est pas une precision en metres (decision de l'architecte du 09/11/2026) =====
+-- La regle systeme ne porte AUCUN bareme par classe : sans deux precisions connues en metres horizontaux, le resultat est RAPPROCHEMENT_INCERTAIN.
+-- Les regles sont versionnees et immuables : l'historique n'est pas modifie. La regle S1-CORRIDOR-0.1 (bareme provisoire) passe RETIREE (seule
+-- transition admise par son declencheur) et une nouvelle regle systeme S1-CORRIDOR-0.2, sans bareme, la remplace. Un bareme n'est admis que dans une
+-- regle creee par une personne et approuvee par un ADMIN autre que l'auteur (service, et contrainte ci-dessous pour les regles approuvees desormais).
+ALTER TABLE "regles_rapprochement_sources" DROP CONSTRAINT IF EXISTS "rrs_systeme";
+ALTER TABLE "regles_rapprochement_sources" ADD CONSTRAINT "rrs_systeme" CHECK ("creeParId" IS NOT NULL OR ("projetId" IS NULL AND "famille" IS NULL AND "version" = 0 AND "statut" IN ('APPROUVEE', 'RETIREE')));
+UPDATE "regles_rapprochement_sources" SET "statut" = 'RETIREE'
+ WHERE "creeParId" IS NULL AND "code" = 'S1-CORRIDOR-0.1' AND "version" = 0 AND "statut" = 'APPROUVEE';
+INSERT INTO "regles_rapprochement_sources" ("id", "projetId", "famille", "code", "version", "margeM", "rayonAppariementM", "partHorsCorridorMax", "precisionParClasseM", "statut", "justification", "creeParId", "approuveParId", "approuveLe", "motifApprobation")
+VALUES ('00000000-0000-4000-8000-00000000c502', NULL, NULL, 'S1-CORRIDOR-0.2', 0, 1, 10, 0, '{}'::jsonb, 'APPROUVEE',
+        'Regle systeme apres la revue T1+S1 : corridor = max(precision A, precision B) + 1 m, seulement quand les deux precisions sont connues en metres horizontaux ; aucun bareme par classe (une classe n''est pas une precision mesuree).',
+        NULL, NULL, CURRENT_TIMESTAMP, 'Regle systeme creee par la migration 20261103400000 (decision de l''architecte du 09/11/2026) : remplace S1-CORRIDOR-0.1, retiree.')
+ON CONFLICT DO NOTHING;
+ALTER TABLE "regles_rapprochement_sources" ALTER COLUMN "precisionParClasseM" SET DEFAULT '{}'::jsonb;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'rrs_bareme_personne') THEN
+    -- Une regle systeme en vigueur ne porte aucun bareme.
+    ALTER TABLE "regles_rapprochement_sources" ADD CONSTRAINT "rrs_bareme_personne" CHECK ("creeParId" IS NOT NULL OR "statut" = 'RETIREE' OR "precisionParClasseM" = '{}'::jsonb);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'rrs_bareme_separation') THEN
+    -- Une regle approuvee qui porte un bareme l'a ete par une autre personne que son auteur. NOT VALID : les regles deja approuvees sont immuables (le
+    -- service n'applique pas le bareme d'une regle auto-approuvee) ; la contrainte vaut pour toute ligne ecrite desormais.
+    ALTER TABLE "regles_rapprochement_sources" ADD CONSTRAINT "rrs_bareme_separation" CHECK ("statut" <> 'APPROUVEE' OR "precisionParClasseM" = '{}'::jsonb OR ("creeParId" IS NOT NULL AND "approuveParId" IS NOT NULL AND "approuveParId" <> "creeParId")) NOT VALID;
+  END IF;
+END $$;

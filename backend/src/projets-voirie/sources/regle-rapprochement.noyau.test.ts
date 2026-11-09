@@ -1,17 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
-  PRECISION_PAR_CLASSE_DEFAUT, REGLE_RAPPROCHEMENT_DEFAUT, corridorM, lirePrecisionParClasse, precisionRetenue, prochaineVersionRegleRapprochement,
+  REGLE_RAPPROCHEMENT_DEFAUT, baremeApprouve, corridorM, lirePrecisionParClasse, precisionRetenue, prochaineVersionRegleRapprochement,
   resoudreRegleRapprochement, verifierCreationRegleRapprochement, type RegleRapprochementLue,
 } from "./regle-rapprochement.noyau";
 import { verifierApprobationRegle } from "../conflits/regle.noyau";
 
 const P = "projet-1";
+/** Bareme classe vers metres d'une regle humaine (les valeurs sont celles d'un essai, pas une recommandation). */
+const BAREME = { A: 0.5, B: 1, C: 2, D: 5 } as const;
 let n = 0;
 const regle = (s: Partial<RegleRapprochementLue>): RegleRapprochementLue => ({
   regleId: `r${++n}`, projetId: P, famille: null, code: "COR", version: 1, margeM: 2, rayonAppariementM: 10, partHorsCorridorMax: 0,
-  precisionParClasseM: PRECISION_PAR_CLASSE_DEFAUT, statut: "APPROUVEE", approuveLe: new Date("2026-11-01T10:00:00Z"), ...s,
+  precisionParClasseM: BAREME, statut: "APPROUVEE", approuveLe: new Date("2026-11-01T10:00:00Z"), creeParId: "auteur", approuveParId: "admin", ...s,
 });
-const DEFAUT = regle({ regleId: "def", projetId: null, code: "S1-CORRIDOR-0.1", version: 0, margeM: 1 });
+const DEFAUT = regle({ regleId: "def", projetId: null, code: "S1-CORRIDOR-0.2", version: 0, margeM: 1, precisionParClasseM: null, creeParId: null, approuveParId: null });
 
 describe("corridor = max(pA, pB) + marge, seulement si les deux precisions sont connues", () => {
   it("deux precisions connues : le maximum plus la marge, au centimetre (jamais la somme des precisions)", () => {
@@ -34,7 +36,7 @@ describe("corridor = max(pA, pB) + marge, seulement si les deux precisions sont 
 });
 
 describe("precision retenue pour un objet : descripteur, jeu, classe convertie, sinon inconnue", () => {
-  const T = PRECISION_PAR_CLASSE_DEFAUT;
+  const T = BAREME;
   it("le descripteur B1 l'emporte sur le jeu, qui l'emporte sur la classe", () => {
     expect(precisionRetenue({ precisionObjetM: 0.2, precisionJeuM: 3, classeObjet: "A", classeJeu: "B" }, T)).toEqual({ precisionM: 0.2, origine: "OBJET" });
     expect(precisionRetenue({ precisionObjetM: null, precisionJeuM: 3.456, classeObjet: "A", classeJeu: "B" }, T)).toEqual({ precisionM: 3.46, origine: "JEU" });
@@ -45,6 +47,12 @@ describe("precision retenue pour un objet : descripteur, jeu, classe convertie, 
     expect(precisionRetenue({ precisionObjetM: null, precisionJeuM: null, classeObjet: null, classeJeu: null }, T)).toEqual({ precisionM: null, origine: "INCONNUE" });
     expect(precisionRetenue({ precisionObjetM: null, precisionJeuM: null, classeObjet: "E", classeJeu: "B" }, T)).toEqual({ precisionM: null, origine: "INCONNUE" });
     expect(precisionRetenue({ precisionObjetM: 0, precisionJeuM: undefined, classeObjet: undefined, classeJeu: undefined }, T)).toEqual({ precisionM: null, origine: "INCONNUE" });
+  });
+  it("M6 : sans bareme (regle systeme), une classe seule reste une precision INCONNUE : aucune valeur n'est attribuee a A, B, C ou D", () => {
+    for (const c of ["A", "B", "C", "D", "E"]) {
+      expect(precisionRetenue({ precisionObjetM: null, precisionJeuM: null, classeObjet: c, classeJeu: null }, null), c).toEqual({ precisionM: null, origine: "INCONNUE" });
+    }
+    expect(precisionRetenue({ precisionObjetM: null, precisionJeuM: 1.5, classeObjet: "C", classeJeu: null }, null)).toEqual({ precisionM: 1.5, origine: "JEU" });
   });
   it("la table de la regle decide de la valeur d'une classe", () => {
     expect(precisionRetenue({ precisionObjetM: null, precisionJeuM: null, classeObjet: "C", classeJeu: null }, { A: 1, B: 2, C: 7, D: 9 })).toEqual({ precisionM: 7, origine: "CLASSE" });
@@ -66,11 +74,12 @@ describe("table de precision par classe (JSON de la base ou corps de requete)", 
 });
 
 describe("resolution de la regle effective (meme ordre que RC-3)", () => {
-  it("sans regle : la regle de repli du code (marge 1 m, rayon 10 m, part 0, precisions B1)", () => {
+  it("sans regle : la regle de repli du code (marge 1 m, rayon 10 m, part 0) ; M6 : AUCUN bareme par classe", () => {
     const r = resoudreRegleRapprochement([], P, "TELECOM");
     expect(r.portee).toBe("DEFAUT");
     expect(r.regle).toEqual(REGLE_RAPPROCHEMENT_DEFAUT);
-    expect(REGLE_RAPPROCHEMENT_DEFAUT).toMatchObject({ code: "S1-CORRIDOR-0.1", version: 0, margeM: 1, rayonAppariementM: 10, partHorsCorridorMax: 0 });
+    expect(REGLE_RAPPROCHEMENT_DEFAUT).toMatchObject({ code: "S1-CORRIDOR-0.2", version: 0, margeM: 1, rayonAppariementM: 10, partHorsCorridorMax: 0, precisionParClasseM: null });
+    expect(baremeApprouve(REGLE_RAPPROCHEMENT_DEFAUT)).toBeNull();
   });
   it("projet+famille, projet, generale+famille, generale, defaut ; brouillon et retiree jamais appliquees", () => {
     const pf = regle({ famille: "TELECOM", code: "PF" });
@@ -111,5 +120,21 @@ describe("versions et approbation", () => {
     expect(verifierApprobationRegle({ statut: "APPROUVEE", creeParId: "a", acteurId: "b", justification: "Relue et approuvee", derogation: undefined })).toMatchObject({ ok: false, code: "REGLE_IMMUABLE" });
     expect(verifierApprobationRegle({ statut: "BROUILLON", creeParId: "a", acteurId: "a", justification: "Relue et approuvee", derogation: undefined })).toMatchObject({ ok: false, code: "SEPARATION_DES_TACHES" });
     expect(verifierApprobationRegle({ statut: "BROUILLON", creeParId: "a", acteurId: "b", justification: "Relue et approuvee", derogation: undefined })).toEqual({ ok: true, derogation: null });
+  });
+});
+
+describe("M6 (decision de l'architecte) : un bareme classe vers metres n'est applique que s'il est approuve par un ADMIN autre que l'auteur", () => {
+  it("regle humaine approuvee par une autre personne : bareme applicable", () => {
+    expect(baremeApprouve(regle({}))).toEqual(BAREME);
+  });
+  it("regle systeme, auto-approuvee (meme avec derogation), brouillon, retiree ou sans table : aucun bareme", () => {
+    expect(baremeApprouve(regle({ creeParId: null, approuveParId: null }))).toBeNull();
+    expect(baremeApprouve(regle({ creeParId: "admin", approuveParId: "admin" }))).toBeNull();
+    expect(baremeApprouve(regle({ statut: "BROUILLON", approuveParId: null }))).toBeNull();
+    expect(baremeApprouve(regle({ statut: "RETIREE" }))).toBeNull();
+    expect(baremeApprouve(regle({ precisionParClasseM: null }))).toBeNull();
+  });
+  it("lecture : une table vide est l'absence de bareme (jamais une valeur par defaut)", () => {
+    expect(lirePrecisionParClasse({})).toBeNull();
   });
 });
