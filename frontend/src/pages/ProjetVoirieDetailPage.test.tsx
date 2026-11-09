@@ -116,10 +116,14 @@ describe("page projet : carte, panneau, onglets", () => {
     await userEvent.keyboard("{ArrowRight}");
     expect(reseauxTab).toHaveAttribute("aria-selected", "true");
     expect(reseauxTab).toHaveFocus();
+    // Cinquieme onglet (lot UI-C) : « Sources ».
+    const sourcesTab = screen.getByRole("tab", { name: "Sources" });
+    await userEvent.keyboard("{ArrowRight}");
+    expect(sourcesTab).toHaveAttribute("aria-selected", "true");
     await userEvent.keyboard("{ArrowRight}");
     expect(analyseTab).toHaveAttribute("aria-selected", "true");
     await userEvent.keyboard("{End}");
-    expect(reseauxTab).toHaveFocus();
+    expect(sourcesTab).toHaveFocus();
     await userEvent.keyboard("{Home}");
     expect(analyseTab).toHaveFocus();
     expect(analyseTab).toHaveAttribute("aria-controls", "pv-panneau-analyse");

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { Geometry } from "geojson";
 import { Link, Navigate, useParams } from "react-router-dom";
-import { ArrowLeft, Crosshair, FilePlus2, Handshake } from "lucide-react";
+import { ArrowLeft, Crosshair, FilePlus2, Handshake, MapPin } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { BandeauHorsLigne, EtatChargement, EtatErreur, EtatVide } from "../components/projets-voirie/EtatsPv";
 import { PanneauAnalyse } from "../components/projets-voirie/PanneauAnalyse";
@@ -9,6 +9,10 @@ import { PanneauCouches, nomDuJeu } from "../components/projets-voirie/PanneauCo
 import { FicheObjet } from "../components/projets-voirie/FicheObjet";
 import { OngletConflits, type SurbrillanceConflit } from "../components/projets-voirie/OngletConflits";
 import { OngletReseaux } from "../components/projets-voirie/reseaux/OngletReseaux";
+import { OngletSources } from "../components/projets-voirie/sources/OngletSources";
+import { DialogueTerritoireProjet } from "../components/projets-voirie/territoires/DialogueTerritoireProjet";
+import { useReferentiel } from "../lib/projetsVoirieTerritoiresHooks";
+import { LIBELLE_NIVEAU, libelleDeCode } from "../lib/projetsVoirieTerritoires";
 import type { ResultatLocalisation } from "../components/projets-voirie/reseaux/FicheObjetReseau";
 import type { ObjetReseau } from "../lib/projetsVoirieReseauxApi";
 import { Echantillon, EchantillonAxes, EchantillonConflit } from "../components/projets-voirie/Motifs";
@@ -39,8 +43,10 @@ const AssistantImport = lazy(() => import("../components/projets-voirie/assistan
  * des dialogues (z-50).
  */
 
-type IdOnglet = "analyse" | "couches" | "conflits" | "reseaux";
-const ONGLETS: { id: IdOnglet; libelle: string }[] = [{ id: "analyse", libelle: "Analyse" }, { id: "couches", libelle: "Couches" }, { id: "conflits", libelle: "Conflits" }, { id: "reseaux", libelle: "Réseaux" }];
+type IdOnglet = "analyse" | "couches" | "conflits" | "reseaux" | "sources";
+const ONGLETS: { id: IdOnglet; libelle: string }[] = [
+  { id: "analyse", libelle: "Analyse" }, { id: "couches", libelle: "Couches" }, { id: "conflits", libelle: "Conflits" }, { id: "reseaux", libelle: "Réseaux" }, { id: "sources", libelle: "Sources" },
+];
 /** Un compte rattache a un concessionnaire n'ouvre que l'ecran des echanges : le serveur repond 403 COMPTE_REFERENT_RESTREINT hors de `/workflow`. */
 export const CODE_COMPTE_REFERENT = "COMPTE_REFERENT_RESTREINT";
 const PLAFOND_OBJETS_LISTE = 5000;
@@ -74,11 +80,16 @@ export function ProjetVoirieDetailPage() {
   // Onglet « Reseaux » : monte a la premiere visite ; la mise en evidence d'un objet reutilise la geometrie deja chargee par la carte.
   const [reseauxMonte, setReseauxMonte] = useState(false);
   const [evidence, setEvidence] = useState<{ cle: string; geometrie: Geometry } | null>(null);
+  // Onglet « Sources » (lot S1) : monte a la premiere visite.
+  const [sourcesMonte, setSourcesMonte] = useState(false);
+  const [editionTerritoire, setEditionTerritoire] = useState(false);
   const refTitreFiche = useRef<HTMLHeadingElement>(null);
   const refOnglets = useRef<Array<HTMLButtonElement | null>>([]);
   const tronqueRef = useRef(false);
 
   const fiche = projet.data;
+  // Libelle de la categorie (une valeur desactivee reste lisible) : chargee seulement si le projet en porte une.
+  const categories = useReferentiel("CATEGORIE_PROJET", !!fiche?.categorieCode);
   // Les jeux en quarantaine sont reserves aux ADMIN et GESTIONNAIRE (403 QUARANTAINE_RESERVEE cote serveur) : un lecteur ne les voit pas du tout.
   const jeux = useMemo(() => (fiche?.jeux ?? []).filter((j) => peutEcrire || (j.statut !== "CONTROLE" && j.statut !== "RECU")), [fiche, peutEcrire]);
   const inclure = peutEcrire && afficherNonAutorises;
@@ -163,8 +174,8 @@ export function ProjetVoirieDetailPage() {
   }
 
   // Un changement de projet repart de zero.
-  useEffect(() => { setSelection(null); setApercu(null); setMasques(new Set()); setRequete(null); setVue(null); setConflitsMonte(false); setSurbrillance(null); setReseauxMonte(false); setEvidence(null); }, [id]);
-  useEffect(() => { if (onglet === "conflits") setConflitsMonte(true); if (onglet === "reseaux") setReseauxMonte(true); }, [onglet]);
+  useEffect(() => { setSelection(null); setApercu(null); setMasques(new Set()); setRequete(null); setVue(null); setConflitsMonte(false); setSurbrillance(null); setReseauxMonte(false); setEvidence(null); setSourcesMonte(false); }, [id]);
+  useEffect(() => { if (onglet === "conflits") setConflitsMonte(true); if (onglet === "reseaux") setReseauxMonte(true); if (onglet === "sources") setSourcesMonte(true); }, [onglet]);
 
   if (projet.isPending) return <EtatChargement libelle="Chargement du projet…" />;
   if (projet.isError && classerErreur(projet.error).code === CODE_COMPTE_REFERENT) return <Navigate to="/projets-voirie/echanges" replace />;
@@ -194,6 +205,21 @@ export function ProjetVoirieDetailPage() {
           <Link to="/projets-voirie" className="inline-flex min-h-[44px] items-center gap-1 text-sm text-navy underline xl:min-h-0"><ArrowLeft aria-hidden="true" className="h-4 w-4" /> Projets de voirie</Link>
           <h1 className="break-words text-xl font-bold text-navy">{fiche.nom}</h1>
           <p className="text-sm text-gray-600">{fiche.code}{(fiche.commune || fiche.prefecture) ? ` · ${[fiche.commune, fiche.prefecture].filter(Boolean).join(", ")}` : ""}</p>
+          <p data-testid="territoire-projet" className="flex flex-wrap items-center gap-x-2 text-sm text-gray-800">
+            <MapPin aria-hidden="true" className="h-4 w-4 text-navy" />
+            {fiche.territoire ? (
+              <span>
+                Territoire : <strong>{fiche.territoire.nom}</strong> ({LIBELLE_NIVEAU[fiche.territoire.niveau]})
+                {fiche.territoire.ancetres.length > 0 && <span className="text-gray-600"> · {fiche.territoire.ancetres.map((a) => a.nom).join(" › ")}</span>}
+              </span>
+            ) : <span>Territoire non renseigné</span>}
+            {fiche.categorieCode && <span>· Catégorie : {libelleDeCode(fiche.categorieCode, categories.data?.valeurs)}</span>}
+            {peutEcrire && (
+              <button type="button" className="min-h-[44px] font-medium text-navy underline disabled:text-gray-500 xl:min-h-0" disabled={!enLigne} onClick={() => setEditionTerritoire(true)}>
+                Modifier le territoire ou la catégorie
+              </button>
+            )}
+          </p>
           {fiche.description && <p className="max-w-prose text-sm text-gray-700">{fiche.description}</p>}
         </div>
         <div className="flex flex-wrap gap-2">
@@ -274,7 +300,7 @@ export function ProjetVoirieDetailPage() {
               <FicheObjet ref={refTitreFiche} objet={selection} jeu={selJeu} onFermer={() => setSelection(null)} />
             </div>
           )}
-          <div role="tablist" aria-label="Contenu du panneau" className="flex gap-1">
+          <div role="tablist" aria-label="Contenu du panneau" className="flex flex-wrap gap-1">
             {ONGLETS.map((o, i) => (
               <button
                 key={o.id} ref={(el) => { refOnglets.current[i] = el; }} type="button" role="tab" id={`pv-onglet-${o.id}`}
@@ -326,6 +352,11 @@ export function ProjetVoirieDetailPage() {
                 />
               </div>
             )}
+            {sourcesMonte && (
+              <div hidden={onglet !== "sources"}>
+                <OngletSources projetId={fiche.id} actif={onglet === "sources"} peutEcrire={peutEcrire} estAdmin={estAdmin} compteId={user?.id} enLigne={enLigne} />
+              </div>
+            )}
             {conflitsMonte && (
               <div hidden={onglet !== "conflits"}>
                 <OngletConflits
@@ -338,6 +369,9 @@ export function ProjetVoirieDetailPage() {
         </aside>
       </div>
 
+      {editionTerritoire && (
+        <DialogueTerritoireProjet projet={fiche} enLigne={enLigne} onFermer={() => setEditionTerritoire(false)} onValider={(corps) => modifier.mutateAsync(corps)} />
+      )}
       {assistant && (
         <Suspense fallback={null}>
           <AssistantImport
