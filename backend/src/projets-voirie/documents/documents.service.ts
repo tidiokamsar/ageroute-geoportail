@@ -59,9 +59,10 @@ async function resoudrePiece(tx: Tx, projetId: string, p: PieceDepot): Promise<P
   return r;
 }
 
-async function exigerTypeActif(tx: Tx, code: string): Promise<void> {
-  const t = await tx.referentielVoirie.findFirst({ where: { domaine: "TYPE_DOCUMENT", code, deletedAt: null, actif: true }, select: { id: true } });
-  if (!t) throw new ErreurMetier(400, "TYPE_DOCUMENT_INCONNU", `Le type de document « ${code} » est inconnu, retiré ou désactivé (référentiel TYPE_DOCUMENT).`);
+/** Type du referentiel : actif exige pour une NOUVELLE saisie (creation) ; une nouvelle version d'un document existant n'exige qu'un type non retire. */
+async function exigerType(tx: Tx, code: string, actif: boolean): Promise<void> {
+  const t = await tx.referentielVoirie.findFirst({ where: { domaine: "TYPE_DOCUMENT", code, deletedAt: null, ...(actif ? { actif: true } : {}) }, select: { id: true } });
+  if (!t) throw new ErreurMetier(400, "TYPE_DOCUMENT_INCONNU", `Le type de document « ${code} » est inconnu, retiré${actif ? " ou désactivé" : ""} (référentiel TYPE_DOCUMENT).`);
 }
 
 async function ligneOuErreur(tx: Pick<Tx, "documentProjetVoirie">, projetId: string, docId: string) {
@@ -177,7 +178,7 @@ export interface CreationDocument { typeCode: string; titre: string; description
 export async function creerDocument(acteur: Acteur, projetId: string, d: CreationDocument, piece: PieceDepot) {
   return enTransaction(async (tx) => {
     await verrouillerProjet(tx, projetId);
-    await exigerTypeActif(tx, d.typeCode);
+    await exigerType(tx, d.typeCode, true);
     if (d.concessionnaireId) {
       const c = await tx.concessionnaireReseau.findFirst({ where: { id: d.concessionnaireId, deletedAt: null }, select: { id: true } });
       if (!c) throw new ErreurMetier(400, "CONCESSIONNAIRE_INCONNU", "Concessionnaire inconnu ou retiré.");
@@ -231,7 +232,7 @@ export async function nouvelleVersion(acteur: Acteur, projetId: string, docId: s
     const precedente = await ligneOuErreur(tx, projetId, docId);
     const plusRecente = await tx.documentProjetVoirie.findFirst({ where: { ligneeId: precedente.ligneeId, version: { gt: precedente.version } }, select: { id: true } });
     if (plusRecente) throw new ErreurMetier(409, "VERSION_NON_COURANTE", "Cette version n'est pas la derniere du document : deposez la nouvelle version sur la derniere.", { derniereId: plusRecente.id });
-    await exigerTypeActif(tx, precedente.typeCode);
+    await exigerType(tx, precedente.typeCode, false);
     const effet = effetNouvelleVersion(precedente.statut);
     if (!effet.ok) throw new ErreurMetier(effet.status, effet.code, effet.message, effet.extra);
     const p = await resoudrePiece(tx, projetId, piece);

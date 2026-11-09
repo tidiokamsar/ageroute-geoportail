@@ -338,6 +338,14 @@ async function main() {
     deux.status === 400 && deux.body.code === "PIECE_EXCLUSIVE" && jeuAutre.status === 404 && jeuAutre.body.code === "JEU_INTROUVABLE" && typeInactif.status === 400 && typeInactif.body.code === "TYPE_DOCUMENT_INCONNU", [deux.body, jeuAutre.body, typeInactif.body]);
   const retraitType = await envoyer("delete", "/referentiels/TYPE_DOCUMENT/PLAN_AXES", undefined, T.admin);
   verifier("11. retirer un type porte par des documents : 409 VALEUR_UTILISEE (usages comptes)", retraitType.status === 409 && retraitType.body.code === "VALEUR_UTILISEE" && retraitType.body.usages?.documents > 0, retraitType.body);
+  const desactive = await envoyer("patch", "/referentiels/TYPE_DOCUMENT/AUTRE", { actif: false }, T.admin);
+  const creerInactif = await envoyer("post", `/${PID}/documents`, { typeCode: "AUTRE", titre: "Type desactive" });
+  const versionInactif = await multipart(`/${PID}/documents/${DOC_PDF}/versions`, { reference: "NC-2026-04 avec annexes" }, { contenu: PDF, nom: "note-complete.pdf" });
+  const lueInactif = await get(`/${PID}/documents/${versionInactif.body.document?.id}`);
+  await envoyer("patch", "/referentiels/TYPE_DOCUMENT/AUTRE", { actif: true }, T.admin);
+  verifier("11. type desactive : plus propose a la creation (400 TYPE_DOCUMENT_INCONNU) ; une nouvelle version d'un document existant reste possible et la valeur reste lisible (type.actif = false)",
+    desactive.status === 200 && creerInactif.status === 400 && creerInactif.body.code === "TYPE_DOCUMENT_INCONNU" && versionInactif.status === 201 && (await statutDoc(DOC_PDF)) === "REMPLACE"
+    && lueInactif.body.document?.type?.actif === false, [desactive.status, creerInactif.body, versionInactif.body, lueInactif.body.document?.type]);
 
   // ================================================================ 12. Retrait, perimetre, projet supprime
   const retGest = await envoyer("delete", `/${PID}/documents/${DOC_V3}`, { justification: "Retrait demande par le chef de projet" });
@@ -355,7 +363,7 @@ async function main() {
   const apresTout = await etat();
   const MODULE = new Set(["projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau", "audit_logs", "documents_projet_voirie", "documents_projet_voirie_historique",
     "analyses_conflit_projet", "conflits_projet", "conflits_projet_historique", "conflits_projet_preuves", "conflits_projet_decisions", "users", "regions", "perimetres_comptes", "territoires_voirie", "territoires_voirie_historique",
-    "projets_voirie_import_evenements", "consultations_jeux_projet"]);
+    "projets_voirie_import_evenements", "referentiels_voirie", "referentiels_voirie_historique"]);
   const changees = Object.keys(apresTout).filter((t) => apresTout[t] !== avantTout[t]);
   verifier("13. isolation : seules les tables du module (et les comptes et regions du banc) changent ; troncons du referentiel identiques (md5)",
     changees.every((t) => MODULE.has(t)) && (await empreinteTroncons()) === empreinteAvant, changees.filter((t) => !MODULE.has(t)));

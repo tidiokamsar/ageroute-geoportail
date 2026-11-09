@@ -35,7 +35,7 @@ Une ligne = **une version** d'un document. Les versions d'un même document form
 | `id` | uuid |
 | `projetId` | projet (clé étrangère) ; immuable |
 | `ligneeId`, `version`, `remplaceId` | version 1 : `ligneeId = id`, `remplaceId` nul ; version n > 1 : `remplaceId` = version n-1 de la même lignée (déclencheur) ; immuables ; `(ligneeId, version)` unique |
-| `typeCode` | code du domaine `TYPE_DOCUMENT` (existant et non retiré à l'écriture : `referentiels_voirie_exige`, lot T1 ; actif exigé par le service) ; immuable |
+| `typeCode` | code du domaine `TYPE_DOCUMENT` (existant et non retiré à l'écriture : `referentiels_voirie_exige`, lot T1 ; actif exigé par le service à la création, une nouvelle version d'un document existant n'exigeant qu'un type non retiré) ; immuable |
 | `titre` (1 à 200), `description` (2 000 au plus), `dateDocument` (jour), `concessionnaireId` | immuables après la création (une erreur se corrige par une nouvelle version ou un retrait) |
 | `statut` | enum `StatutDocumentProjetVoirie` (section 4) |
 | `reference` (300 au plus), `nomFichier` (255), `format`, `sha256` (64 hexadécimaux), `tailleOctets` | la **pièce** ; fixée à la création ou au dépôt sur un document `ATTENDU`, ensuite immuable |
