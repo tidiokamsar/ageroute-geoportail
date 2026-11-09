@@ -15,8 +15,8 @@
 
 import { createHash } from "node:crypto";
 import {
-  BBOX_GUINEE, ErreurLecture, OBJETS_MAX, SOMMETS_PAR_FICHIER_MAX, SOMMETS_PAR_OBJET_MAX,
-  type Avertissement, type Bbox, type CodeAvertissement, type GeometrieLue, type LimitesLecture, type ObjetLu, type Pos, type ResumeLecture, type TypeGeom,
+  ErreurLecture, OBJETS_MAX, SOMMETS_PAR_FICHIER_MAX, SOMMETS_PAR_OBJET_MAX, ZONE_PAR_DEFAUT,
+  type Avertissement, type Bbox, type CodeAvertissement, type GeometrieLue, type LimitesLecture, type ObjetLu, type Pos, type ResumeLecture, type TypeGeom, type ZoneLecture,
 } from "./lecture.types";
 
 /** Coordonnee brute telle que lue : longitude, latitude, altitude facultative ; peut etre NaN. */
@@ -112,8 +112,13 @@ export class Collecteur {
   private readonly c: Record<CodeAvertissement, number> = {
     ALTITUDE_IGNOREE: 0, ELEMENTS_HORS_GUINEE: 0, GEOMETRIES_INVALIDES_IGNOREES: 0, ANNEAUX_FERMES: 0, ELEMENTS_KML_IGNORES: 0,
     OBJETS_SANS_GEOMETRIE: 0, POINTS_REPETES_RETIRES: 0, TRACES_DOUBLES: 0, OBJETS_SANS_NOM: 0, GEOMETRIES_REPAREES: 0,
-    GEOMETRIES_VIDES_IGNOREES: 0, TRACES_SUPERPOSES: 0,
+    GEOMETRIES_VIDES_IGNOREES: 0, TRACES_SUPERPOSES: 0, ELEMENTS_HORS_TERRITOIRE: 0,
   };
+  /** Lot T1 : emprise nationale (ecart) et emprise du territoire du projet (comptage seulement), configurees par l'appelant. */
+  private readonly emprise: ZoneLecture;
+  private readonly territoire: ZoneLecture | null;
+  /** Vrai des qu'une position de l'element courant sort de l'emprise du territoire (remis a zero par `ajouter`). */
+  private horsTerritoire = false;
   private readonly ignores = new Map<string, number>();
   private readonly vus = new Set<string>();
   private readonly attributs = new Map<string, number>();
@@ -128,7 +133,12 @@ export class Collecteur {
   constructor(limites: LimitesLecture = {}) {
     this.sommetsObjetMax = limites.sommetsParObjet ?? SOMMETS_PAR_OBJET_MAX;
     this.sommetsFichierMax = limites.sommetsParFichier ?? SOMMETS_PAR_FICHIER_MAX;
+    this.emprise = limites.emprise ?? ZONE_PAR_DEFAUT;
+    this.territoire = limites.territoire ?? null;
   }
+
+  /** Emprise nationale appliquee (pour les messages et le resume de plausibilite). */
+  get zoneNationale(): ZoneLecture { return this.emprise; }
 
   compter(code: CodeAvertissement, n = 1): void { this.c[code] += n; }
 
@@ -144,8 +154,12 @@ export class Collecteur {
     const lon = b[0], lat = b[1];
     if (!Number.isFinite(lon) || !Number.isFinite(lat) || Math.abs(lon) > 180 || Math.abs(lat) > 90) return "invalide";
     if (b.length > 2 && Number.isFinite(b[2]) && b[2] !== 0) etat.alt = true;
-    const [w, s, e, n] = BBOX_GUINEE;
+    const [w, s, e, n] = this.emprise.bbox;
     if (lon < w || lon > e || lat < s || lat > n) return "dehors";
+    if (this.territoire) {
+      const [tw, ts, te, tn] = this.territoire.bbox;
+      if (lon < tw || lon > te || lat < ts || lat > tn) this.horsTerritoire = true;
+    }
     // Le tuple lu appartient au collecteur : il est arrondi et tronque EN PLACE (pas de second tableau par sommet).
     const m = b as number[];
     m[0] = arrondi(lon);
@@ -196,6 +210,7 @@ export class Collecteur {
     const sain = nettoyerAttributs(attributs);
     const nomPropre = nom === null ? null : (nettoyerValeur(nom) as string).trim() || null;
     const etat: EtatMembre = { alt: false, repetes: false, fermes: 0 };
+    this.horsTerritoire = false;
     let invalides = 0, dehors = 0;
     const motif = (m: Motif) => { if (m === "invalide") invalides += 1; else dehors += 1; };
 
@@ -232,6 +247,7 @@ export class Collecteur {
 
     if (candidats.length === 0) return;
     if (etat.alt) this.c.ALTITUDE_IGNOREE += 1;
+    if (this.horsTerritoire) this.c.ELEMENTS_HORS_TERRITOIRE += candidats.length;
     if (nomPropre === null) this.c.OBJETS_SANS_NOM += candidats.length;
     for (const k of Object.keys(sain)) this.attributs.set(k, (this.attributs.get(k) ?? 0) + 1);
 
@@ -267,14 +283,18 @@ export class Collecteur {
           : "le fichier ne contient aucun objet portant une geometrie");
       }
       if (this.c.GEOMETRIES_INVALIDES_IGNOREES === 0) {
-        throw new ErreurLecture("HORS_GUINEE", "tous les objets sont hors de la Guinee (longitude -15,2 a -7,5 ; latitude 7,1 a 12,8) : verifiez l'ordre longitude, latitude et le systeme de coordonnees (WGS 84)");
+        const [w, s, e, n] = this.emprise.bbox;
+        throw new ErreurLecture("HORS_GUINEE", `tous les objets sont hors de l'emprise nationale « ${this.emprise.nom} » (longitude ${w} a ${e} ; latitude ${s} a ${n}) : verifiez l'ordre longitude, latitude et le systeme de coordonnees (WGS 84)`);
       }
       throw new ErreurLecture("GEOMETRIE_INVALIDE", "aucune geometrie exploitable : lignes de moins de deux points, anneaux degeneres ou coordonnees illisibles (des valeurs hors de -180/180 et -90/90 indiquent souvent des coordonnees projetees en metres au lieu de degres WGS 84)");
     }
     const a: Avertissement[] = [];
     const ajout = (code: CodeAvertissement, message: string, nb: number) => { if (nb > 0) a.push({ code, message, nb }); };
     ajout("ALTITUDE_IGNOREE", "L'altitude est ignoree : les analyses sont planes.", this.c.ALTITUDE_IGNOREE);
-    ajout("ELEMENTS_HORS_GUINEE", "Elements ecartes car hors de l'emprise de la Guinee.", this.c.ELEMENTS_HORS_GUINEE);
+    ajout("ELEMENTS_HORS_GUINEE", `Elements ecartes car hors de l'emprise nationale « ${this.emprise.nom} ».`, this.c.ELEMENTS_HORS_GUINEE);
+    if (this.territoire) {
+      ajout("ELEMENTS_HORS_TERRITOIRE", `Objets conserves mais hors de l'emprise (approximative) du territoire du projet « ${this.territoire.nom} » : verifiez le systeme de coordonnees et le projet vise.`, this.c.ELEMENTS_HORS_TERRITOIRE);
+    }
     ajout("GEOMETRIES_INVALIDES_IGNOREES", "Geometries ecartees car inexploitables (ligne de moins de deux points, anneau degenere, coordonnees illisibles).", this.c.GEOMETRIES_INVALIDES_IGNOREES);
     ajout("ANNEAUX_FERMES", "Anneaux de polygone non fermes dans le fichier : fermes automatiquement.", this.c.ANNEAUX_FERMES);
     ajout("POINTS_REPETES_RETIRES", "Lignes dont des sommets consecutifs identiques ont ete retires.", this.c.POINTS_REPETES_RETIRES);

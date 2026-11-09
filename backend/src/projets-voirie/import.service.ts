@@ -32,6 +32,8 @@ import { deltaEntreJeux, type DeltaJeux } from "./formats/versions.depot";
 import type { PropositionJeu } from "./formats/mapping.noyau";
 import type { Avertissement, ObjetLu, TypeGeom } from "./lecture.types";
 import { verrouillerProjet, type Acteur, type Tx } from "./projets.service";
+import { contexteSpatialDuProjet } from "./territoires/contexte-spatial";
+import { resoudreTypeReseau } from "./territoires/referentiels.service";
 import { INCLURE_JEU, vueJeu } from "./vues";
 
 export type Role = "AXES_TRAVAUX" | "RESEAU_TIERS" | "LIMITES_ROUTE" | "AUTRE";
@@ -44,6 +46,8 @@ export interface ChampsDepot {
   role: Role;
   concessionnaireId?: string;
   typeReseau?: TypeReseau;
+  /** Lot T1 : code du referentiel TYPE_RESEAU ; la famille `typeReseau` en est derivee (repli sur la famille declaree sans code). */
+  typeReseauCode?: string;
   dateDonnees?: string;
   origineFichier?: string;
   confidentialite?: Niveau;
@@ -206,6 +210,11 @@ export async function deposerJeu(d: DemandeDepot): Promise<ResultatDepot> {
   }
   const options = d.options ?? {};
   const limites = limitesImport();
+  // Lot T1 : emprise nationale configuree, emprise du territoire du projet et liste blanche effective (CONTRAT-TERRITOIRES.md, section 6).
+  const ctx = await contexteSpatialDuProjet(d.projetId);
+  limites.lecture.emprise = ctx.zoneNationale;
+  limites.lecture.territoire = ctx.zoneTerritoire ?? undefined;
+  limites.crsAutorises = ctx.crsAutorises;
   // Lecture AVANT toute connexion a la base : un fichier refuse ne consomme ni transaction ni place dans le limiteur.
   const preparation = preparer(d.conversion ? detecterConvertie(d.conversion, options) : detecter(d.fichier, d.nomFichier, options, limites), options, limites);
   const c = d.champs;
@@ -214,8 +223,8 @@ export async function deposerJeu(d: DemandeDepot): Promise<ResultatDepot> {
   if (c.role === "RESEAU_TIERS" && !c.concessionnaireId && options.mapping?.concessionnaire === undefined) {
     throw new ErreurMetier(400, "CONCESSIONNAIRE_REQUIS", "Un réseau de concessionnaire exige le champ concessionnaireId.");
   }
-  if (c.role !== "RESEAU_TIERS" && (c.concessionnaireId || c.typeReseau)) {
-    throw new ErreurMetier(400, "CHAMPS_INVALIDES", "concessionnaireId et typeReseau ne s'appliquent qu'au rôle RESEAU_TIERS.");
+  if (c.role !== "RESEAU_TIERS" && (c.concessionnaireId || c.typeReseau || c.typeReseauCode)) {
+    throw new ErreurMetier(400, "CHAMPS_INVALIDES", "concessionnaireId, typeReseau et typeReseauCode ne s'appliquent qu'au rôle RESEAU_TIERS.");
   }
   // WGS 84 : la lecture est complete ici. CRS projete : elle s'acheve dans la transaction, apres ST_Transform.
   const lecture: ResultatImport | null = preparation.besoinTransformation ? null : preparation.terminer(META_WGS84, null);
@@ -304,10 +313,14 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
   if (c.role === "RESEAU_TIERS" && !c.concessionnaireId) throw new ErreurMetier(400, "CONCESSIONNAIRE_REQUIS", "Un réseau de concessionnaire exige le champ concessionnaireId (ou une colonne « concessionnaire » dont le nom est connu).");
 
   let typeReseau: TypeReseau | null = null;
+  let typeReseauCode: string | null = null;
   if (c.role === "RESEAU_TIERS") {
     const conc = await tx.concessionnaireReseau.findFirst({ where: { id: c.concessionnaireId, deletedAt: null } });
     if (!conc) throw introuvable("Concessionnaire", "CONCESSIONNAIRE_INTROUVABLE");
-    typeReseau = c.typeReseau ?? conc.typeReseau;
+    // Lot T1 : le code du referentiel (du depot, sinon du concessionnaire) donne la famille ; sans code, la famille declaree (repli).
+    const type = await resoudreTypeReseau(tx, { code: c.typeReseauCode ?? conc.typeReseauCode, famille: c.typeReseau ?? conc.typeReseau });
+    typeReseau = type.famille as TypeReseau;
+    typeReseauCode = type.code;
   }
   const concId = c.role === "RESEAU_TIERS" ? c.concessionnaireId! : null;
 
@@ -328,7 +341,7 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
   const id = randomUUID();
   await tx.jeuDonneesProjet.create({
     data: {
-      id, projetId: d.projetId, role: c.role, concessionnaireId: concId, typeReseau,
+      id, projetId: d.projetId, role: c.role, concessionnaireId: concId, typeReseau, typeReseauCode,
       nomFichier: d.nomFichier.slice(0, 255), format: lecture.format, sha256, tailleOctets: tailleDe(d), nbObjets: 0,
       dateDonnees: dateJour(c.dateDonnees), origineFichier: c.origineFichier ?? null,
       classePrecision: c.classePrecision ?? null, precisionHorizontaleM: c.precisionHorizontaleM ?? null, precisionVerticaleM: c.precisionVerticaleM ?? null,

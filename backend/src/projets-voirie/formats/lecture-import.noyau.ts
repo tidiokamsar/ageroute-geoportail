@@ -16,7 +16,7 @@ import { crsDeclareGeoJson, lireDocumentGeoJson, traverserGeoJson } from "../lec
 import { lireArbreKml, traverserKml, verifierRacineKml } from "../lecture.kml.noyau";
 import { CRS_GEOJSON, CRS_KML, PROFONDEUR_JSON_MAX, REGEX_HTML, contenuRefuse, decoderTexte, extensionDe, profondeurJson } from "../lecture.noyau";
 import {
-  BBOX_GUINEE, ErreurLecture, TAILLE_MAX_OCTETS,
+  ErreurLecture, TAILLE_MAX_OCTETS, ZONE_PAR_DEFAUT,
   type Avertissement, type Bbox, type FormatFichier, type InfoCrs, type LimitesLecture, type ObjetLu, type ResumeLecture,
 } from "../lecture.types";
 import type { NoeudXml } from "../xml.noyau";
@@ -508,16 +508,21 @@ export function preparer(d: Detection, opts: OptionsImport, lim: LimitesImport):
       const { propositions, avertissements: avMapping } = proposerChampsJeu(mapping, filtre.valeurs);
       avertissements.push(...avMapping);
 
-      const nbHors = res.avertissements.find((a) => a.code === "ELEMENTS_HORS_GUINEE")?.nb ?? 0;
+      // Lot T1 : la zone attendue est l'emprise (approximative) du territoire du projet quand il en a une, sinon l'emprise nationale configuree.
+      // Les elements hors emprise nationale sont ECARTES (compte historique) ; ceux hors territoire sont CONSERVES et comptes : les deux entrent
+      // dans la plausibilite et dans la confirmation exigee quand le CRS a ete choisi par l'utilisateur.
+      const zoneNationale = lim.lecture.emprise ?? ZONE_PAR_DEFAUT;
+      const zoneAttendue = lim.lecture.territoire ?? zoneNationale;
+      const nbHors = (res.avertissements.find((a) => a.code === "ELEMENTS_HORS_GUINEE")?.nb ?? 0) + (res.avertissements.find((a) => a.code === "ELEMENTS_HORS_TERRITOIRE")?.nb ?? 0);
       const confirmationApplicable = d.format === "CSV" || choix.origine === "choisi_par_utilisateur" || conv !== undefined;
       const confirmationRequise = confirmationApplicable && nbHors > 0;
       if (confirmationRequise && !opts.confirmerHorsZone) {
         throw new ErreurMetier(409, "CONFIRMATION_HORS_ZONE_REQUISE",
-          `${nbHors} element(s) tombent hors de l'emprise de la Guinee apres application du CRS EPSG:${choix.epsg} : verifiez le CRS choisi. Pour importer les autres elements en ecartant ceux-la, envoyez confirmerHorsZone=true.`,
+          `${nbHors} element(s) tombent hors de la zone attendue « ${zoneAttendue.nom} » apres application du CRS EPSG:${choix.epsg} : verifiez le CRS choisi. Pour importer les autres elements en ecartant ceux qui sortent de l'emprise nationale, envoyez confirmerHorsZone=true.`,
           { nbElementsHorsZone: nbHors, nbObjets: res.resume.nbObjets });
       }
       const plausibilite: Plausibilite = {
-        zoneAttendue: { nom: "Guinee", bbox: [...BBOX_GUINEE] as Bbox },
+        zoneAttendue: { nom: zoneAttendue.nom, bbox: [...zoneAttendue.bbox] as Bbox },
         empriseResultat: res.resume.bbox, nbElementsHorsZone: nbHors, nbObjets: res.resume.nbObjets,
         statut: nbHors > 0 ? "PARTIELLEMENT_HORS_ZONE" : "CONFORME", confirmationRequise, confirmee: confirmationRequise && opts.confirmerHorsZone === true,
       };
