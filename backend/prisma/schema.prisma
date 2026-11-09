@@ -5150,6 +5150,9 @@ model ComparaisonSources {
   projetId          String
   numero            Int
   statut            StatutAnalyseConflit
+  /// SOURCES (deux jeux AUTORISE) ou VERSION_CANDIDATE (jeu en controle face au jeu AUTORISE qu il remplacera) : contrainte de la base.
+  mode              String               @default("SOURCES")
+  role              RoleJeuProjet        @default(RESEAU_TIERS)
   jeuAId            String
   jeuBId            String
   concessionnaireId String?

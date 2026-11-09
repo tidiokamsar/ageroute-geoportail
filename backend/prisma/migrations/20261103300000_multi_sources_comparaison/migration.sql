@@ -7,9 +7,10 @@
 --
 --   1. `projets_voirie_jeux.methodeAcquisition` : code court (forme verifiee ici, liste verifiee par le service, reliable au referentiel du lot T1).
 --      Les deux index uniques partiels du socle (un seul AUTORISE, un seul depot en attente par projet, role, concessionnaire) sont RECREES avec la
---      methode d'acquisition en quatrieme composante : un second fichier du meme concessionnaire avec une autre methode est une SECONDE SOURCE
---      (version 1, aucun remplacement) ; avec la meme methode (ou sans, comme avant), c'est une nouvelle VERSION. Les jeux existants, sans methode,
---      gardent exactement le comportement du socle.
+--      methode d'acquisition en quatrieme composante POUR LES RESEAUX DE CONCESSIONNAIRE SEULEMENT : un second fichier du meme concessionnaire avec
+--      une autre methode est une SECONDE SOURCE (version 1, aucun remplacement) ; avec la meme methode (ou sans), c'est une nouvelle VERSION. Pour
+--      les autres roles (plan d'axes, limites de route), la methode est enregistree mais ne separe pas les lignees : un nouveau plan d'axes reste
+--      une version (deux plans d'axes autorises a la fois doubleraient les axes de l'analyse). Les jeux existants gardent le comportement du socle.
 --   2. `regles_rapprochement_sources` : regles de rapprochement VERSIONNEES et APPROUVEES (marge, rayon d'appariement, part hors corridor toleree,
 --      precision attribuee par classe), par projet et par famille ou generales ; regle approuvee immuable ; regle par defaut S1-CORRIDOR-0.1 creee ici.
 --   3. `comparaisons_sources_projet` (immuable) et `comparaisons_sources_resultats` (ajout seul, sauf le lien vers un dossier de conflit, ecrit une fois) :
@@ -37,10 +38,10 @@ COMMENT ON COLUMN "projets_voirie_jeux"."methodeAcquisition" IS 'Code de la meth
 
 -- Cle de version etendue : (projet, role, concessionnaire, methode). Les index du socle ne representent pas une colonne nullable autrement que par COALESCE.
 DROP INDEX IF EXISTS "projets_voirie_jeux_cle_autorise_key";
-CREATE UNIQUE INDEX IF NOT EXISTS "projets_voirie_jeux_cle_autorise_key" ON "projets_voirie_jeux" ("projetId", "role", COALESCE("concessionnaireId", ''), COALESCE("methodeAcquisition", ''))
+CREATE UNIQUE INDEX IF NOT EXISTS "projets_voirie_jeux_cle_autorise_key" ON "projets_voirie_jeux" ("projetId", "role", COALESCE("concessionnaireId", ''), (CASE WHEN "role" = 'RESEAU_TIERS' THEN COALESCE("methodeAcquisition", '') ELSE '' END))
   WHERE "statut" = 'AUTORISE' AND "role" <> 'AUTRE';
 DROP INDEX IF EXISTS "projets_voirie_jeux_cle_attente_key";
-CREATE UNIQUE INDEX IF NOT EXISTS "projets_voirie_jeux_cle_attente_key" ON "projets_voirie_jeux" ("projetId", "role", COALESCE("concessionnaireId", ''), COALESCE("methodeAcquisition", ''))
+CREATE UNIQUE INDEX IF NOT EXISTS "projets_voirie_jeux_cle_attente_key" ON "projets_voirie_jeux" ("projetId", "role", COALESCE("concessionnaireId", ''), (CASE WHEN "role" = 'RESEAU_TIERS' THEN COALESCE("methodeAcquisition", '') ELSE '' END))
   WHERE "statut" IN ('RECU', 'CONTROLE') AND "role" <> 'AUTRE';
 
 -- ===== 2. Types =====
@@ -104,7 +105,11 @@ CREATE TABLE IF NOT EXISTS "comparaisons_sources_projet" (
   "projetId"          TEXT NOT NULL REFERENCES "projets_voirie"("id") ON UPDATE CASCADE ON DELETE RESTRICT,
   "numero"            INTEGER NOT NULL,
   "statut"            "StatutAnalyseConflit" NOT NULL,
-  -- Les deux sources, ordonnees par le serveur (depot le plus ancien = A).
+  -- SOURCES : deux jeux AUTORISE d'un meme reseau ; VERSION_CANDIDATE : un jeu en controle face au jeu AUTORISE qu'il remplacera (comparer avant d'autoriser).
+  "mode"              TEXT NOT NULL DEFAULT 'SOURCES',
+  -- Role commun des deux jeux : RESEAU_TIERS (reseau de concessionnaire) ou AXES_TRAVAUX (plan d'axes du projet).
+  "role"              "RoleJeuProjet" NOT NULL DEFAULT 'RESEAU_TIERS',
+  -- Les deux sources, ordonnees par le serveur : A = la reference (le jeu autorise, ou le depot le plus ancien), B = l'autre.
   "jeuAId"            TEXT NOT NULL REFERENCES "projets_voirie_jeux"("id") ON UPDATE CASCADE ON DELETE RESTRICT,
   "jeuBId"            TEXT NOT NULL REFERENCES "projets_voirie_jeux"("id") ON UPDATE CASCADE ON DELETE RESTRICT,
   "concessionnaireId" TEXT REFERENCES "concessionnaires_reseau"("id") ON UPDATE CASCADE ON DELETE RESTRICT,
@@ -124,6 +129,8 @@ CREATE TABLE IF NOT EXISTS "comparaisons_sources_projet" (
 
   CONSTRAINT "csp_numero" CHECK ("numero" >= 1),
   CONSTRAINT "csp_jeux_distincts" CHECK ("jeuAId" <> "jeuBId"),
+  CONSTRAINT "csp_mode" CHECK ("mode" IN ('SOURCES', 'VERSION_CANDIDATE')),
+  CONSTRAINT "csp_role" CHECK ("role" IN ('RESEAU_TIERS', 'AXES_TRAVAUX')),
   CONSTRAINT "csp_duree" CHECK ("duree" >= 0),
   CONSTRAINT "csp_json_formes" CHECK (jsonb_typeof("regle") = 'object' AND jsonb_typeof("jeux") = 'array' AND jsonb_typeof("resume") = 'object' AND jsonb_typeof("instantane") = 'object')
 );
