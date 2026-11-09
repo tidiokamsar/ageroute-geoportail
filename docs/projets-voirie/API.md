@@ -1083,9 +1083,12 @@ Lues : `LINE`, `LWPOLYLINE`, `POLYLINE` 2D, `POLYLINE` 3D (`3DPOLYLINE`). Ignor�
 | 404 | `JOB_INTROUVABLE` | job inexistant ou d'un autre projet |
 | 429 | `PLAFOND_JOBS_COMPTE`, `PLAFOND_JOBS_PROJET`, `JOBS_TROP_FREQUENTS` | plafonds de jobs actifs, cadence par heure ; `Retry-After` en secondes |
 | 503 | `FILE_JOBS_PLEINE` | file globale pleine ; `Retry-After` |
+| 503 | `PLAFOND_RESULTATS_EN_ATTENTE` | trop de jobs `TERMINE` non encore utilisés au total (`_RESULTATS_MAX`, 20 par défaut) : chacun retient sa sortie dans le dossier d'échange ; déposer ou annuler avant d'en créer un ; `Retry-After` (lot V2, m6) |
+
+`COUCHE_INTROUVABLE` (422) porte un message **fixe** : ni la valeur demandée, ni les identifiants de couche issus du conteneur ; la liste des couches est celle de `POST /:id/import/inventaire` avec `jobId` (lot V2).
 
 `codeErreur` d'un job en `ECHEC` ou `EXPIRE` : code du conteneur (CHAINE-GDAL.md 4.3, `ENTREE_ABSENTE` à `ERREUR_INTERNE`, `DXF_*`) ou propre au backend (`SORTIE_INVALIDE`, `SORTIE_INCOHERENTE`, `SPOOL_INDISPONIBLE`, `JOB_PERDU`, `DXF_UNITES_CONFLIT`, `CONVERSION_EXPIREE`). Le message est **fixe** par code : le texte libre du conteneur n'est jamais renvoyé (il peut citer un chemin ou une ligne de fichier).
 
 ### Réglages serveur (variables d'environnement, bornées : une valeur illisible redonne le défaut)
 
-`PROJETS_VOIRIE_GDAL` (absent = désactivé), `PROJETS_VOIRIE_GDAL_SPOOL` (aucun défaut), `_DELAI_S` 90 (10 à 120), `_SORTIE_MAX_OCTETS` 80 Mo (1 à 200 Mo), `_TENTATIVES` 3 (1 à 5), `_RETENTION_H` 24 (1 à 72), `_SONDAGE_S` 3 (1 à 60), `_CONCURRENCE` 2 (1 à 4), `_ACTIFS_COMPTE` 2, `_ACTIFS_PROJET` 3, `_FILE_MAX` 20, `_CREATIONS_HEURE` 12. Valeurs de départ à valider par le DSI.
+`PROJETS_VOIRIE_GDAL` (absent = désactivé), `PROJETS_VOIRIE_GDAL_SPOOL` (aucun défaut), `_DELAI_S` 90 (10 à 120), `_SORTIE_MAX_OCTETS` 80 Mo (1 à 200 Mo), `_TENTATIVES` 3 (1 à 5), `_RETENTION_H` 24 (1 à 72), `_SONDAGE_S` 3 (1 à 60), `_CONCURRENCE` 2 (1 à 4), `_ACTIFS_COMPTE` 2, `_ACTIFS_PROJET` 3, `_FILE_MAX` 20, `_CREATIONS_HEURE` 12, et depuis le lot V2 : `_RESULTATS_MAX` 20 (1 à 500, jobs `TERMINE` non utilisés au total), `_DELAI_TOUR_S` 120 (1 à 600, budget de temps d'un tour du sondage), `_PRIVE` (dossier privé du backend où le fichier attend sa réclamation, défaut `<spool>/prive`, jamais monté dans le conteneur). Valeurs de départ à valider par le DSI.
