@@ -18,6 +18,7 @@
 //   longueur fusionnee R1 = 60 + 60 + 60 + 40 + 10 = 230 ; somme des objets = 350 ; R2 : chaussee 60, emprise 60, proximite a verifier.
 import { ouvrirBancClone } from "./lib/banc-clone.mts";
 import { verifier, conclure, proche } from "./lib/verdict.ts";
+import { avecTerritoireParDefaut } from "./lib/territoire-par-defaut.mts";
 
 // Lot B1 : la carte et l analyse lisent les descripteurs d objets (migration 20261101200000), que le banc applique au clone si `replay` ne la porte pas.
 const banc = await ouvrirBancClone("essai_projets_voirie", { migrations: ["20261101200000_reseaux_physiques_logiques"] });
@@ -26,7 +27,8 @@ const { createApp } = await banc.imp("app");
 const { signAccessToken } = await banc.imp("utils/jwt");
 const request = (await import("supertest")).default;
 
-const app = createApp();
+// Lot T1 : territoire par defaut ajoute aux creations de projet du banc (voir lib/territoire-par-defaut.mts).
+const app = avecTerritoireParDefaut(createApp(), prisma);
 const BASE = "/api/v2/projets-voirie";
 const O = { x: 380000, y: 1015000 };
 

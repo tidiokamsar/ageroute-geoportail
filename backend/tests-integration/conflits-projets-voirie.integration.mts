@@ -14,6 +14,7 @@
 import { writeFileSync } from "node:fs";
 import { ouvrirBancClone } from "./lib/banc-clone.mts";
 import { verifier, conclure, proche } from "./lib/verdict.ts";
+import { avecTerritoireParDefaut } from "./lib/territoire-par-defaut.mts";
 import { AXES, R1_BASE, R2, R3, O, constructeurs, type Ligne } from "./lib/fixtures-conflits.mts";
 
 // Lot B1 : l analyse persistee et les dossiers lisent les descripteurs d objets (migration 20261101200000).
@@ -27,7 +28,8 @@ const pg = (await import("pg")).default;
 
 // Revue RC-3, m8 : le delai minimal entre deux analyses d un projet (defaut 60 s) est desactive pour ce banc, qui en enchaine plusieurs ; la section 14 le remet.
 process.env.PROJETS_VOIRIE_ANALYSE_INTERVALLE_S = "0";
-const app = createApp();
+// Lot T1 : territoire par defaut ajoute aux creations de projet du banc (voir lib/territoire-par-defaut.mts).
+const app = avecTerritoireParDefaut(createApp(), prisma);
 const BASE = "/api/v2/projets-voirie";
 
 const sql = <T = Record<string, unknown>>(texte: string, ...v: unknown[]) => prisma.$queryRawUnsafe(texte, ...v) as Promise<T[]>;

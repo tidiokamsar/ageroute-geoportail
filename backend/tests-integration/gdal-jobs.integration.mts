@@ -18,6 +18,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { ouvrirBancClone } from "./lib/banc-clone.mts";
 import { verifier, conclure } from "./lib/verdict.ts";
+import { avecTerritoireParDefaut } from "./lib/territoire-par-defaut.mts";
 
 const banc = await ouvrirBancClone("essai_gdal_jobs", { migrations: [] });
 const { prisma } = await banc.imp("lib/prisma");
@@ -92,7 +93,8 @@ process.env.PROJETS_VOIRIE_GDAL_SONDAGE_S = "1";
 process.env.PROJETS_VOIRIE_GDAL_CONCURRENCE = "2";
 // La cadence par heure est eprouvee a part (section 5) : ailleurs elle est ouverte pour que le banc puisse enchainer ses jobs.
 process.env.PROJETS_VOIRIE_GDAL_CREATIONS_HEURE = "200";
-const app = createApp();
+// Lot T1 : territoire par defaut ajoute aux creations de projet du banc (voir lib/territoire-par-defaut.mts).
+const app = avecTerritoireParDefaut(createApp(), prisma);
 const BASE = "/api/v2/projets-voirie";
 const sql = <T = Record<string, unknown>>(texte: string, ...v: unknown[]) => prisma.$queryRawUnsafe(texte, ...v) as Promise<T[]>;
 const compter = async (texte: string, ...v: unknown[]) => Number((await sql<{ n: bigint }>(texte, ...v))[0].n);

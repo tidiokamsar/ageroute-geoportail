@@ -11,6 +11,7 @@
 // Les longueurs sont comparees a la distance geodesique de Vincenty (sans projection).
 import { ouvrirBancClone } from "./lib/banc-clone.mts";
 import { verifier, conclure, proche } from "./lib/verdict.ts";
+import { avecTerritoireParDefaut } from "./lib/territoire-par-defaut.mts";
 import { distanceVincenty, lonLatVersUtm, utmVersLonLat } from "./lib/geodesie.ts";
 
 const banc = await ouvrirBancClone("essai_import_formats");
@@ -20,7 +21,8 @@ const { signAccessToken } = await banc.imp("utils/jwt");
 const { construireZip, kmzSimple } = await banc.imp("projets-voirie/formats/zip.fixtures");
 const request = (await import("supertest")).default;
 
-const app = createApp();
+// Lot T1 : territoire par defaut ajoute aux creations de projet du banc (voir lib/territoire-par-defaut.mts).
+const app = avecTerritoireParDefaut(createApp(), prisma);
 const BASE = "/api/v2/projets-voirie";
 const sql = <T = Record<string, unknown>>(texte: string, ...v: unknown[]) => prisma.$queryRawUnsafe(texte, ...v) as Promise<T[]>;
 const compter = async (texte: string, ...v: unknown[]) => Number((await sql<{ n: bigint }>(texte, ...v))[0].n);
