@@ -29,6 +29,7 @@ import * as depot from "./reseaux.depot";
 import { natureEffective, verifierDescripteur, type NatureDeclarable } from "./types.noyau";
 import { jeuxConsultesParRelations } from "./consultation-reseau";
 import { vueObjet, vueRelation } from "./vues";
+import { etatConnexion } from "../sources/classification-sources.noyau";
 
 export { decoderCurseurObjet };
 
@@ -70,13 +71,15 @@ export async function listerObjetsReseau(acteur: Acteur, projetId: string, f: Fi
 export async function ficheObjetReseau(acteur: Acteur, projetId: string, objetId: string) {
   await exigerProjetActif(projetId);
   const decide = estDecideur(acteur.role);
-  const { ligne, relations, partage } = await lireSousDelai(async (tx) => {
+  const { ligne, relations, partage, connexions } = await lireSousDelai(async (tx) => {
     const l = await depot.lireObjet(tx, projetId, objetId);
     // Un objet d'un jeu illisible pour ce compte n'existe pas pour lui (meme 404 qu'un identifiant inconnu).
     if (!l || !jeuLisible(acteur.role, l.statutJeu)) throw OBJET_INTROUVABLE();
     const r = await depot.listerRelations(tx, { projetId, statutsJeu: statutsLisibles(acteur.role), objetId, limite: 200 });
     const p = l.typeGeom === "LIGNE" ? await depot.tracePartagee(tx, objetId) : null;
-    return { ligne: l, relations: r.slice(0, 200), partage: p };
+    // Lot S1 : etat de connexion DECLARE (CONNECTE_A validees, avec leur preuve), jamais deduit d une proximite.
+    const cx = await depot.connexionsDe(tx, objetId);
+    return { ligne: l, relations: r.slice(0, 200), partage: p, connexions: cx };
   });
   // m4 : les relations rendues portent aussi les objets (nom, nature, jeu) de l'AUTRE bout, qui peut etre d'un autre jeu sensible : tout est trace.
   await tracerConsultation(acteur, jeuxConsultesParRelations(relations, [{ id: ligne.jeuId, confidentialite: ligne.confidentialite, nbObjets: 1 }]), { route: "reseau", bbox: null, zoom: null });
@@ -85,6 +88,7 @@ export async function ficheObjetReseau(acteur: Acteur, projetId: string, objetId
     relations: relations.map((r) => ({ ...vueRelation(r, decide), role: r.sourceObjetId === objetId ? "SOURCE" : "CIBLE" })),
     // Circuits superposes : autres objets du meme jeu a la trace strictement identique. Ils restent separes et ne sont pas des cables distincts.
     tracePartagee: partage === null ? null : { nbAutresObjets: partage, libelle: "autres objets du même jeu dont la trace est strictement identique : ils restent séparés, ce ne sont pas des câbles distincts" },
+    connexions: etatConnexion(connexions),
   };
 }
 

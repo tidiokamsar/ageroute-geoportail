@@ -18,16 +18,22 @@ import {
 // ------------------------------------------------------------------------------------------------
 
 export interface RegleRelation {
-  source: NatureObjet;
-  cible: NatureObjet;
+  /** Natures admises a chaque bout (lot S1 : CONNECTE_A en admet deux, infrastructure ou equipement). */
+  source: readonly NatureObjet[];
+  cible: readonly NatureObjet[];
   geomSource: readonly TypeGeom[];
   geomCible: readonly TypeGeom[];
   libelle: string;
 }
 
+const TOUTES_GEOM: readonly TypeGeom[] = ["LIGNE", "POINT", "POLYGONE"];
+const PHYSIQUES: readonly NatureObjet[] = ["ACTIF_PHYSIQUE", "EQUIPEMENT"];
+
 export const REGLES_RELATION: Readonly<Record<TypeRelation, RegleRelation>> = {
-  PORTE_PAR: { source: "CIRCUIT_LOGIQUE", cible: "ACTIF_PHYSIQUE", geomSource: ["LIGNE"], geomCible: ["LIGNE"], libelle: "un circuit logique est porté par une infrastructure physique linéaire" },
-  CONTENU_DANS: { source: "EQUIPEMENT", cible: "ACTIF_PHYSIQUE", geomSource: ["POINT"], geomCible: ["POINT", "POLYGONE"], libelle: "un équipement est contenu dans une infrastructure physique ponctuelle ou surfacique (chambre, regard...)" },
+  PORTE_PAR: { source: ["CIRCUIT_LOGIQUE"], cible: ["ACTIF_PHYSIQUE"], geomSource: ["LIGNE"], geomCible: ["LIGNE"], libelle: "un circuit logique est porté par une infrastructure physique linéaire" },
+  CONTENU_DANS: { source: ["EQUIPEMENT"], cible: ["ACTIF_PHYSIQUE"], geomSource: ["POINT"], geomCible: ["POINT", "POLYGONE"], libelle: "un équipement est contenu dans une infrastructure physique ponctuelle ou surfacique (chambre, regard...)" },
+  // Lot S1 : connexion DECLAREE entre deux objets physiques ; un circuit logique ne se connecte pas, il est porte. Aucune geometrie n est imposee ni examinee.
+  CONNECTE_A: { source: PHYSIQUES, cible: PHYSIQUES, geomSource: TOUTES_GEOM, geomCible: TOUTES_GEOM, libelle: "un objet physique (infrastructure ou équipement) est déclaré connecté à un autre objet physique" },
 };
 
 export type VerdictRelation = { ok: true } | { ok: false; code: "RELATION_SUR_SOI" | "NATURE_RELATION_INCOMPATIBLE" | "GEOMETRIE_RELATION_INCOMPATIBLE"; message: string };
@@ -38,10 +44,10 @@ export interface ExtremiteRelation { nature: NatureObjet; typeGeom: TypeGeom }
 export function verifierRelation(type: TypeRelation, source: ExtremiteRelation, cible: ExtremiteRelation, memeObjet: boolean): VerdictRelation {
   if (memeObjet) return { ok: false, code: "RELATION_SUR_SOI", message: "Un objet ne peut pas être relié à lui-même." };
   const r = REGLES_RELATION[type];
-  if (source.nature !== r.source || cible.nature !== r.cible) {
+  if (!r.source.includes(source.nature) || !r.cible.includes(cible.nature)) {
     return {
       ok: false, code: "NATURE_RELATION_INCOMPATIBLE",
-      message: `Relation ${type} : ${r.libelle} (source ${r.source}, cible ${r.cible} ; reçu : source ${source.nature}, cible ${cible.nature}). Déclarez d'abord la nature des objets.`,
+      message: `Relation ${type} : ${r.libelle} (source ${r.source.join("/")}, cible ${r.cible.join("/")} ; reçu : source ${source.nature}, cible ${cible.nature}). Déclarez d'abord la nature des objets.`,
     };
   }
   if (!r.geomSource.includes(source.typeGeom) || !r.geomCible.includes(cible.typeGeom)) {
