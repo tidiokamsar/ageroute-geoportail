@@ -343,7 +343,7 @@ describe("etape 3 : systeme de coordonnees et unites", () => {
     await u.selectOptions(sel, "32629");
     await u.click(bouton("Vérifier la transformation"));
     const crs = await screen.findByTestId("bloc-crs");
-    expect(crs).toHaveTextContent("Déclaré par le fichier, confirmé par vous");
+    expect(crs).toHaveTextContent("Déclaré par le fichier lui-même");
     expect(crs).not.toHaveTextContent("Choisi par vous");
   });
 
