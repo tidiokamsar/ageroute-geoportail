@@ -47,3 +47,37 @@ END
 $fn$;
 DROP TRIGGER IF EXISTS conflits_projet_jeu_source_b ON "conflits_projet";
 CREATE TRIGGER conflits_projet_jeu_source_b BEFORE INSERT OR UPDATE ON "conflits_projet" FOR EACH ROW EXECUTE FUNCTION conflits_projet_jeu_source_b();
+
+-- ===== M2. Une seule source de verite pour la methode d'acquisition : le referentiel METHODE_ACQUISITION (lot T1) =====
+-- Les codes du lot S1 (liste du service, deja portes par des jeux) entrent au referentiel ; aucune valeur existante n'est retiree ni modifiee.
+-- Correspondance documentee (CONTRAT-SOURCES.md, 3.1) : LEVE_TOPOGRAPHIQUE (T1) et TOPOGRAPHIE (S1) designent la meme methode ; GNSS (T1) est un
+-- releve GNSS dont le mode (RTK, differentiel, autonome) n'est pas precise. Les deux restent actifs : le DSI desactive celui qu'il ne veut plus proposer.
+INSERT INTO "referentiels_voirie" ("id", "domaine", "code", "libelle", "ordre", "parametres") VALUES
+  (gen_random_uuid()::text, 'METHODE_ACQUISITION', 'GNSS_RTK',                    'Relevé GNSS RTK',                         31, '{"precisionTypiqueM":null}'),
+  (gen_random_uuid()::text, 'METHODE_ACQUISITION', 'GNSS_DIFFERENTIEL',           'Relevé GNSS différentiel',                32, '{"precisionTypiqueM":null}'),
+  (gen_random_uuid()::text, 'METHODE_ACQUISITION', 'GNSS_AUTONOME',               'Relevé GNSS autonome',                    33, '{"precisionTypiqueM":null}'),
+  (gen_random_uuid()::text, 'METHODE_ACQUISITION', 'TOPOGRAPHIE',                 'Topographie',                             21, '{"precisionTypiqueM":null}'),
+  (gen_random_uuid()::text, 'METHODE_ACQUISITION', 'DETECTION_ELECTROMAGNETIQUE', 'Détection électromagnétique',             60, '{"precisionTypiqueM":null}'),
+  (gen_random_uuid()::text, 'METHODE_ACQUISITION', 'GEORADAR',                    'Géoradar',                                61, '{"precisionTypiqueM":null}'),
+  (gen_random_uuid()::text, 'METHODE_ACQUISITION', 'PLAN_CAO',                    'Plan de conception livré en DAO/CAO',     41, '{"precisionTypiqueM":null}'),
+  (gen_random_uuid()::text, 'METHODE_ACQUISITION', 'RECOLEMENT_TRAVAUX',          'Récolement de travaux',                   70, '{"precisionTypiqueM":null}'),
+  (gen_random_uuid()::text, 'METHODE_ACQUISITION', 'DECLARATIF_FOURNISSEUR',      'Déclaratif du fournisseur',               80, '{"precisionTypiqueM":null}')
+ON CONFLICT ("domaine", "code") DO NOTHING;
+INSERT INTO "referentiels_voirie_historique" ("referentielId", "action", "version", "apres")
+  SELECT r."id", 'MIGRATION', r."version", to_jsonb(r) FROM "referentiels_voirie" r
+   WHERE NOT EXISTS (SELECT 1 FROM "referentiels_voirie_historique" h WHERE h."referentielId" = r."id");
+
+-- Un jeu ne porte qu'un code du referentiel, existant et non retire au moment de l'ecriture (une valeur retiree ou desactivee apres coup reste portee :
+-- le declencheur ne se declenche qu'au changement de la colonne). Le service exige en plus une valeur ACTIVE pour un nouveau depot.
+CREATE OR REPLACE FUNCTION projets_voirie_jeux_methode_acquisition() RETURNS trigger
+LANGUAGE plpgsql AS $fn$
+BEGIN
+  IF TG_OP = 'INSERT' OR NEW."methodeAcquisition" IS DISTINCT FROM OLD."methodeAcquisition" THEN
+    PERFORM referentiels_voirie_exige('METHODE_ACQUISITION', NEW."methodeAcquisition");
+  END IF;
+  RETURN NEW;
+END
+$fn$;
+DROP TRIGGER IF EXISTS projets_voirie_jeux_methode_acquisition ON "projets_voirie_jeux";
+CREATE TRIGGER projets_voirie_jeux_methode_acquisition BEFORE INSERT OR UPDATE ON "projets_voirie_jeux" FOR EACH ROW EXECUTE FUNCTION projets_voirie_jeux_methode_acquisition();
+COMMENT ON COLUMN "projets_voirie_jeux"."methodeAcquisition" IS 'Code du referentiel METHODE_ACQUISITION (lot T1 ; correctifs T1+S1, M2 : seule source de verite). Nul = non renseignee. Composante de la cle de version d''un reseau : deux methodes = deux sources du meme reseau.';

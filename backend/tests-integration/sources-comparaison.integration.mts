@@ -401,10 +401,32 @@ async function main() {
     && (await essaiAnnule((tx) => tx.$executeRawUnsafe(`UPDATE comparaisons_sources_resultats SET statut = 'CONCORDANCE'`))) === "23001"
     && (await essaiAnnule((tx) => tx.$executeRawUnsafe(`TRUNCATE comparaisons_sources_resultats`))) === "23001");
 
+  // ================================================================ 11 bis. Correctifs T1+S1 (M2) : la methode d'acquisition vient du referentiel METHODE_ACQUISITION
+  const fichierAutre = await geojson([ligne("Objet libre", 2000)]);
+  const simule = (methode: string) => request(app).post(`${BASE}/${PID}/jeux?simuler=true`).set("Authorization", `Bearer ${T.chef}`)
+    .field("role", "AUTRE").field("methodeAcquisition", methode).attach("fichier", fichierAutre, { filename: `libre-${methode}.geojson` });
+  const gnss = await simule("GNSS"), lidarAvant = await simule("LIDAR");
+  const ajout = await envoyer("post", "/referentiels/METHODE_ACQUISITION", { code: "LIDAR", libelle: "Lidar mobile (banc)", parametres: {} }, T.admin);
+  const lidarApres = await simule("LIDAR");
+  await envoyer("patch", "/referentiels/METHODE_ACQUISITION/LIDAR", { actif: false }, T.admin);
+  const lidarInactif = await simule("LIDAR");
+  verifier("11 bis. M2 : un code du referentiel T1 (GNSS) est accepte au depot ; LIDAR est refuse (422 METHODE_ACQUISITION_INCONNUE) tant qu'un ADMIN ne l'a pas ajoute, accepte ensuite, refuse une fois desactive",
+    gnss.status === 200 && lidarAvant.status === 422 && lidarAvant.body.code === "METHODE_ACQUISITION_INCONNUE" && ajout.status === 201 && lidarApres.status === 200
+    && lidarInactif.status === 422 && lidarInactif.body.code === "METHODE_ACQUISITION_INCONNUE", [gnss.status, lidarAvant.body, ajout.body, lidarApres.status, lidarInactif.body]);
+  await envoyer("patch", "/referentiels/METHODE_ACQUISITION/GEORADAR", { actif: false }, T.admin);
+  const jeuxApres = await get(`/${PID}/jeux`);
+  const radar = (jeuxApres.body.jeux as { id: string; methodeAcquisition: string | null }[]).find((j) => j.id === JE2);
+  const retraitUtilise = await envoyer("delete", "/referentiels/METHODE_ACQUISITION/GNSS_RTK", undefined, T.admin);
+  await envoyer("patch", "/referentiels/METHODE_ACQUISITION/GEORADAR", { actif: true }, T.admin);
+  verifier("11 bis. M2 : une valeur desactivee reste lisible sur le jeu qui la porte ; retirer une valeur portee par un jeu : 409 VALEUR_UTILISEE (jeux comptes)",
+    radar?.methodeAcquisition === "GEORADAR" && retraitUtilise.status === 409 && retraitUtilise.body.code === "VALEUR_UTILISEE" && retraitUtilise.body.usages?.jeux >= 1, [radar, retraitUtilise.body]);
+  const baseInconnue = await essaiAnnule((tx) => tx.$executeRawUnsafe(`UPDATE projets_voirie_jeux SET "methodeAcquisition" = 'METHODE_INEXISTANTE' WHERE id = $1`, JE1));
+  verifier("11 bis. M2, BASE : un code absent du referentiel est refuse par la base (23503)", baseInconnue === "23503", baseInconnue);
+
   // ================================================================ 12. Isolation et audit
   const apresTout = await etat();
   const diff = Object.keys(apresTout).filter((t) => apresTout[t] !== avantTout[t]);
-  const permis = new Set(["audit_logs", "territoires_voirie", "territoires_voirie_historique", "projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau", "reseau_relations", "regles_rapprochement_sources",
+  const permis = new Set(["audit_logs", "territoires_voirie", "territoires_voirie_historique", "referentiels_voirie", "referentiels_voirie_historique", "projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau", "reseau_relations", "regles_rapprochement_sources",
     "comparaisons_sources_projet", "comparaisons_sources_resultats", "conflits_projet", "conflits_projet_historique", "analyses_conflit_projet"]);
   verifier("12. ISOLATION : seules les tables du module et l'audit changent ; le referentiel est intact", diff.every((t) => permis.has(t)) && (await empreinteTroncons()) === empreinteAvant, diff.filter((t) => !permis.has(t)));
   const audits = await sql<{ t: string; n: bigint }>(`SELECT "entityType" t, count(*) n FROM audit_logs WHERE "entityType" IN ('ComparaisonSources','RegleRapprochementSources') GROUP BY 1 ORDER BY 1`);

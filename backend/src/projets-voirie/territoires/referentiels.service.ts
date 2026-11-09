@@ -7,6 +7,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { logAuditTransactionnelle } from "../../utils/audit";
+import { FORME_METHODE_ACQUISITION } from "../config";
 import { ErreurMetier, introuvable } from "../erreurs";
 import type { Acteur } from "../projets.service";
 import { CODE_REFERENTIEL, DOMAINES, estDomaine, familleEffective, prochaineVersion, validerParametres, type Domaine, type FamilleReseau } from "./referentiels.noyau";
@@ -52,6 +53,10 @@ export async function creerValeur(acteur: Acteur, domaineBrut: string, d: Creati
   const domaine = domaineOuErreur(domaineBrut);
   const code = d.code.trim().toUpperCase();
   if (!CODE_REFERENTIEL.test(code)) throw new ErreurMetier(400, "CHAMPS_INVALIDES", "Code : lettres majuscules, chiffres, tirets et soulignés, 2 à 64 caractères.");
+  // Correctifs T1+S1 (M2) : un code de methode d'acquisition doit tenir dans la colonne des jeux (forme imposee par la base : sans tiret, 40 caracteres au plus).
+  if (domaine === "METHODE_ACQUISITION" && !FORME_METHODE_ACQUISITION.test(code)) {
+    throw new ErreurMetier(400, "CHAMPS_INVALIDES", "Code de méthode d'acquisition : une lettre majuscule puis majuscules, chiffres et soulignés, 2 à 40 caractères.");
+  }
   const p = validerParametres(domaine, d.parametres);
   if (!p.ok) throw new ErreurMetier(400, "PARAMETRES_INVALIDES", `Paramètres invalides pour le domaine ${domaine}.`, { details: p.erreurs });
   try {
@@ -109,6 +114,8 @@ async function usagesDuCode(tx: Tx, domaine: Domaine, code: string): Promise<Rec
     };
   }
   if (domaine === "CATEGORIE_PROJET") return { projets: await tx.projetVoirie.count({ where: { categorieCode: code, deletedAt: null } }) };
+  // Correctifs T1+S1 (M2) : la methode d'acquisition d'un jeu est un code de ce referentiel (et une composante de la cle de version d'un reseau).
+  if (domaine === "METHODE_ACQUISITION") return { jeux: await tx.jeuDonneesProjet.count({ where: { methodeAcquisition: code, statut: { not: "RETIRE" } } }) };
   return {};
 }
 

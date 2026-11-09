@@ -59,7 +59,7 @@ export interface ChampsDepot {
   precisionVerticaleM?: number;
   methode?: string;
   dateConstat?: string;
-  /** Lot S1 : code de la methode d'acquisition (liste `METHODES_ACQUISITION` de config.ts) ; composante de la cle de version d'un reseau. */
+  /** Lot S1 : code de la methode d'acquisition (referentiel METHODE_ACQUISITION, valeur active : correctifs T1+S1, M2) ; composante de la cle de version d'un reseau. */
   methodeAcquisition?: string;
 }
 
@@ -249,6 +249,14 @@ export async function deposerJeu(d: DemandeDepot): Promise<ResultatDepot> {
   }
 }
 
+/** 422 METHODE_ACQUISITION_INCONNUE si le code n'est pas une valeur active et non retiree du referentiel (une valeur desactivee reste lisible sur les jeux existants). */
+export async function exigerMethodeAcquisition(tx: Pick<Tx, "referentielVoirie">, code: string): Promise<void> {
+  const v = await tx.referentielVoirie.findFirst({ where: { domaine: "METHODE_ACQUISITION", code, deletedAt: null, actif: true }, select: { id: true } });
+  if (!v) {
+    throw new ErreurMetier(422, "METHODE_ACQUISITION_INCONNUE", `La méthode d'acquisition « ${code.slice(0, 40)} » n'est pas une valeur active du référentiel METHODE_ACQUISITION (voir GET /referentiels/METHODE_ACQUISITION).`, { methodeAcquisition: code.slice(0, 40) });
+  }
+}
+
 interface ChampsAvecMapping {
   champs: ChampsDepot;
   depuisMapping: Record<string, PropositionJeu>;
@@ -328,6 +336,8 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
     typeReseauCode = type.code;
   }
   const concId = c.role === "RESEAU_TIERS" ? c.concessionnaireId! : null;
+  // Correctifs T1+S1 (M2) : la methode d'acquisition (du formulaire ou du mapping) est une valeur ACTIVE du referentiel METHODE_ACQUISITION.
+  if (c.methodeAcquisition) await exigerMethodeAcquisition(tx, c.methodeAcquisition);
 
   let version = 1;
   let remplace: { id: string; version: number } | null = null;
