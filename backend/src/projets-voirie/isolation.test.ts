@@ -20,6 +20,7 @@ const ROUTES_IMPORT = join(SRC, "api-v2", "projets-voirie.import.routes.ts");
 const ROUTES_WORKFLOW = join(SRC, "api-v2", "projets-voirie.workflow.routes.ts");
 const ROUTES_RESEAUX = join(SRC, "api-v2", "projets-voirie.reseaux.routes.ts");
 const ROUTES_GDAL = join(SRC, "api-v2", "projets-voirie.gdal.routes.ts");
+const ROUTES_SOURCES = join(SRC, "api-v2", "projets-voirie.sources.routes.ts");
 
 function sources(dossier: string): string[] {
   const sortie: string[] = [];
@@ -44,6 +45,8 @@ const TABLES_DU_MODULE = [
   "reseau_objets_descripteurs", "reseau_relations",
   // Jobs de conversion GDAL (lot B2).
   "projets_voirie_import_jobs",
+  // Sources multiples et comparaison entre sources (lot S1) : regles de rapprochement, comparaisons et leurs resultats (aucune geometrie).
+  "regles_rapprochement_sources", "comparaisons_sources_projet", "comparaisons_sources_resultats",
 ];
 const DELEGUES_DU_MODULE = [
   "projetVoirie", "jeuDonneesProjet", "objetProjet", "concessionnaireReseau", "auditLog",
@@ -55,9 +58,11 @@ const DELEGUES_DU_MODULE = [
   "reseauObjetDescripteur", "reseauRelation",
   // Jobs de conversion GDAL (lot B2).
   "jobImportProjet",
+  // Sources multiples (lot S1).
+  "regleRapprochementSources", "comparaisonSources", "comparaisonSourcesResultat",
 ];
 
-const fichiersDuModule = [...sources(MODULE), ROUTES, ROUTES_CONFLITS, ROUTES_IMPORT, ROUTES_WORKFLOW, ROUTES_RESEAUX, ROUTES_GDAL];
+const fichiersDuModule = [...sources(MODULE), ROUTES, ROUTES_CONFLITS, ROUTES_IMPORT, ROUTES_WORKFLOW, ROUTES_RESEAUX, ROUTES_GDAL, ROUTES_SOURCES];
 
 describe("le module n'ecrit que dans ses propres tables", () => {
   it("le module contient du code a verifier (garde contre une lecture qui ne trouve rien)", () => {
@@ -120,6 +125,8 @@ describe("rien d'autre dans le code ne lit les donnees du module (jamais d'API p
     join("api-v2", "projets-voirie.workflow.routes.ts"),
     join("api-v2", "projets-voirie.reseaux.routes.ts"),
     join("api-v2", "projets-voirie.gdal.routes.ts"),
+    // Sources multiples et comparaison entre sources (lot S1).
+    join("api-v2", "projets-voirie.sources.routes.ts"),
     // Demarrage du sondage des jobs de conversion GDAL (lot B2) : un seul appel, desactive par defaut.
     "server.ts",
     // Cle de module.

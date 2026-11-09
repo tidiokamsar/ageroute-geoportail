@@ -360,9 +360,15 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
     "POST /api/v2/projets-voirie/:id/reseau/relations/:relId/refuser": ["ADMIN", "GESTIONNAIRE"],
     "POST /api/v2/projets-voirie/:id/reseau/relations/:relId/revoquer": ["ADMIN", "GESTIONNAIRE"],
     "POST /api/v2/projets-voirie/:id/reseau/associations/proposer": ["ADMIN", "GESTIONNAIRE"],
+    // Sources multiples et comparaison entre sources (lot S1) : regles de rapprochement (approbation ADMIN seul), comparaison persistee, ouverture d'un dossier
+    // de divergence par une action humaine justifiee. Prouve par api-v2/projets-voirie.sources.routes.test.ts et le banc sources-comparaison.
+    "POST /api/v2/projets-voirie/:id/regles-rapprochement": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/regles-rapprochement/:regleRapId/approuver": ["ADMIN"],
+    "POST /api/v2/projets-voirie/:id/comparaisons": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/comparaisons/:cmpId/dossiers-conflit": ["ADMIN", "GESTIONNAIRE"],
   };
 
-  it("expose exactement les 15 routes du socle, les 16 des dossiers de conflit, les 6 de l'import (lot A1) et les 10 des reseaux (lot B1) et les 4 des jobs de conversion GDAL (lot B2), ni plus (aucun export de geometrie, aucune route d'ordre ou de deplacement), ni moins", () => {
+  it("expose exactement les 15 routes du socle, les 16 des dossiers de conflit, les 6 de l'import (lot A1) et les 10 des reseaux (lot B1) et les 4 des jobs de conversion GDAL (lot B2) et les 9 des sources (lot S1), ni plus (aucun export de geometrie, aucune route d'ordre ou de deplacement), ni moins", () => {
     expect(pv.map(cle).sort()).toEqual([
       "DELETE /api/v2/projets-voirie/:id", "DELETE /api/v2/projets-voirie/:id/jeux/:jeuId",
       "GET /api/v2/projets-voirie", "GET /api/v2/projets-voirie/:id", "GET /api/v2/projets-voirie/:id/analyse",
@@ -391,7 +397,13 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
       "POST /api/v2/projets-voirie/:id/reseau/relations/:relId/valider", "POST /api/v2/projets-voirie/:id/reseau/relations/:relId/refuser",
       "POST /api/v2/projets-voirie/:id/reseau/relations/:relId/revoquer",
       "POST /api/v2/projets-voirie/:id/reseau/associations/proposer", "GET /api/v2/projets-voirie/:id/reseau/comptage",
+      // Sources multiples et comparaison entre sources (lot S1, CONTRAT-SOURCES.md, section 5)
+      "GET /api/v2/projets-voirie/:id/sources", "GET /api/v2/projets-voirie/:id/regles-rapprochement", "POST /api/v2/projets-voirie/:id/regles-rapprochement",
+      "POST /api/v2/projets-voirie/:id/regles-rapprochement/:regleRapId/approuver", "POST /api/v2/projets-voirie/:id/comparaisons", "GET /api/v2/projets-voirie/:id/comparaisons",
+      "GET /api/v2/projets-voirie/:id/comparaisons/:cmpId", "GET /api/v2/projets-voirie/:id/comparaisons/:cmpId/objets", "POST /api/v2/projets-voirie/:id/comparaisons/:cmpId/dossiers-conflit",
     ].sort());
+    // Lot S1 : aucune route de fusion, de connexion calculee ni de proposition automatique de connexion.
+    expect(pv.filter((l) => /fusion|fusionn|connect|connexion|continuite/i.test(l.chemin))).toEqual([]);
     // Aucune route ne cree d'ordre, de deplacement ni de decision automatique.
     expect(pv.filter((l) => /ordre|deplac|ordonn/i.test(l.chemin))).toEqual([]);
   });
