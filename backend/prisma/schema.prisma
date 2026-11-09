@@ -4418,6 +4418,8 @@ model JeuDonneesProjet {
   objets       ObjetProjet[]
   conflits     ConflitProjet[] @relation("ConflitJeuReseau")
   conflitsAxes ConflitProjet[] @relation("ConflitJeuAxes")
+  /// Correctifs T1+S1 (B1) : dossiers DIVERGENCE_SOURCES dont ce jeu est la source comparee B.
+  conflitsSourceB ConflitProjet[] @relation("ConflitJeuSourceB")
   descripteurs ReseauObjetDescripteur[]
 
   @@index([projetId, statut])
@@ -4624,6 +4626,9 @@ model ConflitProjet {
   derniereAnalyse   AnalyseConflitProjet?  @relation("ConflitDerniereAnalyse", fields: [derniereAnalyseId], references: [id], onDelete: Restrict)
   /// Lot S1 : comparaison de sources dont est issu un dossier DIVERGENCE_SOURCES (cle etrangere en base, ouvert par une action humaine).
   comparaisonId     String?
+  /// Correctifs T1+S1 (B1, migration 20261103400000) : jeu B de la comparaison d un dossier DIVERGENCE_SOURCES ; son statut entre dans la lisibilite du dossier.
+  jeuSourceBId      String?
+  jeuSourceB        JeuDonneesProjet?      @relation("ConflitJeuSourceB", fields: [jeuSourceBId], references: [id], onDelete: Restrict)
   aReexaminer       Boolean                @default(false)
   motifReexamen     MotifReexamenConflit?
   tronconsProches   Json                   @default("[]")
@@ -4640,6 +4645,7 @@ model ConflitProjet {
   @@index([responsableId])
   @@index([jeuReseauId])
   @@index([jeuAxesId])
+  @@index([jeuSourceBId])
   @@index([premiereAnalyseId])
   @@index([derniereAnalyseId])
   @@map("conflits_projet")

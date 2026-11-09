@@ -166,13 +166,15 @@ export async function geometrieObjet(tx: TxLecture, objetId: string): Promise<Po
 export interface LigneDossierDivergence {
   id: string; projetId: string; cle: string; jeuReseauId: string | null; jeuAxesId: string | null; objetId: string; concessionnaireId: string | null; mesure: string; geomHex: string;
   classePrecision: string | null; comparaisonId: string;
+  /** Correctifs T1+S1 (B1) : jeu B de la comparaison ; son statut entre dans la lisibilite du dossier (la base verifie qu'il est celui de la comparaison). */
+  jeuSourceBId: string;
 }
 
 /** Cree le dossier (statut A_INVESTIGUER, sans analyse, lie a sa comparaison). `tronconsProches` reste vide : le referentiel n est pas lu ici. */
 export async function insererDossierDivergence(tx: TxEcriture, l: LigneDossierDivergence, axe: string): Promise<number> {
   return tx.$executeRaw`
     INSERT INTO "conflits_projet" ("id", "projetId", "cle", "type", "axe", "jeuReseauId", "jeuAxesId", "objetId", "concessionnaireId", "mesure", "geom", "statut", "classePrecision", "verticalEvalue",
-                                   "premiereAnalyseId", "derniereAnalyseId", "comparaisonId", "aReexaminer", "motifReexamen", "tronconsProches")
+                                   "premiereAnalyseId", "derniereAnalyseId", "comparaisonId", "jeuSourceBId", "aReexaminer", "motifReexamen", "tronconsProches")
     VALUES (${l.id}, ${l.projetId}, ${l.cle}, 'DIVERGENCE_SOURCES'::"TypeConflit", ${axe}, ${l.jeuReseauId}, ${l.jeuAxesId}, ${l.objetId}::bigint, ${l.concessionnaireId}, ${l.mesure}::jsonb,
-            ST_GeomFromEWKB(decode(${l.geomHex}, 'hex')), 'A_INVESTIGUER'::"StatutConflit", ${l.classePrecision}::"ClassePrecision", false, NULL, NULL, ${l.comparaisonId}, false, NULL, '[]'::jsonb)`;
+            ST_GeomFromEWKB(decode(${l.geomHex}, 'hex')), 'A_INVESTIGUER'::"StatutConflit", ${l.classePrecision}::"ClassePrecision", false, NULL, NULL, ${l.comparaisonId}, ${l.jeuSourceBId}, false, NULL, '[]'::jsonb)`;
 }

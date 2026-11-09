@@ -22,7 +22,8 @@ import { avecTerritoireParDefaut } from "./lib/territoire-par-defaut.mts";
 import { verifier, conclure, proche } from "./lib/verdict.ts";
 
 const banc = await ouvrirBancClone("essai_sources_s1", {
-  migrations: ["20261031100000_conflits_projets_voirie", "20261101200000_reseaux_physiques_logiques", "20261101300000_workflow_roles_recolement", "20261102200000_import_jobs_gdal", "20261103300000_multi_sources_comparaison"],
+  migrations: ["20261031100000_conflits_projets_voirie", "20261101200000_reseaux_physiques_logiques", "20261101300000_workflow_roles_recolement", "20261102200000_import_jobs_gdal", "20261103300000_multi_sources_comparaison",
+    "20261103400000_correctifs_sources_territoires"],
 });
 const { prisma } = await banc.imp("lib/prisma");
 const { createApp } = await banc.imp("app");
@@ -283,6 +284,15 @@ async function main() {
     dossier.status === 201 && ligneK?.type === "DIVERGENCE_SOURCES" && ligneK.statut === "A_INVESTIGUER" && ligneK.cmp === cAx.body.comparaison.id && ligneK.pa === null && ligneK.ja === AX1 && ligneK.jr === null, [dossier.body, ligneK]);
   const deux = await envoyer("post", `/${PID}/comparaisons/${cAx.body.comparaison.id}/dossiers-conflit`, { resultatId: resAx2.id, justification: "Verification demandee sur le terrain" });
   verifier("8. un second dossier pour le meme resultat : 409 DOSSIER_DEJA_OUVERT avec l'identifiant du premier", deux.status === 409 && deux.body.code === "DOSSIER_DEJA_OUVERT" && deux.body.conflitId === kid, deux.body);
+  // Correctifs T1+S1, B1 : le jeu B (version candidate, en CONTROLE) entre dans la lisibilite du dossier.
+  const kB = (await sql<{ b: string | null }>(`SELECT "jeuSourceBId" b FROM conflits_projet WHERE id = $1`, kid))[0].b;
+  const [kLectCand, kListeLect, kChefCand] = await Promise.all([get(`/${PID}/conflits/${kid}`, T.lecteur), get(`/${PID}/conflits`, T.lecteur), get(`/${PID}/conflits/${kid}`)]);
+  verifier("8. B1 : le dossier porte le jeu B de sa comparaison (jeuSourceBId) ; B en CONTROLE : le LECTEUR recoit 404 sur la fiche et ne le voit pas dans sa liste ni ses compteurs ; le gestionnaire lit la mesure",
+    kB === AX2 && kLectCand.status === 404 && kLectCand.body.code === "CONFLIT_INTROUVABLE" && !JSON.stringify(kListeLect.body).includes(kid) && !JSON.stringify(kListeLect.body).includes(AX2)
+    && Object.values(kListeLect.body.compteurs as Record<string, number>).every((n) => n === 0) && kChefCand.status === 200 && kChefCand.body.conflit.mesure?.jeuBId === AX2,
+    [kB, kLectCand.status, kListeLect.body.total, kChefCand.body.conflit?.mesure]);
+  const fauxB = await essaiAnnule((tx) => tx.$executeRawUnsafe(`UPDATE conflits_projet SET "jeuSourceBId" = $2 WHERE id = $1`, kid, AX1));
+  verifier("8. B1, BASE : le jeu B d'un dossier est fige (23001)", fauxB === "23001", fauxB);
   const fiche = await get(`/${PID}/conflits/${kid}`);
   const hist = await sql<{ action: string; acteur: string | null; j: string | null }>(`SELECT action::text, "acteurId" acteur, justification j FROM conflits_projet_historique WHERE "conflitId" = $1`, kid);
   verifier("8. la fiche RC-3 du dossier se lit (200), sans analyse ; historique : une creation par la personne, avec sa justification",
@@ -301,6 +311,11 @@ async function main() {
     (await statut(AX1)) === "REMPLACE" && kLect.status === 404, kLect.body);
 
   // ================================================================ 9. Jeu retire : donnees masquees a tous
+  // B1 : un dossier ouvert depuis la comparaison SOURCES (A = JA, B = JB) avant le retrait de B.
+  const dSrc = await envoyer("post", `/${PID}/comparaisons/${CMP1}/dossiers-conflit`, { resultatId: diverg.id, justification: "Ecart de 3 m entre le plan et le releve GNSS" });
+  const kSrc: string = dSrc.body.conflit?.id;
+  const kSrcLectAvant = await get(`/${PID}/conflits/${kSrc}`, T.lecteur);
+  verifier("9. B1 : dossier ouvert depuis deux sources AUTORISE : le lecteur le lit, mesure comprise (nom de l'objet B)", dSrc.status === 201 && kSrcLectAvant.status === 200 && kSrcLectAvant.body.conflit.mesure?.nomB === "Cable Divergent B", [dSrc.body, kSrcLectAvant.body.conflit?.mesure]);
   const ret = await envoyer("delete", `/${PID}/jeux/${JB}`);
   const detChef = await get(`/${PID}/comparaisons/${CMP1}`);
   const objChef = await get(`/${PID}/comparaisons/${CMP1}/objets`, T.admin);
@@ -308,6 +323,16 @@ async function main() {
   verifier("9. jeu RETIRE : le lecteur ne voit plus la comparaison (404) ; un gestionnaire ou un ADMIN la voit, donnees des jeux masquees (empreinte, fichier) et resultats masques (liste vide)",
     ret.status === 200 && detLect.status === 404 && detChef.status === 200 && detChef.body.comparaison.donneesMasquees === true && !JSON.stringify(detChef.body).includes("telecom-gnss")
     && objChef.status === 200 && objChef.body.masque === true && objChef.body.resultats.length === 0, [detChef.body.comparaison?.jeux, objChef.body]);
+  const [kSrcLect, kSrcAdmin, kSrcListeAdmin, kSrcCsv, kSrcListeLect] = await Promise.all([get(`/${PID}/conflits/${kSrc}`, T.lecteur), get(`/${PID}/conflits/${kSrc}`, T.admin),
+    get(`/${PID}/conflits?limite=100`, T.admin), get(`/${PID}/conflits/export.csv`, T.admin), get(`/${PID}/conflits?limite=100`, T.lecteur)]);
+  const cleSrc = (await sql<{ c: string }>(`SELECT cle c FROM conflits_projet WHERE id = $1`, kSrc))[0]?.c;
+  const ligneCsv = (kSrcCsv.text ?? "").split(/\r?\n/).find((l: string) => cleSrc !== undefined && l.endsWith(cleSrc));
+  const vueAdmin = (kSrcListeAdmin.body.conflits as { id: string }[]).find((c) => c.id === kSrc);
+  verifier("9. B1 : jeu B RETIRE (A toujours AUTORISE) : 404 au lecteur et absent de sa liste ; l'ADMIN voit le dossier (archive) sans mesure, objet, geometrie ni nom de l'objet B, dans la fiche, la liste et l'export CSV",
+    kSrcLect.status === 404 && !JSON.stringify(kSrcListeLect.body).includes(kSrc) && kSrcAdmin.status === 200 && kSrcAdmin.body.conflit.mesure === null && kSrcAdmin.body.conflit.geometrie === null
+    && kSrcAdmin.body.conflit.objet === null && !JSON.stringify(kSrcAdmin.body).includes("Cable Divergent B") && !JSON.stringify(kSrcAdmin.body).includes(JB)
+    && vueAdmin !== undefined && (vueAdmin as { mesure: unknown }).mesure === null && !JSON.stringify(kSrcListeAdmin.body).includes("Cable Divergent B")
+    && kSrcCsv.status === 200 && ligneCsv !== undefined && !ligneCsv.includes("Operateur Telecom Synthetique") && ligneCsv.split(";")[12] === "", [kSrcLect.status, kSrcAdmin.body.conflit, vueAdmin, ligneCsv]);
   const relance = await envoyer("post", `/${PID}/comparaisons`, { jeuAId: JA, jeuBId: JB });
   verifier("9. un jeu retire ne se compare plus : 404 JEU_INTROUVABLE (meme reponse qu'un jeu inconnu)", relance.status === 404 && relance.body.code === "JEU_INTROUVABLE", relance.body);
   const listeLect = await get(`/${PID}/comparaisons`, T.lecteur);

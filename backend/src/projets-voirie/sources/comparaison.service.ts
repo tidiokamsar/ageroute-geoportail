@@ -389,6 +389,7 @@ export async function ouvrirDossierDivergence(acteur: Acteur, projetId: string, 
       const classe = classeEffective(descripteurs.get(objetA)?.classe, jeuA.classePrecision).classe;
       await depot.insererDossierDivergence(tx, {
         id, projetId, cle, jeuReseauId: estAxe ? null : c.jeuAId, jeuAxesId: estAxe ? c.jeuAId : null, objetId: objetA, concessionnaireId: jeuA.concessionnaireId, mesure: JSON.stringify(mesure), geomHex: geo.geomHex, classePrecision: classe, comparaisonId: c.id,
+        jeuSourceBId: c.jeuBId,
       }, AXE_DIVERGENCE_SOURCES);
       await tx.conflitHistorique.create({
         data: {
