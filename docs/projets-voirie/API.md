@@ -1089,3 +1089,75 @@ Lues : `LINE`, `LWPOLYLINE`, `POLYLINE` 2D, `POLYLINE` 3D (`3DPOLYLINE`). Ignor�
 ### Réglages serveur (variables d'environnement, bornées : une valeur illisible redonne le défaut)
 
 `PROJETS_VOIRIE_GDAL` (absent = désactivé), `PROJETS_VOIRIE_GDAL_SPOOL` (aucun défaut), `_DELAI_S` 90 (10 à 120), `_SORTIE_MAX_OCTETS` 80 Mo (1 à 200 Mo), `_TENTATIVES` 3 (1 à 5), `_RETENTION_H` 24 (1 à 72), `_SONDAGE_S` 3 (1 à 60), `_CONCURRENCE` 2 (1 à 4), `_ACTIFS_COMPTE` 2, `_ACTIFS_PROJET` 3, `_FILE_MAX` 20, `_CREATIONS_HEURE` 12. Valeurs de départ à valider par le DSI.
+
+## Sources multiples, comparaison entre sources et connectivité déclarative (lot S1)
+
+Contrat : `docs/projets-voirie/CONTRAT-SOURCES.md` (modèle, algorithme `S1-CORRIDOR-UTM-1`, modes, décisions). Preuves : `backend/src/api-v2/projets-voirie.sources.routes.test.ts`, noyaux `backend/src/projets-voirie/sources/*.noyau.test.ts`, test statique `connectivite.statique.test.ts`, banc `backend/tests-integration/sources-comparaison.integration.mts` (données 100 % synthétiques).
+
+**Principe.** Une source est un jeu `AUTORISE` ; pour un réseau de concessionnaire, deux méthodes d'acquisition font deux sources du même réseau. Une **source unique** est l'état normal (`SOURCE_UNIQUE_COMPARAISON_INDISPONIBLE`) : rien n'est calculé, aucun avertissement d'erreur. Une **comparaison** apparie les objets linéaires de deux jeux par un corridor `max(précision A, précision B) + marge` (règle versionnée, approuvée ; 1 m par défaut), seulement si les deux précisions sont connues ; sinon `RAPPROCHEMENT_INCERTAIN` sans mesure. Un plan d'axes (rôle `AXES_TRAVAUX`) se compare en mode **version candidate** : le jeu en contrôle face à la version autorisée qu'il remplacera. **Un résultat n'est jamais une décision** ; aucune géométrie n'est modifiée, fusionnée ni rendue. Seule une personne ouvre, depuis une divergence, un dossier RC-3 `DIVERGENCE_SOURCES`.
+
+Mêmes gardes, dans le même ordre, que le socle (« Gardes, dans l'ordre ») ; projet retiré ou hors périmètre : 404 `PROJET_INTROUVABLE` ; `:cmpId`, `:regleRapId` : UUID (400 `IDENTIFIANT_INVALIDE`).
+
+### Routes
+
+| Route | Rôle | Réponse |
+|---|---|---|
+| `GET /:id/sources` | lecture | `{ reseaux: [{ role, concessionnaire, typeReseau, statut, nbSources, sources: [{ jeuId, role, version, methodeAcquisition, dateDonnees, dateDepot, nomFichier, classePrecision, precisionHorizontaleM, nbObjets, confidentialite }], derniereComparaison, versionsCandidates?, mention }], totaux, limites }` ; `versionsCandidates` : ADMIN et GESTIONNAIRE seulement |
+| `GET /:id/regles-rapprochement` | lecture | `{ regles: [{ id, portee, famille, code, version, margeM, rayonAppariementM, partHorsCorridorMax, precisionParClasseM, statut, justification, systeme, creePar, approuvePar, approuveLe, ... }], effectives: [{ famille, regleId, code, version, portee, margeM, ... }], avertissements }` |
+| `POST /:id/regles-rapprochement` | ADMIN, GESTIONNAIRE | corps `{ famille?, code, margeM? (1), rayonAppariementM? (10), partHorsCorridorMax? (0), precisionParClasseM? ({ A, B, C, D } > 0), justification }` ; 201 `{ regle }` `BROUILLON` |
+| `POST /:id/regles-rapprochement/:regleRapId/approuver` | ADMIN | `{ justification, derogation? }` ; `{ regle }` ; 409 `REGLE_IMMUABLE`, `SEPARATION_DES_TACHES` |
+| `POST /:id/comparaisons` | ADMIN, GESTIONNAIRE | corps `{ jeuAId, jeuBId }` (ordre indifférent ; ni mode ni paramètre de calcul) ; 201 `{ comparaison, resume }` |
+| `GET /:id/comparaisons` | lecture | `{ comparaisons, curseurSuivant }` ; `limite` 1 à 100 (25), `curseur`, `jeuId` |
+| `GET /:id/comparaisons/:cmpId` | lecture | `{ comparaison }` |
+| `GET /:id/comparaisons/:cmpId/objets` | lecture | `{ resultats, masque, curseurSuivant, filtres }` ; `statut` (liste), `limite` 1 à 200 (50), `curseur` |
+| `POST /:id/comparaisons/:cmpId/dossiers-conflit` | ADMIN, GESTIONNAIRE | `{ resultatId, justification }` ; 201 `{ conflit: { id, cle, type: "DIVERGENCE_SOURCES", statut: "A_INVESTIGUER", axe, comparaisonId, resultatId, jeuReseauId, jeuAxesId } }` |
+
+### Comparaison
+
+```
+{ "comparaison": { "id", "projetId", "numero", "statut": "TERMINEE" | "ECHEC", "mode": "SOURCES" | "VERSION_CANDIDATE", "role": "RESEAU_TIERS" | "AXES_TRAVAUX",
+                   "jeuAId", "jeuBId", "concessionnaireId", "typeReseau",
+                   "regle": { "regleId", "code", "version", "famille", "portee", "margeM", "rayonAppariementM", "partHorsCorridorMax", "precisionParClasseM" },
+                   "versionAlgorithme": "S1-CORRIDOR-UTM-1", "epsg": 32629,
+                   "jeux": [{ "role": "A" | "B", "jeuId", "sha256", "version", "methodeAcquisition", "dateDonnees", "classePrecision", "precisionHorizontaleM", "nbObjets", "nomFichier", "confidentialite" }],
+                   "donneesMasquees": false, "declenchePar", "duree", "createdAt", "limites": [...] },
+  "resume": { "statut": "TERMINEE", "versionAlgorithme",
+              "totaux": { "CONCORDANCE", "DIVERGENCE", "RAPPROCHEMENT_INCERTAIN", "SANS_CORRESPONDANCE_A", "SANS_CORRESPONDANCE_B", "resultats", "objetsA", "objetsB", "nonEvaluesA", "nonEvaluesB" },
+              "corridor": { "minM", "maxM", "couplesSansCorridor", "margeM", "rayonAppariementM" }, "limites": [...] } }
+```
+
+`jeux` ne garde que `{ role, jeuId }` et `donneesMasquees` vaut `true` quand un jeu est `RETIRE` (ou, impossible pour un lecteur puisqu'il ne voit pas la comparaison, non `AUTORISE`). Le `resume` (agrégats figés) n'est pas filtré.
+
+### Résultat par objet
+
+```
+{ "id", "ordre", "cle", "statut": "CONCORDANCE" | "DIVERGENCE" | "RAPPROCHEMENT_INCERTAIN" | "SANS_CORRESPONDANCE_A" | "SANS_CORRESPONDANCE_B",
+  "objetA": { "id", "nom", "precisionM", "originePrecision": "OBJET" | "JEU" | "CLASSE" | "INCONNUE" } | null,
+  "objetB": { ... } | null, "corridorM": 2 | null,
+  "mesure": { "hausdorffM", "longueurAM", "longueurBM", "longueurRecouvrementM", "longueurHorsCorridorM", "partHorsCorridor", "distanceMinM" } | null,
+  "conflitId": null }
+```
+
+Mesures du banc (fixtures synthétiques, UTM 29N) : deux câbles de 100 m de précision 1 m, corridor 2 m ; décalage de 0,5 m : `CONCORDANCE`, Hausdorff 0,5 m, 0 m hors corridor ; décalage de 3 m : `DIVERGENCE`, Hausdorff 3 m, 100 m hors corridor, part 1 ; précisions inconnues : `RAPPROCHEMENT_INCERTAIN`, `mesure` et `corridorM` nuls. Plan d'axes en version candidate : version 1 de classe C (précision attribuée 2 m, origine `CLASSE`), version 2 de précision 0,1 m, corridor 3 m ; axe décalé de 1,5 m : `CONCORDANCE` ; axe décalé de 5 m : `DIVERGENCE`.
+
+### Codes d'erreur ajoutés par ce lot
+
+| Statut | Code | Cas |
+|---|---|---|
+| 409 | `JEUX_NON_COMPARABLES` (`motif` : `MEME_JEU`, `ROLE`, `RESEAU_DIFFERENT`, `STATUT`, `LIGNEE_DIFFERENTE`) | deux jeux qui ne décrivent pas la même chose, ou un statut qui ne permet aucun des deux modes |
+| 409 | `RESULTAT_NON_DIVERGENT`, `DOSSIER_DEJA_OUVERT` (`conflitId`), `COMPARAISON_NON_TERMINEE`, `REGLE_IMMUABLE`, `SEPARATION_DES_TACHES` | ouverture d'un dossier, approbation d'une règle |
+| 404 | `COMPARAISON_INTROUVABLE`, `RESULTAT_INTROUVABLE`, `REGLE_INTROUVABLE`, `JEU_INTROUVABLE` | inconnu, d'un autre projet, ou illisible pour le compte (même réponse) |
+| 422 | `JUSTIFICATION_REQUISE`, `COMPARAISON_TROP_VOLUMINEUSE` (`objetsMax` ou `sommets`), `CONNECTE_A_NATURE_REQUISE` | |
+| 429 | `COMPARAISON_TROP_FREQUENTE` (`retryAfterS`, en-tête `Retry-After`) | cadence |
+| 503 / 504 | `PROJET_OCCUPE`, `SERVICE_OCCUPE` / `COMPARAISON_TROP_LONGUE` | verrou, limiteur, délai côté base (ligne `ECHEC`) |
+
+### Extensions des routes existantes
+
+- `POST /:id/jeux` : champ `methodeAcquisition` (`GNSS_RTK`, `GNSS_DIFFERENTIEL`, `GNSS_AUTONOME`, `TOPOGRAPHIE`, `DETECTION_ELECTROMAGNETIQUE`, `GEORADAR`, `NUMERISATION_PLAN`, `PLAN_CAO`, `RECOLEMENT_TRAVAUX`, `DECLARATIF_FOURNISSEUR`, `INCONNUE`) ; champs de mapping `methodeAcquisition` (jeu) et `connecteA` (objet : colonne portant le nom de l'objet connecté du même fichier). La vue d'un jeu porte `methodeAcquisition`. Avertissement `CONNEXIONS_NON_RESOLUES`, `resume.import.connexionsDeclarees: { creees, nonResolues }`.
+- `POST /:id/reseau/relations` : `type: "CONNECTE_A"` avec `preuve` (`CONFIRMEE_PAR_FOURNISSEUR`, `INCONNUE`) ; la vue d'une relation porte `preuve` (nulle hors `CONNECTE_A`).
+- `GET /:id/reseau/objets/:objetId` : `connexions: { etat: "CONFIRMEE" | "INCONNUE" | "NON_FOURNIE", nbConfirmees, nbInconnues, libelle }`.
+- Dossiers de conflit : `conflit.comparaisonId` ; un dossier `DIVERGENCE_SOURCES` a `premiereAnalyseId` et `derniereAnalyseId` nuls (voir `CONTRAT-CONFLITS.md`, points 42 à 46).
+
+### Réglages serveur
+
+`PROJETS_VOIRIE_COMPARAISON_OBJETS_MAX` (20 000, bornes 100 à 200 000), `PROJETS_VOIRIE_COMPARAISON_INTERVALLE_S` (60, bornes 0 à 3 600 ; 0 réservé aux bancs). Délai côté base : `PROJETS_VOIRIE_DELAI_ANALYSE_MS` (celui de l'analyse). Valeurs par défaut de la règle `S1-CORRIDOR-0.1` (marge 1 m, rayon 10 m, part 0, précisions par classe `{ A: 0.5, B: 1, C: 2, D: 5 }`) : **provisoires, à valider par le DSI**.

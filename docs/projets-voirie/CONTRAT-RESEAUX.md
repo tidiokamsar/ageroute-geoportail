@@ -172,3 +172,16 @@ Les réponses d'écriture (déclarer, valider, refuser, révoquer) sont déjà a
 - **Verrou du projet tenu par une association en échec** : une proposition d'association interrompue par le délai de la base (504 `ASSOCIATION_TROP_LONGUE`, jusqu'à 20 s) tient le verrou du projet pendant ce délai, sans cadence entre deux échecs consécutifs ; les écritures concurrentes du projet attendent puis répondent 503 `PROJET_OCCUPE` (voir `CONTRAT-WORKFLOW.md`, 9 bis). La cadence n'est appliquée qu'aux exécutions qui réussissent. Décision à prendre : cadence aussi sur les échecs, ou verrou consultatif propre à l'association comme pour l'analyse de conflits.
 - **O7** : un descripteur modifie la classe ou la précision effective d'un jeu `AUTORISE` utilisée par la détection de conflits (RC-3), par un seul `GESTIONNAIRE`, sans contrôle à quatre yeux. Décision réservée au DSI : droits de descripteur et double validation.
 - **O11** : voir `CONTRAT-WORKFLOW.md`, section 11 (statut `RETIRE` rendu aux seuls comptes qui décident, comme le socle).
+
+## 12. Connectivité déclarative (lot S1, ajout du 09/11/2026)
+
+La section 9 reste vraie : **aucune connectivité n'est calculée**. Le lot S1 (`CONTRAT-SOURCES.md`, section 3.5) ajoute seulement ce qu'une source **déclare** :
+
+- type de relation `CONNECTE_A` (deux objets **physiques** : infrastructure ou équipement, toute géométrie ; un circuit logique ne se connecte pas, il est porté) et colonne `preuve` (`CONFIRMEE_PAR_FOURNISSEUR`, `INCONNUE`), **obligatoire pour `CONNECTE_A` et interdite pour les autres types** (contrainte `rr_preuve_connexion`), figée (déclencheur) ;
+- origine `IMPORT_DECLARATIF` : au dépôt, le champ de mapping `connecteA` (portée objet) désigne la colonne qui porte le **nom** de l'objet connecté **dans le même fichier** ; une relation `VALIDEE`, preuve `CONFIRMEE_PAR_FOURNISSEUR`, est créée pour chaque nom résolu sans ambiguïté ; un nom introuvable ou ambigu ne crée rien (avertissement `CONNEXIONS_NON_RESOLUES`) ; le jeu doit déclarer une nature physique (422 `CONNECTE_A_NATURE_REQUISE`) ;
+- saisie humaine : `POST /:id/reseau/relations` avec `type: "CONNECTE_A"`, `preuve`, `justification` (créée `VALIDEE`, origine `MANUELLE`) ; `preuve` manquante pour `CONNECTE_A` ou donnée pour un autre type : 400 `CHAMPS_INVALIDES` ;
+- la fiche d'un objet (`GET /:id/reseau/objets/:objetId`) porte `connexions` : `{ etat: CONFIRMEE | INCONNUE | NON_FOURNIE, nbConfirmees, nbInconnues, libelle }` ; « non fournie » ne veut pas dire « isolé » ; il n'existe aucun état « continu » ;
+- **garde statique** : `backend/src/projets-voirie/sources/connectivite.statique.test.ts` fait échouer toute écriture de `CONNECTE_A` appuyée sur un prédicat spatial (`ST_DWithin`, `ST_Intersects`, `ST_Distance`, `&&`...) et toute fonction, hors des deux autorisées, qui en écrirait (mutation prouvée par le test).
+
+Ce n'est toujours **pas** une topologie : ni nœuds, ni segments, ni traces amont ou aval (section 9, points 1 à 5, inchangés).
+
