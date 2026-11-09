@@ -84,8 +84,8 @@ DROP TYPE IF EXISTS "StatutResultatComparaison";
 ALTER TABLE "reseau_relations" DROP CONSTRAINT IF EXISTS "rr_preuve_connexion";
 ALTER TABLE "reseau_relations" DROP COLUMN IF EXISTS "preuve";
 DROP TYPE IF EXISTS "PreuveConnexionReseau";
+-- La contrainte qui lit `origine` est retiree AVANT la reconstruction du type (sinon elle reste liee a l'ancien type) et recreee apres, telle que B1.
 ALTER TABLE "reseau_relations" DROP CONSTRAINT IF EXISTS "rr_manuelle_decidee";
-ALTER TABLE "reseau_relations" ADD CONSTRAINT "rr_manuelle_decidee" CHECK ("origine" <> 'MANUELLE' OR "statut" <> 'PROPOSEE');
 
 -- Fonction de controle des relations telle que la migration 20261101200000 l'a definie (texte identique).
 CREATE OR REPLACE FUNCTION reseau_relation_controle() RETURNS trigger
@@ -190,6 +190,7 @@ $f$;
 
 SELECT pg_temp.retirer_valeurs_enum('TypeRelationReseau', ARRAY['CONNECTE_A']);
 SELECT pg_temp.retirer_valeurs_enum('OrigineRelationReseau', ARRAY['IMPORT_DECLARATIF']);
+ALTER TABLE "reseau_relations" ADD CONSTRAINT "rr_manuelle_decidee" CHECK ("origine" <> 'MANUELLE' OR "statut" <> 'PROPOSEE');
 
 -- ===== Jeux : cle de version du socle (projet, role, concessionnaire) et retrait de la methode d'acquisition =====
 DROP INDEX IF EXISTS "projets_voirie_jeux_cle_autorise_key";
