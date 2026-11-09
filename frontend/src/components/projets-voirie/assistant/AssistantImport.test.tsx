@@ -559,9 +559,11 @@ describe("etape 6 : comparaison avec la version autorisee, rien n'est ecrit avan
     const entrees = [...corps.entries()];
     expect(entrees[entrees.length - 1][0]).toBe("fichier");
     expect(champs(corps)).toMatchObject({
-      role: "RESEAU_TIERS", concessionnaireId: "c1", typeReseau: "TELECOM", natureObjets: "INCONNUE", confidentialite: "CONFIDENTIEL_CONCESSIONNAIRE", classePrecision: "INCONNUE",
+      role: "RESEAU_TIERS", concessionnaireId: "c1", typeReseau: "TELECOM", natureObjets: "INCONNUE", confidentialite: "CONFIDENTIEL_CONCESSIONNAIRE",
       couche: "c1", sha256Attendu: SHA,
     });
+    // Classe de precision inconnue : le champ n'est PAS envoye (le serveur n'accepte que A a E ; defaut D1 du pilote local).
+    expect(champs(corps)).not.toHaveProperty("classePrecision");
     expect(screen.getByTestId("simulation-seule")).toHaveTextContent("Simulation seulement : rien n'a été écrit");
     expect(dialogue()).toHaveTextContent("Version prévue3");
     expect(dialogue()).toHaveTextContent("la version 2 autorisée, une fois cette version autorisée à son tour");

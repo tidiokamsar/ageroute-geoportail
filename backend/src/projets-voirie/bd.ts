@@ -14,8 +14,13 @@ import { ErreurMetier } from "./erreurs";
 
 export type TxMinimale = Pick<PrismaClient, "$queryRaw">;
 
+/**
+ * Pose aussi `jit = off` pour la transaction : le compilateur JIT de PostgreSQL (actif par defaut) estime mal le cout des
+ * requetes PostGIS du module et compilait 24 s pour une requete executee en 0,3 s (pilote local du 09/11/2026, defaut D2 :
+ * 4 analyses sur 6 en 504 avec jit, 1,5 s sans). Le reglage est borne a la transaction, rien ne change ailleurs.
+ */
 export async function poserDelais(tx: TxMinimale, statementMs: number, verrouMs: number): Promise<void> {
-  await tx.$queryRaw`SELECT set_config('statement_timeout', ${String(Math.max(1, Math.round(statementMs)))}, true), set_config('lock_timeout', ${String(verrouMs)}, true)`;
+  await tx.$queryRaw`SELECT set_config('statement_timeout', ${String(Math.max(1, Math.round(statementMs)))}, true), set_config('lock_timeout', ${String(verrouMs)}, true), set_config('jit', 'off', true)`;
 }
 
 /**
@@ -45,6 +50,9 @@ export function estDelaiDepasse(e: unknown): boolean {
   if (e instanceof Prisma.PrismaClientKnownRequestError) {
     const code = (e.meta as { code?: unknown } | undefined)?.code;
     if (code === "57014" || code === "55P03") return true;
+    // P2028 : la transaction interactive de Prisma a expire avant que la base n'annule la requete. C'est le meme depassement
+    // de delai, rendu jusqu'ici en 500 (pilote local du 09/11/2026, defaut D3).
+    if (e.code === "P2028") return true;
   }
   const texte = e instanceof Error ? e.message : String(e);
   // Une requete coupee DANS un calcul GEOS ressort en XX000 « GEOS Error: InterruptedException: Interrupted! » (mesure du banc de

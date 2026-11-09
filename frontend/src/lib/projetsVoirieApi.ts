@@ -627,7 +627,9 @@ export async function deposerJeu(projetId: string, d: DonneesDepot, opts: { simu
   if (d.typeReseau) corps.append("typeReseau", d.typeReseau);
   if (d.dateDonnees) corps.append("dateDonnees", d.dateDonnees);
   if (d.origineFichier) corps.append("origineFichier", d.origineFichier);
-  if (d.classePrecision) corps.append("classePrecision", d.classePrecision);
+  // Classe inconnue = champ ABSENT (le serveur n'accepte que A a E et laisse la classe nulle sinon) : envoyer « INCONNUE »
+  // faisait refuser tout depot par defaut (400 CHAMPS_INVALIDES, pilote local du 09/11/2026, defaut D1).
+  if (d.classePrecision && d.classePrecision !== "INCONNUE") corps.append("classePrecision", d.classePrecision);
   if (typeof d.precisionHorizontaleM === "number") corps.append("precisionHorizontaleM", String(d.precisionHorizontaleM));
   if (typeof d.precisionVerticaleM === "number") corps.append("precisionVerticaleM", String(d.precisionVerticaleM));
   if (d.methode) corps.append("methode", d.methode);

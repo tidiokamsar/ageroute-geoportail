@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Prisma } from "@prisma/client";
-import { Budget, avecErreurDelai, estDelaiDepasse } from "./bd";
+import { Budget, avecErreurDelai, estDelaiDepasse, poserDelais } from "./bd";
 import { analyseIntervalleMinS, delaiAnalyseMs, delaiCarteMs, delaiDepotMs, delaiVerrouMs, sommetsParFichierMax, sommetsParObjetMax } from "./config";
 import { ErreurMetier } from "./erreurs";
 import { ErreurLecture, lireFichier } from "./lecture.noyau";
@@ -103,6 +103,25 @@ describe("delais cote base", () => {
     expect(estDelaiDepasse(erreurPrisma("XX000"))).toBe(false);
     expect(estDelaiDepasse(new Error("connexion refusee"))).toBe(false);
     expect(estDelaiDepasse("chaine")).toBe(false);
+  });
+
+  it("P2028 (transaction interactive expiree avant l'annulation par la base) est un delai depasse, pas une panne (defaut D3 du pilote)", async () => {
+    const p2028 = new Prisma.PrismaClientKnownRequestError("Transaction already closed", { code: "P2028", clientVersion: "5" });
+    expect(estDelaiDepasse(p2028)).toBe(true);
+    const autre = new Prisma.PrismaClientKnownRequestError("Unique", { code: "P2002", clientVersion: "5" });
+    expect(estDelaiDepasse(autre)).toBe(false);
+    const e = await avecErreurDelai("ANALYSE_TROP_LONGUE", "trop long", async () => { throw p2028; }).catch((x) => x);
+    expect(e).toMatchObject({ status: 504, code: "ANALYSE_TROP_LONGUE" });
+  });
+
+  it("poserDelais coupe le JIT de PostgreSQL pour la transaction, avec les deux delais (defaut D2 du pilote)", async () => {
+    const appels: string[] = [];
+    const tx = { $queryRaw: async (s: TemplateStringsArray) => { appels.push(s.join("?")); return []; } } as unknown as Parameters<typeof poserDelais>[0];
+    await poserDelais(tx, 5000, 2000);
+    expect(appels).toHaveLength(1);
+    expect(appels[0]).toContain("set_config('jit', 'off', true)");
+    expect(appels[0]).toContain("set_config('statement_timeout'");
+    expect(appels[0]).toContain("set_config('lock_timeout'");
   });
 
   it("avecErreurDelai : un delai depasse devient l'erreur typee 504 ; une erreur metier et toute autre erreur passent telles quelles", async () => {
