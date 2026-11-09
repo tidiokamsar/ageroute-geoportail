@@ -8,6 +8,7 @@
 // DONNEES 100 % SYNTHETIQUES : N circuits logiques (lignes de 100 m espacees de 4 m) et N gaines decalees de 0,3 m ; chaque circuit n'a qu'une gaine
 // a moins de la tolerance (2 m) : il y a donc exactement N propositions. Les durees sont celles d'un poste de developpement, charge par d'autres travaux.
 import { ouvrirBancClone } from "./lib/banc-clone.mts";
+import { avecTerritoireParDefaut } from "./lib/territoire-par-defaut.mts";
 import { verifier, conclure } from "./lib/verdict.ts";
 
 const NB = Number(process.env.RESEAUX_VOLUME ?? 3000);
@@ -19,7 +20,8 @@ const { signAccessToken } = await banc.imp("utils/jwt");
 const request = (await import("supertest")).default;
 process.env.PROJETS_VOIRIE_ASSOC_INTERVALLE_S = "0";
 process.env.PROJETS_VOIRIE_ASSOC_CIRCUITS_MAX = "100000";
-const app = createApp();
+// Lot T1 : territoire par defaut ajoute aux creations de projet du banc (voir lib/territoire-par-defaut.mts).
+const app = avecTerritoireParDefaut(createApp(), prisma);
 const BASE = "/api/v2/projets-voirie";
 const O = { x: 380000, y: 1015000 };
 const sql = <T = Record<string, unknown>>(texte: string, ...v: unknown[]) => prisma.$queryRawUnsafe(texte, ...v) as Promise<T[]>;

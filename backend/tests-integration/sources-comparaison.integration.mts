@@ -18,6 +18,7 @@
 //   Reseau electrique : connexions DECLAREES par une colonne du fichier (mapping connecteA), jamais deduites.
 import { writeFileSync } from "node:fs";
 import { ouvrirBancClone } from "./lib/banc-clone.mts";
+import { avecTerritoireParDefaut } from "./lib/territoire-par-defaut.mts";
 import { verifier, conclure, proche } from "./lib/verdict.ts";
 
 const banc = await ouvrirBancClone("essai_sources_s1", {
@@ -30,7 +31,8 @@ const request = (await import("supertest")).default;
 
 process.env.PROJETS_VOIRIE_ANALYSE_INTERVALLE_S = "0";
 process.env.PROJETS_VOIRIE_COMPARAISON_INTERVALLE_S = "0";
-const app = createApp();
+// Lot T1 : territoire par defaut ajoute aux creations de projet du banc (voir lib/territoire-par-defaut.mts).
+const app = avecTerritoireParDefaut(createApp(), prisma);
 const BASE = "/api/v2/projets-voirie";
 const O = { x: 380000, y: 1015000 };
 
@@ -366,7 +368,7 @@ async function main() {
   // ================================================================ 12. Isolation et audit
   const apresTout = await etat();
   const diff = Object.keys(apresTout).filter((t) => apresTout[t] !== avantTout[t]);
-  const permis = new Set(["audit_logs", "projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau", "reseau_relations", "regles_rapprochement_sources",
+  const permis = new Set(["audit_logs", "territoires_voirie", "projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau", "reseau_relations", "regles_rapprochement_sources",
     "comparaisons_sources_projet", "comparaisons_sources_resultats", "conflits_projet", "conflits_projet_historique", "analyses_conflit_projet"]);
   verifier("12. ISOLATION : seules les tables du module et l'audit changent ; le referentiel est intact", diff.every((t) => permis.has(t)) && (await empreinteTroncons()) === empreinteAvant, diff.filter((t) => !permis.has(t)));
   const audits = await sql<{ t: string; n: bigint }>(`SELECT "entityType" t, count(*) n FROM audit_logs WHERE "entityType" IN ('ComparaisonSources','RegleRapprochementSources') GROUP BY 1 ORDER BY 1`);
