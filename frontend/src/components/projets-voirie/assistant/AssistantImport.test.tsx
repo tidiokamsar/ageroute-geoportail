@@ -185,7 +185,7 @@ describe("etape 1 : depot", () => {
     expect(dialogue()).toHaveTextContent(/ne lit pas/);
     await u.click(bouton("Analyser le fichier"));
     const alerte = await screen.findByText(/Code : FORMAT_NON_SUPPORTE/).then((e) => e.closest("[role=alert]") as HTMLElement);
-    expect(alerte).toHaveTextContent(/GeoPackage, Shapefile, DXF et DWG sont prévus à un lot suivant/);
+    expect(alerte).toHaveTextContent(/GeoPackage, Shapefile ZIP et DXF passent par une chaîne de conversion isolée, qui peut être désactivée sur ce serveur ; DWG n'est pas lu/);
     expect(screen.getByRole("heading", { name: "Dépôt du fichier" })).toBeInTheDocument();
   });
   it("hors ligne : on ne peut pas analyser", async () => {

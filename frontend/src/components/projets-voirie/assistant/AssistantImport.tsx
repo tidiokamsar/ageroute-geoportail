@@ -119,14 +119,14 @@ export function AssistantImport({ projetId, enLigne, onFermer, onVoirJeu, jeuRep
   // -------------------------------------------------------------------------------------------------- Appels
   const donneesDepot = (l: Lecture, sha: string | undefined) => {
     if (!options) return null;
-    return construireDonneesDepot(saisie, options.formats, options.limites.tailleMaxOctets, champsLecture(l, sha)).donnees;
+    return construireDonneesDepot(saisie, options.formats, options.limites.tailleMaxOctets, champsLecture(l, sha), options.formatsGdal).donnees;
   };
 
   async function lancerInventaire(depuisEtapeDepot: boolean) {
     if (!options) return;
     setInfo(null);
     if (depuisEtapeDepot) {
-      const { erreurs: errs, donnees } = construireDonneesDepot(saisie, options.formats, options.limites.tailleMaxOctets);
+      const { erreurs: errs, donnees } = construireDonneesDepot(saisie, options.formats, options.limites.tailleMaxOctets, {}, options.formatsGdal);
       setErreurs(errs);
       if (!donnees) return;
     }
