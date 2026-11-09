@@ -17,10 +17,10 @@ import type { Largeurs } from "./projetsVoirie";
 export const CLE = ["projets-voirie"] as const;
 const OPTIONS = { networkMode: "always" as const, retry: false, refetchOnWindowFocus: false };
 
-export function useProjets(q: string) {
+export function useProjets(q: string, territoireId: string | null = null) {
   return useInfiniteQuery({
-    queryKey: [...CLE, "liste", q],
-    queryFn: ({ pageParam }) => listerProjets({ q, curseur: pageParam, limite: 25 }),
+    queryKey: [...CLE, "liste", q, territoireId],
+    queryFn: ({ pageParam }) => listerProjets({ q, curseur: pageParam, limite: 25, territoireId }),
     initialPageParam: null as string | null,
     getNextPageParam: (derniere) => derniere.suivant,
     ...OPTIONS,

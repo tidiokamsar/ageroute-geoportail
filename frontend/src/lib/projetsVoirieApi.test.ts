@@ -32,8 +32,8 @@ describe("liste, creation, fiche, parametres, retrait du projet", () => {
   });
   it("POST / cree un projet", async () => {
     h.post.mockResolvedValueOnce({ data: { id: "p1", code: "A-1", nom: "A", jeux: [] } });
-    const p = await creerProjet({ code: "A-1", nom: "A", largeurEmpriseM: 15, largeurChausseeM: 7 });
-    expect(h.post).toHaveBeenCalledWith(BASE, { code: "A-1", nom: "A", largeurEmpriseM: 15, largeurChausseeM: 7 });
+    const p = await creerProjet({ code: "A-1", nom: "A", largeurEmpriseM: 15, largeurChausseeM: 7, territoireId: "t-1" });
+    expect(h.post).toHaveBeenCalledWith(BASE, { code: "A-1", nom: "A", largeurEmpriseM: 15, largeurChausseeM: 7, territoireId: "t-1" });
     expect(p.id).toBe("p1");
   });
   it("GET /:id : forme a plat ou imbriquee, emprise, jeux", async () => {
