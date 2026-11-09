@@ -14,6 +14,8 @@ vi.hoisted(() => {
 interface Jeu {
   id: string; projetId: string; role: string; concessionnaireId: string | null; statut: string; version: number; remplaceId: string | null;
   resume: unknown; creeParId: string; deletedAt?: Date | null;
+  /** Lot S1 : colonne de la base (nulle = sans methode), lue par la cle de version des reseaux. */
+  methodeAcquisition: string | null;
 }
 interface Evenement { id: string; jeuId: string; type: string; acteurId: string; justification: string; details: unknown; createdAt: Date }
 
@@ -76,7 +78,7 @@ import { calculerDeltaDetaille } from "./formats/delta-detaille.noyau";
 
 const ACTEUR = { id: "u-chef", role: "GESTIONNAIRE" };
 const jeu = (id: string, statut: string, version: number, remplaceId: string | null = null): Jeu => ({
-  id, projetId: "p1", role: "RESEAU_TIERS", concessionnaireId: "c1", statut, version, remplaceId, resume: {}, creeParId: "u-depose",
+  id, projetId: "p1", role: "RESEAU_TIERS", concessionnaireId: "c1", methodeAcquisition: null, statut, version, remplaceId, resume: {}, creeParId: "u-depose",
 });
 const objet = (nom: string) => ({ id: nom, nom, empreinte: `e-${nom}` });
 const JUSTIF = "Controle effectue avec le chef de projet";
