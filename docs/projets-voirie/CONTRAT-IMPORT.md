@@ -83,7 +83,7 @@ Valeur de `format` stockée : `KML`, `KMZ`, `GEOJSON`, `GPX`, `CSV`. Un TSV ou u
 
 ### 5.1 Liste blanche
 
-`GET /:id/import/options` renvoie `crs.sourcesAutorisees` : `[ { epsg, nom, unite } ]`. Défaut : **EPSG:4326, EPSG:32628, EPSG:32629** (WGS 84 géographique, UTM 28N, UTM 29N). Réglable par `PROJETS_VOIRIE_CRS_SOURCE_AUTORISES` (liste d'entiers séparés par des virgules). Tout autre code : 422 `CRS_NON_AUTORISE` (« non validé par le DSI »). Un code autorisé que la base ne connaît pas : 422 `CRS_NON_DISPONIBLE`. Cible de stockage : **EPSG:4326** (inchangé).
+`GET /:id/import/options` renvoie `crs.sourcesAutorises` (nom réel de la clé ; défaut C1-03 du lot C1) : `[ { epsg, nom, unite } ]`. Défaut : **EPSG:4326, EPSG:32628, EPSG:32629** (WGS 84 géographique, UTM 28N, UTM 29N). Réglable par `PROJETS_VOIRIE_CRS_SOURCE_AUTORISES` (liste d'entiers séparés par des virgules). Tout autre code : 422 `CRS_NON_AUTORISE` (« non validé par le DSI »). Un code autorisé que la base ne connaît pas : 422 `CRS_NON_DISPONIBLE`. Cible de stockage : **EPSG:4326** (inchangé).
 
 ### 5.2 `resume.crs` (aperçu, simulation, dépôt, fiche du jeu)
 

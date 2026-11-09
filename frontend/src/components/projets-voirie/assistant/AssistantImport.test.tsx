@@ -639,6 +639,11 @@ describe("etape 6 : comparaison avec la version autorisee, rien n'est ecrit avan
     await u.click(bouton("Refuser les suppressions"));
     await waitFor(() => expect(screen.getByTestId("revue-suppressions")).toHaveAttribute("data-statut", "REFUSEES"));
     expect(appels(/revue-suppressions$/)[0][1]).toMatchObject({ decision: "REFUSER" });
+    // Defaut C1-02 (regle O1 du serveur) : apres un refus, accepter est impossible ; le bouton disparait, refuser de nouveau reste permis.
+    const zone = within(screen.getByTestId("revue-suppressions"));
+    expect(zone.queryByRole("button", { name: "Accepter les suppressions" })).toBeNull();
+    expect(zone.getByRole("button", { name: "Refuser les suppressions" })).toBeInTheDocument();
+    expect(screen.getByTestId("derniere-revue")).toHaveTextContent(/Ce refus est définitif/);
   });
   it("sans suppression : rien a revoir, pas de formulaire de revue", async () => {
     s.simulation = reponseDepot({ delta: { ajoutes: 2, modifies: 0, retires: 0, identiques: 3 }, suppressions: { statut: "AUCUNE", nb: 0 } });

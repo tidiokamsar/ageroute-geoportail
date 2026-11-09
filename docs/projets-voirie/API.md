@@ -766,7 +766,7 @@ Un objet **sans** descripteur (hérite du jeu, classe inconnue, vertical absent)
 }
 ```
 
-La fiche porte aussi `relations` (chacune avec son `role` : `SOURCE` ou `CIBLE`, et les actions possibles pour le compte) et `tracePartagee` : nombre d'**autres** objets du même jeu à la trace strictement identique (circuits superposés : ils restent séparés, ce ne sont pas des câbles distincts).
+La fiche porte aussi `relations` (chacune avec son `role` : `SOURCE` ou `CIBLE`, et les actions possibles pour le compte) et `tracePartagee` : pour une ligne, l'objet `{ nbAutresObjets, libelle }` (`nbAutresObjets` : nombre d'**autres** objets du même jeu à la trace strictement identique ; circuits superposés : ils restent séparés, ce ne sont pas des câbles distincts) ; `null` pour un point ou un polygone (défaut C1-04 du lot C1 : la doc parlait d'un nombre). Sur la fiche d'un dossier de conflit, `cible.tracePartagee` reste un nombre.
 
 ### Descripteur (PUT)
 
