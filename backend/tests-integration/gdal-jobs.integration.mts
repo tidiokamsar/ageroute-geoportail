@@ -24,6 +24,7 @@ const { prisma } = await banc.imp("lib/prisma");
 const { createApp } = await banc.imp("app");
 const { signAccessToken } = await banc.imp("utils/jwt");
 const { traiterUnTour } = await banc.imp("projets-voirie/gdal/traiteur");
+const { limiteurConversions } = await banc.imp("projets-voirie/gdal/jobs.service");
 const { construireZip } = await banc.imp("projets-voirie/formats/zip.fixtures");
 const { dxfMixte } = await banc.imp("projets-voirie/gdal/fixtures.gdal");
 const request = (await import("supertest")).default;
@@ -154,8 +155,11 @@ async function main() {
     return Number((await sql<{ l: number }>(`SELECT ST_Length(ST_Transform(ST_SetSRID(ST_GeomFromText($1), 32629), 4326)::geography)::float8 AS l`, wkt))[0].l);
   }
   const proche = (a: number[][], b: number[][], tol: number) => a.length === b.length && a.every((p, i) => Math.abs(p[0] - b[i][0]) <= tol && Math.abs(p[1] - b[i][1]) <= tol);
-  const spoolVide = () => readdirSync(path.join(SPOOL, "entree")).length + readdirSync(path.join(SPOOL, "sortie")).length === 0;
-  const contenuSpool = (jobId: string) => [...readdirSync(path.join(SPOOL, "entree")), ...readdirSync(path.join(SPOOL, "sortie"))].filter((n) => n.startsWith(jobId));
+  const lireDossier = (d: string) => (existsSync(path.join(SPOOL, d)) ? readdirSync(path.join(SPOOL, d)) : []);
+  const spoolVide = () => lireDossier("entree").length + lireDossier("sortie").length === 0;
+  /** Dossiers d'un job dans le spool : entree/<id>-t<n>, sortie/<id>-t<n> et le depot prive prive/<id> (lot V2, M2). */
+  const contenuSpool = (jobId: string) => [...lireDossier("entree"), ...lireDossier("sortie"), ...lireDossier("prive")].filter((n) => n.startsWith(jobId));
+  const spoolIdDe = async (jobId: string): Promise<string> => (await sql<any>(`SELECT "spoolId" FROM projets_voirie_import_jobs WHERE id = $1`, jobId))[0].spoolId;
 
   console.log("\n== Jobs de conversion GDAL : banc PostGIS et conteneur reel ==");
   const PID = await projet("GDAL-1");
@@ -213,7 +217,14 @@ async function main() {
   verifier("E2E GPKG : job TERMINE par le conteneur reel ; resume sans geometrie (couche, 3 objets, CRS source EPSG:32629 declare par le fichier, GDAL/PROJ versionnes)",
     j1.statut === "TERMINE" && j1.resume.couches.length === 1 && j1.resume.couches[0].nbObjets === 3 && j1.resume.couches[0].crsSource?.epsg === 32629 && j1.resume.couches[0].crsSource?.origine === "fichier"
     && /^3\./.test(j1.resume.gdal.version) && !!j1.resume.gdal.proj && !JSON.stringify(j1).includes("coordinates") && j1.resume.source.sha256 === sha(GPKG3) && j1.resume.source.octets === GPKG3.length, j1);
-  verifier("E2E GPKG : le job est utilisable, ses fichiers du spool existent, expiration dans 24 h", j1.utilisable === true && contenuSpool(j1.id).length === 2 && Math.abs(new Date(j1.expireLe).getTime() - Date.now() - 24 * 3600_000) < 120_000);
+  verifier("E2E GPKG : le job est utilisable, seule sa SORTIE reste dans le spool (entree du conteneur et depot prive retires des TERMINE : M2, m6), expiration dans 24 h",
+    j1.utilisable === true && contenuSpool(j1.id).length === 1 && existsSync(path.join(SPOOL, "sortie", await spoolIdDe(j1.id))) && !existsSync(path.join(SPOOL, "entree", await spoolIdDe(j1.id)))
+    && !existsSync(path.join(SPOOL, "prive", j1.id)) && Math.abs(new Date(j1.expireLe).getTime() - Date.now() - 24 * 3600_000) < 120_000, contenuSpool(j1.id));
+  process.env.PROJETS_VOIRIE_GDAL_RESULTATS_MAX = "1";
+  const plein = await creerJob(PID, GPKG2, {}, "encore.gpkg");
+  delete process.env.PROJETS_VOIRIE_GDAL_RESULTATS_MAX;
+  verifier("m6 : plafond global des resultats TERMINE non utilises (1) : 503 PLAFOND_RESULTATS_EN_ATTENTE avec Retry-After, aucun job cree", plein.status === 503 && plein.body.code === "PLAFOND_RESULTATS_EN_ATTENTE"
+    && Number(plein.headers["retry-after"]) > 0 && await compter(`SELECT count(*) AS n FROM projets_voirie_import_jobs WHERE "nomFichier" = 'encore.gpkg'`) === 0, plein.body);
   const inv1 = await multipart(`/${PID}/import/inventaire`, { jobId: j1.id }, null);
   verifier("E2E GPKG : inventaire du job : couche `axes`, 3 objets de type LIGNE, CRS declare EPSG:32629 a confirmer, champs nom et n, aucune coordonnee", inv1.status === 200 && inv1.body.format === "GPKG"
     && inv1.body.couches[0].id === "axes" && inv1.body.couches[0].parTypeGeom.LIGNE === 3 && inv1.body.crs.declareDansLeFichier === "EPSG:32629" && inv1.body.crs.choixObligatoire === true
@@ -378,11 +389,18 @@ async function main() {
   verifier("plafonds : un autre compte n'est pas bloque par le plafond du premier (par compte), mais par celui du projet", c3b.status === 202, c3b.body);
   const c4 = await creerJob(PIDC, variante(4), { epsgSource: "32629", unitesDxf: "metre" }, "v4.dxf", T.chef2);
   verifier("plafonds : 4e job actif du projet (maximum 3) : 429 PLAFOND_JOBS_PROJET", c4.status === 429 && c4.body.code === "PLAFOND_JOBS_PROJET", c4.body);
+  const avantTour = (await sql<any>(`SELECT id, "spoolId" FROM projets_voirie_import_jobs WHERE "projetId" = $1 ORDER BY "createdAt"`, PIDC));
+  verifier("M2 : avant la reclamation, les fichiers des jobs EN_ATTENTE sont dans le depot PRIVE du backend, aucun dans entree/ (le conteneur ne voit rien)",
+    avantTour.every((j: any) => existsSync(path.join(SPOOL, "prive", j.id)) && !existsSync(path.join(SPOOL, "entree", j.spoolId))), avantTour);
   const bilan1 = await traiterUnTour();
-  const etats = (await sql<any>(`SELECT statut::text AS s, tentatives, "spoolId" FROM projets_voirie_import_jobs WHERE "projetId" = $1 ORDER BY "createdAt"`, PIDC));
+  const etats = (await sql<any>(`SELECT id, statut::text AS s, tentatives, "spoolId" FROM projets_voirie_import_jobs WHERE "projetId" = $1 ORDER BY "createdAt"`, PIDC));
   verifier("sondage : concurrence 2 : deux jobs transmis au conteneur (EN_COURS, tentative 1), le troisieme attend (EN_ATTENTE) ; demande.json publiee en dernier",
     bilan1.reclames === 2 && etats.map((e: any) => e.s).join() === "EN_COURS,EN_COURS,EN_ATTENTE" && etats[0].tentatives === 1
     && existsSync(path.join(SPOOL, "entree", etats[0].spoolId, "demande.json")) && !existsSync(path.join(SPOOL, "entree", etats[2].spoolId, "demande.json")), { bilan1, etats });
+  verifier("M2 : seuls les jobs TRANSMIS ont une entree visible du conteneur ; le job en attente reste dans le prive", existsSync(path.join(SPOOL, "entree", etats[0].spoolId, "fichier.dxf"))
+    && existsSync(path.join(SPOOL, "entree", etats[1].spoolId, "fichier.dxf")) && !existsSync(path.join(SPOOL, "entree", etats[2].spoolId)) && existsSync(path.join(SPOOL, "prive", etats[2].id, "fichier.dxf")));
+  const auditReclam = await sql<any>(`SELECT "userId", "after" FROM audit_logs WHERE "entityType" = 'JobImportProjet' AND "entityId" = $1 AND "after"->>'statut' = 'EN_COURS'`, etats[0].id);
+  verifier("m8 : la transition EN_ATTENTE -> EN_COURS (reclamation par le sondage) est auditee, sans acteur, avec la tentative", auditReclam.length === 1 && auditReclam[0].userId === null && auditReclam[0].after.tentative === 1, auditReclam);
   const annule = await envoyer("post", `/${PIDC}/import/jobs/${c3b.body.job.id}/annuler`);
   const annule2 = await envoyer("post", `/${PIDC}/import/jobs/${c3b.body.job.id}/annuler`);
   verifier("annulation : un job EN_ATTENTE s'annule (ANNULE, annuleParId) ; une seconde annulation : 409 JOB_NON_ANNULABLE", annule.status === 200 && annule.body.job.statut === "ANNULE" && annule2.status === 409 && annule2.body.code === "JOB_NON_ANNULABLE", annule2.body);
@@ -514,6 +532,35 @@ async function main() {
   writeFileSync(fichierCouche, readFileSync(fichierCouche, "utf8").replace(/"Layer":"AXES"/, '"Layer":"AXEZ"'));
   const apAltere = await multipart(`/${PID2}/import/apercu`, { jobId: jt.id }, null);
   verifier("alteration : un fichier de couche modifie apres la validation (meme taille, contenu different) : 409 RESULTAT_ALTERE", apAltere.status === 409 && apAltere.body.code === "RESULTAT_ALTERE", apAltere.body);
+  // m4 : resultat.json modifie apres validation (crsSource change, empreintes des couches intactes) : refuse aussi
+  const jt2 = await convertir(PID2, dxfMixte({ origine: [O.x + 6000, O.y] }), { epsgSource: "32629", unitesDxf: "metre" }, "tamper2.dxf");
+  const fResultat = path.join(SPOOL, "sortie", await spoolIdDe(jt2.id), "resultat.json");
+  const resultatTexte = readFileSync(fResultat, "utf8");
+  writeFileSync(fResultat, resultatTexte.replace(/"reprojete":\s*true/, '"reprojete": false').replace(/"coordonnees":\s*"wgs84"/, '"coordonnees": "brutes"').replace(/"crs":\s*\{\s*"epsg":\s*4326,\s*"nom":\s*"[^"]*"\s*\}/, '"crs": null').replace(/"crsSource":\s*\{[^}]*\}/, '"crsSource": null'));
+  const apAltere2 = await multipart(`/${PID2}/import/apercu`, { jobId: jt2.id }, null);
+  verifier("m4 : resultat.json reecrit apres validation (CRS source, coordonnees, reprojete), fichiers de couche INTACTS : 409 RESULTAT_ALTERE (jamais lu comme des coordonnees brutes a confirmer)",
+    apAltere2.status === 409 && apAltere2.body.code === "RESULTAT_ALTERE", apAltere2.body);
+
+  // M3 : une panne du BACKEND a la validation (limiteur sature pendant 15 s) ne declare pas le conteneur hostile : le job reste EN_COURS et est valide au tour suivant
+  const PIDM = await projet("GDAL-TRANSITOIRE");
+  const jm = await creerJob(PIDM, dxfMixte({ origine: [O.x + 7000, O.y] }), { epsgSource: "32629", unitesDxf: "metre" }, "transitoire.dxf");
+  await traiterUnTour();
+  const spoolM = await spoolIdDe(jm.body.job.id);
+  for (let i = 0; i < 90 && !existsSync(path.join(SPOOL, "sortie", spoolM, "statut.json")) ; i++) await attendre(1000);
+  for (let i = 0; i < 90 && !/"statut":\s*"termine"/.test(existsSync(path.join(SPOOL, "sortie", spoolM, "statut.json")) ? readFileSync(path.join(SPOOL, "sortie", spoolM, "statut.json"), "utf8") : ""); i++) await attendre(1000);
+  const liberer: Array<() => void> = [];
+  const occupations = [0, 1].map(() => limiteurConversions.executer(() => new Promise<void>((r) => liberer.push(r))));
+  await attendre(50);
+  const t0m = Date.now();
+  const bilanM = await traiterUnTour();
+  const dureeM = Date.now() - t0m;
+  const apresM = (await sql<any>(`SELECT statut::text AS s, "codeErreur" FROM projets_voirie_import_jobs WHERE id = $1`, jm.body.job.id))[0];
+  verifier("M3 : limiteur de chargements sature (ServiceOccupe apres 15 s) : le tour compte une erreur, le job RESTE EN_COURS sans code d'erreur (conteneur honnete jamais declare hostile)",
+    bilanM.erreurs >= 1 && bilanM.echecs === 0 && apresM.s === "EN_COURS" && apresM.codeErreur === null && dureeM >= 14_000, { bilanM, apresM, dureeM });
+  for (const l of liberer) l();
+  await Promise.all(occupations);
+  const jmFin = await attendreJob(PIDM, jm.body.job.id);
+  verifier("M3 : au tour suivant, la validation reussit : TERMINE", jmFin.statut === "TERMINE" && jmFin.resume?.dxf?.lues?.LINE === 2, jmFin);
 
   // ================================================================ 7. Controle d'acces
   console.log("\n-- 7. Controle d'acces : identique au socle");
@@ -584,7 +631,11 @@ async function main() {
   verifier("spool : aucun fichier de job utilise, annule, expire ou echoue n'y reste (purge)", await (async () => {
     await tourEnAvance(1);
     const finis = await sql<any>(`SELECT id, "spoolId", statut::text AS s, "jeuId" FROM projets_voirie_import_jobs WHERE statut IN ('ECHEC','ANNULE','EXPIRE') OR "jeuId" IS NOT NULL`);
-    return finis.every((j: any) => !existsSync(path.join(SPOOL, "entree", j.spoolId ?? "x")) && !existsSync(path.join(SPOOL, "sortie", j.spoolId ?? "x")));
+    return finis.every((j: any) => !existsSync(path.join(SPOOL, "entree", j.spoolId ?? "x")) && !existsSync(path.join(SPOOL, "sortie", j.spoolId ?? "x")) && !existsSync(path.join(SPOOL, "prive", j.id)));
+  })());
+  verifier("M2 : aucun job dont le conteneur a fini (TERMINE, ECHEC, ANNULE, EXPIRE) ne laisse de fichier dans entree/ ; seules les sorties des resultats non utilises restent", await (async () => {
+    const finis = await sql<any>(`SELECT "spoolId" FROM projets_voirie_import_jobs WHERE statut IN ('TERMINE','ECHEC','ANNULE','EXPIRE')`);
+    return finis.every((j: any) => !existsSync(path.join(SPOOL, "entree", j.spoolId ?? "x")));
   })());
   void spoolVide;
 }
