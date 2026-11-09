@@ -5,8 +5,10 @@
  * C'est une AIDE A LA DECISION, jamais un verdict : chaque element porte `statut: "A_VERIFIER"`, la regle appliquee et la version
  * de l'algorithme. Rien ici ne cree d'ordre, de decision ni de deplacement. Lecture seule (`SET TRANSACTION READ ONLY`).
  *
- * JEUX RETENUS : par defaut les seuls jeux AUTORISE. Avec `inclureNonAutorises`, un jeu en controle REMPLACE, pour ce calcul seulement,
- * le jeu autorise de meme role et de meme concessionnaire (jamais les deux : on ne compterait pas deux fois le meme reseau).
+ * JEUX RETENUS (correctifs T1+S1, M4 : meme regle que le comptage et que l'analyse persistee RC-3) : par defaut TOUS les jeux AUTORISE, donc
+ * toutes les sources autorisees d'un reseau (une par lignee : role, concessionnaire, type et methode d'acquisition). Avec `inclureNonAutorises`, un
+ * jeu en controle REMPLACE, pour ce calcul seulement, le jeu autorise de SA lignee. Deux sources d'un meme reseau s'additionnent : la reponse le dit
+ * (`reseaux.sourcesMultiples` et une limite).
  */
 
 import { prisma } from "../lib/prisma";
@@ -24,6 +26,7 @@ import { ErreurMetier, introuvable } from "./erreurs";
 import type { Acteur } from "./projets.service";
 import { descripteursDesObjets } from "./reseaux/reseaux.depot";
 import { classeEffective, natureEffective } from "./reseaux/types.noyau";
+import { LIMITE_SOURCES_MULTIPLES, retenirJeux, sourcesMultiples } from "./reseaux/comptage.noyau";
 import { INCLURE_JEU } from "./vues";
 import { contexteSpatialDuProjet } from "./territoires/contexte-spatial";
 
@@ -56,19 +59,6 @@ function lireJeux(projetId: string, inclure: boolean) {
   });
 }
 
-/** Retient un seul jeu par (role, concessionnaire) : le jeu en controle, s'il y en a un, sinon le jeu autorise. */
-function jeuxRetenus(jeux: JeuLu[]): JeuLu[] {
-  const parCle = new Map<string, JeuLu>();
-  const autres: JeuLu[] = [];
-  for (const j of jeux) {
-    if (j.role === "AUTRE") { autres.push(j); continue; }
-    const cle = `${j.role}|${j.concessionnaireId ?? ""}`;
-    const courant = parCle.get(cle);
-    const enAttente = j.statut !== "AUTORISE";
-    if (!courant || (enAttente && courant.statut === "AUTORISE") || (enAttente === (courant.statut !== "AUTORISE") && j.createdAt > courant.createdAt)) parCle.set(cle, j);
-  }
-  return [...parCle.values(), ...autres];
-}
 
 export interface ResultatAnalyse {
   reponse: Record<string, unknown>;
@@ -92,7 +82,8 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
 
   // Lot T1 : CRS metrique impose par le territoire du projet, sinon regle par bandes de la configuration nationale (plus de constante).
   const spatial = await contexteSpatialDuProjet(d.projetId);
-  const retenus = jeuxRetenus(await lireJeux(d.projetId, d.inclureNonAutorises));
+  const retenus = retenirJeux(await lireJeux(d.projetId, d.inclureNonAutorises), d.inclureNonAutorises);
+  const multiples = sourcesMultiples(retenus);
   const axes = retenus.filter((j) => j.role === "AXES_TRAVAUX");
   const reseaux = retenus.filter((j) => j.role === "RESEAU_TIERS");
   const limites = retenus.filter((j) => j.role === "LIMITES_ROUTE");
@@ -188,7 +179,7 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
     return {
       concessionnaireId: id, nom: nomConc(js[0]),
       classePrecision: classes.length === 1 ? (classes[0] === "inconnue" ? null : classes[0]) : null, classesPrecision: classes,
-      // Un concessionnaire a au plus un jeu retenu par cle : la qualification est celle de son jeu (la plus prudente si plusieurs).
+      // Un concessionnaire peut avoir plusieurs jeux retenus (types ou sources) : la qualification est la plus prudente de ses jeux.
       qualification: js.every((j) => qualificationDe(classeDe(j)) === "CONFLIT_POTENTIEL") ? "CONFLIT_POTENTIEL" as const : "PROXIMITE_A_VERIFIER" as const,
       ...s, ...etiquette, nonAutorise: js.some((j) => j.statut !== "AUTORISE"),
     };
@@ -273,6 +264,7 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
       parType: [...parType.values()].map((t) => ({ ...t, longueurTraceFusionneM: r2(t.longueurTraceFusionneM), libelleNbObjets: LIBELLES.nbObjets })).sort((a, b) => b.longueurTraceFusionneM - a.longueurTraceFusionneM),
       parConcessionnaire: reseauxConc,
       parNature: reseauxParNature,
+      sourcesMultiples: multiples,
     },
     conflits: {
       total: {
@@ -300,7 +292,7 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
       zones: { chaussee: geo(mesures.zones.chaussee), emprise: geo(mesures.zones.emprise), hors: geo(mesures.zones.hors), tronque: zonesTronquees },
     },
     hypotheses: construireHypotheses(ctx),
-    limites: construireLimites(ctx),
+    limites: [...construireLimites(ctx), ...(multiples.length > 0 ? [LIMITE_SOURCES_MULTIPLES] : [])],
   };
 
   return {

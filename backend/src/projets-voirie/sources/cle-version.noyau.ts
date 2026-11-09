@@ -59,7 +59,7 @@ export function memeLignee(a: JeuCle, b: JeuCle): boolean {
 }
 
 /** Cle de lignee sous forme de texte (meme composantes que l index) : sert a retenir un jeu par lignee dans l analyse 2D et le comptage (M4). */
-export function cleLignee(j: JeuCle): string {
+export function cleLignee(j: Omit<JeuCle, "projetId">): string {
   return methodeDansCle(j.role)
     ? [j.role, j.concessionnaireId ?? "", identiteTypeReseau(j), j.methodeAcquisition ?? ""].join("|")
     : [j.role, j.concessionnaireId ?? ""].join("|");

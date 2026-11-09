@@ -328,6 +328,17 @@ async function main() {
   verifier("8. le resultat porte le lien vers le dossier, ecrit une seule fois (le changer : 23001)", lienRes === kid && lienFige === "23001", lienFige);
   // Une analyse RC-3 (plan d'axes AX1 autorise, reseaux autorises) ne touche pas le dossier de divergence.
   const analyse = await envoyer("post", `/${PID}/analyses`, {});
+  // Correctifs T1+S1 (M4) : l'analyse 2D, le comptage et l'analyse persistee RC-3 portent sur les MEMES jeux de reseau (toutes les sources autorisees).
+  const [a2d, cpt] = await Promise.all([get(`/${PID}/analyse`), get(`/${PID}/reseau/comptage`)]);
+  const reseau2d = (a2d.body.jeux as { jeuId: string; role: string }[] ?? []).filter((j) => j.role === "RESEAU_TIERS").map((j) => j.jeuId).sort();
+  const reseauCpt = (cpt.body.jeux as { jeuId: string; role: string }[] ?? []).filter((j) => j.role === "RESEAU_TIERS").map((j) => j.jeuId).sort();
+  const reseauRc3 = ((await sql<{ j: { jeuId: string; role: string }[] }>(`SELECT jeux j FROM analyses_conflit_projet WHERE id = $1`, analyse.body.analyse?.id))[0]?.j ?? [])
+    .filter((j) => j.role === "RESEAU_TIERS").map((j) => j.jeuId).sort();
+  const multi = (a2d.body.reseaux?.sourcesMultiples as { concessionnaireId: string; nbSources: number; jeuxIds: string[] }[] | undefined)?.find((m) => m.concessionnaireId === CT);
+  verifier("8. M4 : analyse 2D, comptage et RC-3 retiennent les memes jeux de reseau, dont les DEUX sources autorisees du reseau telecom (JA et JB) ; la double source est dite (sourcesMultiples et une limite) dans l'analyse et le comptage",
+    a2d.status === 200 && cpt.status === 200 && reseau2d.includes(JA) && reseau2d.includes(JB) && JSON.stringify(reseau2d) === JSON.stringify(reseauRc3) && JSON.stringify(reseauCpt) === JSON.stringify(reseauRc3)
+    && multi?.nbSources === 2 && multi.jeuxIds.includes(JA) && multi.jeuxIds.includes(JB) && (a2d.body.limites as string[]).some((l) => /double compte/.test(l))
+    && (cpt.body.sourcesMultiples as unknown[]).length >= 1 && (cpt.body.limites as string[]).some((l) => /double compte/.test(l)), [reseau2d, reseauCpt, reseauRc3, a2d.body.reseaux?.sourcesMultiples]);
   const apresAnalyse = (await sql<{ are: boolean; da: string | null; statut: string }>(`SELECT "aReexaminer" are, "derniereAnalyseId" da, statut::text FROM conflits_projet WHERE id = $1`, kid))[0];
   verifier("8. une analyse RC-3 ignore le dossier de divergence : ni NON_RETROUVE, ni analyse, ni statut change", analyse.status === 201 && apresAnalyse.are === false && apresAnalyse.da === null && apresAnalyse.statut === "A_INVESTIGUER", [analyse.status, analyse.body.code, apresAnalyse]);
   await autoriser(PID, AX2);
