@@ -8,6 +8,7 @@ import {
   ID_OBJET, NATURES_DECLARABLES, NIVEAUX_CONFIANCE, ORIGINES_RELATION, STATUTS_QUALITE, STATUTS_RELATION, TYPES_RELATION,
 } from "../projets-voirie/reseaux/types.noyau";
 import { voitTousLesJeux, type Acteur } from "../projets-voirie/projets.service";
+import { PREUVES_CONNEXION } from "../projets-voirie/sources/types.noyau";
 
 /**
  * `/api/v2/projets-voirie/:id/reseau/...` -- RESEAUX PHYSIQUES ET CIRCUITS LOGIQUES (lot B1). Contrat : docs/projets-voirie/CONTRAT-RESEAUX.md ;
@@ -127,9 +128,11 @@ export function monterRoutesReseaux(router: Router, o: OutilsRoutesReseaux): voi
     res.json(await listerRelationsProjet(acteurDe(req), req.params.id, { statuts: p.data.statut, type: p.data.type, objetId: p.data.objetId, origine: p.data.origine, curseur, limite: p.data.limite }));
   }));
 
+  // Lot S1 : `preuve` est exigee pour une connexion declaree (CONNECTE_A) et refusee pour les autres types ; aucune connexion n est jamais deduite.
   const corpsRelation = z.object({
     type: z.enum(TYPES_RELATION), sourceObjetId: idObjet, cibleObjetId: idObjet, justification: z.string().trim().min(10, "10 caractères au moins").max(2000),
-  }).strict();
+    preuve: z.enum(PREUVES_CONNEXION).optional(),
+  }).strict().refine((c) => (c.type === "CONNECTE_A") === (c.preuve !== undefined), { message: "preuve (CONFIRMEE_PAR_FOURNISSEUR ou INCONNUE) est exigée pour CONNECTE_A et n'existe que pour ce type", path: ["preuve"] });
   router.post("/:id/reseau/relations", ecriture, gardeProjet, enveloppe(async (req, res) => {
     const p = corpsRelation.safeParse(req.body);
     if (!p.success) return refuser(res, p.error, "CHAMPS_INVALIDES");
