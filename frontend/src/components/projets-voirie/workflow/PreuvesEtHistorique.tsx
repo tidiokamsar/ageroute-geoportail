@@ -17,9 +17,17 @@ import { formaterTaille } from "../../../lib/projetsVoirie";
  * qu'elle ressemble a une adresse ou non (aucun `<a>`, aucun HTML d'un contenu saisi).
  */
 
-export function ListePreuves({ preuves }: { preuves: PreuveWorkflow[] }) {
-  if (preuves.length === 0) return <p className="text-xs text-gray-700">Aucune preuve enregistrée.</p>;
+/** Entrees de la reponse que cette version ne sait pas lire : dites, jamais tues (meme regle que les listes paginees). */
+export function AvertissementIgnores({ ignores, sujet }: { ignores: number; sujet: string }) {
+  if (ignores <= 0) return null;
+  return <p role="alert" data-testid={`ignores-${sujet}`} className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">{ignores} élément(s) de la réponse du serveur n&apos;ont pas pu être lus (forme ou type inconnu de cette version de l&apos;interface) et ne sont pas affichés.</p>;
+}
+
+export function ListePreuves({ preuves, ignores = 0 }: { preuves: PreuveWorkflow[]; ignores?: number }) {
+  if (preuves.length === 0) return <><AvertissementIgnores ignores={ignores} sujet="preuves" /><p className="text-xs text-gray-700">Aucune preuve enregistrée.</p></>;
   return (
+    <>
+    <AvertissementIgnores ignores={ignores} sujet="preuves" />
     <ol aria-label="Preuves" className="space-y-1.5">
       {preuves.map((p) => (
         <li key={p.id} data-preuve-id={p.id} className="space-y-0.5 rounded border border-gray-200 p-1.5 text-xs text-gray-900">
@@ -40,6 +48,7 @@ export function ListePreuves({ preuves }: { preuves: PreuveWorkflow[] }) {
         </li>
       ))}
     </ol>
+    </>
   );
 }
 
@@ -109,10 +118,12 @@ const libelleStatut = (s: string | null): string => (s ? LIBELLE_STATUT_DEMANDE[
 const texteChamp = (v: unknown): string => (v === null || v === undefined || v === "" ? "vide" : texteValeur(v));
 
 /** Historique en ajout seul : action, acteur et profil, etats, justification, et les champs AVANT et APRES d'une modification. `null` : le serveur ne l'envoie pas a ce profil. */
-export function HistoriqueWorkflow({ historique }: { historique: EntreeHistoriqueWorkflow[] | null }) {
+export function HistoriqueWorkflow({ historique, ignores = 0 }: { historique: EntreeHistoriqueWorkflow[] | null; ignores?: number }) {
   if (historique === null) return <p data-testid="historique-non-communique" className="text-xs text-gray-700">L&apos;historique n&apos;est communiqué qu&apos;aux personnes qui décident pour AGEROUTE : il n&apos;est pas disponible pour votre profil.</p>;
-  if (historique.length === 0) return <p className="text-xs text-gray-700">Aucune entrée d&apos;historique.</p>;
+  if (historique.length === 0) return <><AvertissementIgnores ignores={ignores} sujet="historique" /><p className="text-xs text-gray-700">Aucune entrée d&apos;historique.</p></>;
   return (
+    <>
+    <AvertissementIgnores ignores={ignores} sujet="historique" />
     <div role="region" aria-label="Historique, liste défilante" tabIndex={0} className="max-h-72 overflow-auto">
       <ol className="space-y-1.5">
         {historique.map((h) => {
@@ -149,5 +160,6 @@ export function HistoriqueWorkflow({ historique }: { historique: EntreeHistoriqu
         })}
       </ol>
     </div>
+    </>
   );
 }

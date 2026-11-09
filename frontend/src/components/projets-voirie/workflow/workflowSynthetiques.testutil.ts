@@ -143,7 +143,7 @@ const choisir = (v: unknown, p: Params, defaut: unknown) => (typeof v === "funct
 export function reponseApiWorkflow(url: string, params: Params, over: SurchargesWorkflow = {}): { data: unknown } {
   if (url === "/v2/projets-voirie/workflow/mon-profil") return rendu(over.profil ?? profilServeur("GESTIONNAIRE"));
   if (url === "/v2/projets-voirie/concessionnaires") return rendu(over.concessionnaires ?? [{ id: CONC_A, nom: "Operateur synthetique A", typeReseau: "TELECOM" }, { id: CONC_B, nom: "Societe des eaux synthetique", typeReseau: "EAU_POTABLE" }]);
-  if (url === "/users") return rendu(over.comptes ?? { data: [{ id: U_REF, nomComplet: "Ibrahima Referent", email: "ibrahima@example.test", role: "LECTEUR", actif: true }], total: 1 });
+  if (url === "/users") return rendu(over.comptes ?? { data: [{ id: U_REF, nomComplet: "Ibrahima Referent", email: "ibrahima@example.test", role: "LECTEUR", actif: true, modulesAutorises: ["projets-voirie"] }], total: 1 });
   if (url === `${W}/demandes`) return rendu(choisir(over.demandes, params, pageServeur("demandes", [demandeServeur(), demandeEnvoyee()], { BROUILLON: 1, ENVOYEE: 1, RECUE: 0, CLOTUREE: 0, ANNULEE: 0 })));
   if (url.startsWith(`${W}/demandes/`)) {
     const id = decodeURIComponent(url.slice(`${W}/demandes/`.length));

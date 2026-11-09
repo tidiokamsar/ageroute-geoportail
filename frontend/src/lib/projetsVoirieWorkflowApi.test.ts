@@ -9,7 +9,7 @@ import {
   ajouterPreuveWorkflow, changerStatutDemande, changerStatutRecolement, changerStatutTache, creerDemande, creerRattachement, creerRecolement, creerTache, lireComptes, lireDemande, lireFicheDemande,
   lireFicheRecolement, lireFicheTache, lireJeuxVue, lireListeReferents, lireMonProfil, lirePageConflitsVue, lirePageDemandes, lirePageRecolements, lirePageTaches, lirePreuveWorkflow, lireProfilWorkflow,
   lireRecolement, lireTache, listerConflitsVue, listerDemandes, listerJeuxVue, listerRecolements, listerReferents, listerTaches, lireDemandeFiche, lireRecolementFiche, lireTacheFiche,
-  modifierDemande, modifierRecolement, modifierTache, rechercherComptes, revoquerRattachement,
+  modifierDemande, modifierRecolement, modifierTache, listerComptesLecteurs, revoquerRattachement, compteSansCle, filtrerComptes, lireHistoriqueWorkflow, lireListeComptes, lirePreuves,
 } from "./projetsVoirieWorkflowApi";
 import { FILTRES_DEMANDES_VIDES, FILTRES_RECOLEMENTS_VIDES, FILTRES_TACHES_VIDES } from "./projetsVoirieWorkflow";
 import {
@@ -98,8 +98,10 @@ describe("lecteur d'une demande", () => {
     expect(f.transitions).toEqual(["RECUE", "CLOTUREE", "ANNULEE"]);
     expect(f.preuves).toHaveLength(1);
     expect(f.historique).toHaveLength(1);
+    expect(f).toMatchObject({ preuvesIgnorees: 0, historiqueIgnores: 0 });
     const referent = lireFicheDemande(brut(ficheDemandeServeur(demandeEnvoyee(), [], [])));
     expect(referent.historique).toBeNull();
+    expect(referent.historiqueIgnores).toBe(0);
     expect(referent.transitions).toEqual([]);
     expect(lireFicheDemande({ demande: demandeServeur(), preuves: [] }).transitions).toBeNull();
     expect(() => lireFicheDemande({})).toThrow(/Réponse inattendue/);
@@ -178,6 +180,20 @@ describe("lecteur d'une preuve, de l'historique, des referents, des jeux et des 
     expect(lirePreuveWorkflow({ ...preuveServeur(), texte: "" })).toBeNull();
     expect(lirePreuveWorkflow(brut(preuveServeur({ auteur: null })))?.auteur).toBeNull();
   });
+  it("u2 : une preuve ou une entree d'historique illisible est ECARTEE ET COMPTEE (jamais tue), dans la fiche aussi", () => {
+    const p = lirePreuves(brut([preuveServeur(), { ...preuveServeur({ id: "00000000-0000-4000-8000-000000000099" }), type: "VIDEO" }, "n'importe quoi", null]));
+    expect(p.preuves).toHaveLength(1);
+    expect(p.ignores).toBe(3);
+    expect(lirePreuves(undefined)).toEqual({ preuves: [], ignores: 0 });
+    const hi = lireHistoriqueWorkflow(brut([historiqueServeur(), { action: "SANS_ID" }, { id: "00000000-0000-4000-8000-000000000098" }, 42]));
+    expect(hi.historique).toHaveLength(1);
+    expect(hi.ignores).toBe(3);
+    expect(lireHistoriqueWorkflow(undefined)).toEqual({ historique: null, ignores: 0 });
+    const f = lireFicheDemande(brut(ficheDemandeServeur(demandeEnvoyee(), [], [preuveServeur(), { type: "VIDEO" }], [historiqueServeur(), {}])));
+    expect(f).toMatchObject({ preuvesIgnorees: 1, historiqueIgnores: 1 });
+    expect(lireFicheTache(brut(ficheTacheServeur(tacheServeur(), [{}], [{}, {}])))).toMatchObject({ preuvesIgnorees: 1, historiqueIgnores: 2 });
+    expect(lireFicheRecolement(brut(ficheRecolementServeur(recolementServeur(), [{}], [])))).toMatchObject({ preuvesIgnorees: 1, historiqueIgnores: 0 });
+  });
   it("un rattachement actif et un rattachement revoque", () => {
     const l = lireListeReferents(brut({ rattachements: [rattachementServeur(), rattachementServeur({ id: "ra000002-0000-4000-8000-000000000002", actif: false, revocation: { le: "2026-11-09T08:00:00.000Z", par: { id: "a", nomComplet: "Fatou Admin" }, motif: "Fin de mission du referent" } }), { id: "" }] }));
     expect(l.rattachements).toHaveLength(2);
@@ -200,9 +216,27 @@ describe("lecteur d'une preuve, de l'historique, des referents, des jeux et des 
     expect(JSON.stringify(p)).not.toMatch(/coordinates|mesure|cout|justification/i);
     expect(lirePageConflitsVue(brut({ conflits: [conflitVueServeur({ decisionRetenue: null })] })).conflits[0].decisionRetenue).toBeNull();
   });
-  it("comptes de la page Utilisateurs : identifiant, nom, courriel", () => {
-    expect(lireComptes({ data: [{ id: U_REF, nomComplet: "Ibrahima Referent", email: "i@example.test", role: "LECTEUR" }, { nomComplet: "sans id" }], total: 1 })).toEqual([{ id: U_REF, nom: "Ibrahima Referent", email: "i@example.test" }]);
+  it("comptes de la page Utilisateurs : identifiant, nom, courriel, cles de module (nulles si absentes), total de la page", () => {
+    expect(lireComptes({ data: [{ id: U_REF, nomComplet: "Ibrahima Referent", email: "i@example.test", role: "LECTEUR" }, { nomComplet: "sans id" }], total: 1 })).toEqual([{ id: U_REF, nom: "Ibrahima Referent", email: "i@example.test", modules: null }]);
+    expect(lireComptes({ data: [{ id: U_REF, nomComplet: "x", email: null, modulesAutorises: ["projets-voirie", 3, "troncons"] }] })[0].modules).toEqual(["projets-voirie", "troncons"]);
     expect(() => lireComptes({})).toThrow(/Réponse inattendue/);
+    expect(lireListeComptes({ data: [], total: 230 })).toEqual({ comptes: [], total: 230 });
+    expect(lireListeComptes([]).total).toBeNull();
+  });
+  it("u1 : un compte sans la cle de module n'est pas proposable (le serveur repondrait 422 COMPTE_SANS_MODULE) ; cles inconnues du serveur : propose, le serveur tranche", () => {
+    expect(compteSansCle({ id: U_REF, nom: null, email: null, modules: ["troncons"] })).toBe(true);
+    expect(compteSansCle({ id: U_REF, nom: null, email: null, modules: [] })).toBe(true);
+    expect(compteSansCle({ id: U_REF, nom: null, email: null, modules: ["projets-voirie"] })).toBe(false);
+    expect(compteSansCle({ id: U_REF, nom: null, email: null, modules: null })).toBe(false);
+  });
+  it("u1 : la recherche est faite COTE CLIENT (nom ou courriel, sans accents ni casse), la saisie ne part jamais dans une requete", () => {
+    const c = (nom: string | null, email: string | null) => ({ id: U_REF, nom, email, modules: null });
+    const liste = [c("Ibrahima Référent", "ibrahima@example.test"), c("Fanta Diallo", "fanta@example.test"), c(null, "sans-nom@example.test")];
+    expect(filtrerComptes(liste, " refer ").map((x) => x.nom)).toEqual(["Ibrahima Référent"]);
+    expect(filtrerComptes(liste, "FANTA@").map((x) => x.nom)).toEqual(["Fanta Diallo"]);
+    expect(filtrerComptes(liste, "sans-nom")).toHaveLength(1);
+    expect(filtrerComptes(liste, "")).toHaveLength(3);
+    expect(filtrerComptes(liste, "zzz")).toEqual([]);
   });
 });
 
@@ -303,10 +337,10 @@ describe("appels : URL, parametres et corps", () => {
     await listerConflitsVue("p1", [], null);
     expect(h.get).toHaveBeenLastCalledWith(`${W}/conflits`, { params: { limite: 25 }, signal: undefined });
     h.get.mockResolvedValue({ data: { data: [], total: 0 } });
-    await rechercherComptes(" ibra ");
-    expect(h.get).toHaveBeenLastCalledWith("/users", { params: { role: "LECTEUR", actif: "true", pageSize: 20, search: "ibra" }, signal: undefined });
-    await rechercherComptes("  ");
-    expect(h.get).toHaveBeenLastCalledWith("/users", { params: { role: "LECTEUR", actif: "true", pageSize: 20 }, signal: undefined });
+    expect(await listerComptesLecteurs()).toEqual({ comptes: [], total: 0 });
+    // u1 : une seule page de lecteurs actifs, AUCUN terme de recherche dans les parametres (rien de saisi n'entre dans une URL ni dans les journaux du relais)
+    expect(h.get).toHaveBeenLastCalledWith("/users", { params: { role: "LECTEUR", actif: "true", pageSize: 200 }, signal: undefined });
+    expect(JSON.stringify(h.get.mock.calls.at(-1))).not.toMatch(/search|ibra/);
   });
 });
 

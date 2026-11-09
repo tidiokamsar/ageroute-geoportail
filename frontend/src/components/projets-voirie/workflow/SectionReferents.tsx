@@ -8,8 +8,8 @@ import { EtatErreur, EtatVide } from "../EtatsPv";
 import { useRestitutionFocus } from "../focusDialogue";
 import { BadgeSimple, Liste, Ligne, nomPersonne } from "./commun";
 import type { Concessionnaire } from "../../../lib/projetsVoirieApi";
-import type { ProfilWorkflow, RattachementReferent } from "../../../lib/projetsVoirieWorkflowApi";
-import { useCreerRattachement, useRechercheComptes, useReferents, useRevoquerRattachement } from "../../../lib/projetsVoirieWorkflowHooks";
+import { COMPTES_PAGE_MAX, compteSansCle, filtrerComptes, type ProfilWorkflow, type RattachementReferent } from "../../../lib/projetsVoirieWorkflowApi";
+import { useComptesLecteurs, useCreerRattachement, useReferents, useRevoquerRattachement } from "../../../lib/projetsVoirieWorkflowHooks";
 import { aLeDroit, classerErreurWorkflow, estUuid, justificationValide } from "../../../lib/projetsVoirieWorkflow";
 import { useValeurDifferee } from "../../../lib/projetsVoirieHooks";
 import { formaterDateHeure } from "../../../lib/projetsVoirieConflits";
@@ -27,7 +27,10 @@ function DialogueRattachement({ concessionnaires, enLigne, onFermer, onValider }
   const [conc, setConc] = useState("");
   const [motif, setMotif] = useState("");
   const qDiffere = useValeurDifferee(q, 300);
-  const comptes = useRechercheComptes(qDiffere, true);
+  // La liste est chargee une fois (sans terme de recherche) et filtree ICI : la saisie ne part jamais dans une URL.
+  const comptes = useComptesLecteurs(true);
+  const proposes = comptes.data ? filtrerComptes(comptes.data.comptes, qDiffere) : [];
+  const listeIncomplete = comptes.data !== undefined && comptes.data.total !== null && comptes.data.total > comptes.data.comptes.length;
   const { enCours, erreur, envoyer } = useEnvoiDialogue(onFermer, classerErreurWorkflow);
   const erreurs: string[] = [];
   if (!estUuid(userId)) erreurs.push("Choisissez le compte à rattacher.");
@@ -41,21 +44,28 @@ function DialogueRattachement({ concessionnaires, enLigne, onFermer, onValider }
       onFermer={onFermer} onValider={() => void envoyer(() => onValider({ userId, concessionnaireId: conc, motif: motif.trim() }))} enLigne={enLigne}
     >
       <div>
-        <label htmlFor={`${id}-q`} className={LIBELLE_CHAMP}>Rechercher un compte lecteur (nom ou courriel)</label>
+        <label htmlFor={`${id}-q`} className={LIBELLE_CHAMP}>Filtrer les comptes lecteurs (nom ou courriel, filtre local)</label>
         <Input id={`${id}-q`} type="search" value={q} onChange={(e) => { setQ(e.target.value); setUserId(""); }} maxLength={100} autoComplete="off" disabled={enCours} className="mt-1 border-gray-300" />
       </div>
-      {comptes.isPending && <p role="status" className="flex items-center gap-2 text-xs text-gray-700"><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Recherche des comptes…</p>}
-      {comptes.isError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-900">La recherche de comptes a échoué : {classerErreurWorkflow(comptes.error).message}</p>}
+      {comptes.isPending && <p role="status" className="flex items-center gap-2 text-xs text-gray-700"><Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />Chargement des comptes lecteurs…</p>}
+      {comptes.isError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-900">Le chargement des comptes a échoué : {classerErreurWorkflow(comptes.error).message}</p>}
       {comptes.isSuccess && (
         <fieldset className="min-w-0 space-y-1 rounded border border-gray-300 p-2">
-          <legend className="px-1 text-xs font-medium text-gray-800">{comptes.data.length === 0 ? "Aucun compte lecteur actif ne correspond" : `Comptes lecteurs actifs (${comptes.data.length})`}</legend>
+          <legend className="px-1 text-xs font-medium text-gray-800">{proposes.length === 0 ? "Aucun compte lecteur actif ne correspond" : `Comptes lecteurs actifs (${proposes.length})`}</legend>
+          {listeIncomplete && <p role="note" data-testid="comptes-liste-incomplete" className="text-[11px] text-amber-900">Seuls les {COMPTES_PAGE_MAX} premiers comptes lecteurs actifs sont chargés ({comptes.data.total} au total) : si le compte cherché n&apos;apparaît pas, rattachez-le depuis la page Utilisateurs après lui avoir donné la clé de module.</p>}
           <div role="region" aria-label="Comptes proposés, liste défilante" tabIndex={0} className="max-h-48 space-y-1 overflow-auto">
-            {comptes.data.map((c) => (
-              <label key={c.id} className="flex min-h-[44px] items-start gap-2 rounded p-1 text-sm text-gray-900 hover:bg-gray-50 xl:min-h-0">
-                <input type="radio" name={`${id}-compte`} className="mt-1 h-4 w-4 shrink-0" checked={userId === c.id} disabled={enCours} onChange={() => setUserId(c.id)} />
-                <span className="min-w-0 break-words">{c.nom ?? "Compte sans nom"}{c.email ? <span className="text-xs text-gray-700"> ({c.email})</span> : null}</span>
-              </label>
-            ))}
+            {proposes.map((c) => {
+              const sansCle = compteSansCle(c);
+              return (
+                <label key={c.id} className={`flex min-h-[44px] items-start gap-2 rounded p-1 text-sm xl:min-h-0 ${sansCle ? "text-gray-700" : "text-gray-900 hover:bg-gray-50"}`}>
+                  <input type="radio" name={`${id}-compte`} className="mt-1 h-4 w-4 shrink-0" checked={userId === c.id} disabled={enCours || sansCle} aria-describedby={sansCle ? `${id}-sanscle-${c.id}` : undefined} onChange={() => setUserId(c.id)} />
+                  <span className="min-w-0 break-words">
+                    {c.nom ?? "Compte sans nom"}{c.email ? <span className="text-xs text-gray-700"> ({c.email})</span> : null}
+                    {sansCle && <span id={`${id}-sanscle-${c.id}`} data-testid="compte-sans-cle" className="block text-xs text-amber-900">Sans la clé de module « Projets de voirie » : attribuez-la d&apos;abord depuis la page Utilisateurs (le serveur refuserait le rattachement).</span>}
+                  </span>
+                </label>
+              );
+            })}
           </div>
         </fieldset>
       )}

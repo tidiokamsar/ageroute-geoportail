@@ -148,9 +148,10 @@ export interface EntreeHistoriqueWorkflow {
   createdAt: string | null;
 }
 
-export interface FicheDemande { demande: Demande; preuves: PreuveWorkflow[]; historique: EntreeHistoriqueWorkflow[] | null; transitions: StatutDemande[] | null }
-export interface FicheTache { tache: Tache; preuves: PreuveWorkflow[]; historique: EntreeHistoriqueWorkflow[] | null }
-export interface FicheRecolement { recolement: Recolement; preuves: PreuveWorkflow[]; historique: EntreeHistoriqueWorkflow[] | null }
+/** `preuvesIgnorees`, `historiqueIgnores` : entrees de la reponse que cette version ne sait pas lire (comptees, jamais tues : u2 de la revue). */
+export interface FicheDemande { demande: Demande; preuves: PreuveWorkflow[]; preuvesIgnorees: number; historique: EntreeHistoriqueWorkflow[] | null; historiqueIgnores: number; transitions: StatutDemande[] | null }
+export interface FicheTache { tache: Tache; preuves: PreuveWorkflow[]; preuvesIgnorees: number; historique: EntreeHistoriqueWorkflow[] | null; historiqueIgnores: number }
+export interface FicheRecolement { recolement: Recolement; preuves: PreuveWorkflow[]; preuvesIgnorees: number; historique: EntreeHistoriqueWorkflow[] | null; historiqueIgnores: number }
 
 export interface RattachementReferent {
   id: string;
@@ -172,7 +173,11 @@ export interface ConflitVue {
 }
 export interface PageConflitsVue { conflits: ConflitVue[]; suivant: string | null; ignores: number }
 
-export interface CompteRecherche { id: string; nom: string | null; email: string | null }
+/** `modules` : cles de module du compte telles que la page Utilisateurs les rend ; `null` quand le serveur ne les envoie pas (le serveur revalide de toute facon). */
+export interface CompteRecherche { id: string; nom: string | null; email: string | null; modules: string[] | null }
+export const MODULE_PROJETS_VOIRIE = "projets-voirie";
+/** Un compte sans la cle de module serait refuse par le serveur (422 COMPTE_SANS_MODULE) : il est montre mais pas proposable (u1 de la revue). */
+export const compteSansCle = (c: CompteRecherche): boolean => c.modules !== null && !c.modules.includes(MODULE_PROJETS_VOIRIE);
 
 // ---------------------------------------------------------------------------------------------------
 // Lecteurs
@@ -290,14 +295,17 @@ export function lirePreuveWorkflow(v: unknown): PreuveWorkflow | null {
   } : null;
 }
 
-function lirePreuves(v: unknown): PreuveWorkflow[] {
-  return tableau(v).flatMap((p) => { const x = lirePreuveWorkflow(p); return x ? [x] : []; }).sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
+/** Preuves lisibles, triees par date, et le compte de celles que cette version ne sait pas lire (type inconnu, texte absent...). */
+export function lirePreuves(v: unknown): { preuves: PreuveWorkflow[]; ignores: number } {
+  const brutes = tableau(v);
+  const preuves = brutes.flatMap((p) => { const x = lirePreuveWorkflow(p); return x ? [x] : []; }).sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
+  return { preuves, ignores: brutes.length - preuves.length };
 }
 
-/** L'historique n'est rendu qu'aux decideurs : `null` quand le serveur ne l'envoie pas (jamais « aucun historique »). */
-function lireHistoriqueWorkflow(v: unknown): EntreeHistoriqueWorkflow[] | null {
-  if (!Array.isArray(v)) return null;
-  return v.flatMap((h): EntreeHistoriqueWorkflow[] => {
+/** L'historique n'est rendu qu'aux decideurs : `null` quand le serveur ne l'envoie pas (jamais « aucun historique »). Une entree illisible est comptee dans `ignores`. */
+export function lireHistoriqueWorkflow(v: unknown): { historique: EntreeHistoriqueWorkflow[] | null; ignores: number } {
+  if (!Array.isArray(v)) return { historique: null, ignores: 0 };
+  const historique = v.flatMap((h): EntreeHistoriqueWorkflow[] => {
     if (!estObjet(h)) return [];
     const hid = identifiant(h.id);
     const action = texte(h.action);
@@ -309,6 +317,7 @@ function lireHistoriqueWorkflow(v: unknown): EntreeHistoriqueWorkflow[] | null {
       avant: estObjet(avant) ? avant : null, apres: estObjet(apres) ? apres : null, autres: Object.keys(autres).length > 0 ? autres : null, createdAt: texte(h.createdAt),
     }];
   }).sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
+  return { historique, ignores: v.length - historique.length };
 }
 
 function page<T>(data: unknown, cle: string, route: string, lire: (v: unknown) => T | null): { elements: T[]; ignores: number; suivant: string | null; racine: Obj } {
@@ -345,19 +354,22 @@ export function lireFicheDemande(data: unknown): FicheDemande {
   const demande = r ? lireDemande(r.demande) : null;
   if (!r || !demande) throw new ReponseInattendue(`GET ${BASE}/:id/workflow/demandes/:demandeId`);
   const t = Array.isArray(r.transitionsPossibles) ? r.transitionsPossibles.flatMap((x) => { const s = parmi(x, STATUTS_DEMANDE); return s ? [s] : []; }) : null;
-  return { demande, preuves: lirePreuves(r.preuves), historique: lireHistoriqueWorkflow(r.historique), transitions: t };
+  const p = lirePreuves(r.preuves), hi = lireHistoriqueWorkflow(r.historique);
+  return { demande, preuves: p.preuves, preuvesIgnorees: p.ignores, historique: hi.historique, historiqueIgnores: hi.ignores, transitions: t };
 }
 export function lireFicheTache(data: unknown): FicheTache {
   const r = estObjet(data) ? data : null;
   const tache = r ? lireTache(r.tache) : null;
   if (!r || !tache) throw new ReponseInattendue(`GET ${BASE}/:id/workflow/taches/:tacheId`);
-  return { tache, preuves: lirePreuves(r.preuves), historique: lireHistoriqueWorkflow(r.historique) };
+  const p = lirePreuves(r.preuves), hi = lireHistoriqueWorkflow(r.historique);
+  return { tache, preuves: p.preuves, preuvesIgnorees: p.ignores, historique: hi.historique, historiqueIgnores: hi.ignores };
 }
 export function lireFicheRecolement(data: unknown): FicheRecolement {
   const r = estObjet(data) ? data : null;
   const recolement = r ? lireRecolement(r.recolement) : null;
   if (!r || !recolement) throw new ReponseInattendue(`GET ${BASE}/:id/workflow/recolements/:recolementId`);
-  return { recolement, preuves: lirePreuves(r.preuves), historique: lireHistoriqueWorkflow(r.historique) };
+  const p = lirePreuves(r.preuves), hi = lireHistoriqueWorkflow(r.historique);
+  return { recolement, preuves: p.preuves, preuvesIgnorees: p.ignores, historique: hi.historique, historiqueIgnores: hi.ignores };
 }
 
 export function lireRattachementReferent(v: unknown): RattachementReferent | null {
@@ -404,7 +416,25 @@ export function lirePageConflitsVue(data: unknown): PageConflitsVue {
 export function lireComptes(data: unknown): CompteRecherche[] {
   const liste = estObjet(data) && Array.isArray(data.data) ? data.data : Array.isArray(data) ? data : null;
   if (!liste) throw new ReponseInattendue("GET /users");
-  return liste.flatMap((u): CompteRecherche[] => { const uid = estObjet(u) ? identifiant(u.id) : null; return uid && estObjet(u) ? [{ id: uid, nom: texte(u.nomComplet), email: texte(u.email) }] : []; });
+  return liste.flatMap((u): CompteRecherche[] => {
+    const uid = estObjet(u) ? identifiant(u.id) : null;
+    if (!uid || !estObjet(u)) return [];
+    const modules = Array.isArray(u.modulesAutorises) ? u.modulesAutorises.filter((m): m is string => typeof m === "string") : null;
+    return [{ id: uid, nom: texte(u.nomComplet), email: texte(u.email), modules }];
+  });
+}
+
+/** Liste des comptes lecteurs actifs et le total annonce par le serveur (la liste est bornee a une page : `total` dit si elle est incomplete). */
+export function lireListeComptes(data: unknown): { comptes: CompteRecherche[]; total: number | null } {
+  return { comptes: lireComptes(data), total: estObjet(data) ? nombre(data.total) : null };
+}
+
+const plat = (s: string | null): string => (s ?? "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+/** Recherche COTE CLIENT dans la liste deja chargee (nom ou courriel, sans accents ni casse) : la saisie ne part jamais dans une URL (u1 de la revue). */
+export function filtrerComptes(comptes: readonly CompteRecherche[], q: string): CompteRecherche[] {
+  const t = plat(q).trim();
+  if (t === "") return [...comptes];
+  return comptes.filter((c) => plat(c.nom).includes(t) || plat(c.email).includes(t));
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -519,8 +549,13 @@ export async function listerConflitsVue(projetId: string, statuts: StatutConflit
   return lirePageConflitsVue(data);
 }
 
-/** Recherche de comptes pour poser un rattachement : page Utilisateurs, ADMIN seulement (le seul profil qui rattache). Lecteurs actifs, par nom ou courriel. */
-export async function rechercherComptes(q: string, signal?: AbortSignal): Promise<CompteRecherche[]> {
-  const { data } = await api.get("/users", { params: { role: "LECTEUR", actif: "true", pageSize: 20, ...(q.trim() ? { search: q.trim() } : {}) }, signal });
-  return lireComptes(data);
+/** Nombre de comptes lecteurs actifs charges pour la liste de choix (page maximale de `GET /users`). */
+export const COMPTES_PAGE_MAX = 200;
+/**
+ * Comptes proposables pour un rattachement : page Utilisateurs, ADMIN seulement (le seul profil qui rattache). Lecteurs actifs, UNE page sans terme de
+ * recherche : la saisie de l'administrateur est filtree cote client (`filtrerComptes`) et n'entre jamais dans une URL (journaux Traefik, nginx) : u1 de la revue.
+ */
+export async function listerComptesLecteurs(signal?: AbortSignal): Promise<{ comptes: CompteRecherche[]; total: number | null }> {
+  const { data } = await api.get("/users", { params: { role: "LECTEUR", actif: "true", pageSize: COMPTES_PAGE_MAX }, signal });
+  return lireListeComptes(data);
 }

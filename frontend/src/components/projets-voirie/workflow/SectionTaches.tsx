@@ -104,10 +104,10 @@ function FicheTacheVue({ requete, projetId, profil, userId, estAdmin, enLigne, r
       </SectionFiche>
 
       <SectionFiche id="pv-ft-preuves" titre={`Preuves (${f.preuves.length})`}>
-        <ListePreuves preuves={f.preuves} />
+        <ListePreuves preuves={f.preuves} ignores={f.preuvesIgnorees} />
         {peutPreuve && <Button type="button" variant="outline" size="sm" className="min-h-[44px] xl:min-h-8" disabled={!enLigne} onClick={() => ouvrir({ genre: "preuve" })}><FilePlus2 aria-hidden="true" /> Ajouter une preuve</Button>}
       </SectionFiche>
-      <SectionFiche id="pv-ft-historique" titre="Historique"><HistoriqueWorkflow historique={f.historique} /></SectionFiche>
+      <SectionFiche id="pv-ft-historique" titre="Historique"><HistoriqueWorkflow historique={f.historique} ignores={f.historiqueIgnores} /></SectionFiche>
 
       {dialogue?.genre === "transition" && <DialogueTransitionTache tache={t} transition={dialogue.transition} estAdmin={estAdmin} enLigne={enLigne} onFermer={fermer} onValider={(c) => statut.mutateAsync(c)} />}
       {dialogue?.genre === "modifier" && <DialogueModifTache tache={t} userId={userId} referents={referents?.rattachements ?? []} enLigne={enLigne} onFermer={fermer} onValider={(c) => modifier.mutateAsync(c)} />}
