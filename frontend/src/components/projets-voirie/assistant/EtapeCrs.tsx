@@ -20,7 +20,7 @@ export function BlocSystemeCoordonnees({ crs }: { crs: BlocCrs }) {
       <dt className="text-gray-700">Unités</dt><dd>{unite(crs.uniteSource)} (source), {unite(crs.uniteCible)} (cible)</dd>
       <dt className="text-gray-700">Méthode</dt><dd>{crs.methode ?? "Non indiquée"}{crs.versionProj ? `, PROJ ${crs.versionProj}` : ""}</dd>
       <dt className="text-gray-700">Origine du choix</dt>
-      <dd>{crs.origine === "choisi_par_utilisateur" ? "Choisi par vous (le fichier ne permet pas de le vérifier)" : crs.origine === "norme_du_format" ? "Imposé par la norme du format" : "Non indiquée"}</dd>
+      <dd>{crs.origine === "choisi_par_utilisateur" ? "Choisi par vous (le fichier ne permet pas de le vérifier)" : crs.origine === "norme_du_format" ? "Imposé par la norme du format" : crs.origine === "declare_par_fichier" ? "Déclaré par le fichier, confirmé par vous" : "Non indiquée"}</dd>
       <dt className="text-gray-700">Justification</dt><dd className="break-words">{crs.justification ?? "Non indiquée"}</dd>
       {p?.empriseResultat && (<><dt className="text-gray-700">Emprise du résultat</dt><dd className="break-words">{bboxTexte(p.empriseResultat)} (degrés WGS 84)</dd></>)}
       {p?.zoneAttendue && (<><dt className="text-gray-700">Zone attendue</dt><dd className="break-words">{p.zoneAttendue.nom} : {bboxTexte(p.zoneAttendue.bbox)}</dd></>)}

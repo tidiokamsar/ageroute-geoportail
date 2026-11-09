@@ -15,7 +15,9 @@ import { ErreurLecture } from "../lecture.types";
 import type { Bbox, FormatFichier } from "../lecture.types";
 
 export const EPSG_CIBLE = 4326;
-export type OrigineCrs = "norme_du_format" | "choisi_par_utilisateur";
+/** `declare_par_fichier` : le fichier declare lui-meme un CRS projete (membre `crs` d'un GeoJSON) et l'utilisateur l'a confirme (defaut D5 du pilote :
+ * ce cas etait annonce comme un choix de l'utilisateur, inverifiable, alors que le fichier le porte). */
+export type OrigineCrs = "norme_du_format" | "choisi_par_utilisateur" | "declare_par_fichier";
 
 export interface MetaCrs {
   epsg: number;
@@ -67,7 +69,8 @@ export function choisirCrs(format: FormatFichier, epsgSource: number | undefined
     const choisi = epsgSource ?? (declare?.epsg ?? EPSG_CIBLE);
     if (epsgSource === undefined) return { epsg: EPSG_CIBLE, origine: "norme_du_format", transformer: false };
     verifierListeBlanche(choisi, autorises);
-    return { epsg: choisi, origine: "choisi_par_utilisateur", transformer: choisi !== EPSG_CIBLE };
+    const origine: OrigineCrs = declare && declare.epsg === choisi ? "declare_par_fichier" : "choisi_par_utilisateur";
+    return { epsg: choisi, origine, transformer: choisi !== EPSG_CIBLE };
   }
 
   // CSV : jamais devine.

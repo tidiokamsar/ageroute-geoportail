@@ -254,7 +254,11 @@ describe("CRS : choisi par l'utilisateur, jamais devine", () => {
     const projete = (name: string) => geojson([feat({}, [380000, 1015000])], { crs: { type: "name", properties: { name } } });
     expect(code(() => lire(projete("urn:ogc:def:crs:EPSG::32629"), "a.geojson"))).toBe("CRS_REQUIS");
     expect(code(() => lire(projete("urn:ogc:def:crs:EPSG::32629"), "a.geojson", { epsgSource: 32628 }))).toBe("CRS_CONFLIT");
-    expect(lire(projete("EPSG:32629"), "a.geojson", { epsgSource: 32629 }).crs).toMatchObject({ transformation: "ST_Transform", epsgSource: 32629 });
+    const declare = lire(projete("EPSG:32629"), "a.geojson", { epsgSource: 32629 });
+    expect(declare.crs).toMatchObject({ transformation: "ST_Transform", epsgSource: 32629, origine: "declare_par_fichier" });
+    // Defaut D5 du pilote : le fichier declare son CRS, ce n'est pas un choix inverifiable de l'utilisateur.
+    expect(declare.avertissements.map((a) => a.code)).not.toContain("CRS_CHOISI_PAR_UTILISATEUR");
+    expect(declare.crs.justification).toMatch(/declare par le fichier et confirme/);
     expect(code(() => lire(projete("urn:ogc:def:crs:OGC:1.3:CRS83"), "a.geojson", { epsgSource: 32629 }))).toBe("CRS_NON_SUPPORTE");
     const wgs = geojson([feat({}, [-10.1, 9.2])], { crs: { type: "name", properties: { name: "urn:ogc:def:crs:OGC:1.3:CRS84" } } });
     expect(code(() => lire(wgs, "a.geojson", { epsgSource: 32629 }))).toBe("CRS_CONFLIT");

@@ -338,6 +338,13 @@ describe("etape 3 : systeme de coordonnees et unites", () => {
     expect(within(sel).getAllByRole("option").map((o) => o.getAttribute("value"))).toEqual(["", "32629"]);
     expect(screen.getByTestId("crs-obligatoire")).toHaveTextContent(/déclare lui-même EPSG:32629/);
     expect(bouton("Vérifier la transformation")).toBeDisabled();
+    // Defaut D5 du pilote : un CRS declare par le fichier puis confirme n'est pas presente comme un choix inverifiable.
+    s.apercu = apercu({ resume: { ...apercu().resume, crs: { ...CRS_UTM29, origine: "declare_par_fichier" } } });
+    await u.selectOptions(sel, "32629");
+    await u.click(bouton("Vérifier la transformation"));
+    const crs = await screen.findByTestId("bloc-crs");
+    expect(crs).toHaveTextContent("Déclaré par le fichier, confirmé par vous");
+    expect(crs).not.toHaveTextContent("Choisi par vous");
   });
 
   it("GeoJSON sans systeme declare : WGS 84 par la norme, choix facultatif", async () => {
