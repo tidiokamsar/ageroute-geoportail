@@ -120,7 +120,7 @@ export interface Plausibilite {
 export interface BlocCrs {
   source: string | null; cible: string | null; methode: string | null; justification: string | null;
   epsgSource: number | null; epsgCible: number | null; uniteSource: string | null; uniteCible: string | null;
-  origine: "choisi_par_utilisateur" | "norme_du_format" | null; transformation: "ST_Transform" | "aucune" | null; versionProj: string | null;
+  origine: "choisi_par_utilisateur" | "norme_du_format" | "declare_dans_le_fichier" | null; transformation: "ST_Transform" | "aucune" | null; versionProj: string | null;
   plausibilite: Plausibilite | null;
 }
 /** Remplacement d'un jeu : comparaison avec la version precedente. `modifies` : meme cle, contenu different (0 pour un serveur plus ancien). Aucune suppression n'est appliquee automatiquement. */
@@ -431,7 +431,7 @@ export function lireBlocCrs(b: Record<string, unknown>): BlocCrs {
   return {
     source: texte(b.source), cible: texte(b.cible), methode: texte(b.methode), justification: texte(b.justification),
     epsgSource: versNombre(b.epsgSource), epsgCible: versNombre(b.epsgCible), uniteSource: texte(b.uniteSource), uniteCible: texte(b.uniteCible),
-    origine: b.origine === "choisi_par_utilisateur" || b.origine === "norme_du_format" ? b.origine : null,
+    origine: b.origine === "choisi_par_utilisateur" || b.origine === "norme_du_format" || b.origine === "declare_dans_le_fichier" ? b.origine : null,
     transformation: b.transformation === "ST_Transform" || b.transformation === "aucune" ? b.transformation : null,
     versionProj: texte(b.versionProj),
     plausibilite: p ? {

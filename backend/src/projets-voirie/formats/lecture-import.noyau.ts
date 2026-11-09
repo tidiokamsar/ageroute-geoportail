@@ -412,6 +412,9 @@ function justification(format: FormatFichier, choix: ChoixCrs, meta: MetaCrs, co
     if (choix.epsg === EPSG_CIBLE) return `Fichier ${format} converti par GDAL (conteneur isole, sans reseau) : CRS EPSG:4326 ${qui}, coordonnees lues telles quelles, sans reprojection.`;
     return `Fichier ${format} converti par GDAL (conteneur isole, sans reseau) : CRS ${libelleCrs(meta)} ${qui} ; coordonnees en ${meta.unite} transformees en WGS 84 (EPSG:4326, degres) par ${v}, puis controlees contre l'emprise de la Guinee. Le CRS n'est jamais devine.`;
   }
+  if (choix.transformer && choix.origine === "declare_dans_le_fichier") {
+    return `CRS ${libelleCrs(meta)} declare par le fichier et confirme par l'utilisateur (liste blanche) : coordonnees en ${meta.unite} transformees en WGS 84 (EPSG:4326, degres) par PostGIS ST_Transform (PROJ), puis controlees contre l'emprise nationale.`;
+  }
   if (choix.transformer) {
     return `CRS ${libelleCrs(meta)} choisi par l'utilisateur (liste blanche) : coordonnees en ${meta.unite} transformees en WGS 84 (EPSG:4326, degres) par PostGIS ST_Transform (PROJ), puis controlees contre l'emprise de la Guinee. Aucune transformation n'est faite sans ce choix.`;
   }
@@ -517,7 +520,8 @@ export function preparer(d: Detection, opts: OptionsImport, lim: LimitesImport):
       const zoneNationale = lim.lecture.emprise ?? ZONE_PAR_DEFAUT;
       const zoneAttendue = lim.lecture.territoire ?? zoneNationale;
       const nbHors = (res.avertissements.find((a) => a.code === "ELEMENTS_HORS_GUINEE")?.nb ?? 0) + (res.avertissements.find((a) => a.code === "ELEMENTS_HORS_TERRITOIRE")?.nb ?? 0);
-      const confirmationApplicable = d.format === "CSV" || choix.origine === "choisi_par_utilisateur" || conv !== undefined;
+      // Defaut D5 : un CRS declare par le fichier puis confirme reste soumis a la confirmation hors zone, comme un CRS choisi.
+      const confirmationApplicable = d.format === "CSV" || choix.origine === "choisi_par_utilisateur" || choix.origine === "declare_dans_le_fichier" || conv !== undefined;
       const confirmationRequise = confirmationApplicable && nbHors > 0;
       if (confirmationRequise && !opts.confirmerHorsZone) {
         throw new ErreurMetier(409, "CONFIRMATION_HORS_ZONE_REQUISE",

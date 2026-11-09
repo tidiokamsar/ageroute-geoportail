@@ -58,7 +58,7 @@ describe("CRS d'un fichier converti : jamais deviné, mêmes règles que les aut
   it("GeoPackage : 4326 déclaré admis tel quel ; projeté déclaré exige la confirmation du MÊME code ; autre code : CRS_CONFLIT", () => {
     expect(f("GPKG", fichier4326, "wgs84")()).toEqual({ epsg: 4326, origine: "declare_dans_le_fichier", transformer: false });
     expect(refus(f("GPKG", fichier32629, "wgs84"))).toBe("CRS_REQUIS");
-    expect(f("GPKG", fichier32629, "wgs84", undefined, 32629)()).toEqual({ epsg: 32629, origine: "choisi_par_utilisateur", transformer: false });
+    expect(f("GPKG", fichier32629, "wgs84", undefined, 32629)()).toEqual({ epsg: 32629, origine: "declare_dans_le_fichier", transformer: false });
     expect(f("GPKG", fichier32629, "wgs84", 32629)()).toMatchObject({ epsg: 32629 });
     expect(refus(f("GPKG", fichier32629, "wgs84", undefined, 32628))).toBe("CRS_CONFLIT");
     expect(refus(f("GPKG", fichier4326, "wgs84", undefined, 32629))).toBe("CRS_CONFLIT");
@@ -68,7 +68,8 @@ describe("CRS d'un fichier converti : jamais deviné, mêmes règles que les aut
   it("Shapefile : le .prj ne vaut jamais confirmation, même en WGS 84", () => {
     expect(refus(f("SHAPEFILE", fichier32629, "wgs84"))).toBe("CRS_REQUIS");
     expect(refus(f("SHAPEFILE", fichier4326, "wgs84"))).toBe("CRS_REQUIS");
-    expect(f("SHAPEFILE", fichier32629, "wgs84", 32629)()).toMatchObject({ epsg: 32629, origine: "choisi_par_utilisateur" });
+    // Defaut D5 du pilote : un CRS declare par le fichier puis confirme garde son origine (declare_dans_le_fichier) ; seul un CRS demande sans declaration est « choisi ».
+    expect(f("SHAPEFILE", fichier32629, "wgs84", 32629)()).toMatchObject({ epsg: 32629, origine: "declare_dans_le_fichier" });
     expect(refus(f("SHAPEFILE", fichier32629, "wgs84", 32628))).toBe("CRS_CONFLIT");
   });
 
@@ -101,7 +102,7 @@ describe("même pipeline que les formats simples", () => {
     const r = lire(convGpkg(), { epsgSource: 32629 });
     expect(r.crs).toMatchObject({
       source: "EPSG:32629 (WGS 84 / UTM zone 29N)", cible: "EPSG:4326", epsgSource: 32629, epsgCible: 4326, uniteSource: "metre", uniteCible: "degre",
-      transformation: "GDAL_PROJ", versionProj: "9.8.1", origine: "choisi_par_utilisateur",
+      transformation: "GDAL_PROJ", versionProj: "9.8.1", origine: "declare_dans_le_fichier",
     });
     expect(r.crs.methode).toBe("GDAL 3.13.3 / PROJ 9.8.1 (conteneur isole)");
     expect(r.crs.justification).toMatch(/conteneur isole/);
