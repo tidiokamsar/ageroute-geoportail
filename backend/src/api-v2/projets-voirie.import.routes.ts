@@ -3,11 +3,12 @@ import { z } from "zod";
 import { META_WGS84 } from "../projets-voirie/formats/crs.noyau";
 import { resoudreCrs } from "../projets-voirie/formats/crs.service";
 import { apercuFichier, inventaireFichier, type DemandeFichier } from "../projets-voirie/formats/apercu.service";
-import { modeConservationOriginal, crsSourceAutorises, delaiApercuMs, limitesCsv, limitesZip, tailleEchantillon } from "../projets-voirie/formats/import.config";
+import { modeConservationOriginal, delaiApercuMs, limitesCsv, limitesZip, tailleEchantillon } from "../projets-voirie/formats/import.config";
 import type { OptionsImport } from "../projets-voirie/formats/lecture-import.noyau";
 import { CHAMPS_CIBLES, analyserMapping } from "../projets-voirie/formats/mapping.noyau";
 import { lireDelta, retourArriere, revueSuppressions } from "../projets-voirie/formats/revue-versions.service";
-import { BBOX_GUINEE, OBJETS_MAX, SOMMETS_PAR_FICHIER_MAX, SOMMETS_PAR_OBJET_MAX, TAILLE_MAX_OCTETS } from "../projets-voirie/lecture.types";
+import { OBJETS_MAX, SOMMETS_PAR_FICHIER_MAX, SOMMETS_PAR_OBJET_MAX, TAILLE_MAX_OCTETS } from "../projets-voirie/lecture.types";
+import { contexteSpatialDuProjet } from "../projets-voirie/territoires/contexte-spatial";
 import { prisma } from "../lib/prisma";
 import { disponibilite } from "../projets-voirie/gdal/jobs.service";
 import { formatsGdalAnnonces } from "../projets-voirie/gdal/formats.registre";
@@ -121,9 +122,11 @@ export function monterRoutesImport(router: Router, o: OutilsImportRoutes): void 
   };
 
   // ---------------------------------------------------------------------------------------------- Etape 0 : options
-  router.get("/:id/import/options", ecriture, gardeProjet, projetExiste, enveloppe(async (_req, res) => {
+  router.get("/:id/import/options", ecriture, gardeProjet, projetExiste, enveloppe(async (req, res) => {
+    // Lot T1 : liste blanche effective (environnement > base > defaut) et zone attendue (territoire du projet, sinon emprise nationale configuree).
+    const ctx = await contexteSpatialDuProjet(req.params.id);
     const sources = [];
-    for (const epsg of crsSourceAutorises()) {
+    for (const epsg of ctx.crsAutorises) {
       try {
         const m = await resoudreCrs(prisma, epsg);
         sources.push({ epsg, nom: m.nom, unite: m.unite, disponible: true });
@@ -149,7 +152,10 @@ export function monterRoutesImport(router: Router, o: OutilsImportRoutes): void 
       crs: {
         cible: { epsg: META_WGS84.epsg, nom: META_WGS84.nom, unite: META_WGS84.unite },
         sourcesAutorises: sources,
-        zoneAttendue: { nom: "Guinee", bbox: BBOX_GUINEE },
+        zoneAttendue: ctx.zoneTerritoire ?? ctx.zoneNationale,
+        zoneNationale: ctx.zoneNationale,
+        territoireId: ctx.territoireId,
+        crsMetriqueImpose: ctx.crsImpose,
       },
       champsCibles: CHAMPS_CIBLES,
       csv: { delimiteurs: [",", ";", "\t", "|"], encodages: ["utf-8", "iso-8859-1", "windows-1252"], separateursDecimaux: [".", ","], modes: ["points", "lignes", "wkt"] },
@@ -165,10 +171,10 @@ export function monterRoutesImport(router: Router, o: OutilsImportRoutes): void 
     // Lot B2 : jobId = resultat valide d'une conversion GDAL (a la place du fichier) ; meme pipeline ensuite.
     if (c.data.jobId !== undefined) {
       const s = await sourceConvertie(req.params.id, c.data.jobId, c.data.couche, req.file !== undefined);
-      return { fichier: Buffer.alloc(0), nomFichier: s.nomFichier, options, conversion: s.conversion };
+      return { fichier: Buffer.alloc(0), nomFichier: s.nomFichier, options, conversion: s.conversion, projetId: req.params.id };
     }
     if (!req.file) { res.status(400).json({ error: "Fichier manquant (champ multipart « fichier »)", code: "FICHIER_MANQUANT" }); return null; }
-    return { fichier: req.file.buffer, nomFichier: req.file.originalname, options };
+    return { fichier: req.file.buffer, nomFichier: req.file.originalname, options, projetId: req.params.id };
   };
 
   router.post("/:id/import/inventaire", ecriture, gardeProjet, projetExiste, placeDeReception, recevoir, enveloppe(async (req, res) => {

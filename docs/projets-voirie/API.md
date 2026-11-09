@@ -1092,3 +1092,44 @@ Lues : `LINE`, `LWPOLYLINE`, `POLYLINE` 2D, `POLYLINE` 3D (`3DPOLYLINE`). Ignor�
 ### Réglages serveur (variables d'environnement, bornées : une valeur illisible redonne le défaut)
 
 `PROJETS_VOIRIE_GDAL` (absent = désactivé), `PROJETS_VOIRIE_GDAL_SPOOL` (aucun défaut), `_DELAI_S` 90 (10 à 120), `_SORTIE_MAX_OCTETS` 80 Mo (1 à 200 Mo), `_TENTATIVES` 3 (1 à 5), `_RETENTION_H` 24 (1 à 72), `_SONDAGE_S` 3 (1 à 60), `_CONCURRENCE` 2 (1 à 4), `_ACTIFS_COMPTE` 2, `_ACTIFS_PROJET` 3, `_FILE_MAX` 20, `_CREATIONS_HEURE` 12, et depuis le lot V2 : `_RESULTATS_MAX` 20 (1 à 500, jobs `TERMINE` non utilisés au total), `_DELAI_TOUR_S` 120 (1 à 600, budget de temps d'un tour du sondage), `_PRIVE` (dossier privé du backend où le fichier attend sa réclamation, défaut `<spool>/prive`, jamais monté dans le conteneur). Valeurs de départ à valider par le DSI.
+
+## Territoires, référentiels configurables et configuration nationale (lot T1)
+
+Contrat : `CONTRAT-TERRITOIRES.md` (modèle, règles, schémas, codes) ; preuves : banc `backend/tests-integration/territoires-referentiels.integration.mts` (78 vérifications, données synthétiques). Mêmes gardes que le socle ; **toute écriture est réservée à l'ADMIN**, auditée et historisée (ajout seul).
+
+### Routes
+
+| Méthode | Chemin | Rôle | Contenu |
+|---|---|---|---|
+| GET | `/territoires` | lecture | `?niveau=&parentId=&q=&actifs=&limite=(1..500, 200)&curseur=` : `{ territoires, curseurSuivant }` (ordre du chemin, filtré par périmètre) |
+| GET | `/territoires/comptes` | lecture | `?territoireId=` : `{ comptes: [ { territoireId, code, nom, niveau, parentId, profondeur, projets, jeux: { STATUT: n }, conflits: { STATUT: n } } ], tronque }` (territoire et descendants) |
+| POST | `/territoires` | ADMIN | `{ code, nom, niveau, parentId?, regionId?, crsMetriqueEpsg?, emprise?, source? }` : 201 `{ territoire, avertissements }` |
+| GET | `/territoires/:tid` | lecture | `{ territoire: { ...vue, ancetres, nbEnfants } }` ; 404 masqué |
+| PATCH | `/territoires/:tid` | ADMIN | `{ nom?, regionId?, crsMetriqueEpsg?, emprise? (ou null), actif?, source? }` : `{ territoire, avertissements }` |
+| DELETE | `/territoires/:tid` | ADMIN | `{ id, retire: true }` ; 409 `TERRITOIRE_UTILISE` |
+| GET | `/referentiels` | lecture | `{ domaines: [ { domaine, nb, nbActifs } ] }` |
+| GET | `/referentiels/:domaine` | lecture | `?tous=true` : `{ domaine, valeurs }` |
+| GET | `/referentiels/:domaine/:code` | lecture | `{ valeur }` |
+| POST | `/referentiels/:domaine` | ADMIN | `{ code, libelle, ordre?, actif?, parametres }` : 201 `{ valeur }` |
+| PATCH | `/referentiels/:domaine/:code` | ADMIN | `{ libelle?, ordre?, actif?, parametres? }` : `{ valeur }` |
+| DELETE | `/referentiels/:domaine/:code` | ADMIN | `{ code, retire: true }` ; 409 `VALEUR_UTILISEE` |
+| GET | `/configuration` | lecture | `{ configuration: [ { cle, valeur, source, valeurBase, valeurDefaut, variableEnvironnement, version, approuvePar, approuveLe, justification, updatedAt } ] }` |
+| GET | `/configuration/:cle` | lecture | `{ configuration }` |
+| PUT | `/configuration/:cle` | ADMIN | `{ valeur, justification? }` : `{ configuration }` |
+
+Vue d'un territoire : `{ id, code, nom, niveau, parentId, chemin, profondeur, regionId, regionEffectiveId, crsMetriqueEpsg, emprise, bbox, source, actif, version, creePar, createdAt, updatedAt }`. Vue d'une valeur : `{ id, domaine, code, libelle, ordre, actif, parametres, version, systeme, approuvePar, approuveLe, createdAt, updatedAt }`.
+
+Exemple (banc, données synthétiques) : `POST /territoires` avec `{ "code": "BANC-CORRIDOR-RN", "niveau": "ZONE", "parentId": "<région>", "emprise": { "type": "Polygon", ... } }` répond 201, `niveau` ZONE, `regionEffectiveId` celle de la région, `bbox` `[-9.5, 8.8, -8.5, 10.5]`, `avertissements` vide. Deux projets (`largeurEmpriseM` 40 et 30) s'y rattachent par `territoireId` ; `GET /?territoireId=<corridor>` les rend tous deux, et eux seuls.
+
+### Changements des routes du socle
+
+- `POST /` : `territoireId` **obligatoire** (400 `TERRITOIRE_REQUIS`), `categorieCode?` (largeurs par défaut de la catégorie), `regionId` dérivé du territoire ; `commune` et `prefecture` dérivées des ancêtres. Codes : `TERRITOIRE_INTROUVABLE` (inconnu, retiré ou inactif), `TERRITOIRE_REGION_INCOHERENTE`, `CATEGORIE_INCONNUE`.
+- `PATCH /:id` : `territoireId?`, `categorieCode?`. `GET /` : `?territoireId=`. Les vues de projet portent `territoireId`, `categorieCode`, `territoire` (`GET /:id` : avec `ancetres`).
+- `POST /concessionnaires` : `typeReseau` **ou** `typeReseauCode`. `POST /:id/jeux` : `typeReseauCode?` (400 `TYPE_RESEAU_INCONNU`, `TYPE_RESEAU_INCOHERENT`). Les vues de jeu et de concessionnaire portent `typeReseauCode`.
+- Lecture des fichiers : l'emprise nationale est celle de la configuration (`EMPRISE_PLAUSIBILITE` ; codes `ELEMENTS_HORS_GUINEE` et `HORS_GUINEE` conservés pour la compatibilité, messages avec le nom configuré) ; un objet hors de l'emprise du **territoire du projet** est conservé et compté (avertissement `ELEMENTS_HORS_TERRITOIRE`) ; `resume.crs.plausibilite.zoneAttendue` est l'emprise du territoire quand il en porte une ; la confirmation `CONFIRMATION_HORS_ZONE_REQUISE` compte les deux.
+- Analyse 2D, analyse de conflits et propositions d'associations : CRS métrique imposé par le territoire du projet (ou son plus proche ancêtre), sinon règle par bandes de la configuration.
+- `GET /:id/import/options` : `crs.sourcesAutorises` (liste blanche effective), `crs.zoneAttendue`, `crs.zoneNationale`, `crs.territoireId`, `crs.crsMetriqueImpose`.
+
+### Réglages
+
+`PROJETS_VOIRIE_CONFIG_CACHE_MS` (défaut 30 000, bornes 1 000 à 600 000) : durée de fraîcheur de la configuration lue en base, par processus (invalidée à l'écriture dans le même processus ; une autre instance la relit à l'expiration). Les variables d'environnement des protections (`PROJETS_VOIRIE_ANALYSE_INTERVALLE_S`, `_CONFLITS_MAX`, `_SOMMETS_PAR_OBJET`, `_SOMMETS_PAR_FICHIER`, `_DELAI_ANALYSE_MS`, `_DELAI_CARTE_MS`, `_DELAI_DEPOT_MS`) et de la liste blanche (`PROJETS_VOIRIE_CRS_SOURCE_AUTORISES`) restent **prioritaires** sur la base ; `GET /configuration` dit la source.

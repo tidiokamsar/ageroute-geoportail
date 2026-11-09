@@ -12,6 +12,7 @@
 import { writeFileSync } from "node:fs";
 import { ouvrirBancClone } from "./lib/banc-clone.mts";
 import { verifier, conclure, proche } from "./lib/verdict.ts";
+import { avecTerritoireParDefaut } from "./lib/territoire-par-defaut.mts";
 import { AXES, R1_BASE, O, constructeurs } from "./lib/fixtures-conflits.mts";
 
 const banc = await ouvrirBancClone("essai_reseau_pl", { migrations: ["20261101200000_reseaux_physiques_logiques"] });
@@ -24,7 +25,8 @@ const request = (await import("supertest")).default;
 // Les delais minimaux entre deux executions sont desactives pour ce banc, qui en enchaine plusieurs ; la section 8 les remet.
 process.env.PROJETS_VOIRIE_ANALYSE_INTERVALLE_S = "0";
 process.env.PROJETS_VOIRIE_ASSOC_INTERVALLE_S = "0";
-const app = createApp();
+// Lot T1 : territoire par defaut ajoute aux creations de projet du banc (voir lib/territoire-par-defaut.mts).
+const app = avecTerritoireParDefaut(createApp(), prisma);
 const BASE = "/api/v2/projets-voirie";
 
 const sql = <T = Record<string, unknown>>(texte: string, ...v: unknown[]) => prisma.$queryRawUnsafe(texte, ...v) as Promise<T[]>;

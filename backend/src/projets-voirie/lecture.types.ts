@@ -47,7 +47,9 @@ export type CodeAvertissement =
   | "OBJETS_SANS_NOM"
   | "GEOMETRIES_REPAREES"
   | "GEOMETRIES_VIDES_IGNOREES"
-  | "TRACES_SUPERPOSES";
+  | "TRACES_SUPERPOSES"
+  // Lot T1 : objets conserves mais hors de l'emprise (approximative) du territoire du projet.
+  | "ELEMENTS_HORS_TERRITOIRE";
 
 export type Bbox = [number, number, number, number];
 
@@ -146,9 +148,20 @@ export const OBJETS_MAX = 50_000;
 export const SOMMETS_PAR_OBJET_MAX = 100_000;
 export const SOMMETS_PAR_FICHIER_MAX = 2_000_000;
 
+/** Zone geographique nommee (rectangle WGS 84) : emprise nationale de plausibilite ou boite englobante d'un territoire. */
+export interface ZoneLecture { nom: string; bbox: Bbox }
+
 export interface LimitesLecture {
   sommetsParObjet?: number;
   sommetsParFichier?: number;
+  /** Lot T1 : emprise nationale configuree, au-dela de laquelle un element est ECARTE (defaut : ZONE_PAR_DEFAUT). */
+  emprise?: ZoneLecture;
+  /** Lot T1 : emprise (approximative) du territoire du projet : un objet qui en sort est CONSERVE et compte (ELEMENTS_HORS_TERRITOIRE). */
+  territoire?: ZoneLecture;
 }
-/** Emprise de la Guinee : longitude -15,2 a -7,5 ; latitude 7,1 a 12,8. */
+/**
+ * Emprise nationale PAR DEFAUT : longitude -15,2 a -7,5 ; latitude 7,1 a 12,8. Depuis le lot T1 c'est le defaut de la cle de configuration
+ * `EMPRISE_PLAUSIBILITE` (CONTRAT-TERRITOIRES.md section 6) : les services passent la valeur configuree par `LimitesLecture.emprise`.
+ */
 export const BBOX_GUINEE: Bbox = [-15.2, 7.1, -7.5, 12.8];
+export const ZONE_PAR_DEFAUT: ZoneLecture = { nom: "Guinee", bbox: BBOX_GUINEE };

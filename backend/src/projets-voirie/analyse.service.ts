@@ -16,7 +16,7 @@ import { delaiAnalyseMs, delaiVerrouMs } from "./config";
 import { tracerConsultation } from "./consultation";
 import { limiteurAnalyses } from "./limiteurs";
 import {
-  LIBELLES, STATUT_RESULTAT, VERSION_ALGORITHME, VERSION_REGLE, construireHypotheses, construireLimites, epsgPourLongitude, qualificationDe,
+  LIBELLES, STATUT_RESULTAT, VERSION_ALGORITHME, VERSION_REGLE, construireHypotheses, construireLimites, qualificationDe,
   type ClasseLue, type Qualification,
 } from "./analyse.noyau";
 import * as depot from "./analyse.depot";
@@ -25,6 +25,7 @@ import type { Acteur } from "./projets.service";
 import { descripteursDesObjets } from "./reseaux/reseaux.depot";
 import { classeEffective, natureEffective } from "./reseaux/types.noyau";
 import { INCLURE_JEU } from "./vues";
+import { contexteSpatialDuProjet } from "./territoires/contexte-spatial";
 
 export const OBJETS_PAR_AXE_MAX = 100;
 const LIGNES_OBJETS_MAX = 100_000;
@@ -89,6 +90,8 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
   const surcharge = d.largeurEmpriseM !== undefined || d.largeurChausseeM !== undefined;
   const statutParametres = surcharge && (empr !== Number(projet.largeurEmpriseM) || chau !== Number(projet.largeurChausseeM)) ? "THEORIQUE" : projet.statutParametres;
 
+  // Lot T1 : CRS metrique impose par le territoire du projet, sinon regle par bandes de la configuration nationale (plus de constante).
+  const spatial = await contexteSpatialDuProjet(d.projetId);
   const retenus = jeuxRetenus(await lireJeux(d.projetId, d.inclureNonAutorises));
   const axes = retenus.filter((j) => j.role === "AXES_TRAVAUX");
   const reseaux = retenus.filter((j) => j.role === "RESEAU_TIERS");
@@ -112,7 +115,7 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
       }
     }
     const etendue = await budget.etape(() => depot.etendueLongitude(tx, axesIds.length ? axesIds : reseauIds), "etendue");
-    const epsg = etendue ? epsgPourLongitude((etendue.ouest + etendue.est) / 2) : 32629;
+    const epsg = etendue ? spatial.epsgPour((etendue.ouest + etendue.est) / 2) : spatial.epsgDefaut;
     const b: depot.Bandes = { epsg, dc: chau / 2, de: empr / 2, axesIds, reseauIds };
     const liste = axesIds.length ? await budget.etape(() => depot.listerAxes(tx, b), "axes") : { axes: [], longueurFusionneeM: 0 };
     return {

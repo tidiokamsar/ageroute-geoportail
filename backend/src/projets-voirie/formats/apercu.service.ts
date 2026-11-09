@@ -17,6 +17,7 @@ import type { Avertissement, ObjetLu } from "../lecture.types";
 import { META_WGS84 } from "./crs.noyau";
 import { resoudreCrs, transformerSommets, versionProj } from "./crs.service";
 import { LISTE_MAX, SOMMETS_ECHANTILLON_MAX, delaiApercuMs, limitesImport, tailleEchantillon } from "./import.config";
+import { contexteSpatialDuProjet } from "../territoires/contexte-spatial";
 import { detecter, detecterConvertie, inventaireConverti, inventorier, preparer, type InventaireFichier, type OptionsImport, type ResultatImport } from "./lecture-import.noyau";
 import type { ConversionValidee } from "../gdal/conversion.noyau";
 import { classerRaison, construireEchantillon, type ObjetEchantillon, type Probleme } from "./validation.noyau";
@@ -27,6 +28,8 @@ export interface DemandeFichier {
   fichier: Buffer;
   nomFichier: string;
   options: OptionsImport;
+  /** Lot T1 : projet vise, pour l'emprise du territoire, l'emprise nationale configuree et la liste blanche effective (apercu seulement). */
+  projetId?: string;
   /** Lot B2 : resultat VALIDE d'une conversion GDAL (job). `fichier` est alors vide : l'empreinte et la taille sont celles du fichier d'origine du job. */
   conversion?: ConversionValidee;
 }
@@ -118,6 +121,12 @@ function nbSommets(objets: readonly ObjetLu[]): number {
 
 export async function apercuFichier(d: DemandeFichier): Promise<ReponseApercu> {
   const limites = limitesImport();
+  if (d.projetId) {
+    const ctx = await contexteSpatialDuProjet(d.projetId);
+    limites.lecture.emprise = ctx.zoneNationale;
+    limites.lecture.territoire = ctx.zoneTerritoire ?? undefined;
+    limites.crsAutorises = ctx.crsAutorises;
+  }
   const detection = d.conversion ? detecterConvertie(d.conversion, d.options) : detecter(d.fichier, d.nomFichier, d.options, limites);
   const prep = preparer(detection, d.options, limites);
   // Sans transformation, la lecture est complete avant toute connexion : un fichier refuse ne consomme ni transaction ni place.

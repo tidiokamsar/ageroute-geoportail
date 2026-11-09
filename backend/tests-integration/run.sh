@@ -68,6 +68,9 @@ lancer "reseau-physique-logique.integration.mts"
 # Volume des reseaux (lot B1) : clone `essai_reseau_volume`, 3 000 circuits et 3 000 gaines par defaut (RESEAUX_VOLUME pour changer).
 lancer "reseau-physique-logique-volume.integration.mts"
 
+# Territoires, referentiels et configuration (lot T1) : clone `essai_territoires` ; applique lui-meme la migration 20261103100000 au clone.
+lancer "territoires-referentiels.integration.mts"
+
 printf '\n%s\n' "Resultat des bancs d'integration"
 printf '%s\n' "${lignes[@]}"
 echo "Chaque banc nomme ses verifications et sort en code 1 si une seule est fausse (lib/verdict.ts fait aussi echouer un banc qui n'en fait aucune ; curseur tient son propre decompte). Detail : /tmp/integration-<banc>.log."

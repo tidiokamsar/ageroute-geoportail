@@ -21,7 +21,8 @@ import { prisma } from "../../lib/prisma";
 import { logAuditTransactionnelle } from "../../utils/audit";
 import { Budget, avecErreurDelai, estDelaiDepasse, poserDelais } from "../bd";
 import { analyseIntervalleMinS, delaiAnalyseMs, delaiDepotMs, delaiVerrouMs, conflitsParAnalyseMax } from "../config";
-import { epsgPourLongitude, LIMITES_OBLIGATOIRES } from "../analyse.noyau";
+import { LIMITES_OBLIGATOIRES } from "../analyse.noyau";
+import { contexteSpatialDuProjet, type ContexteSpatial } from "../territoires/contexte-spatial";
 import * as socle from "../analyse.depot";
 import { limiteurAnalyses } from "../limiteurs";
 import { ErreurMetier, introuvable } from "../erreurs";
@@ -132,12 +133,15 @@ export async function lancerAnalyse(acteur: Acteur, projetId: string): Promise<{
   const projet = await prisma.projetVoirie.findFirst({ where: { id: projetId, deletedAt: null } });
   if (!projet) throw introuvable("Projet", "PROJET_INTROUVABLE");
   await exigerCadence(prisma, projetId);
+  // Lot T1 : CRS metrique du territoire du projet, sinon regle par bandes de la configuration (plus de constante) ; le cache de configuration
+  // est rafraichi ici, donc les protections (cadence, plafond) lues ensuite sont celles de la base quand l'environnement ne les fixe pas.
+  const ctx = await contexteSpatialDuProjet(projetId);
   const debut = performance.now();
   const delai = delaiAnalyseMs();
   const trop = () => new ErreurMetier(504, "ANALYSE_TROP_LONGUE", `L'analyse a dépassé ${Math.round(delai / 1000)} s et a été interrompue : le projet est trop volumineux pour un calcul immédiat.`);
   try {
     return await limiteurAnalyses.executer(() => avecErreurDelai("ANALYSE_TROP_LONGUE", trop().message, () => prisma.$transaction(
-      (tx) => executer(tx, acteur, projet, debut, delai, trop),
+      (tx) => executer(tx, acteur, projet, debut, delai, trop, ctx),
       { timeout: delai + delaiDepotMs() + 15_000, maxWait: 10_000 },
     )));
   } catch (e) {
@@ -151,7 +155,7 @@ export async function lancerAnalyse(acteur: Acteur, projetId: string): Promise<{
 
 type ProjetLu = { id: string; code: string; regionId: number | null; largeurEmpriseM: Prisma.Decimal; largeurChausseeM: Prisma.Decimal };
 
-async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: ProjetLu, debut: number, delai: number, trop: () => Error) {
+async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: ProjetLu, debut: number, delai: number, trop: () => Error, ctx: ContexteSpatial) {
   const verrou = await tx.$queryRaw<{ ok: boolean }[]>`SELECT pg_try_advisory_xact_lock(hashtextextended(${cleVerrou(projet.id)}, 0)) AS "ok"`;
   if (!verrou[0]?.ok) throw new ErreurMetier(503, "PROJET_OCCUPE", "Une analyse de conflits est déjà en cours sur ce projet : réessayez dans quelques instants.");
   await exigerCadence(tx, projet.id);
@@ -198,7 +202,7 @@ async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: Pr
     }
   }
   const etendue = await budget.etape(() => socle.etendueLongitude(tx, axesIds.length ? axesIds : reseauIds), "etendue");
-  const epsg = etendue ? epsgPourLongitude((etendue.ouest + etendue.est) / 2) : 32629;
+  const epsg = etendue ? ctx.epsgPour((etendue.ouest + etendue.est) / 2) : ctx.epsgDefaut;
   const b: socle.Bandes = { epsg, dc: chau / 2, de: empr / 2, axesIds, reseauIds };
   const plafond = conflitsParAnalyseMax();
 

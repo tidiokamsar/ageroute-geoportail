@@ -384,6 +384,13 @@ model User {
   reseauDescripteursModifies      ReseauObjetDescripteur[]   @relation("ReseauDescripteurModificateur")
   reseauRelationsCreees           ReseauRelation[]           @relation("ReseauRelationCreateur")
   reseauRelationsDecidees         ReseauRelation[]           @relation("ReseauRelationDecideur")
+  territoiresVoirieCrees          TerritoireVoirie[]         @relation("TerritoireVoirieCreateur")
+  territoiresVoirieHistorique     TerritoireVoirieHistorique[] @relation("TerritoireVoirieHistoriqueActeur")
+  referentielsVoirieCrees         ReferentielVoirie[]        @relation("ReferentielVoirieCreateur")
+  referentielsVoirieApprouves     ReferentielVoirie[]        @relation("ReferentielVoirieApprobateur")
+  referentielsVoirieHistorique    ReferentielVoirieHistorique[] @relation("ReferentielVoirieHistoriqueActeur")
+  configurationVoirieApprouvee    ConfigurationVoirie[]      @relation("ConfigurationVoirieApprobateur")
+  configurationVoirieHistorique   ConfigurationVoirieHistorique[] @relation("ConfigurationVoirieHistoriqueActeur")
   propositionsTeledetectionTransitions PropositionTeledetectionTransition[] @relation("PtTransitionAuteur")
   propositionsTeledetectionPreuves PropositionTeledetectionPreuve[] @relation("PtPreuveAjoutee")
   programmesBudgetairesCrees      ProgrammeBudgetaire[]      @relation("ProgrammationAuteur")
@@ -458,6 +465,9 @@ model Region {
   astreintes Astreinte[]
 
   anomaliesReferentiel AnomalieReferentiel[]
+
+  territoiresVoirie          TerritoireVoirie[] @relation("TerritoireVoirieRegion")
+  territoiresVoirieEffectifs TerritoireVoirie[] @relation("TerritoireVoirieRegionEffective")
 
   @@map("regions")
 }
@@ -4314,6 +4324,11 @@ model ProjetVoirie {
   largeurEmpriseM  Decimal                @default(15) @db.Decimal(6, 2)
   largeurChausseeM Decimal                @default(7) @db.Decimal(6, 2)
   statutParametres StatutParametresProjet @default(THEORIQUE)
+  /// Lot T1 (migration 20261103100000) : territoire du projet (obligatoire a la creation par l'API, nul en base pour l'additivite) ;
+  /// `commune` et `prefecture` en sont derives. `categorieCode` : code du domaine CATEGORIE_PROJET (verifie par la base a l'ecriture).
+  territoireId     String?
+  territoire       TerritoireVoirie?      @relation(fields: [territoireId], references: [id], onDelete: Restrict)
+  categorieCode    String?
   creeParId        String
   creePar          User                   @relation("ProjetVoirieCreateur", fields: [creeParId], references: [id], onDelete: Restrict)
   createdAt        DateTime               @default(now())
@@ -4329,6 +4344,7 @@ model ProjetVoirie {
 
   @@index([regionId])
   @@index([deletedAt])
+  @@index([territoireId])
   @@map("projets_voirie")
 }
 
@@ -4337,6 +4353,8 @@ model ConcessionnaireReseau {
   id         String          @id @default(uuid())
   nom        String
   typeReseau TypeReseauTiers
+  /// Lot T1 : code du referentiel TYPE_RESEAU (la famille `typeReseau` en est derivee ; repli sur la famille sans code).
+  typeReseauCode String?
   contact    String?
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @default(now()) @updatedAt
@@ -4359,6 +4377,8 @@ model JeuDonneesProjet {
   concessionnaireId      String?
   concessionnaire        ConcessionnaireReseau? @relation(fields: [concessionnaireId], references: [id], onDelete: Restrict)
   typeReseau             TypeReseauTiers?
+  /// Lot T1 : code du referentiel TYPE_RESEAU porte par le jeu (la famille `typeReseau` en est derivee).
+  typeReseauCode         String?
   nomFichier             String
   format                 FormatJeuProjet
   sha256                 String
@@ -5086,4 +5106,165 @@ model JobImportProjet {
   @@index([creeParId, statut])
   @@index([jeuId])
   @@map("projets_voirie_import_jobs")
+}
+
+// ===================== TERRITOIRES, REFERENTIELS CONFIGURABLES ET CONFIGURATION NATIONALE (lot T1) =====================
+// Contrat : docs/projets-voirie/CONTRAT-TERRITOIRES.md. Migration 20261103100000_territoires_referentiels (additive, avec descente).
+// Aucun nom de lieu, de CRS ni de type de reseau dans le code : tout est donnee. Hors schema.prisma (non representable, voir
+// docs/securite/DERIVE-SCHEMA.md) : l'index GiST de `territoires_voirie.emprise`, les contraintes CHECK, les declencheurs (chemin materialise,
+// profondeur et region effective calcules par la base ; parent, niveau et code immuables ; coherence parent/niveau ; verification des codes de
+// referentiel portes par le socle ; suppression logique seule ; historiques en ajout seul). `emprise` est `Unsupported` : SQL brut parametre.
+
+/// Niveaux du referentiel territorial, du plus large au plus fin (rangs 0 a 6). Le parent est de rang strictement inferieur.
+enum NiveauTerritoireVoirie {
+  NATION
+  REGION
+  PREFECTURE
+  COMMUNE
+  QUARTIER
+  SECTEUR
+  ZONE
+}
+
+/// Domaines des referentiels configurables ; les parametres de chaque domaine sont valides par un schema zod (territoires/referentiels.noyau.ts).
+enum DomaineReferentielVoirie {
+  TYPE_RESEAU
+  CATEGORIE_PROJET
+  TYPE_DOCUMENT
+  METHODE_ACQUISITION
+  STATUT_QUALITE
+}
+
+/// Territoire hierarchique (nation, region, prefecture, commune, quartier, secteur, zone). Emprise APPROXIMATIVE sauf mention contraire
+/// (`source`). `regionEffectiveId` : region du perimetre des comptes, la sienne ou celle du plus proche ancetre (calculee par la base).
+model TerritoireVoirie {
+  id                String                 @id @default(uuid())
+  parentId          String?
+  parent            TerritoireVoirie?      @relation("TerritoireVoirieParent", fields: [parentId], references: [id], onDelete: Restrict)
+  enfants           TerritoireVoirie[]     @relation("TerritoireVoirieParent")
+  niveau            NiveauTerritoireVoirie
+  code              String                 @unique
+  nom               String
+  /// Chemin materialise des identifiants `/id_nation/.../id/`, calcule par la base.
+  chemin            String
+  profondeur        Int
+  emprise           Unsupported("geometry(Geometry, 4326)")?
+  crsMetriqueEpsg   Int?
+  regionId          Int?
+  region            Region?                @relation("TerritoireVoirieRegion", fields: [regionId], references: [id], onDelete: Restrict)
+  regionEffectiveId Int?
+  regionEffective   Region?                @relation("TerritoireVoirieRegionEffective", fields: [regionEffectiveId], references: [id], onDelete: Restrict)
+  source            String?
+  actif             Boolean                @default(true)
+  version           Int                    @default(1)
+  creeParId         String?
+  creePar           User?                  @relation("TerritoireVoirieCreateur", fields: [creeParId], references: [id], onDelete: Restrict)
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @default(now()) @updatedAt
+  deletedAt         DateTime?
+
+  projets    ProjetVoirie[]
+  historique TerritoireVoirieHistorique[]
+
+  @@index([parentId])
+  @@index([chemin])
+  @@index([regionEffectiveId])
+  @@index([niveau, deletedAt])
+  @@map("territoires_voirie")
+}
+
+/// Historique des territoires (ajout seul). `avant` et `apres` : la ligne sans sa geometrie (boite englobante et empreinte MD5 de l'emprise).
+model TerritoireVoirieHistorique {
+  id           BigInt           @id @default(autoincrement())
+  territoireId String
+  territoire   TerritoireVoirie @relation(fields: [territoireId], references: [id], onDelete: Restrict)
+  action       String
+  version      Int
+  avant        Json?
+  apres        Json?
+  acteurId     String?
+  acteur       User?            @relation("TerritoireVoirieHistoriqueActeur", fields: [acteurId], references: [id], onDelete: Restrict)
+  createdAt    DateTime         @default(now())
+
+  @@index([territoireId, createdAt])
+  @@map("territoires_voirie_historique")
+}
+
+/// Valeur d'un referentiel configurable. `parametres` valides par le schema zod du domaine ; une version par ecriture ADMIN (approuvePar).
+/// Une valeur desactivee ou retiree reste lisible sur les objets qui la portent (le code est conserve).
+model ReferentielVoirie {
+  id            String                   @id @default(uuid())
+  domaine       DomaineReferentielVoirie
+  code          String
+  libelle       String
+  ordre         Int                      @default(0)
+  actif         Boolean                  @default(true)
+  parametres    Json                     @default("{}")
+  version       Int                      @default(1)
+  approuveParId String?
+  approuvePar   User?                    @relation("ReferentielVoirieApprobateur", fields: [approuveParId], references: [id], onDelete: Restrict)
+  approuveLe    DateTime?
+  creeParId     String?
+  creePar       User?                    @relation("ReferentielVoirieCreateur", fields: [creeParId], references: [id], onDelete: Restrict)
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @default(now()) @updatedAt
+  deletedAt     DateTime?
+
+  historique ReferentielVoirieHistorique[]
+
+  @@unique([domaine, code])
+  @@index([domaine, actif, deletedAt])
+  @@map("referentiels_voirie")
+}
+
+/// Historique des valeurs de referentiel (ajout seul).
+model ReferentielVoirieHistorique {
+  id            BigInt            @id @default(autoincrement())
+  referentielId String
+  referentiel   ReferentielVoirie @relation(fields: [referentielId], references: [id], onDelete: Restrict)
+  action        String
+  version       Int
+  avant         Json?
+  apres         Json?
+  acteurId      String?
+  acteur        User?             @relation("ReferentielVoirieHistoriqueActeur", fields: [acteurId], references: [id], onDelete: Restrict)
+  createdAt     DateTime          @default(now())
+
+  @@index([referentielId, createdAt])
+  @@map("referentiels_voirie_historique")
+}
+
+/// Configuration nationale du module : une ligne par cle (emprise de plausibilite, bandes de CRS metrique, liste blanche des CRS d'import,
+/// protections). Les variables d'environnement restent prioritaires (compatibilite) ; la valeur effective et sa source sont rendues par l'API.
+model ConfigurationVoirie {
+  cle           String    @id
+  valeur        Json
+  version       Int       @default(1)
+  approuveParId String?
+  approuvePar   User?     @relation("ConfigurationVoirieApprobateur", fields: [approuveParId], references: [id], onDelete: Restrict)
+  approuveLe    DateTime?
+  justification String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @default(now()) @updatedAt
+
+  historique ConfigurationVoirieHistorique[]
+
+  @@map("configuration_voirie")
+}
+
+/// Historique de la configuration (ajout seul).
+model ConfigurationVoirieHistorique {
+  id            BigInt              @id @default(autoincrement())
+  cle           String
+  configuration ConfigurationVoirie @relation(fields: [cle], references: [cle], onDelete: Restrict)
+  version       Int
+  avant         Json?
+  apres         Json
+  acteurId      String?
+  acteur        User?               @relation("ConfigurationVoirieHistoriqueActeur", fields: [acteurId], references: [id], onDelete: Restrict)
+  justification String?
+  createdAt     DateTime            @default(now())
+
+  @@index([cle, createdAt])
+  @@map("configuration_voirie_historique")
 }

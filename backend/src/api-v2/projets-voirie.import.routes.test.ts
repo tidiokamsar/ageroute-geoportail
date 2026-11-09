@@ -73,6 +73,17 @@ vi.mock("../projets-voirie/formats/revue-versions.service", () => ({
   revueSuppressions: espion("revueSuppressions", { suppressions: { statut: "ACCEPTEES", nb: 2 } }),
   retourArriere: espion("retourArriere", { jeuRestaure: { id: "j1" } }),
 }));
+// Lot T1 : la route lit le contexte spatial du projet (configuration nationale, territoire) ; la base est simulee ici, le contexte aussi :
+// contexte national par defaut, liste blanche lue comme avant (environnement, sinon defaut). Le contexte reel est prouve par le banc territoires-referentiels.
+vi.mock("../projets-voirie/territoires/contexte-spatial", async () => {
+  const { crsSourceAutorises } = await import("../projets-voirie/formats/import.config");
+  return {
+    contexteSpatialDuProjet: async () => ({
+      zoneNationale: { nom: "Guinee", bbox: [-15.2, 7.1, -7.5, 12.8] }, zoneTerritoire: null, territoireId: null, crsImpose: null,
+      epsgDefaut: 32629, epsgPour: () => 32629, crsAutorises: crsSourceAutorises(),
+    }),
+  };
+});
 vi.mock("../projets-voirie/carte.service", () => ({ carte: vi.fn(async () => ({ jeux: [] })) }));
 vi.mock("../projets-voirie/analyse.service", () => ({ analyser: vi.fn(async () => ({})), exporterCsv: vi.fn(async () => ({ csv: "", nbLignes: 0, nomFichier: "x.csv" })) }));
 

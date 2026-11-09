@@ -22,11 +22,23 @@
  * de sommets par fichier correspondent a la limite de 25 Mo en GeoJSON compact (environ 12 octets par position).
  */
 
+import { protectionEnCache } from "./territoires/configuration.cache";
+import { PROTECTIONS_BORNES, entierEnv, type Protection } from "./territoires/configuration.noyau";
+
+/**
+ * Lot T1 : RESOLUTION environnement > configuration en base > defaut (CONTRAT-TERRITOIRES.md, section 6). La valeur en base est celle de la
+ * derniere lecture du cache (`territoires/configuration.cache.ts`, rafraichi par les services asynchrones avant tout calcul) ; une valeur
+ * hors bornes, d'ou qu'elle vienne, est ignoree. Sans administration, le comportement est celui d'avant.
+ */
+const PROTECTION_PAR_ENV = new Map<string, Protection>(Object.entries(PROTECTIONS_BORNES).map(([k, b]) => [b.env, k as Protection]));
+
 function borne(nom: string, defaut: number, min: number, max: number): number {
-  const brut = process.env[nom];
-  if (brut === undefined || brut.trim() === "") return defaut;
-  const v = Number(brut);
-  return Number.isInteger(v) && v >= min && v <= max ? v : defaut;
+  const env = entierEnv(process.env[nom], min, max);
+  if (env !== undefined) return env;
+  const protection = PROTECTION_PAR_ENV.get(nom);
+  const base = protection ? protectionEnCache(protection) : undefined;
+  if (base !== undefined && Number.isInteger(base) && base >= min && base <= max) return base;
+  return defaut;
 }
 
 export const delaiAnalyseMs = () => borne("PROJETS_VOIRIE_DELAI_ANALYSE_MS", 20_000, 1_000, 300_000);

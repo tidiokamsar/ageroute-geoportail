@@ -120,6 +120,11 @@ export const MODULE_PAR_ENTITE: Record<string, ModuleKey | null> = {
   ReseauObjetDescripteur: "projets-voirie",
   ReseauRelation: "projets-voirie",
   AssociationsReseau: "projets-voirie",
+  // Territoires, referentiels configurables et configuration nationale (lot T1) : ecritures ADMIN ; l'emprise d'un territoire n'est auditee que
+  // par sa boite englobante et son empreinte, jamais la geometrie.
+  TerritoireVoirie: "projets-voirie",
+  ReferentielVoirie: "projets-voirie",
+  ConfigurationVoirie: "projets-voirie",
   User: null,
   AppSetting: null,
 };

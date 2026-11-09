@@ -14,6 +14,7 @@
 // utilisateur sans droits, projet retire ; 11 cadence, plafonds, pagination ; 12 base (declencheurs, contraintes) ; 13 aucune ecriture hors du module.
 import { ouvrirBancClone } from "./lib/banc-clone.mts";
 import { verifier, conclure } from "./lib/verdict.ts";
+import { avecTerritoireParDefaut } from "./lib/territoire-par-defaut.mts";
 import { AXES, R1_BASE, R2 as RESEAU_2, O, constructeurs } from "./lib/fixtures-conflits.mts";
 
 const banc = await ouvrirBancClone("essai_workflow_pv", { migrations: ["20261101300000_workflow_roles_recolement"] });
@@ -26,7 +27,8 @@ const request = (await import("supertest")).default;
 // les remet a leurs valeurs pour les eprouver.
 process.env.PROJETS_VOIRIE_ANALYSE_INTERVALLE_S = "0";
 process.env.PROJETS_VOIRIE_WORKFLOW_CREATIONS_PAR_MINUTE = "600";
-const app = createApp();
+// Lot T1 : territoire par defaut ajoute aux creations de projet du banc (voir lib/territoire-par-defaut.mts).
+const app = avecTerritoireParDefaut(createApp(), prisma);
 const BASE = "/api/v2/projets-voirie";
 
 const sql = <T = Record<string, unknown>>(texte: string, ...v: unknown[]) => prisma.$queryRawUnsafe(texte, ...v) as Promise<T[]>;

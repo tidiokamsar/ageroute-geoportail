@@ -13,18 +13,26 @@ export interface LigneProjet {
   id: string; code: string; nom: string; commune: string | null; prefecture: string | null; regionId: number | null;
   description: string | null; largeurEmpriseM: Prisma.Decimal; largeurChausseeM: Prisma.Decimal; statutParametres: string;
   creeParId: string; createdAt: Date; updatedAt: Date; deletedAt?: Date | null;
+  /** Lot T1 : territoire (obligatoire pour un nouveau projet) et categorie (referentiel CATEGORIE_PROJET). */
+  territoireId?: string | null; categorieCode?: string | null;
+  territoire?: { id: string; code: string; nom: string; niveau: string } | null;
 }
 
 export function vueProjet(p: LigneProjet) {
   return {
     id: p.id, code: p.code, nom: p.nom, commune: p.commune, prefecture: p.prefecture, regionId: p.regionId, description: p.description,
+    territoireId: p.territoireId ?? null, categorieCode: p.categorieCode ?? null,
+    territoire: p.territoire ? { id: p.territoire.id, code: p.territoire.code, nom: p.territoire.nom, niveau: p.territoire.niveau } : null,
     largeurEmpriseM: Number(p.largeurEmpriseM), largeurChausseeM: Number(p.largeurChausseeM), statutParametres: p.statutParametres,
     creeParId: p.creeParId, createdAt: p.createdAt, updatedAt: p.updatedAt,
   };
 }
 
+/** Relation lue avec un projet pour sa vue (lot T1). */
+export const INCLURE_PROJET = { territoire: { select: { id: true, code: true, nom: true, niveau: true } } } as const;
+
 export interface LigneJeu {
-  id: string; projetId: string; role: string; concessionnaireId: string | null; typeReseau: string | null; nomFichier: string; format: string;
+  id: string; projetId: string; role: string; concessionnaireId: string | null; typeReseau: string | null; typeReseauCode?: string | null; nomFichier: string; format: string;
   sha256: string; tailleOctets: number; nbObjets: number; longueurTotaleM: number; longueurTraceFusionneM: number;
   dateDonnees: Date | null; origineFichier: string | null; classePrecision: string | null;
   precisionHorizontaleM: Dec; precisionVerticaleM: Dec; methode: string | null; dateConstat: Date | null;
@@ -44,6 +52,8 @@ export function vueJeu(j: LigneJeu, options: { sansId?: boolean; sansHistorique?
     concessionnaire: j.concessionnaire ? { id: j.concessionnaire.id, nom: j.concessionnaire.nom, typeReseau: j.concessionnaire.typeReseau } : null,
     concessionnaireId: j.concessionnaireId,
     typeReseau: j.typeReseau,
+    // Lot T1 : code du referentiel TYPE_RESEAU (nul : la famille `typeReseau` seule).
+    typeReseauCode: j.typeReseauCode ?? null,
     nomFichier: j.nomFichier,
     format: j.format,
     sha256: j.sha256,

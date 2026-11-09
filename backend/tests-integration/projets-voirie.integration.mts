@@ -18,6 +18,7 @@
 //   longueur fusionnee R1 = 60 + 60 + 60 + 40 + 10 = 230 ; somme des objets = 350 ; R2 : chaussee 60, emprise 60, proximite a verifier.
 import { ouvrirBancClone } from "./lib/banc-clone.mts";
 import { verifier, conclure, proche } from "./lib/verdict.ts";
+import { avecTerritoireParDefaut } from "./lib/territoire-par-defaut.mts";
 
 // Lot B1 : la carte et l analyse lisent les descripteurs d objets (migration 20261101200000), que le banc applique au clone si `replay` ne la porte pas.
 const banc = await ouvrirBancClone("essai_projets_voirie", { migrations: ["20261101200000_reseaux_physiques_logiques"] });
@@ -26,7 +27,8 @@ const { createApp } = await banc.imp("app");
 const { signAccessToken } = await banc.imp("utils/jwt");
 const request = (await import("supertest")).default;
 
-const app = createApp();
+// Lot T1 : territoire par defaut ajoute aux creations de projet du banc (voir lib/territoire-par-defaut.mts).
+const app = avecTerritoireParDefaut(createApp(), prisma);
 const BASE = "/api/v2/projets-voirie";
 const O = { x: 380000, y: 1015000 };
 
@@ -614,7 +616,9 @@ async function main() {
   // ---------------------------------------------------------------- 16. Aucune ecriture dans le referentiel officiel
   const etatFinal = await instantane();
   const bouges = Object.keys(etatFinal).filter((t) => etatInitial[t] !== etatFinal[t]).sort();
-  const autorises = new Set(["audit_logs", "projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau", "projets_voirie_import_evenements", "projets_voirie_fichiers_origine"]);
+  const autorises = new Set(["audit_logs", "projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau", "projets_voirie_import_evenements", "projets_voirie_fichiers_origine",
+    // Lot T1 : territoire par defaut ajoute par lib/territoire-par-defaut.mts (table du module).
+    "territoires_voirie"]);
   verifier("16. apres tout le banc (depots, autorisations, retraits, exports, lectures), SEULES les tables du module et audit_logs ont change : troncons, ouvrages, portions, chantiers, defauts... intacts",
     bouges.every((t) => autorises.has(t)) && bouges.includes("projets_voirie_objets"), bouges);
   verifier("16. ... et le referentiel est bien present dans l'instantane (le test n'est pas vide)", ["troncons", "ouvrages", "portions", "chantiers", "defauts", "users", "regions"].every((t) => t in etatFinal));

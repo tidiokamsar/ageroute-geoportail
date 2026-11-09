@@ -13,8 +13,10 @@ import { ErreurMetier, introuvable } from "./erreurs";
 import type { Bbox } from "./lecture.types";
 import { estDelaiDepasse, poserDelais } from "./bd";
 import { delaiDepotMs, delaiVerrouMs } from "./config";
-import { INCLURE_JEU, vueJeu, vueProjet } from "./vues";
+import { INCLURE_JEU, INCLURE_PROJET, vueJeu, vueProjet } from "./vues";
 import { jeuDeReferenceSuppressions, verifierSuppressionsRevues } from "./formats/versions.depot";
+import { resoudreTypeReseau } from "./territoires/referentiels.service";
+import { ancetresDe, territoirePourProjet } from "./territoires/territoires.service";
 
 export interface Acteur { id: string; role: string; ip?: string }
 
@@ -37,6 +39,8 @@ export type Tx = Prisma.TransactionClient;
 export interface DonneesProjet {
   code: string; nom: string; commune?: string | null; prefecture?: string | null; regionId?: number | null;
   description?: string | null; largeurEmpriseM?: number; largeurChausseeM?: number;
+  /** Lot T1 : territoire OBLIGATOIRE (la route l'impose : 400 TERRITOIRE_REQUIS) ; categorie facultative (largeurs par defaut). */
+  territoireId: string; categorieCode?: string | null;
 }
 
 function erreurUnicite(e: unknown, code: string, message: string): never {
@@ -44,24 +48,55 @@ function erreurUnicite(e: unknown, code: string, message: string): never {
   throw e;
 }
 
+/** Largeurs par defaut d'une categorie de projet (referentiel CATEGORIE_PROJET) ; 400 si le code est inconnu ou retire. */
+async function largeursDeCategorie(tx: Pick<Tx, "referentielVoirie">, code: string | null | undefined): Promise<{ largeurEmpriseM: number; largeurChausseeM: number } | null> {
+  if (!code) return null;
+  const v = await tx.referentielVoirie.findFirst({ where: { domaine: "CATEGORIE_PROJET", code, deletedAt: null }, select: { parametres: true } });
+  if (!v) throw new ErreurMetier(400, "CATEGORIE_INCONNUE", `La catégorie de projet « ${code} » est inconnue ou retirée du référentiel CATEGORIE_PROJET.`);
+  const p = v.parametres as { largeurEmpriseM?: unknown; largeurChausseeM?: unknown } | null;
+  return typeof p?.largeurEmpriseM === "number" && typeof p?.largeurChausseeM === "number" ? { largeurEmpriseM: p.largeurEmpriseM, largeurChausseeM: p.largeurChausseeM } : null;
+}
+
+/**
+ * Lot T1 : rattachement d'un projet a un territoire. La region du projet est celle qu'il donne, sinon la region effective du territoire ; les
+ * deux doivent concorder (400 TERRITOIRE_REGION_INCOHERENTE : le perimetre des comptes ne se contourne pas par un territoire d'une autre
+ * region). `commune` et `prefecture` sont derives des ancetres quand ils existent, sinon les valeurs envoyees sont conservees.
+ */
+async function rattacherTerritoire(tx: Tx, territoireId: string, regionId: number | null | undefined, texte: { commune?: string | null; prefecture?: string | null }) {
+  const t = await territoirePourProjet(tx, territoireId);
+  const regionTerritoire = t.territoire.regionEffectiveId;
+  if (regionId !== undefined && regionId !== null && regionTerritoire !== null && regionId !== regionTerritoire) {
+    throw new ErreurMetier(400, "TERRITOIRE_REGION_INCOHERENTE", "La région du projet ne correspond pas à la région du territoire choisi.");
+  }
+  if (regionId !== undefined && regionId !== null && regionTerritoire === null) {
+    throw new ErreurMetier(400, "TERRITOIRE_REGION_INCOHERENTE", "Le territoire choisi n'est rattaché à aucune région : un projet régional ne peut pas s'y placer (rattachez d'abord le territoire).");
+  }
+  return { regionId: regionId ?? regionTerritoire, commune: t.commune ?? texte.commune ?? null, prefecture: t.prefecture ?? texte.prefecture ?? null };
+}
+
 export async function creerProjet(acteur: Acteur, d: DonneesProjet) {
   const code = d.code.trim().toUpperCase();
-  const empr = d.largeurEmpriseM ?? 15;
-  const chau = d.largeurChausseeM ?? 7;
-  if (!(chau > 0 && chau <= empr && empr <= 200)) {
-    throw new ErreurMetier(400, "LARGEURS_INCOHERENTES", "La largeur de chaussée doit être positive et au plus égale à la largeur d'emprise (200 m au plus).");
-  }
   try {
     return await prisma.$transaction(async (tx) => {
+      // Largeurs : celles du corps, sinon celles de la categorie, sinon les defauts historiques (15 m / 7 m).
+      const cat = await largeursDeCategorie(tx, d.categorieCode);
+      const empr = d.largeurEmpriseM ?? cat?.largeurEmpriseM ?? 15;
+      const chau = d.largeurChausseeM ?? cat?.largeurChausseeM ?? 7;
+      if (!(chau > 0 && chau <= empr && empr <= 200)) {
+        throw new ErreurMetier(400, "LARGEURS_INCOHERENTES", "La largeur de chaussée doit être positive et au plus égale à la largeur d'emprise (200 m au plus).");
+      }
       if (d.regionId != null) {
         const region = await tx.region.findUnique({ where: { id: d.regionId }, select: { id: true } });
         if (!region) throw new ErreurMetier(400, "REGION_INCONNUE", "Région inconnue.");
       }
+      const r = await rattacherTerritoire(tx, d.territoireId, d.regionId, d);
       const p = await tx.projetVoirie.create({
         data: {
-          code, nom: d.nom.trim(), commune: d.commune ?? null, prefecture: d.prefecture ?? null, regionId: d.regionId ?? null,
+          code, nom: d.nom.trim(), commune: r.commune, prefecture: r.prefecture, regionId: r.regionId,
+          territoireId: d.territoireId, categorieCode: d.categorieCode ?? null,
           description: d.description ?? null, largeurEmpriseM: empr, largeurChausseeM: chau, creeParId: acteur.id,
         },
+        include: INCLURE_PROJET,
       });
       await logAuditTransactionnelle(tx, { userId: acteur.id, action: "CREATE", entityType: "ProjetVoirie", entityId: p.id, after: vueProjet(p), ipAddress: acteur.ip });
       return vueProjet(p);
@@ -69,6 +104,13 @@ export async function creerProjet(acteur: Acteur, d: DonneesProjet) {
   } catch (e) {
     return erreurUnicite(e, "CODE_DEJA_UTILISE", `Le code « ${code} » est déjà utilisé (y compris par un projet retiré).`);
   }
+}
+
+/** Region effective d'un territoire pour la garde de creation (`requireTerritoire`) : `null` si inconnu ou sans region. */
+export async function regionDuTerritoire(territoireId: string | undefined): Promise<number | null> {
+  if (!territoireId) return null;
+  const t = await prisma.territoireVoirie.findFirst({ where: { id: territoireId, deletedAt: null }, select: { regionEffectiveId: true } });
+  return t?.regionEffectiveId ?? null;
 }
 
 function encoderCurseur(c: { t: string; i: string }): string {
@@ -83,9 +125,14 @@ export function decoderCurseur(s: string): { t: Date; i: string } | null {
   } catch { return null; }
 }
 
-export async function listerProjets(portee: Portee, f: { q?: string; limite: number; curseur?: { t: Date; i: string }; tousLesJeux: boolean }) {
+export async function listerProjets(portee: Portee, f: { q?: string; limite: number; curseur?: { t: Date; i: string }; tousLesJeux: boolean; territoireId?: string }) {
   const and: Prisma.ProjetVoirieWhereInput[] = [{ deletedAt: null }];
   if (portee !== null) and.push({ regionId: { in: [...portee] } });
+  // Lot T1 : filtre par territoire ET ses descendants (prefixe du chemin materialise) ; un territoire inconnu ou hors perimetre donne une liste vide.
+  if (f.territoireId) {
+    const t = await prisma.territoireVoirie.findFirst({ where: { id: f.territoireId, deletedAt: null }, select: { chemin: true } });
+    and.push(t ? { territoire: { chemin: { startsWith: t.chemin } } } : { id: { in: [] } });
+  }
   if (f.q) {
     and.push({ OR: [
       { nom: { contains: f.q, mode: "insensitive" } }, { code: { contains: f.q, mode: "insensitive" } },
@@ -93,7 +140,7 @@ export async function listerProjets(portee: Portee, f: { q?: string; limite: num
     ] });
   }
   if (f.curseur) and.push({ OR: [{ createdAt: { lt: f.curseur.t } }, { createdAt: f.curseur.t, id: { lt: f.curseur.i } }] });
-  const lignes = await prisma.projetVoirie.findMany({ where: { AND: and }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: f.limite + 1 });
+  const lignes = await prisma.projetVoirie.findMany({ where: { AND: and }, include: INCLURE_PROJET, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: f.limite + 1 });
   const page = lignes.slice(0, f.limite);
   const comptes = page.length
     ? await prisma.jeuDonneesProjet.groupBy({ by: ["projetId", "statut"], where: { projetId: { in: page.map((p) => p.id) }, statut: statutsVisibles(f.tousLesJeux) }, _count: { _all: true } })
@@ -116,7 +163,7 @@ export async function regionsDuProjet(id: string): Promise<(number | null)[]> {
 }
 
 async function projetOuErreur(tx: Pick<Tx, "projetVoirie">, id: string) {
-  const p = await tx.projetVoirie.findFirst({ where: { id, deletedAt: null } });
+  const p = await tx.projetVoirie.findFirst({ where: { id, deletedAt: null }, include: INCLURE_PROJET });
   if (!p) throw introuvable("Projet", "PROJET_INTROUVABLE");
   return p;
 }
@@ -136,8 +183,13 @@ function bboxDesJeux(jeux: { resume: unknown }[]): Bbox | null {
 export async function ficheProjet(id: string, tousLesJeux: boolean) {
   const p = await projetOuErreur(prisma, id);
   const jeux = await prisma.jeuDonneesProjet.findMany({ where: { projetId: id, statut: statutsVisibles(tousLesJeux) }, include: INCLURE_JEU, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
+  // Lot T1 : ancetres du territoire (nation, region, prefecture...) pour la fiche.
+  const territoire = p.territoire ? await prisma.territoireVoirie.findUnique({ where: { id: p.territoire.id }, select: { chemin: true } }) : null;
+  const ancetres = territoire ? await ancetresDe(prisma, territoire.chemin) : [];
+  const vue = vueProjet(p);
   return {
-    ...vueProjet(p),
+    ...vue,
+    territoire: vue.territoire ? { ...vue.territoire, ancetres } : null,
     parametres: { largeurEmpriseM: Number(p.largeurEmpriseM), largeurChausseeM: Number(p.largeurChausseeM), statut: p.statutParametres },
     bbox: bboxDesJeux(jeux.filter((j) => j.statut === "AUTORISE")),
     jeux: jeux.map((j) => vueJeu(j, { sansHistorique: !tousLesJeux })),
@@ -147,6 +199,8 @@ export async function ficheProjet(id: string, tousLesJeux: boolean) {
 export interface ModifProjet {
   nom?: string; commune?: string | null; prefecture?: string | null; description?: string | null;
   largeurEmpriseM?: number; largeurChausseeM?: number; statutParametres?: "THEORIQUE" | "VALIDE";
+  /** Lot T1 : changement de territoire (sa region effective doit etre celle du projet) et de categorie. */
+  territoireId?: string; categorieCode?: string | null;
 }
 
 export async function modifierProjet(acteur: Acteur, id: string, m: ModifProjet) {
@@ -163,6 +217,16 @@ export async function modifierProjet(acteur: Acteur, id: string, m: ModifProjet)
     const largeursChangent = empr !== Number(avant.largeurEmpriseM) || chau !== Number(avant.largeurChausseeM);
     // Toute modification des largeurs remet les parametres a THEORIQUE, sauf validation explicite par un ADMIN dans la meme requete.
     const statut = m.statutParametres ?? (largeursChangent ? "THEORIQUE" : avant.statutParametres);
+    // Lot T1 : un changement de territoire ne change jamais la region du projet (le perimetre decide) ; commune et prefecture suivent.
+    let rattachement: { commune: string | null; prefecture: string | null } | null = null;
+    if (m.territoireId !== undefined && m.territoireId !== avant.territoireId) {
+      const t = await territoirePourProjet(tx, m.territoireId);
+      if ((t.territoire.regionEffectiveId ?? null) !== avant.regionId) {
+        throw new ErreurMetier(400, "TERRITOIRE_REGION_INCOHERENTE", "Le nouveau territoire n'est pas dans la région du projet : la région d'un projet ne change pas par un déplacement de territoire.");
+      }
+      rattachement = { commune: t.commune ?? m.commune ?? avant.commune, prefecture: t.prefecture ?? m.prefecture ?? avant.prefecture };
+    }
+    if (m.categorieCode !== undefined && m.categorieCode !== null) await largeursDeCategorie(tx, m.categorieCode);
     const apres = await tx.projetVoirie.update({
       where: { id },
       data: {
@@ -170,8 +234,12 @@ export async function modifierProjet(acteur: Acteur, id: string, m: ModifProjet)
         ...(m.commune !== undefined ? { commune: m.commune } : {}),
         ...(m.prefecture !== undefined ? { prefecture: m.prefecture } : {}),
         ...(m.description !== undefined ? { description: m.description } : {}),
+        ...(m.territoireId !== undefined ? { territoireId: m.territoireId } : {}),
+        ...(m.categorieCode !== undefined ? { categorieCode: m.categorieCode } : {}),
+        ...(rattachement ?? {}),
         largeurEmpriseM: empr, largeurChausseeM: chau, statutParametres: statut,
       },
+      include: INCLURE_PROJET,
     });
     await logAuditTransactionnelle(tx, { userId: acteur.id, action: "UPDATE", entityType: "ProjetVoirie", entityId: id, before: vueProjet(avant), after: vueProjet(apres), ipAddress: acteur.ip });
     return vueProjet(apres);
@@ -193,17 +261,20 @@ export async function retirerProjet(acteur: Acteur, id: string) {
 
 export async function listerConcessionnaires() {
   const l = await prisma.concessionnaireReseau.findMany({ where: { deletedAt: null }, orderBy: { nom: "asc" } });
-  return { concessionnaires: l.map((c) => ({ id: c.id, nom: c.nom, typeReseau: c.typeReseau, contact: c.contact, createdAt: c.createdAt })) };
+  return { concessionnaires: l.map((c) => ({ id: c.id, nom: c.nom, typeReseau: c.typeReseau, typeReseauCode: c.typeReseauCode ?? null, contact: c.contact, createdAt: c.createdAt })) };
 }
 
-export async function creerConcessionnaire(acteur: Acteur, d: { nom: string; typeReseau: Prisma.ConcessionnaireReseauCreateInput["typeReseau"]; contact?: string | null }) {
+export async function creerConcessionnaire(acteur: Acteur, d: { nom: string; typeReseau?: Prisma.ConcessionnaireReseauCreateInput["typeReseau"]; typeReseauCode?: string; contact?: string | null }) {
   const nom = d.nom.trim();
+  if (!d.typeReseau && !d.typeReseauCode) throw new ErreurMetier(400, "CHAMPS_INVALIDES", "typeReseau (famille) ou typeReseauCode (référentiel TYPE_RESEAU) est requis.");
   try {
     return await prisma.$transaction(async (tx) => {
       const existant = await tx.concessionnaireReseau.findFirst({ where: { nom: { equals: nom, mode: "insensitive" } }, select: { id: true } });
       if (existant) throw new ErreurMetier(409, "CONCESSIONNAIRE_DEJA_CONNU", `Le concessionnaire « ${nom} » existe déjà.`, { concessionnaireId: existant.id });
-      const c = await tx.concessionnaireReseau.create({ data: { nom, typeReseau: d.typeReseau, contact: d.contact ?? null } });
-      const vue = { id: c.id, nom: c.nom, typeReseau: c.typeReseau, contact: c.contact, createdAt: c.createdAt };
+      // Lot T1 : le code du referentiel donne la famille ; sans code, la famille declaree (repli).
+      const type = await resoudreTypeReseau(tx, { code: d.typeReseauCode, famille: d.typeReseau ?? null });
+      const c = await tx.concessionnaireReseau.create({ data: { nom, typeReseau: type.famille as Prisma.ConcessionnaireReseauCreateInput["typeReseau"], typeReseauCode: type.code, contact: d.contact ?? null } });
+      const vue = { id: c.id, nom: c.nom, typeReseau: c.typeReseau, typeReseauCode: c.typeReseauCode ?? null, contact: c.contact, createdAt: c.createdAt };
       await logAuditTransactionnelle(tx, { userId: acteur.id, action: "CREATE", entityType: "ConcessionnaireReseau", entityId: c.id, after: vue, ipAddress: acteur.ip });
       return vue;
     });
