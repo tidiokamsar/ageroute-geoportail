@@ -15,7 +15,7 @@ import { verifier, conclure, proche } from "./lib/verdict.ts";
 import { avecTerritoireParDefaut } from "./lib/territoire-par-defaut.mts";
 import { AXES, R1_BASE, O, constructeurs } from "./lib/fixtures-conflits.mts";
 
-const banc = await ouvrirBancClone("essai_reseau_pl", { migrations: ["20261101200000_reseaux_physiques_logiques"] });
+const banc = await ouvrirBancClone("essai_reseau_pl", { migrations: ["20261101200000_reseaux_physiques_logiques", "20261103300000_multi_sources_comparaison"] });
 const { prisma } = await banc.imp("lib/prisma");
 const { createApp } = await banc.imp("app");
 const { signAccessToken } = await banc.imp("utils/jwt");

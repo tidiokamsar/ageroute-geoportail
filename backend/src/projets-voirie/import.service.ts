@@ -35,6 +35,8 @@ import { verrouillerProjet, type Acteur, type Tx } from "./projets.service";
 import { contexteSpatialDuProjet } from "./territoires/contexte-spatial";
 import { resoudreTypeReseau } from "./territoires/referentiels.service";
 import { INCLURE_JEU, vueJeu } from "./vues";
+import { filtreCleVersion } from "./sources/cle-version.noyau";
+import { insererConnexionsDeclarees } from "./reseaux/reseaux.depot";
 
 export type Role = "AXES_TRAVAUX" | "RESEAU_TIERS" | "LIMITES_ROUTE" | "AUTRE";
 export type Nature = "ACTIF_PHYSIQUE" | "CIRCUIT_LOGIQUE" | "EQUIPEMENT" | "AXE" | "EMPRISE" | "INCONNUE";
@@ -57,6 +59,8 @@ export interface ChampsDepot {
   precisionVerticaleM?: number;
   methode?: string;
   dateConstat?: string;
+  /** Lot S1 : code de la methode d'acquisition (liste `METHODES_ACQUISITION` de config.ts) ; composante de la cle de version d'un reseau. */
+  methodeAcquisition?: string;
 }
 
 export interface DemandeDepot {
@@ -282,6 +286,7 @@ async function appliquerPropositions(tx: Tx, c: ChampsDepot, props: ResultatImpo
       case "dateDonnees": if (c.dateDonnees === undefined) { champs.dateDonnees = String(prop.valeur); depuisMapping[champ] = prop; } break;
       case "dateConstat": if (c.dateConstat === undefined) { champs.dateConstat = String(prop.valeur); depuisMapping[champ] = prop; } break;
       case "natureObjets": if (c.natureObjets === undefined) { champs.natureObjets = prop.valeur as Nature; depuisMapping[champ] = prop; } break;
+      case "methodeAcquisition": if (c.methodeAcquisition === undefined) { champs.methodeAcquisition = String(prop.valeur); depuisMapping[champ] = prop; } break;
     }
   }
   return { champs, depuisMapping, avertissements };
@@ -327,7 +332,8 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
   let version = 1;
   let remplace: { id: string; version: number } | null = null;
   if (c.role !== "AUTRE") {
-    const cle = { projetId: d.projetId, role: c.role, concessionnaireId: concId };
+    // Lot S1 : la methode d'acquisition fait partie de la cle d'un reseau de concessionnaire (seconde source), pas des autres roles (CONTRAT-SOURCES.md, 3.1).
+    const cle = filtreCleVersion({ projetId: d.projetId, role: c.role, concessionnaireId: concId, methodeAcquisition: c.methodeAcquisition ?? null });
     const attente = await tx.jeuDonneesProjet.findFirst({ where: { ...cle, statut: { in: ["RECU", "CONTROLE"] } }, select: { id: true, version: true } });
     if (attente) {
       throw new ErreurMetier(409, "DEPOT_EN_ATTENTE", "Un dépôt de même rôle et de même concessionnaire attend déjà son autorisation : autorisez-le, rejetez-le ou retirez-le d'abord.", { jeuId: attente.id, version: attente.version });
@@ -345,7 +351,7 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
       nomFichier: d.nomFichier.slice(0, 255), format: lecture.format, sha256, tailleOctets: tailleDe(d), nbObjets: 0,
       dateDonnees: dateJour(c.dateDonnees), origineFichier: c.origineFichier ?? null,
       classePrecision: c.classePrecision ?? null, precisionHorizontaleM: c.precisionHorizontaleM ?? null, precisionVerticaleM: c.precisionVerticaleM ?? null,
-      methode: c.methode ?? null, dateConstat: dateJour(c.dateConstat), natureObjets: nature,
+      methode: c.methode ?? null, methodeAcquisition: c.methodeAcquisition ?? null, dateConstat: dateJour(c.dateConstat), natureObjets: nature,
       confidentialite: c.confidentialite ?? confidentialiteParDefaut(c.role), statut: "CONTROLE", version, remplaceId: remplace?.id ?? null,
       creeParId: d.acteur.id,
     },
@@ -396,6 +402,19 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
       avertissements: avertissements as unknown as Prisma.InputJsonValue, resume: resume as unknown as Prisma.InputJsonValue,
     },
   });
+  // Lot S1 : connexions DECLAREES par une colonne du fichier (mapping `connecteA`) : resolues par le NOM d'un objet du meme jeu, jamais par proximite.
+  // Avant la fin d'une simulation : le resume les compte, la transaction annulee ne garde rien.
+  const colonneConnexion = lecture.importInfo.mapping.connecteA;
+  let connexions: { creees: number; nonResolues: number } | null = null;
+  if (colonneConnexion !== undefined) {
+    if (nature !== "ACTIF_PHYSIQUE" && nature !== "EQUIPEMENT") {
+      throw new ErreurMetier(422, "CONNECTE_A_NATURE_REQUISE", "Des connexions déclarées (mapping connecteA) ne relient que des objets physiques : déclarez la nature du jeu (ACTIF_PHYSIQUE ou EQUIPEMENT).");
+    }
+    connexions = await insererConnexionsDeclarees(tx, { projetId: d.projetId, jeuId: id, colonne: colonneConnexion, acteurId: d.acteur.id, justification: `Connexion déclarée par le fichier ${d.nomFichier.slice(0, 120)} (colonne ${colonneConnexion.slice(0, 60)})` });
+    if (connexions.nonResolues > 0) avertissements.push({ code: "CONNEXIONS_NON_RESOLUES", message: "Des objets désignent un objet connecté introuvable ou ambigu dans le même fichier : aucune connexion n'est créée pour eux (rien n'est deviné).", nb: connexions.nonResolues });
+    (resume.import as Record<string, unknown>).connexionsDeclarees = connexions;
+    await tx.jeuDonneesProjet.update({ where: { id }, data: { avertissements: avertissements as unknown as Prisma.InputJsonValue, resume: resume as unknown as Prisma.InputJsonValue } });
+  }
   // Fichier d'origine : seulement si la configuration le demande (retention a decider ; defaut : empreinte seule, comme le socle).
   if (conservation === "STOCKE" && !d.simuler) {
     await tx.fichierOrigineJeuProjet.create({ data: { jeuId: id, sha256, tailleOctets: tailleDe(d), contenu: d.fichier } });
@@ -420,7 +439,8 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
     after: {
       projetId: d.projetId, role: c.role, concessionnaireId: concId, nomFichier: jeu.nomFichier, format: lecture.format, sha256,
       tailleOctets: tailleDe(d), nbObjets: mesures.nbObjets, longueurTraceFusionneM: mesures.longueurTraceFusionneM,
-      version, statut: "CONTROLE", confidentialite: jeu.confidentialite, natureObjets: nature, classePrecision: c.classePrecision ?? null,
+      version, statut: "CONTROLE", confidentialite: jeu.confidentialite, natureObjets: nature, classePrecision: c.classePrecision ?? null, methodeAcquisition: c.methodeAcquisition ?? null,
+      connexionsDeclarees: connexions,
       origineFichier: c.origineFichier ?? null, remplaceId: remplace?.id ?? null, delta, suppressions,
       avertissements: avertissements.map((a) => ({ code: a.code, nb: a.nb ?? null })),
       // CRS source, cible, unites et methode : conserves dans l'audit (jamais de geometrie).

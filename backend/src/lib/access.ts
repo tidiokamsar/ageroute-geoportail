@@ -125,6 +125,9 @@ export const MODULE_PAR_ENTITE: Record<string, ModuleKey | null> = {
   TerritoireVoirie: "projets-voirie",
   ReferentielVoirie: "projets-voirie",
   ConfigurationVoirie: "projets-voirie",
+  // Sources multiples et comparaison entre sources (lot S1) : regles de rapprochement, comparaisons persistees. Aucune geometrie dans l audit.
+  RegleRapprochementSources: "projets-voirie",
+  ComparaisonSources: "projets-voirie",
   User: null,
   AppSetting: null,
 };

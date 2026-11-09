@@ -35,7 +35,7 @@ export interface LigneJeu {
   id: string; projetId: string; role: string; concessionnaireId: string | null; typeReseau: string | null; typeReseauCode?: string | null; nomFichier: string; format: string;
   sha256: string; tailleOctets: number; nbObjets: number; longueurTotaleM: number; longueurTraceFusionneM: number;
   dateDonnees: Date | null; origineFichier: string | null; classePrecision: string | null;
-  precisionHorizontaleM: Dec; precisionVerticaleM: Dec; methode: string | null; dateConstat: Date | null;
+  precisionHorizontaleM: Dec; precisionVerticaleM: Dec; methode: string | null; dateConstat: Date | null; methodeAcquisition?: string | null;
   natureObjets: string; confidentialite: string; statut: string; version: number; remplaceId: string | null;
   avertissements: unknown; resume: unknown; decideParId: string | null; decideLe: Date | null; justificationDecision: string | null;
   creeParId: string; createdAt: Date; deletedAt: Date | null;
@@ -68,6 +68,8 @@ export function vueJeu(j: LigneJeu, options: { sansId?: boolean; sansHistorique?
     precisionHorizontaleM: num(j.precisionHorizontaleM),
     precisionVerticaleM: num(j.precisionVerticaleM),
     methode: j.methode,
+    // Lot S1 : methode d'acquisition (deux methodes = deux sources d'un reseau de concessionnaire).
+    methodeAcquisition: j.methodeAcquisition ?? null,
     dateConstat: jour(j.dateConstat),
     natureObjets: j.natureObjets,
     confidentialite: j.confidentialite,

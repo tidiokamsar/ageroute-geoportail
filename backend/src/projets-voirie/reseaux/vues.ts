@@ -49,6 +49,8 @@ export function vueRelation(l: LigneRelation, peutDecider: boolean) {
     id: l.id, projetId: l.projetId, typeRelation: l.typeRelation, statut: l.statut, origine: l.origine,
     // Ce que l'association automatique a calcule (tolerance, composantes, couverture, seuil) : sans geometrie, immuable.
     proposition: l.proposition,
+    // Lot S1 : preuve d une connexion declaree (CONNECTE_A) ; nulle pour les autres types. Jamais deduite.
+    preuve: l.preuve ?? null,
     source: { objetId: l.sourceObjetId, nom: l.sourceNom, nature: l.sourceNature, typeObjet: l.sourceType, typeGeom: l.sourceGeom, jeuId: l.sourceJeuId },
     cible: { objetId: l.cibleObjetId, nom: l.cibleNom, nature: l.cibleNature, typeObjet: l.cibleType, typeGeom: l.cibleGeom, jeuId: l.cibleJeuId },
     decision: l.decideLe ? { par: l.decidePar, le: l.decideLe, justification: l.justificationDecision } : null,

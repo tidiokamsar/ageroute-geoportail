@@ -236,18 +236,20 @@ async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: Pr
 
   // ---------------------------------------------------------------- Rejeu sur les conflits existants (noyau pur)
   await poserDelais(tx, delaiDepotMs(), delaiVerrouMs());
+  // Lot S1 : un dossier DIVERGENCE_SOURCES vient d'une comparaison de sources ouverte par une personne, pas de cette analyse : le recalcul l'ignore
+  // (jamais NON_RETROUVE, jamais modifie). Il n'a d'ailleurs pas d'analyse (contrainte cp_origine_coherente).
   const existantsLus = await tx.conflitProjet.findMany({
-    where: { projetId: projet.id },
+    where: { projetId: projet.id, type: { not: "DIVERGENCE_SOURCES" } },
     select: { id: true, cle: true, statut: true, mesure: true, classePrecision: true, jeuReseauId: true, derniereAnalyseId: true, aReexaminer: true, motifReexamen: true },
   });
   const analysesPrec = existantsLus.length > 0
-    ? await tx.analyseConflitProjet.findMany({ where: { id: { in: [...new Set(existantsLus.map((x) => x.derniereAnalyseId))] } }, select: { id: true, jeux: true } })
+    ? await tx.analyseConflitProjet.findMany({ where: { id: { in: [...new Set(existantsLus.flatMap((x) => (x.derniereAnalyseId ? [x.derniereAnalyseId] : [])))] } }, select: { id: true, jeux: true } })
     : [];
   const jeuxPrec = new Map(analysesPrec.map((a) => [a.id, (a.jeux as { jeuId: string; sha256: string; role: string }[]) ?? []] as const));
   const jeuxAnalyse = jeux.map((j) => ({ jeuId: j.id, sha256: j.sha256, role: j.role }));
   const existants: ConflitExistant[] = existantsLus.map((x) => ({
     id: x.id, cle: x.cle, statut: x.statut as StatutConflit, empreinteMesure: empreinteMesure(lireMesure(x.mesure)),
-    jeuxToken: jeuxPrec.has(x.derniereAnalyseId) ? jeuxToken(jeuxPrec.get(x.derniereAnalyseId)!, x.jeuReseauId) : null,
+    jeuxToken: x.derniereAnalyseId && jeuxPrec.has(x.derniereAnalyseId) ? jeuxToken(jeuxPrec.get(x.derniereAnalyseId)!, x.jeuReseauId) : null,
     classePrecision: x.classePrecision as ClassePrecision, aReexaminer: x.aReexaminer, motifReexamen: x.motifReexamen,
   }));
   const trouves: ConflitTrouve[] = calcules.map((c) => ({ cle: c.cle, empreinteMesure: c.empreinteMesure, jeuxToken: jeuxToken(jeuxAnalyse, c.jeuReseauId), classePrecision: c.classePrecision }));

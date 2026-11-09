@@ -4393,6 +4393,9 @@ model JeuDonneesProjet {
   precisionHorizontaleM  Decimal?               @db.Decimal(8, 2)
   precisionVerticaleM    Decimal?               @db.Decimal(8, 2)
   methode                String?
+  /// Lot S1 : code de la methode d'acquisition (liste `METHODES_ACQUISITION` de config.ts ; forme verifiee par la base). Composante de la cle de
+  /// version (index partiels, hors schema.prisma) : deux methodes = deux SOURCES du meme reseau, meme methode = nouvelle VERSION.
+  methodeAcquisition     String?
   dateConstat            DateTime?              @db.Date
   natureObjets           NatureObjetReseau      @default(INCONNUE)
   confidentialite        NiveauConfidentialite  @default(CONFIDENTIEL_CONCESSIONNAIRE)
@@ -4614,10 +4617,13 @@ model ConflitProjet {
   actionProposee    String?
   classePrecision   ClassePrecision?
   verticalEvalue    Boolean                @default(false)
-  premiereAnalyseId String
-  premiereAnalyse   AnalyseConflitProjet   @relation("ConflitPremiereAnalyse", fields: [premiereAnalyseId], references: [id], onDelete: Restrict)
-  derniereAnalyseId String
-  derniereAnalyse   AnalyseConflitProjet   @relation("ConflitDerniereAnalyse", fields: [derniereAnalyseId], references: [id], onDelete: Restrict)
+  /// Nulles pour un dossier DIVERGENCE_SOURCES (lot S1, issu d une comparaison de sources) ; obligatoires pour tout autre type (contrainte de la base).
+  premiereAnalyseId String?
+  premiereAnalyse   AnalyseConflitProjet?  @relation("ConflitPremiereAnalyse", fields: [premiereAnalyseId], references: [id], onDelete: Restrict)
+  derniereAnalyseId String?
+  derniereAnalyse   AnalyseConflitProjet?  @relation("ConflitDerniereAnalyse", fields: [derniereAnalyseId], references: [id], onDelete: Restrict)
+  /// Lot S1 : comparaison de sources dont est issu un dossier DIVERGENCE_SOURCES (cle etrangere en base, ouvert par une action humaine).
+  comparaisonId     String?
   aReexaminer       Boolean                @default(false)
   motifReexamen     MotifReexamenConflit?
   tronconsProches   Json                   @default("[]")
@@ -4970,6 +4976,8 @@ model HistoriqueWorkflowProjet {
 enum TypeRelationReseau {
   PORTE_PAR
   CONTENU_DANS
+  /// Lot S1 : connexion DECLAREE entre deux objets physiques (import declaratif ou saisie humaine), jamais deduite d une proximite.
+  CONNECTE_A
 }
 
 enum StatutRelationReseau {
@@ -4982,6 +4990,8 @@ enum StatutRelationReseau {
 enum OrigineRelationReseau {
   AUTOMATIQUE
   MANUELLE
+  /// Lot S1 : relation declaree par une colonne d un fichier importe (mapping `connecteA`).
+  IMPORT_DECLARATIF
 }
 
 enum NiveauConfianceObjet {
@@ -5044,6 +5054,8 @@ model ReseauRelation {
   statut                StatutRelationReseau  @default(PROPOSEE)
   origine               OrigineRelationReseau
   proposition           Json                  @default("{}")
+  /// Lot S1 : preuve d une connexion (CONNECTE_A seulement, obligatoire pour ce type et interdite pour les autres : contrainte de la base).
+  preuve                PreuveConnexionReseau?
   decideParId           String?
   decidePar             User?                 @relation("ReseauRelationDecideur", fields: [decideParId], references: [id], onDelete: Restrict)
   decideLe              DateTime?
@@ -5267,4 +5279,108 @@ model ConfigurationVoirieHistorique {
 
   @@index([cle, createdAt])
   @@map("configuration_voirie_historique")
+}
+
+// ===================== SOURCES MULTIPLES ET COMPARAISON ENTRE SOURCES (lot S1) =====================
+// Contrat : docs/projets-voirie/CONTRAT-SOURCES.md. Migration 20261103300000_multi_sources_comparaison (additive, avec descente).
+// Une comparaison entre deux sources d un meme reseau est persistee et reproductible ; un resultat n est JAMAIS une decision. Aucune geometrie.
+// Hors schema.prisma (voir docs/securite/DERIVE-SCHEMA.md) : les cles etrangeres (colonnes scalaires ici, comme JobImportProjet), l index unique
+// `NULLS NOT DISTINCT` des regles, les index partiels de la cle de version des jeux (methode d acquisition), les contraintes CHECK et les declencheurs.
+
+enum StatutResultatComparaison {
+  CONCORDANCE
+  DIVERGENCE
+  RAPPROCHEMENT_INCERTAIN
+  SANS_CORRESPONDANCE_A
+  SANS_CORRESPONDANCE_B
+}
+
+enum PreuveConnexionReseau {
+  CONFIRMEE_PAR_FOURNISSEUR
+  INCONNUE
+}
+
+/// Regle de rapprochement VERSIONNEE et approuvee (corridor = max des precisions declarees + marge). Regle par defaut S1-CORRIDOR-0.1 (version 0) creee par la migration.
+model RegleRapprochementSources {
+  id                    String             @id @default(uuid())
+  projetId              String?
+  famille               TypeReseauTiers?
+  code                  String
+  version               Int
+  margeM                Decimal            @default(1) @db.Decimal(6, 2)
+  rayonAppariementM     Decimal            @default(10) @db.Decimal(8, 2)
+  partHorsCorridorMax   Decimal            @default(0) @db.Decimal(5, 4)
+  precisionParClasseM   Json               @default("{\"A\": 0.5, \"B\": 1, \"C\": 2, \"D\": 5}")
+  statut                StatutRegleConflit @default(BROUILLON)
+  justification         String
+  creeParId             String?
+  approuveParId         String?
+  approuveLe            DateTime?
+  motifApprobation      String?
+  derogationApprobation String?
+  createdAt             DateTime           @default(now())
+
+  @@unique([projetId, famille, code, version], map: "regles_rapprochement_sources_version_key")
+  @@index([projetId, statut])
+  @@map("regles_rapprochement_sources")
+}
+
+/// Comparaison PERSISTEE entre deux sources (jeux A et B) d un meme reseau : immuable, reproductible (jeux, regle, algorithme, instantane).
+model ComparaisonSources {
+  id                String               @id @default(uuid())
+  projetId          String
+  numero            Int
+  statut            StatutAnalyseConflit
+  /// SOURCES (deux jeux AUTORISE) ou VERSION_CANDIDATE (jeu en controle face au jeu AUTORISE qu il remplacera) : contrainte de la base.
+  mode              String               @default("SOURCES")
+  role              RoleJeuProjet        @default(RESEAU_TIERS)
+  jeuAId            String
+  jeuBId            String
+  concessionnaireId String?
+  typeReseau        TypeReseauTiers?
+  regle             Json                 @default("{}")
+  jeux              Json                 @default("[]")
+  versionAlgorithme String
+  epsg              Int?
+  resume            Json                 @default("{}")
+  instantane        Json                 @default("{}")
+  declencheParId    String
+  duree             Int                  @default(0)
+  createdAt         DateTime             @default(now())
+
+  resultats ComparaisonSourcesResultat[]
+
+  @@unique([projetId, numero])
+  @@index([jeuAId])
+  @@index([jeuBId])
+  @@map("comparaisons_sources_projet")
+}
+
+/// Resultat d une comparaison pour un objet : fige (seul `conflitId` s ecrit, une fois, par une action humaine). Aucune geometrie.
+model ComparaisonSourcesResultat {
+  id            String                    @id @default(uuid())
+  comparaisonId String
+  comparaison   ComparaisonSources        @relation(fields: [comparaisonId], references: [id], onDelete: Restrict)
+  projetId      String
+  ordre         Int
+  cle           String
+  statut        StatutResultatComparaison
+  objetAId      BigInt?
+  objetBId      BigInt?
+  nomA          String?
+  nomB          String?
+  precisionAM   Decimal?                  @db.Decimal(8, 2)
+  precisionBM   Decimal?                  @db.Decimal(8, 2)
+  origineA      String                    @default("INCONNUE")
+  origineB      String                    @default("INCONNUE")
+  corridorM     Decimal?                  @db.Decimal(8, 2)
+  mesure        Json?
+  conflitId     String?
+  createdAt     DateTime                  @default(now())
+
+  @@unique([comparaisonId, ordre], map: "comparaisons_sources_resultats_ordre_key")
+  @@unique([comparaisonId, cle], map: "comparaisons_sources_resultats_cle_key")
+  @@index([comparaisonId, statut, ordre])
+  @@index([conflitId])
+  @@map("comparaisons_sources_resultats")
 }

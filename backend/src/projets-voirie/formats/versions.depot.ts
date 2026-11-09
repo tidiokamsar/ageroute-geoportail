@@ -9,6 +9,8 @@
 import type { Prisma, RoleJeuProjet } from "@prisma/client";
 import { ErreurMetier } from "../erreurs";
 import { calculerDeltaDetaille, cleDe, type DeltaDetaille, type ObjetDelta } from "./delta-detaille.noyau";
+import { filtreCleVersion } from "../sources/cle-version.noyau";
+
 
 type Tx = Prisma.TransactionClient;
 
@@ -54,7 +56,7 @@ export async function deltaEntreJeux(tx: Tx, nouveau: { id: string; colonneId: s
 }
 
 /** Cle d'un jeu pour retrouver la version qu'il remplace (ou remplacera). */
-export interface CleJeuVersion { id: string; projetId: string; role: RoleJeuProjet; concessionnaireId: string | null; remplaceId: string | null }
+export interface CleJeuVersion { id: string; projetId: string; role: RoleJeuProjet; concessionnaireId: string | null; remplaceId: string | null; methodeAcquisition?: string | null }
 export interface JeuReference { id: string; version: number; statut: string; resume: unknown }
 
 /**
@@ -69,7 +71,7 @@ export async function jeuDeReferenceSuppressions(tx: Tx, jeu: CleJeuVersion): Pr
   if (jeu.role === "AUTRE") return null;
   const select = { id: true, version: true, statut: true, resume: true } as const;
   const autorise = await tx.jeuDonneesProjet.findFirst({
-    where: { projetId: jeu.projetId, role: jeu.role, concessionnaireId: jeu.concessionnaireId, statut: "AUTORISE", id: { not: jeu.id } }, select,
+    where: { ...filtreCleVersion(jeu), statut: "AUTORISE", id: { not: jeu.id } }, select,
   });
   if (autorise) return autorise;
   if (!jeu.remplaceId || jeu.remplaceId === jeu.id) return null;

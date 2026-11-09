@@ -162,6 +162,8 @@ export async function descripteursDesObjets(tx: TxLecture, objetIds: readonly st
 
 export interface LigneRelation {
   id: string; projetId: string; typeRelation: string; statut: string; origine: string; proposition: unknown;
+  /** Lot S1 : preuve d une connexion declaree (CONNECTE_A seulement) ; nulle pour les autres types. */
+  preuve?: string | null;
   decideLe: Date | null; justificationDecision: string | null; decidePar: string | null; creePar: string | null; createdAt: Date; updatedAt: Date;
   sourceObjetId: string; sourceNom: string | null; sourceJeuId: string; sourceStatutJeu: string; sourceConfidentialite: string; sourceGeom: string; sourceNature: string; sourceType: string | null;
   cibleObjetId: string; cibleNom: string | null; cibleJeuId: string; cibleStatutJeu: string; cibleConfidentialite: string; cibleGeom: string; cibleNature: string; cibleType: string | null;
@@ -169,7 +171,7 @@ export interface LigneRelation {
 
 const SELECT_RELATION = Prisma.sql`
   r."id" AS "id", r."projetId" AS "projetId", r."typeRelation"::text AS "typeRelation", r."statut"::text AS "statut", r."origine"::text AS "origine",
-  r."proposition" AS "proposition", r."decideLe" AS "decideLe", r."justificationDecision" AS "justificationDecision", ud."nomComplet" AS "decidePar", uc."nomComplet" AS "creePar",
+  r."proposition" AS "proposition", r."preuve"::text AS "preuve", r."decideLe" AS "decideLe", r."justificationDecision" AS "justificationDecision", ud."nomComplet" AS "decidePar", uc."nomComplet" AS "creePar",
   r."createdAt" AS "createdAt", r."updatedAt" AS "updatedAt",
   r."sourceObjetId"::text AS "sourceObjetId", os."nom" AS "sourceNom", os."jeuId" AS "sourceJeuId", js."statut"::text AS "sourceStatutJeu", js."confidentialite"::text AS "sourceConfidentialite", os."typeGeom"::text AS "sourceGeom",
   COALESCE(ds."nature", js."natureObjets")::text AS "sourceNature", ds."typeObjet" AS "sourceType",
@@ -229,13 +231,46 @@ export async function relationDuCouple(tx: TxLecture, type: string, source: stri
   return r[0] ?? null;
 }
 
-/** Declaration MANUELLE : une decision humaine, donc deja VALIDEE, avec son auteur et sa justification. */
+/** Declaration MANUELLE : une decision humaine, donc deja VALIDEE, avec son auteur et sa justification. `preuve` : CONNECTE_A seulement (lot S1). */
 export async function insererRelationManuelle(
-  tx: TxEcriture, e: { id: string; projetId: string; type: string; source: string; cible: string; justification: string; acteurId: string },
+  tx: TxEcriture, e: { id: string; projetId: string; type: string; source: string; cible: string; justification: string; acteurId: string; preuve?: string | null },
 ): Promise<void> {
   await tx.$executeRaw`
-    INSERT INTO "reseau_relations" ("id", "projetId", "typeRelation", "sourceObjetId", "cibleObjetId", "statut", "origine", "decideParId", "decideLe", "justificationDecision", "creeParId")
-    VALUES (${e.id}, ${e.projetId}, ${e.type}::"TypeRelationReseau", ${e.source}::bigint, ${e.cible}::bigint, 'VALIDEE', 'MANUELLE', ${e.acteurId}, CURRENT_TIMESTAMP, ${e.justification}, ${e.acteurId})`;
+    INSERT INTO "reseau_relations" ("id", "projetId", "typeRelation", "sourceObjetId", "cibleObjetId", "statut", "origine", "preuve", "decideParId", "decideLe", "justificationDecision", "creeParId")
+    VALUES (${e.id}, ${e.projetId}, ${e.type}::"TypeRelationReseau", ${e.source}::bigint, ${e.cible}::bigint, 'VALIDEE', 'MANUELLE', ${e.preuve ?? null}::"PreuveConnexionReseau", ${e.acteurId}, CURRENT_TIMESTAMP, ${e.justification}, ${e.acteurId})`;
+}
+
+/**
+ * Lot S1 : connexions DECLAREES PAR UN FICHIER IMPORTE (mapping `connecteA`) : pour chaque objet du jeu dont l attribut `colonne` designe, par son NOM,
+ * un autre objet du MEME jeu, une relation CONNECTE_A VALIDEE, origine IMPORT_DECLARATIF, preuve CONFIRMEE_PAR_FOURNISSEUR. La resolution se fait par
+ * egalite de nom (espaces de bord ignores) dans le jeu, JAMAIS par proximite geometrique ; un nom ambigu (plusieurs objets) ou introuvable ne cree rien
+ * et est compte. Rend le nombre de relations creees et le nombre d objets dont la colonne n a pas pu etre resolue.
+ */
+export async function insererConnexionsDeclarees(tx: TxEcriture, e: { projetId: string; jeuId: string; colonne: string; acteurId: string; justification: string }): Promise<{ creees: number; nonResolues: number }> {
+  const r = await tx.$queryRaw<{ creees: number; nonresolues: number }[]>`
+    WITH demandes AS (
+      SELECT o."id" AS "src", btrim(o."attributs" ->> ${e.colonne}) AS "cible_nom"
+        FROM "projets_voirie_objets" o
+       WHERE o."jeuId" = ${e.jeuId} AND o."attributs" ? ${e.colonne} AND NULLIF(btrim(o."attributs" ->> ${e.colonne}), '') IS NOT NULL),
+    resolues AS (
+      SELECT d."src", (SELECT c."id" FROM "projets_voirie_objets" c WHERE c."jeuId" = ${e.jeuId} AND c."nom" = d."cible_nom" AND c."id" <> d."src" ORDER BY c."id" LIMIT 1) AS "cib",
+             (SELECT count(*) FROM "projets_voirie_objets" c WHERE c."jeuId" = ${e.jeuId} AND c."nom" = d."cible_nom" AND c."id" <> d."src") AS "nb"
+        FROM demandes d),
+    ins AS (
+      INSERT INTO "reseau_relations" ("id", "projetId", "typeRelation", "sourceObjetId", "cibleObjetId", "statut", "origine", "preuve", "decideParId", "decideLe", "justificationDecision", "creeParId")
+      SELECT gen_random_uuid()::text, ${e.projetId}, 'CONNECTE_A'::"TypeRelationReseau", r."src", r."cib", 'VALIDEE', 'IMPORT_DECLARATIF', 'CONFIRMEE_PAR_FOURNISSEUR', ${e.acteurId}, CURRENT_TIMESTAMP, ${e.justification}, ${e.acteurId}
+        FROM resolues r WHERE r."nb" = 1 AND r."cib" IS NOT NULL
+      RETURNING 1)
+    SELECT (SELECT count(*) FROM ins)::int AS "creees", (SELECT count(*) FROM resolues r WHERE r."nb" <> 1)::int AS "nonresolues"`;
+  return { creees: Number(r[0]?.creees ?? 0), nonResolues: Number(r[0]?.nonresolues ?? 0) };
+}
+
+/** Lot S1 : connexions declarees (CONNECTE_A) qui touchent un objet, avec leur statut et leur preuve : l etat de connexion s en deduit (jamais d une proximite). */
+export async function connexionsDe(tx: TxLecture, objetId: string): Promise<{ statut: string; preuve: string | null }[]> {
+  if (!ID_OBJET.test(objetId)) return [];
+  return tx.$queryRaw<{ statut: string; preuve: string | null }[]>`
+    SELECT r."statut"::text AS "statut", r."preuve"::text AS "preuve" FROM "reseau_relations" r
+     WHERE r."typeRelation"::text = 'CONNECTE_A' AND (r."sourceObjetId" = ${objetId}::bigint OR r."cibleObjetId" = ${objetId}::bigint)`;
 }
 
 export async function changerStatutRelation(tx: TxEcriture, relId: string, vers: string, acteurId: string, justification: string): Promise<void> {

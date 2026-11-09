@@ -18,7 +18,7 @@ import { avecTerritoireParDefaut } from "./lib/territoire-par-defaut.mts";
 import { AXES, R1_BASE, R2, R3, O, constructeurs, type Ligne } from "./lib/fixtures-conflits.mts";
 
 // Lot B1 : l analyse persistee et les dossiers lisent les descripteurs d objets (migration 20261101200000).
-const banc = await ouvrirBancClone("essai_conflits_pv", { migrations: ["20261031100000_conflits_projets_voirie", "20261101200000_reseaux_physiques_logiques"] });
+const banc = await ouvrirBancClone("essai_conflits_pv", { migrations: ["20261031100000_conflits_projets_voirie", "20261101200000_reseaux_physiques_logiques", "20261103300000_multi_sources_comparaison"] });
 const { prisma } = await banc.imp("lib/prisma");
 const { createApp } = await banc.imp("app");
 const { signAccessToken } = await banc.imp("utils/jwt");

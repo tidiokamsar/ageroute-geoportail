@@ -126,7 +126,9 @@ export type CodeAvertissementImport =
   | "ATTRIBUTS_ADAPTES" | "COMPTE_DXF_DIVERGENT" | "CRS_DECLARE_DANS_LE_FICHIER" | "DXF_ENTITES_IGNOREES" | "DXF_BLOCS_IGNORES" | "CRS_ABSENT" | "CRS_FOURNI_PAR_LA_DEMANDE"
   | "CRS_SURCHARGE" | "CRS_SANS_CODE_EPSG" | "COMPTE_DECLARE_DIVERGENT" | "COORDONNEES_NON_FINIES" | "COORDONNEES_HORS_PLAGE" | "GEOMETRIES_NULLES"
   | "AVERTISSEMENTS_GDAL" | "ANALYSE_GEOMETRIE_PARTIELLE" | "COUCHE_VIDE" | "UNITES_ABSENTES" | "COUCHE_SANS_GEOMETRIE_IGNOREE" | "COUCHE_SANS_GEOMETRIE"
-  | "COUCHE_NOM_REFUSE" | "FICHIERS_ORPHELINS" | "NOM_FICHIER_RENOMME";
+  | "COUCHE_NOM_REFUSE" | "FICHIERS_ORPHELINS" | "NOM_FICHIER_RENOMME"
+  // lot S1 : connexions declarees par le fichier (mapping connecteA) dont l objet designe est introuvable ou ambigu dans le meme fichier
+  | "CONNEXIONS_NON_RESOLUES";
 
 export class ErreurLecture extends Error {
   constructor(public readonly code: CodeErreurLecture, message: string) {

@@ -160,7 +160,7 @@ export interface FiltreEtMapping {
   mapping?: Readonly<Record<string, string>>;
 }
 
-export const CHAMPS_JEU = ["typeReseau", "concessionnaire", "classePrecision", "precisionHorizontaleM", "precisionVerticaleM", "methode", "dateDonnees", "dateConstat", "natureObjets"] as const;
+export const CHAMPS_JEU = ["typeReseau", "concessionnaire", "classePrecision", "precisionHorizontaleM", "precisionVerticaleM", "methode", "dateDonnees", "dateConstat", "natureObjets", "methodeAcquisition"] as const;
 export type ChampJeu = (typeof CHAMPS_JEU)[number];
 
 export class PuitsFiltre implements Puits {

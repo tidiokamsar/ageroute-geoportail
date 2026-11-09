@@ -19,6 +19,8 @@ import { consommerDansTx, purgerApresDepot } from "../projets-voirie/gdal/jobs.s
 import { monterRoutesWorkflow } from "./projets-voirie.workflow.routes";
 import { gardeReferent } from "../projets-voirie/workflow/garde";
 import { monterRoutesReseaux } from "./projets-voirie.reseaux.routes";
+import { monterRoutesSources } from "./projets-voirie.sources.routes";
+import { METHODES_ACQUISITION } from "../projets-voirie/config";
 import { deposerJeu } from "../projets-voirie/import.service";
 import {
   creerConcessionnaire, creerProjet, decider, decoderCurseur, ficheProjet, listerConcessionnaires, listerJeux, listerProjets,
@@ -285,6 +287,8 @@ const champsDepot = z.object({
   precisionVerticaleM: optionnel(z.coerce.number().positive().max(100_000)),
   methode: optionnel(z.string().trim().min(1).max(200)),
   dateConstat: optionnel(jourIso),
+  // Lot S1 : methode d'acquisition, code de la liste du serveur (deux methodes = deux sources d'un reseau de concessionnaire).
+  methodeAcquisition: optionnel(z.enum(METHODES_ACQUISITION)),
 }).merge(champsImport).strict();
 
 const requeteDepot = z.object({ simuler: booleenRequete }).strict();
@@ -423,3 +427,7 @@ monterRoutesWorkflow(projetsVoirieV2Router, { gardeProjet, acteurDe, enveloppe, 
 // ------------------------------------------------------------------------------------------------
 
 monterRoutesReseaux(projetsVoirieV2Router, { ecriture, gardeProjet, acteurDe, enveloppe, refuser, UUID });
+// Sources multiples, regles de rapprochement et comparaison entre sources (lot S1) : memes gardes, meme ordre (voir projets-voirie.sources.routes.ts).
+// ------------------------------------------------------------------------------------------------
+
+monterRoutesSources(projetsVoirieV2Router, { ecriture, administrateur, gardeProjet, acteurDe, enveloppe, refuser, UUID });

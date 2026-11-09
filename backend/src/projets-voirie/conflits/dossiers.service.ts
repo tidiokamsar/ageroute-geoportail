@@ -103,6 +103,8 @@ export function vueConflit(c: LigneConflit, role: string, bbox?: number[] | null
     jeuReseauId: visible ? c.jeuReseauId : null,
     objet: visible && c.objet ? { id: String(c.objet.id), nom: c.objet.nom } : null,
     mesure: visible ? c.mesure : null, premiereAnalyseId: c.premiereAnalyseId, derniereAnalyseId: c.derniereAnalyseId,
+    // Lot S1 : comparaison de sources dont est issu un dossier DIVERGENCE_SOURCES (nul pour un dossier calcule par une analyse).
+    comparaisonId: c.comparaisonId,
     // Lot B1 : nature de l'objet en conflit (infrastructure physique, simple circuit logique...). Information calculee a la lecture, masquee comme le reste du reseau.
     ...(cible === undefined ? {} : { cible: visible ? cible : null }),
     ...(bbox === undefined ? {} : { bbox: visible ? bbox : null }), geometrieMasquee: !visible,
@@ -226,8 +228,9 @@ export async function ficheConflit(acteur: Acteur, projetId: string, cid: string
       where: { conflitId: cid }, orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       include: { proposePar: { select: { id: true, nomComplet: true } }, approuvePar: { select: { id: true, nomComplet: true } } },
     }),
-    prisma.analyseConflitProjet.findUnique({ where: { id: c.premiereAnalyseId }, select: { id: true, numero: true, createdAt: true } }),
-    prisma.analyseConflitProjet.findUnique({ where: { id: c.derniereAnalyseId }, select: { id: true, numero: true, createdAt: true, jeux: true, regles: true, largeurEmpriseM: true, largeurChausseeM: true, versionAlgorithme: true } }),
+    // Lot S1 : un dossier DIVERGENCE_SOURCES n'a pas d'analyse (il vient d'une comparaison de sources) : ni premiere ni derniere analyse.
+    c.premiereAnalyseId ? prisma.analyseConflitProjet.findUnique({ where: { id: c.premiereAnalyseId }, select: { id: true, numero: true, createdAt: true } }) : Promise.resolve(null),
+    c.derniereAnalyseId ? prisma.analyseConflitProjet.findUnique({ where: { id: c.derniereAnalyseId }, select: { id: true, numero: true, createdAt: true, jeux: true, regles: true, largeurEmpriseM: true, largeurChausseeM: true, versionAlgorithme: true } }) : Promise.resolve(null),
     prisma.conflitHistorique.findFirst({ where: { conflitId: cid, action: "STATUT", nouveauStatut: "CONFIRME" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], select: { createdAt: true } }),
   ]);
   const boite = geo[0] ? [Number(geo[0].w), Number(geo[0].s), Number(geo[0].e), Number(geo[0].n)] : null;
@@ -572,7 +575,7 @@ export async function exporterConflitsCsv(acteur: Acteur, projetId: string, f: F
       lisible ? c.classePrecision ?? "inconnue" : "", c.verticalEvalue ? "oui" : "non",
       mesure.longueurChausseeM ?? 0, mesure.longueurEmpriseM ?? 0, mesure.distanceMinM ?? "", mesure.nbCroisements ?? 0, mesure.longueurPieceM ?? 0,
       c.responsable?.nomComplet ?? "", jour(c.echeance) ?? "", c.actionProposee ?? "", c._count.preuves, c._count.decisions,
-      c.premiereAnalyse.numero, c.derniereAnalyse.numero,
+      c.premiereAnalyse?.numero ?? "", c.derniereAnalyse?.numero ?? "",
       lisible && c.objetId !== null ? cibles.get(String(c.objetId))?.nature ?? "" : "", lisible && c.objetId !== null ? cibles.get(String(c.objetId))?.qualification ?? "" : "",
       c.cle,
     ];

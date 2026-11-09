@@ -27,6 +27,7 @@ import {
 import * as depot from "./reseaux.depot";
 import { verifierRelation, verifierTransitionRelation, type ActionRelation } from "./relations.noyau";
 import { JUSTIFICATION_MIN, natureEffective, type StatutRelation, type TypeRelation } from "./types.noyau";
+import type { PreuveConnexion } from "../sources/types.noyau";
 import { vueRelation } from "./vues";
 
 export const decoderCurseurRelation = decoderCurseurConflit;
@@ -57,7 +58,11 @@ const justificationOuErreur = (j: string): string => {
   return t;
 };
 
-export interface CorpsRelation { type: TypeRelation; sourceObjetId: string; cibleObjetId: string; justification: string }
+export interface CorpsRelation {
+  type: TypeRelation; sourceObjetId: string; cibleObjetId: string; justification: string;
+  /** Lot S1 : preuve d une connexion (CONNECTE_A seulement, obligatoire pour ce type ; la route le verifie, la base aussi). */
+  preuve?: PreuveConnexion | null;
+}
 
 /** Declaration MANUELLE : une personne affirme que `source` est porte par (ou contenu dans) `cible`. Creee VALIDEE. */
 export async function declarerRelation(acteur: Acteur, projetId: string, c: CorpsRelation) {
@@ -84,12 +89,12 @@ export async function declarerRelation(acteur: Acteur, projetId: string, c: Corp
       throw new ErreurMetier(409, "RELATION_DEJA_CONNUE", `Ce couple est déjà enregistré (statut ${existante.statut}) : utilisez la validation de la relation existante.`, { relationId: existante.id, statut: existante.statut });
     }
     const id = randomUUID();
-    await depot.insererRelationManuelle(tx, { id, projetId, type: c.type, source: s.objetId, cible: k.objetId, justification, acteurId: acteur.id });
+    await depot.insererRelationManuelle(tx, { id, projetId, type: c.type, source: s.objetId, cible: k.objetId, justification, acteurId: acteur.id, preuve: c.type === "CONNECTE_A" ? c.preuve ?? null : null });
     const relue = await depot.lireRelation(tx, projetId, id);
     if (!relue) throw RELATION_INTROUVABLE();
     await logAuditTransactionnelle(tx, {
       userId: acteur.id, action: "CREATE", entityType: "ReseauRelation", entityId: id,
-      after: { projetId, typeRelation: c.type, sourceObjetId: s.objetId, cibleObjetId: k.objetId, statut: "VALIDEE", origine: "MANUELLE", justification, geometries: false },
+      after: { projetId, typeRelation: c.type, sourceObjetId: s.objetId, cibleObjetId: k.objetId, statut: "VALIDEE", origine: "MANUELLE", preuve: c.type === "CONNECTE_A" ? c.preuve ?? null : undefined, justification, geometries: false },
       ipAddress: acteur.ip,
     });
     return { relation: vueRelation(relue, true) };
