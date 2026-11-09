@@ -16,6 +16,8 @@ import { INCLURE_JEU, vueJeu } from "../vues";
 import { limiteurApercus } from "./apercu.service";
 import { delaiApercuMs } from "./import.config";
 import { colonneIdentifiant, deltaEntreJeux, jeuDeReferenceSuppressions, statutSuppressions } from "./versions.depot";
+import { filtreCleVersion } from "../sources/cle-version.noyau";
+
 
 type JeuLigne = NonNullable<Awaited<ReturnType<Tx["jeuDonneesProjet"]["findFirst"]>>>;
 
@@ -43,7 +45,7 @@ async function evaluerRetourArriere(tx: Tx, jeu: JeuLigne): Promise<EvaluationRe
   const precedent = await tx.jeuDonneesProjet.findFirst({ where: { id: jeu.remplaceId, projetId: jeu.projetId }, select: { id: true, version: true, statut: true } });
   if (!precedent || precedent.statut !== "REMPLACE") return non("VERSION_PRECEDENTE_INDISPONIBLE");
   const attente = jeu.role === "AUTRE" ? null : await tx.jeuDonneesProjet.findFirst({
-    where: { projetId: jeu.projetId, role: jeu.role, concessionnaireId: jeu.concessionnaireId, statut: { in: ["RECU", "CONTROLE"] } }, select: { id: true },
+    where: { ...filtreCleVersion(jeu), statut: { in: ["RECU", "CONTROLE"] } }, select: { id: true },
   });
   if (attente) return non("DEPOT_EN_ATTENTE", { restaureraJeuId: precedent.id, restaureraVersion: precedent.version, depotEnAttenteId: attente.id });
   return { possible: true, raison: null, restaureraJeuId: precedent.id, restaureraVersion: precedent.version, depotEnAttenteId: null };

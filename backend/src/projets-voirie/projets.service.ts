@@ -15,6 +15,7 @@ import { estDelaiDepasse, poserDelais } from "./bd";
 import { delaiDepotMs, delaiVerrouMs } from "./config";
 import { INCLURE_JEU, vueJeu, vueProjet } from "./vues";
 import { jeuDeReferenceSuppressions, verifierSuppressionsRevues } from "./formats/versions.depot";
+import { filtreCleVersion } from "./sources/cle-version.noyau";
 
 export interface Acteur { id: string; role: string; ip?: string }
 
@@ -251,7 +252,8 @@ export async function retirerJeu(acteur: Acteur, projetId: string, jeuId: string
     // des suppressions. Le depot en attente se rejette (ou se retire) d'abord ; les deux gardes (ici et dans `decider`) se cumulent.
     if (avant.statut === "AUTORISE" && avant.role !== "AUTRE") {
       const attente = await tx.jeuDonneesProjet.findFirst({
-        where: { projetId, role: avant.role, concessionnaireId: avant.concessionnaireId, statut: { in: ["RECU", "CONTROLE"] }, id: { not: avant.id } }, select: { id: true, version: true },
+        // Lot S1 : meme cle de version que l'index (methode d'acquisition comprise pour un reseau de concessionnaire).
+        where: { ...filtreCleVersion(avant), statut: { in: ["RECU", "CONTROLE"] }, id: { not: avant.id } }, select: { id: true, version: true },
       });
       if (attente) {
         throw new ErreurMetier(409, "DEPOT_EN_ATTENTE",
@@ -288,7 +290,8 @@ export async function decider(acteur: Acteur, projetId: string, jeuId: string, d
     let remplaces: string[] = [];
     if (decision === "AUTORISE" && jeu.role !== "AUTRE") {
       const anciens = await tx.jeuDonneesProjet.findMany({
-        where: { projetId, role: jeu.role, concessionnaireId: jeu.concessionnaireId, statut: "AUTORISE", id: { not: jeuId } }, select: { id: true, resume: true },
+        // Lot S1 : une SECONDE SOURCE (autre methode d'acquisition d'un reseau de concessionnaire) ne remplace pas la premiere : meme cle que l'index.
+        where: { ...filtreCleVersion(jeu), statut: "AUTORISE", id: { not: jeuId } }, select: { id: true, resume: true },
       });
       // Lot A1 : les suppressions d'une nouvelle version ne sont JAMAIS appliquees sans revue humaine explicite (409 sinon).
       for (const ancien of anciens) await verifierSuppressionsRevues(tx, { id: jeu.id, resume: jeu.resume }, ancien);

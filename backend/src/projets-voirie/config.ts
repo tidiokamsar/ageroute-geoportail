@@ -62,7 +62,8 @@ export const comparaisonIntervalleMinS = () => borne("PROJETS_VOIRIE_COMPARAISON
  */
 export const METHODES_ACQUISITION = [
   "GNSS_RTK", "GNSS_DIFFERENTIEL", "GNSS_AUTONOME", "TOPOGRAPHIE", "DETECTION_ELECTROMAGNETIQUE", "GEORADAR", "NUMERISATION_PLAN",
-  "RECOLEMENT_TRAVAUX", "DECLARATIF_FOURNISSEUR", "INCONNUE",
+  // PLAN_CAO : dessin de conception livre en DAO/CAO (DXF d'un bureau d'etudes) ; NUMERISATION_PLAN : trace numerise depuis un plan (PDF, papier).
+  "PLAN_CAO", "RECOLEMENT_TRAVAUX", "DECLARATIF_FOURNISSEUR", "INCONNUE",
 ] as const;
 export type MethodeAcquisition = (typeof METHODES_ACQUISITION)[number];
 export const estMethodeAcquisition = (v: unknown): v is MethodeAcquisition => typeof v === "string" && (METHODES_ACQUISITION as readonly string[]).includes(v);

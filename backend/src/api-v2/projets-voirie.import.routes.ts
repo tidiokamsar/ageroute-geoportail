@@ -83,6 +83,7 @@ const IGNORES_PAR_APERCU = z.object({
   role: z.string().optional(), concessionnaireId: z.string().optional(), typeReseau: z.string().optional(), dateDonnees: z.string().optional(),
   origineFichier: z.string().optional(), confidentialite: z.string().optional(), natureObjets: z.string().optional(), classePrecision: z.string().optional(),
   precisionHorizontaleM: z.string().optional(), precisionVerticaleM: z.string().optional(), methode: z.string().optional(), dateConstat: z.string().optional(),
+  methodeAcquisition: z.string().optional(),
 });
 const champsApercu = champsImport.merge(IGNORES_PAR_APERCU).strict();
 
