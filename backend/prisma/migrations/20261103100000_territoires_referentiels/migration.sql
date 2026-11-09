@@ -397,6 +397,10 @@ BEGIN
     v_region := gen_random_uuid()::text;
     INSERT INTO "territoires_voirie" ("id", "parentId", "niveau", "code", "nom", "chemin", "profondeur", "regionId", "source") VALUES (v_region, v_nation, 'REGION', 'GN-REG-FARANAH', 'Faranah', '', 0, v_region_admin, 'migration 20261103100000');
     INSERT INTO "territoires_voirie_historique" ("territoireId", "action", "version", "apres") SELECT v_region, 'MIGRATION', 1, to_jsonb(t) - 'emprise' FROM "territoires_voirie" t WHERE t."id" = v_region;
+  ELSIF v_region_admin IS NOT NULL THEN
+    -- Rejeu (idempotence) : la region du referentiel administratif est apparue apres un premier passage ; seule une region encore nulle et
+    -- creee par la migration (aucun acteur, version 1) est rattachee. Un rattachement fait par un administrateur n'est jamais touche.
+    UPDATE "territoires_voirie" SET "regionId" = v_region_admin WHERE "id" = v_region AND "regionId" IS NULL AND "creeParId" IS NULL AND "version" = 1;
   END IF;
 
   SELECT "id" INTO v_pref FROM "territoires_voirie" WHERE "code" = 'GN-PREF-KISSIDOUGOU';

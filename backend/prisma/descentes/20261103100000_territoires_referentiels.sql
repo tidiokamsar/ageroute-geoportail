@@ -21,7 +21,7 @@
 --
 --     psql -v ON_ERROR_STOP=1 -1 -f descentes/20261103100000_territoires_referentiels.sql
 --
--- GARDE-TEST: SET session_replication_role = replica; INSERT INTO "territoires_voirie" ("id","niveau","code","nom","chemin","profondeur","creeParId") VALUES ('g-t1','ZONE','GARDE-T1','Garde','/g-t1/',0,'g-u');
+-- GARDE-TEST: SET session_replication_role = replica; INSERT INTO "territoires_voirie" ("id","niveau","code","nom","chemin","profondeur","creeParId") VALUES ('g-t1','NATION','GARDE-T1','Garde','/g-t1/',0,'g-u');
 -- GARDE-TEST: SET session_replication_role = replica; INSERT INTO "referentiels_voirie" ("id","domaine","code","libelle","parametres","version") VALUES ('g-r1','STATUT_QUALITE','GARDE-R1','Garde','{}',2);
 -- GARDE-TEST: SET session_replication_role = replica; INSERT INTO "configuration_voirie_historique" ("cle","version","apres","acteurId") VALUES ('EMPRISE_PLAUSIBILITE',2,'{}','g-u');
 
