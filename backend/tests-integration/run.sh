@@ -67,6 +67,17 @@ lancer "workflow-roles.integration.mts"
 lancer "reseau-physique-logique.integration.mts"
 # Volume des reseaux (lot B1) : clone `essai_reseau_volume`, 3 000 circuits et 3 000 gaines par defaut (RESEAUX_VOLUME pour changer).
 lancer "reseau-physique-logique-volume.integration.mts"
+# Sources multiples, comparaison entre sources et connectivite declarative (lot S1) : clone `essai_sources_s1` ; applique lui-meme la migration 20261103300000 au clone.
+lancer "sources-comparaison.integration.mts"
+
+# Territoires, referentiels et configuration (lot T1) : clone `essai_territoires` ; applique lui-meme la migration 20261103100000 au clone.
+lancer "territoires-referentiels.integration.mts"
+
+# Documents du projet, completude documentaire, LandXML, DWG et PDF (lot D1) : clone `essai_documents_d1` ; applique lui-meme la migration 20261104100000 au clone.
+lancer "documents-projet.integration.mts"
+
+# Export du dossier technique, derogations et tableaux de bord (lot X1) : clone `essai_exports_x1` ; applique lui-meme la migration 20261104200000 au clone.
+lancer "exports-tableaux.integration.mts"
 
 printf '\n%s\n' "Resultat des bancs d'integration"
 printf '%s\n' "${lignes[@]}"

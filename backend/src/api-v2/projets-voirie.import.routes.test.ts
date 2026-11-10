@@ -73,6 +73,17 @@ vi.mock("../projets-voirie/formats/revue-versions.service", () => ({
   revueSuppressions: espion("revueSuppressions", { suppressions: { statut: "ACCEPTEES", nb: 2 } }),
   retourArriere: espion("retourArriere", { jeuRestaure: { id: "j1" } }),
 }));
+// Lot T1 : la route lit le contexte spatial du projet (configuration nationale, territoire) ; la base est simulee ici, le contexte aussi :
+// contexte national par defaut, liste blanche lue comme avant (environnement, sinon defaut). Le contexte reel est prouve par le banc territoires-referentiels.
+vi.mock("../projets-voirie/territoires/contexte-spatial", async () => {
+  const { crsSourceAutorises } = await import("../projets-voirie/formats/import.config");
+  return {
+    contexteSpatialDuProjet: async () => ({
+      zoneNationale: { nom: "Guinee", bbox: [-15.2, 7.1, -7.5, 12.8] }, zoneTerritoire: null, territoireId: null, crsImpose: null,
+      epsgDefaut: 32629, epsgPour: () => 32629, crsAutorises: crsSourceAutorises(),
+    }),
+  };
+});
 vi.mock("../projets-voirie/carte.service", () => ({ carte: vi.fn(async () => ({ jeux: [] })) }));
 vi.mock("../projets-voirie/analyse.service", () => ({ analyser: vi.fn(async () => ({})), exporterCsv: vi.fn(async () => ({ csv: "", nbLignes: 0, nomFichier: "x.csv" })) }));
 
@@ -160,9 +171,9 @@ describe("GET /import/options", () => {
   it("formats, non pris en charge, limites, CRS source autorises (liste blanche), zone attendue, champs cibles, options CSV, mode de conservation", async () => {
     const r = await lancer("get", `/${P_R1}/import/options`, "GEST");
     expect(r.status).toBe(200);
-    expect(r.body.formats.map((f: { format: string }) => f.format)).toEqual(["KML", "KMZ", "GEOJSON", "GPX", "CSV"]);
+    expect(r.body.formats.map((f: { format: string }) => f.format)).toEqual(["KML", "KMZ", "GEOJSON", "GPX", "CSV", "LANDXML"]); // lot D1 : LandXML
     expect(r.body.formats.find((f: { format: string }) => f.format === "CSV")).toMatchObject({ choixCrs: "obligatoire", crsParDefinition: null });
-    expect(r.body.nonSupportes.map((f: { format: string }) => f.format)).toEqual(["GEOPACKAGE", "SHAPEFILE", "DXF", "DWG"]);
+    expect(r.body.nonSupportes.map((f: { format: string }) => f.format)).toEqual(["DWG"]); // lot B2 : GeoPackage, Shapefile et DXF sont annonces par formatsGdal (indisponibles par defaut)
     expect(r.body.crs.cible).toMatchObject({ epsg: 4326, unite: "degre" });
     expect(r.body.crs.sourcesAutorises).toEqual([
       { epsg: 4326, nom: "WGS 84", unite: "degre", disponible: true },
@@ -267,6 +278,14 @@ describe("depot : les options d'import sont transmises, jamais l'acteur", () => 
     expect(a.sha256Attendu).toBe("a".repeat(64));
     expect(a.options).toMatchObject({ epsgSource: 32629, confirmerHorsZone: true, mapping: { nom: "n" }, csv: { colonneX: "x", colonneY: "y" } });
     expect(a.champs.role).toBe("AUTRE");
+  });
+  it("M2 : methodeAcquisition est un code du referentiel, verifie par le DEPOT (jamais une liste de la route) : GNSS, LIDAR et meme une forme invalide arrivent au service, qui rend 422", async () => {
+    const base = () => avec(request(app).post(`${BASE}/${P_R1}/jeux?simuler=true`), "GEST").field("role", "AUTRE").attach("fichier", CSV, { filename: "p.csv" });
+    expect((await base().field("methodeAcquisition", "gnss")).status).toBe(200);
+    expect((await base().field("methodeAcquisition", "LIDAR")).status).toBe(200);
+    expect((await base().field("methodeAcquisition", "gnss-rtk")).status).toBe(200);
+    expect(appelsDe("deposerJeu").map((a) => (a.args[0] as { champs: { methodeAcquisition?: string } }).champs.methodeAcquisition)).toEqual(["GNSS", "LIDAR", "GNSS-RTK"]);
+    expect((await base().field("methodeAcquisition", "x".repeat(65))).body.code).toBe("CHAMPS_INVALIDES");
   });
   it("sha256Attendu malforme : 400 ; mapping invalide au depot : 400 MAPPING_INVALIDE ; aucun service appele", async () => {
     const base = () => avec(request(app).post(`${BASE}/${P_R1}/jeux`), "GEST").field("role", "AUTRE").attach("fichier", CSV, { filename: "p.csv" });

@@ -22,11 +22,23 @@
  * de sommets par fichier correspondent a la limite de 25 Mo en GeoJSON compact (environ 12 octets par position).
  */
 
+import { protectionEnCache } from "./territoires/configuration.cache";
+import { PROTECTIONS_BORNES, entierEnv, type Protection } from "./territoires/configuration.noyau";
+
+/**
+ * Lot T1 : RESOLUTION environnement > configuration en base > defaut (CONTRAT-TERRITOIRES.md, section 6). La valeur en base est celle de la
+ * derniere lecture du cache (`territoires/configuration.cache.ts`, rafraichi par les services asynchrones avant tout calcul) ; une valeur
+ * hors bornes, d'ou qu'elle vienne, est ignoree. Sans administration, le comportement est celui d'avant.
+ */
+const PROTECTION_PAR_ENV = new Map<string, Protection>(Object.entries(PROTECTIONS_BORNES).map(([k, b]) => [b.env, k as Protection]));
+
 function borne(nom: string, defaut: number, min: number, max: number): number {
-  const brut = process.env[nom];
-  if (brut === undefined || brut.trim() === "") return defaut;
-  const v = Number(brut);
-  return Number.isInteger(v) && v >= min && v <= max ? v : defaut;
+  const env = entierEnv(process.env[nom], min, max);
+  if (env !== undefined) return env;
+  const protection = PROTECTION_PAR_ENV.get(nom);
+  const base = protection ? protectionEnCache(protection) : undefined;
+  if (base !== undefined && Number.isInteger(base) && base >= min && base <= max) return base;
+  return defaut;
 }
 
 export const delaiAnalyseMs = () => borne("PROJETS_VOIRIE_DELAI_ANALYSE_MS", 20_000, 1_000, 300_000);
@@ -44,3 +56,25 @@ export const FENETRE_CONSULTATION_MIN = 15;
 
 /** Lecteur d'entier borne de l'environnement, partage avec le workflow (lot B3, `workflow/config.ts`) : une valeur absente ou hors bornes redonne le defaut. */
 export { borne as borneEnv };
+
+// ------------------------------------------------------------------------------------------------
+// Lot S1 : sources multiples et comparaison entre sources (contrat : docs/projets-voirie/CONTRAT-SOURCES.md).
+//   PROJETS_VOIRIE_COMPARAISON_OBJETS_MAX     defaut 20 000 (bornes 100 a 200 000) : objets lineaires au plus pour les deux jeux compares (422 COMPARAISON_TROP_VOLUMINEUSE)
+//   PROJETS_VOIRIE_COMPARAISON_INTERVALLE_S   defaut 60     (bornes 0 a 3 600)     : delai minimal entre deux comparaisons TERMINEES d un meme projet (429 COMPARAISON_TROP_FREQUENTE) ;
+//                                                                                    0 desactive le delai (bancs d essai ; jamais en production). Une comparaison en ECHEC ne compte pas.
+// ------------------------------------------------------------------------------------------------
+
+export const comparaisonObjetsMax = () => borne("PROJETS_VOIRIE_COMPARAISON_OBJETS_MAX", 20_000, 100, 200_000);
+export const comparaisonIntervalleMinS = () => borne("PROJETS_VOIRIE_COMPARAISON_INTERVALLE_S", 60, 0, 3_600);
+
+// Correctifs T1+S1 (m1) : cadence de GET /territoires/comptes (agregats sur tout le sous-arbre, ouverts aux lecteurs).
+//   PROJETS_VOIRIE_COMPTES_PAR_MINUTE  defaut 30 (bornes 1 a 600) : requetes par compte et par minute (429 COMPTES_TROP_FREQUENTS au-dela).
+export const comptesParMinuteMax = () => borne("PROJETS_VOIRIE_COMPTES_PAR_MINUTE", 30, 1, 600);
+
+/**
+ * Methodes d acquisition d un jeu (`projets_voirie_jeux.methodeAcquisition`) : correctifs T1+S1 (M2), la SEULE source de verite est le referentiel
+ * METHODE_ACQUISITION du lot T1 (administrable, aucune liste dans le code). Le code ne connait que la FORME d un code, celle que la base impose a la
+ * colonne (contrainte `pvj_methode_acquisition_forme`) ; la valeur est verifiee contre le referentiel par le depot (active) et par la base (non retiree).
+ */
+export const FORME_METHODE_ACQUISITION = /^[A-Z][A-Z0-9_]{1,39}$/;
+export const estFormeMethodeAcquisition = (v: unknown): v is string => typeof v === "string" && FORME_METHODE_ACQUISITION.test(v);

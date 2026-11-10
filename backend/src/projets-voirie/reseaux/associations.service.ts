@@ -23,7 +23,7 @@ import { prisma } from "../../lib/prisma";
 import { logAuditTransactionnelle } from "../../utils/audit";
 import { Budget, avecErreurDelai } from "../bd";
 import { delaiAnalyseMs, delaiDepotMs, delaiVerrouMs } from "../config";
-import { epsgPourLongitude } from "../analyse.noyau";
+import { contexteSpatialDuProjet } from "../territoires/contexte-spatial";
 import * as socle from "../analyse.depot";
 import { verifierCadence } from "../conflits/cadence.noyau";
 import { ErreurMetier, introuvable } from "../erreurs";
@@ -64,6 +64,8 @@ async function exigerCadence(lecteur: Pick<typeof prisma, "auditLog">, projetId:
 export async function proposerAssociations(acteur: Acteur, projetId: string, d: DemandeAssociation) {
   await exigerProjetActif(projetId);
   await exigerCadence(prisma, projetId);
+  // Lot T1 : CRS metrique du territoire du projet, sinon regle par bandes de la configuration nationale.
+  const ctx = await contexteSpatialDuProjet(projetId);
 
   const tolerances: TableTolerances = { ...tolerancesAssociation(), ...(d.tolerances ?? {}) };
   const couvertureMin = d.couvertureMin ?? couvertureMinAssociation();
@@ -96,7 +98,7 @@ export async function proposerAssociations(acteur: Acteur, projetId: string, d: 
       throw new ErreurMetier(422, "TROP_DE_CIRCUITS", `${eligibles.circuits} circuits logiques à examiner, maximum ${circuitsParExecutionMax()} par exécution : restreignez la proposition à un jeu (jeuId).`, { circuits: eligibles.circuits, maximum: circuitsParExecutionMax() });
     }
     const etendue = eligibles.circuits > 0 && eligibles.infrastructures > 0 ? await budget.etape(() => socle.etendueLongitude(tx, autorises), "etendue") : null;
-    const epsg = etendue ? epsgPourLongitude((etendue.ouest + etendue.est) / 2) : 32629;
+    const epsg = etendue ? ctx.epsgPour((etendue.ouest + etendue.est) / 2) : ctx.epsgDefaut;
     const bruts = eligibles.circuits > 0 && eligibles.infrastructures > 0
       ? await budget.etape(() => depot.candidatsAssociation(tx, { jeuxCircuits, jeuxInfra: autorises, epsg, tolerances, couvertureMin, parCircuitMax, limite: PROPOSITIONS_MAX + 1 }), "candidats")
       : [];

@@ -384,6 +384,13 @@ model User {
   reseauDescripteursModifies      ReseauObjetDescripteur[]   @relation("ReseauDescripteurModificateur")
   reseauRelationsCreees           ReseauRelation[]           @relation("ReseauRelationCreateur")
   reseauRelationsDecidees         ReseauRelation[]           @relation("ReseauRelationDecideur")
+  territoiresVoirieCrees          TerritoireVoirie[]         @relation("TerritoireVoirieCreateur")
+  territoiresVoirieHistorique     TerritoireVoirieHistorique[] @relation("TerritoireVoirieHistoriqueActeur")
+  referentielsVoirieCrees         ReferentielVoirie[]        @relation("ReferentielVoirieCreateur")
+  referentielsVoirieApprouves     ReferentielVoirie[]        @relation("ReferentielVoirieApprobateur")
+  referentielsVoirieHistorique    ReferentielVoirieHistorique[] @relation("ReferentielVoirieHistoriqueActeur")
+  configurationVoirieApprouvee    ConfigurationVoirie[]      @relation("ConfigurationVoirieApprobateur")
+  configurationVoirieHistorique   ConfigurationVoirieHistorique[] @relation("ConfigurationVoirieHistoriqueActeur")
   propositionsTeledetectionTransitions PropositionTeledetectionTransition[] @relation("PtTransitionAuteur")
   propositionsTeledetectionPreuves PropositionTeledetectionPreuve[] @relation("PtPreuveAjoutee")
   programmesBudgetairesCrees      ProgrammeBudgetaire[]      @relation("ProgrammationAuteur")
@@ -458,6 +465,9 @@ model Region {
   astreintes Astreinte[]
 
   anomaliesReferentiel AnomalieReferentiel[]
+
+  territoiresVoirie          TerritoireVoirie[] @relation("TerritoireVoirieRegion")
+  territoiresVoirieEffectifs TerritoireVoirie[] @relation("TerritoireVoirieRegionEffective")
 
   @@map("regions")
 }
@@ -4250,6 +4260,12 @@ enum FormatJeuProjet {
   KMZ
   GPX
   CSV
+  /// Lot B2 (migration 20261102200000) : formats d'ingenierie convertis par la chaine GDAL isolee (job asynchrone) puis lus par le pipeline commun.
+  GPKG
+  SHAPEFILE
+  DXF
+  /// Lot D1 (migration 20261104100000) : axes en plan (Alignments) et points (CgPoints) lus par le lecteur XML du module, sans GDAL.
+  LANDXML
 }
 
 /// PUBLIC et INTERNE ne rendent rien public dans ce lot : le module reste entierement derriere la cle de module.
@@ -4310,6 +4326,11 @@ model ProjetVoirie {
   largeurEmpriseM  Decimal                @default(15) @db.Decimal(6, 2)
   largeurChausseeM Decimal                @default(7) @db.Decimal(6, 2)
   statutParametres StatutParametresProjet @default(THEORIQUE)
+  /// Lot T1 (migration 20261103100000) : territoire du projet (obligatoire a la creation par l'API, nul en base pour l'additivite) ;
+  /// `commune` et `prefecture` en sont derives. `categorieCode` : code du domaine CATEGORIE_PROJET (verifie par la base a l'ecriture).
+  territoireId     String?
+  territoire       TerritoireVoirie?      @relation(fields: [territoireId], references: [id], onDelete: Restrict)
+  categorieCode    String?
   creeParId        String
   creePar          User                   @relation("ProjetVoirieCreateur", fields: [creeParId], references: [id], onDelete: Restrict)
   createdAt        DateTime               @default(now())
@@ -4325,6 +4346,7 @@ model ProjetVoirie {
 
   @@index([regionId])
   @@index([deletedAt])
+  @@index([territoireId])
   @@map("projets_voirie")
 }
 
@@ -4333,6 +4355,8 @@ model ConcessionnaireReseau {
   id         String          @id @default(uuid())
   nom        String
   typeReseau TypeReseauTiers
+  /// Lot T1 : code du referentiel TYPE_RESEAU (la famille `typeReseau` en est derivee ; repli sur la famille sans code).
+  typeReseauCode String?
   contact    String?
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @default(now()) @updatedAt
@@ -4355,6 +4379,8 @@ model JeuDonneesProjet {
   concessionnaireId      String?
   concessionnaire        ConcessionnaireReseau? @relation(fields: [concessionnaireId], references: [id], onDelete: Restrict)
   typeReseau             TypeReseauTiers?
+  /// Lot T1 : code du referentiel TYPE_RESEAU porte par le jeu (la famille `typeReseau` en est derivee).
+  typeReseauCode         String?
   nomFichier             String
   format                 FormatJeuProjet
   sha256                 String
@@ -4369,6 +4395,9 @@ model JeuDonneesProjet {
   precisionHorizontaleM  Decimal?               @db.Decimal(8, 2)
   precisionVerticaleM    Decimal?               @db.Decimal(8, 2)
   methode                String?
+  /// Lot S1 : code de la methode d'acquisition (liste `METHODES_ACQUISITION` de config.ts ; forme verifiee par la base). Composante de la cle de
+  /// version (index partiels, hors schema.prisma) : deux methodes = deux SOURCES du meme reseau, meme methode = nouvelle VERSION.
+  methodeAcquisition     String?
   dateConstat            DateTime?              @db.Date
   natureObjets           NatureObjetReseau      @default(INCONNUE)
   confidentialite        NiveauConfidentialite  @default(CONFIDENTIEL_CONCESSIONNAIRE)
@@ -4391,6 +4420,8 @@ model JeuDonneesProjet {
   objets       ObjetProjet[]
   conflits     ConflitProjet[] @relation("ConflitJeuReseau")
   conflitsAxes ConflitProjet[] @relation("ConflitJeuAxes")
+  /// Correctifs T1+S1 (B1) : dossiers DIVERGENCE_SOURCES dont ce jeu est la source comparee B.
+  conflitsSourceB ConflitProjet[] @relation("ConflitJeuSourceB")
   descripteurs ReseauObjetDescripteur[]
 
   @@index([projetId, statut])
@@ -4590,10 +4621,16 @@ model ConflitProjet {
   actionProposee    String?
   classePrecision   ClassePrecision?
   verticalEvalue    Boolean                @default(false)
-  premiereAnalyseId String
-  premiereAnalyse   AnalyseConflitProjet   @relation("ConflitPremiereAnalyse", fields: [premiereAnalyseId], references: [id], onDelete: Restrict)
-  derniereAnalyseId String
-  derniereAnalyse   AnalyseConflitProjet   @relation("ConflitDerniereAnalyse", fields: [derniereAnalyseId], references: [id], onDelete: Restrict)
+  /// Nulles pour un dossier DIVERGENCE_SOURCES (lot S1, issu d une comparaison de sources) ; obligatoires pour tout autre type (contrainte de la base).
+  premiereAnalyseId String?
+  premiereAnalyse   AnalyseConflitProjet?  @relation("ConflitPremiereAnalyse", fields: [premiereAnalyseId], references: [id], onDelete: Restrict)
+  derniereAnalyseId String?
+  derniereAnalyse   AnalyseConflitProjet?  @relation("ConflitDerniereAnalyse", fields: [derniereAnalyseId], references: [id], onDelete: Restrict)
+  /// Lot S1 : comparaison de sources dont est issu un dossier DIVERGENCE_SOURCES (cle etrangere en base, ouvert par une action humaine).
+  comparaisonId     String?
+  /// Correctifs T1+S1 (B1, migration 20261103400000) : jeu B de la comparaison d un dossier DIVERGENCE_SOURCES ; son statut entre dans la lisibilite du dossier.
+  jeuSourceBId      String?
+  jeuSourceB        JeuDonneesProjet?      @relation("ConflitJeuSourceB", fields: [jeuSourceBId], references: [id], onDelete: Restrict)
   aReexaminer       Boolean                @default(false)
   motifReexamen     MotifReexamenConflit?
   tronconsProches   Json                   @default("[]")
@@ -4610,6 +4647,7 @@ model ConflitProjet {
   @@index([responsableId])
   @@index([jeuReseauId])
   @@index([jeuAxesId])
+  @@index([jeuSourceBId])
   @@index([premiereAnalyseId])
   @@index([derniereAnalyseId])
   @@map("conflits_projet")
@@ -4946,6 +4984,8 @@ model HistoriqueWorkflowProjet {
 enum TypeRelationReseau {
   PORTE_PAR
   CONTENU_DANS
+  /// Lot S1 : connexion DECLAREE entre deux objets physiques (import declaratif ou saisie humaine), jamais deduite d une proximite.
+  CONNECTE_A
 }
 
 enum StatutRelationReseau {
@@ -4958,6 +4998,8 @@ enum StatutRelationReseau {
 enum OrigineRelationReseau {
   AUTOMATIQUE
   MANUELLE
+  /// Lot S1 : relation declaree par une colonne d un fichier importe (mapping `connecteA`).
+  IMPORT_DECLARATIF
 }
 
 enum NiveauConfianceObjet {
@@ -5020,6 +5062,8 @@ model ReseauRelation {
   statut                StatutRelationReseau  @default(PROPOSEE)
   origine               OrigineRelationReseau
   proposition           Json                  @default("{}")
+  /// Lot S1 : preuve d une connexion (CONNECTE_A seulement, obligatoire pour ce type et interdite pour les autres : contrainte de la base).
+  preuve                PreuveConnexionReseau?
   decideParId           String?
   decidePar             User?                 @relation("ReseauRelationDecideur", fields: [decideParId], references: [id], onDelete: Restrict)
   decideLe              DateTime?
@@ -5034,4 +5078,447 @@ model ReseauRelation {
   @@index([sourceObjetId])
   @@index([cibleObjetId])
   @@map("reseau_relations")
+}
+
+/// Lot B2 : statut d'un job de conversion GDAL. Les transitions sont imposees par un declencheur de la base (migration 20261102200000).
+enum StatutJobImportProjet {
+  EN_ATTENTE
+  EN_COURS
+  TERMINE
+  ECHEC
+  ANNULE
+  EXPIRE
+}
+
+/// Job de conversion GDAL (GeoPackage, Shapefile ZIP, DXF) d'un projet de voirie. Les fichiers vivent dans le spool, jamais en base ; le resume ne porte
+/// aucune coordonnee d'objet. Pas de suppression physique. Contrat : docs/projets-voirie/CONTRAT-IMPORT.md section 13 et API.md.
+model JobImportProjet {
+  id            String                @id @default(uuid())
+  projetId      String
+  creeParId     String
+  format        FormatJeuProjet
+  statut        StatutJobImportProjet @default(EN_ATTENTE)
+  nomFichier    String
+  sha256        String
+  tailleOctets  Int
+  /// Choix de l'utilisateur (epsgSource, unitesDxf). Jamais de geometrie.
+  parametres    Json                  @default("{}")
+  etape         String?
+  progression   Int                   @default(0)
+  codeErreur    String?
+  messageErreur String?
+  tentatives    Int                   @default(0)
+  tentativesMax Int                   @default(3)
+  /// Dossier du spool de la tentative courante (<id>-t<n>).
+  spoolId       String?
+  reclameLe     DateTime?
+  finLe         DateTime?
+  expireLe      DateTime
+  purgeLe       DateTime?
+  resume        Json?
+  jeuId         String?
+  annuleParId   String?
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @default(now()) @updatedAt
+
+  @@index([projetId, createdAt])
+  @@index([statut, expireLe])
+  @@index([creeParId, statut])
+  @@index([jeuId])
+  @@map("projets_voirie_import_jobs")
+}
+
+// ===================== TERRITOIRES, REFERENTIELS CONFIGURABLES ET CONFIGURATION NATIONALE (lot T1) =====================
+// Contrat : docs/projets-voirie/CONTRAT-TERRITOIRES.md. Migration 20261103100000_territoires_referentiels (additive, avec descente).
+// Aucun nom de lieu, de CRS ni de type de reseau dans le code : tout est donnee. Hors schema.prisma (non representable, voir
+// docs/securite/DERIVE-SCHEMA.md) : l'index GiST de `territoires_voirie.emprise`, les contraintes CHECK, les declencheurs (chemin materialise,
+// profondeur et region effective calcules par la base ; parent, niveau et code immuables ; coherence parent/niveau ; verification des codes de
+// referentiel portes par le socle ; suppression logique seule ; historiques en ajout seul). `emprise` est `Unsupported` : SQL brut parametre.
+
+/// Niveaux du referentiel territorial, du plus large au plus fin (rangs 0 a 6). Le parent est de rang strictement inferieur.
+enum NiveauTerritoireVoirie {
+  NATION
+  REGION
+  PREFECTURE
+  COMMUNE
+  QUARTIER
+  SECTEUR
+  ZONE
+}
+
+/// Domaines des referentiels configurables ; les parametres de chaque domaine sont valides par un schema zod (territoires/referentiels.noyau.ts).
+enum DomaineReferentielVoirie {
+  TYPE_RESEAU
+  CATEGORIE_PROJET
+  TYPE_DOCUMENT
+  METHODE_ACQUISITION
+  STATUT_QUALITE
+}
+
+/// Territoire hierarchique (nation, region, prefecture, commune, quartier, secteur, zone). Emprise APPROXIMATIVE sauf mention contraire
+/// (`source`). `regionEffectiveId` : region du perimetre des comptes, la sienne ou celle du plus proche ancetre (calculee par la base).
+model TerritoireVoirie {
+  id                String                 @id @default(uuid())
+  parentId          String?
+  parent            TerritoireVoirie?      @relation("TerritoireVoirieParent", fields: [parentId], references: [id], onDelete: Restrict)
+  enfants           TerritoireVoirie[]     @relation("TerritoireVoirieParent")
+  niveau            NiveauTerritoireVoirie
+  code              String                 @unique
+  nom               String
+  /// Chemin materialise des identifiants `/id_nation/.../id/`, calcule par la base.
+  chemin            String
+  profondeur        Int
+  emprise           Unsupported("geometry(Geometry, 4326)")?
+  crsMetriqueEpsg   Int?
+  regionId          Int?
+  region            Region?                @relation("TerritoireVoirieRegion", fields: [regionId], references: [id], onDelete: Restrict)
+  regionEffectiveId Int?
+  regionEffective   Region?                @relation("TerritoireVoirieRegionEffective", fields: [regionEffectiveId], references: [id], onDelete: Restrict)
+  source            String?
+  actif             Boolean                @default(true)
+  version           Int                    @default(1)
+  creeParId         String?
+  creePar           User?                  @relation("TerritoireVoirieCreateur", fields: [creeParId], references: [id], onDelete: Restrict)
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @default(now()) @updatedAt
+  deletedAt         DateTime?
+
+  projets    ProjetVoirie[]
+  historique TerritoireVoirieHistorique[]
+
+  @@index([parentId])
+  @@index([chemin])
+  @@index([regionEffectiveId])
+  @@index([niveau, deletedAt])
+  @@map("territoires_voirie")
+}
+
+/// Historique des territoires (ajout seul). `avant` et `apres` : la ligne sans sa geometrie (boite englobante et empreinte MD5 de l'emprise).
+model TerritoireVoirieHistorique {
+  id           BigInt           @id @default(autoincrement())
+  territoireId String
+  territoire   TerritoireVoirie @relation(fields: [territoireId], references: [id], onDelete: Restrict)
+  action       String
+  version      Int
+  avant        Json?
+  apres        Json?
+  acteurId     String?
+  acteur       User?            @relation("TerritoireVoirieHistoriqueActeur", fields: [acteurId], references: [id], onDelete: Restrict)
+  createdAt    DateTime         @default(now())
+
+  @@index([territoireId, createdAt])
+  @@map("territoires_voirie_historique")
+}
+
+/// Valeur d'un referentiel configurable. `parametres` valides par le schema zod du domaine ; une version par ecriture ADMIN (approuvePar).
+/// Une valeur desactivee ou retiree reste lisible sur les objets qui la portent (le code est conserve).
+model ReferentielVoirie {
+  id            String                   @id @default(uuid())
+  domaine       DomaineReferentielVoirie
+  code          String
+  libelle       String
+  ordre         Int                      @default(0)
+  actif         Boolean                  @default(true)
+  parametres    Json                     @default("{}")
+  version       Int                      @default(1)
+  approuveParId String?
+  approuvePar   User?                    @relation("ReferentielVoirieApprobateur", fields: [approuveParId], references: [id], onDelete: Restrict)
+  approuveLe    DateTime?
+  creeParId     String?
+  creePar       User?                    @relation("ReferentielVoirieCreateur", fields: [creeParId], references: [id], onDelete: Restrict)
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @default(now()) @updatedAt
+  deletedAt     DateTime?
+
+  historique ReferentielVoirieHistorique[]
+
+  @@unique([domaine, code])
+  @@index([domaine, actif, deletedAt])
+  @@map("referentiels_voirie")
+}
+
+/// Historique des valeurs de referentiel (ajout seul).
+model ReferentielVoirieHistorique {
+  id            BigInt            @id @default(autoincrement())
+  referentielId String
+  referentiel   ReferentielVoirie @relation(fields: [referentielId], references: [id], onDelete: Restrict)
+  action        String
+  version       Int
+  avant         Json?
+  apres         Json?
+  acteurId      String?
+  acteur        User?             @relation("ReferentielVoirieHistoriqueActeur", fields: [acteurId], references: [id], onDelete: Restrict)
+  createdAt     DateTime          @default(now())
+
+  @@index([referentielId, createdAt])
+  @@map("referentiels_voirie_historique")
+}
+
+/// Configuration nationale du module : une ligne par cle (emprise de plausibilite, bandes de CRS metrique, liste blanche des CRS d'import,
+/// protections). Les variables d'environnement restent prioritaires (compatibilite) ; la valeur effective et sa source sont rendues par l'API.
+model ConfigurationVoirie {
+  cle           String    @id
+  valeur        Json
+  version       Int       @default(1)
+  approuveParId String?
+  approuvePar   User?     @relation("ConfigurationVoirieApprobateur", fields: [approuveParId], references: [id], onDelete: Restrict)
+  approuveLe    DateTime?
+  justification String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @default(now()) @updatedAt
+
+  historique ConfigurationVoirieHistorique[]
+
+  @@map("configuration_voirie")
+}
+
+/// Historique de la configuration (ajout seul).
+model ConfigurationVoirieHistorique {
+  id            BigInt              @id @default(autoincrement())
+  cle           String
+  configuration ConfigurationVoirie @relation(fields: [cle], references: [cle], onDelete: Restrict)
+  version       Int
+  avant         Json?
+  apres         Json
+  acteurId      String?
+  acteur        User?               @relation("ConfigurationVoirieHistoriqueActeur", fields: [acteurId], references: [id], onDelete: Restrict)
+  justification String?
+  createdAt     DateTime            @default(now())
+
+  @@index([cle, createdAt])
+  @@map("configuration_voirie_historique")
+}
+
+// ===================== SOURCES MULTIPLES ET COMPARAISON ENTRE SOURCES (lot S1) =====================
+// Contrat : docs/projets-voirie/CONTRAT-SOURCES.md. Migration 20261103300000_multi_sources_comparaison (additive, avec descente).
+// Une comparaison entre deux sources d un meme reseau est persistee et reproductible ; un resultat n est JAMAIS une decision. Aucune geometrie.
+// Hors schema.prisma (voir docs/securite/DERIVE-SCHEMA.md) : les cles etrangeres (colonnes scalaires ici, comme JobImportProjet), l index unique
+// `NULLS NOT DISTINCT` des regles, les index partiels de la cle de version des jeux (methode d acquisition), les contraintes CHECK et les declencheurs.
+
+enum StatutResultatComparaison {
+  CONCORDANCE
+  DIVERGENCE
+  RAPPROCHEMENT_INCERTAIN
+  SANS_CORRESPONDANCE_A
+  SANS_CORRESPONDANCE_B
+}
+
+enum PreuveConnexionReseau {
+  CONFIRMEE_PAR_FOURNISSEUR
+  INCONNUE
+}
+
+/// Regle de rapprochement VERSIONNEE et approuvee (corridor = max des precisions declarees + marge). Regle par defaut S1-CORRIDOR-0.1 (version 0) creee par la migration.
+model RegleRapprochementSources {
+  id                    String             @id @default(uuid())
+  projetId              String?
+  famille               TypeReseauTiers?
+  code                  String
+  version               Int
+  margeM                Decimal            @default(1) @db.Decimal(6, 2)
+  rayonAppariementM     Decimal            @default(10) @db.Decimal(8, 2)
+  partHorsCorridorMax   Decimal            @default(0) @db.Decimal(5, 4)
+  /// Correctifs T1+S1 (M6) : {} = aucun bareme par classe (une classe n est pas une precision en metres) ; un bareme ne s applique qu approuve par un autre ADMIN.
+  precisionParClasseM   Json               @default("{}")
+  statut                StatutRegleConflit @default(BROUILLON)
+  justification         String
+  creeParId             String?
+  approuveParId         String?
+  approuveLe            DateTime?
+  motifApprobation      String?
+  derogationApprobation String?
+  createdAt             DateTime           @default(now())
+
+  @@unique([projetId, famille, code, version], map: "regles_rapprochement_sources_version_key")
+  @@index([projetId, statut])
+  @@map("regles_rapprochement_sources")
+}
+
+/// Comparaison PERSISTEE entre deux sources (jeux A et B) d un meme reseau : immuable, reproductible (jeux, regle, algorithme, instantane).
+model ComparaisonSources {
+  id                String               @id @default(uuid())
+  projetId          String
+  numero            Int
+  statut            StatutAnalyseConflit
+  /// SOURCES (deux jeux AUTORISE) ou VERSION_CANDIDATE (jeu en controle face au jeu AUTORISE qu il remplacera) : contrainte de la base.
+  mode              String               @default("SOURCES")
+  role              RoleJeuProjet        @default(RESEAU_TIERS)
+  jeuAId            String
+  jeuBId            String
+  concessionnaireId String?
+  typeReseau        TypeReseauTiers?
+  regle             Json                 @default("{}")
+  jeux              Json                 @default("[]")
+  versionAlgorithme String
+  epsg              Int?
+  resume            Json                 @default("{}")
+  instantane        Json                 @default("{}")
+  declencheParId    String
+  duree             Int                  @default(0)
+  createdAt         DateTime             @default(now())
+
+  resultats ComparaisonSourcesResultat[]
+
+  @@unique([projetId, numero])
+  @@index([jeuAId])
+  @@index([jeuBId])
+  @@map("comparaisons_sources_projet")
+}
+
+/// Resultat d une comparaison pour un objet : fige (seul `conflitId` s ecrit, une fois, par une action humaine). Aucune geometrie.
+model ComparaisonSourcesResultat {
+  id            String                    @id @default(uuid())
+  comparaisonId String
+  comparaison   ComparaisonSources        @relation(fields: [comparaisonId], references: [id], onDelete: Restrict)
+  projetId      String
+  ordre         Int
+  cle           String
+  statut        StatutResultatComparaison
+  objetAId      BigInt?
+  objetBId      BigInt?
+  nomA          String?
+  nomB          String?
+  precisionAM   Decimal?                  @db.Decimal(8, 2)
+  precisionBM   Decimal?                  @db.Decimal(8, 2)
+  origineA      String                    @default("INCONNUE")
+  origineB      String                    @default("INCONNUE")
+  corridorM     Decimal?                  @db.Decimal(8, 2)
+  mesure        Json?
+  conflitId     String?
+  createdAt     DateTime                  @default(now())
+
+  @@unique([comparaisonId, ordre], map: "comparaisons_sources_resultats_ordre_key")
+  @@unique([comparaisonId, cle], map: "comparaisons_sources_resultats_cle_key")
+  @@index([comparaisonId, statut, ordre])
+  @@index([conflitId])
+  @@map("comparaisons_sources_resultats")
+}
+
+// ===================== COMPLETUDE DOCUMENTAIRE DES PROJETS DE VOIRIE (lot D1) =====================
+// Contrat : docs/projets-voirie/CONTRAT-DOCUMENTS.md. Migration 20261104100000_completude_documentaire (additive, avec descente).
+// AUCUNE relation Prisma (comme le lot B3) : les cles etrangeres (projet, lignee, concessionnaire, jeu, comptes) sont dans la migration seulement, pour
+// que ce bloc reste en fin de fichier sans toucher aux modeles existants. Hors schema.prisma (non representable, voir docs/securite/DERIVE-SCHEMA.md,
+// section 9) : les index uniques PARTIELS (une version en cours, une version VALIDE par lignee), les declencheurs (matrice des transitions, champs et
+// piece figes, historique ecrit par la base, verification differee du remplacement, suppression et troncature refusees) et les contraintes CHECK
+// (piece presente hors ATTENDU, DWG jamais EXPLOITABLE ni VALIDE, separation des taches de la validation, justifications).
+// AUCUN fichier binaire : ni colonne bytea, ni chemin. Le seul mecanisme de conservation d'un fichier reste FichierOrigineJeuProjet (lot A1).
+
+enum StatutDocumentProjetVoirie {
+  ATTENDU
+  RECU
+  EN_ANALYSE
+  EXPLOITABLE
+  INCOMPLET
+  A_CORRIGER
+  REMPLACE
+  VALIDE
+  REJETE
+}
+
+/// Une VERSION d'un document du dossier d'un projet. `ligneeId` = identifiant de la version 1 ; `remplaceId` = version precedente.
+model DocumentProjetVoirie {
+  id                    String                     @id @default(uuid())
+  projetId              String
+  ligneeId              String
+  version               Int                        @default(1)
+  remplaceId            String?
+  /// Code du domaine TYPE_DOCUMENT (referentiel du lot T1), verifie par la base a l'insertion.
+  typeCode              String
+  titre                 String
+  description           String?
+  dateDocument          DateTime?                  @db.Date
+  concessionnaireId     String?
+  statut                StatutDocumentProjetVoirie
+  reference             String?
+  nomFichier            String?
+  /// PDF, DWG (fichier televerse, detecte par la signature) ou format du jeu lie ; nul pour une piece seulement referencee.
+  format                String?
+  sha256                String?
+  tailleOctets          Int?
+  jeuId                 String?
+  creeParId             String
+  createdAt             DateTime                   @default(now())
+  deposeParId           String?
+  deposeLe              DateTime?
+  valideParId           String?
+  valideLe              DateTime?
+  derniereActionParId   String
+  derniereActionLe      DateTime                   @default(now())
+  derniereJustification String?
+  updatedAt             DateTime                   @default(now()) @updatedAt
+  deletedAt             DateTime?
+
+  @@unique([ligneeId, version], map: "documents_projet_voirie_lignee_version_key")
+  @@index([projetId, statut])
+  @@index([projetId, typeCode])
+  @@index([jeuId])
+  @@index([remplaceId])
+  @@map("documents_projet_voirie")
+}
+
+/// Historique en AJOUT SEUL, ecrit par le declencheur de `documents_projet_voirie` (jamais par le service).
+model DocumentProjetVoirieHistorique {
+  id            BigInt                      @id @default(autoincrement())
+  documentId    String
+  projetId      String
+  ligneeId      String
+  version       Int
+  action        String
+  statutAvant   StatutDocumentProjetVoirie?
+  statutApres   StatutDocumentProjetVoirie
+  acteurId      String
+  justification String?
+  details       Json                        @default("{}")
+  createdAt     DateTime                    @default(now())
+
+  @@index([documentId, id])
+  @@index([projetId, id])
+  @@map("documents_projet_voirie_historique")
+}
+
+// ===================== EXPORT DU DOSSIER TECHNIQUE ET DEROGATIONS DE CONFIDENTIALITE (lot X1) =====================
+// Contrat : docs/projets-voirie/CONTRAT-EXPORTS.md. Migration 20261104200000_exports_tableaux_de_bord (additive, avec descente).
+// AUCUNE relation Prisma (comme les lots B3 et D1) : les cles etrangeres (projet, comptes, export consommateur) sont dans la migration seulement. Hors
+// schema.prisma (voir docs/securite/DERIVE-SCHEMA.md, section 10) : les contraintes CHECK (empreinte, tailles, manifeste objet, 1 a 20 jeux, justification,
+// duree de 7 jours au plus, usage pose en entier), les declencheurs (journal en ajout seul, derogation immuable et consommee une seule fois avant son
+// expiration, suppression et troncature refusees). Les tableaux de bord n'ecrivent rien et n'ont aucun modele.
+
+/// Journal des TENTATIVES d'export (revue du lot X1, M3 et M4) : EN_COURS puis une seule issue (REMIS apres l'ecriture complete de la reponse, ECHEC,
+/// ECHEC_ENVOI) ; empreinte et taille de l'archive, manifeste (chemins, tailles, empreintes, jeux) sans geometrie. Toutes les tentatives font la cadence.
+model ExportDossierProjetVoirie {
+  id            String    @id
+  projetId      String
+  acteurId      String
+  statut        String    @default("EN_COURS")
+  derogationId  String?
+  codeEchec     String?
+  sha256        String?
+  tailleOctets  Int?
+  nbFichiers    Int?
+  nbJeuxGeojson Int       @default(0)
+  manifeste     Json      @default("{}")
+  createdAt     DateTime  @default(now())
+  termineLe     DateTime?
+
+  @@index([acteurId, createdAt])
+  @@index([projetId, createdAt])
+  @@map("exports_dossier_projet_voirie")
+}
+
+/// Derogation ADMIN, justifiee, nominative (beneficiaire autre que l'auteur), RESERVEE par une tentative (`exportId`) puis consommee une seule fois (`utiliseeLe`), pour exporter en GeoJSON des jeux CONFIDENTIEL_CONCESSIONNAIRE ou INFRASTRUCTURE_SENSIBLE.
+model DerogationExportProjetVoirie {
+  id             String    @id
+  projetId       String
+  jeuxIds        String[]
+  beneficiaireId String
+  accordeeParId  String
+  justification  String
+  createdAt      DateTime  @default(now())
+  expireLe       DateTime
+  utiliseeLe     DateTime?
+  exportId       String?   @unique(map: "derogations_export_projet_voirie_exportId_key")
+
+  @@index([projetId, createdAt])
+  @@index([beneficiaireId])
+  @@map("derogations_export_projet_voirie")
 }

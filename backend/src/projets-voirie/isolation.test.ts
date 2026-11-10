@@ -19,6 +19,12 @@ const ROUTES_CONFLITS = join(SRC, "api-v2", "projets-voirie.conflits.routes.ts")
 const ROUTES_IMPORT = join(SRC, "api-v2", "projets-voirie.import.routes.ts");
 const ROUTES_WORKFLOW = join(SRC, "api-v2", "projets-voirie.workflow.routes.ts");
 const ROUTES_RESEAUX = join(SRC, "api-v2", "projets-voirie.reseaux.routes.ts");
+const ROUTES_GDAL = join(SRC, "api-v2", "projets-voirie.gdal.routes.ts");
+const ROUTES_TERRITOIRES = join(SRC, "api-v2", "projets-voirie.territoires.routes.ts");
+const ROUTES_SOURCES = join(SRC, "api-v2", "projets-voirie.sources.routes.ts");
+const ROUTES_DOCUMENTS = join(SRC, "api-v2", "projets-voirie.documents.routes.ts");
+const ROUTES_DOSSIER_TECHNIQUE = join(SRC, "api-v2", "projets-voirie.dossier-technique.routes.ts");
+const ROUTES_TABLEAUX = join(SRC, "api-v2", "projets-voirie.tableaux.routes.ts");
 
 function sources(dossier: string): string[] {
   const sortie: string[] = [];
@@ -41,6 +47,16 @@ const TABLES_DU_MODULE = [
   "referents_concessionnaire", "demandes_concessionnaire", "taches_projet_voirie", "recolements_projet_voirie", "preuves_workflow_projet", "workflow_projet_historique",
   // Reseaux physiques et circuits logiques (lot B1) : descripteurs d objets et relations. Les objets (`projets_voirie_objets`) restent immuables.
   "reseau_objets_descripteurs", "reseau_relations",
+  // Jobs de conversion GDAL (lot B2).
+  "projets_voirie_import_jobs",
+  // Territoires, referentiels configurables et configuration nationale (lot T1) ; `regions` et `spatial_ref_sys` ne sont que LUES.
+  "territoires_voirie", "territoires_voirie_historique", "referentiels_voirie", "referentiels_voirie_historique", "configuration_voirie", "configuration_voirie_historique",
+  // Sources multiples et comparaison entre sources (lot S1) : regles de rapprochement, comparaisons et leurs resultats (aucune geometrie).
+  "regles_rapprochement_sources", "comparaisons_sources_projet", "comparaisons_sources_resultats",
+  // Documents du dossier (lot D1) : documents et historique (ecrit par la base). Aucune table de fichier : rien n'est stocke.
+  "documents_projet_voirie", "documents_projet_voirie_historique",
+  // Export du dossier technique (lot X1) : journal des archives remises (ajout seul) et derogations de confidentialite. Les tableaux de bord n ecrivent rien.
+  "exports_dossier_projet_voirie", "derogations_export_projet_voirie",
 ];
 const DELEGUES_DU_MODULE = [
   "projetVoirie", "jeuDonneesProjet", "objetProjet", "concessionnaireReseau", "auditLog",
@@ -50,9 +66,19 @@ const DELEGUES_DU_MODULE = [
   "referentConcessionnaire", "demandeConcessionnaire", "tacheProjetVoirie", "recolementProjetVoirie", "preuveWorkflowProjet", "historiqueWorkflowProjet",
   // Reseaux physiques et circuits logiques (lot B1) : descripteurs d'objets et relations (revue de la vague 1, m7 : ces delegues manquaient a la liste).
   "reseauObjetDescripteur", "reseauRelation",
+  // Jobs de conversion GDAL (lot B2).
+  "jobImportProjet",
+  // Territoires, referentiels et configuration (lot T1).
+  "territoireVoirie", "territoireVoirieHistorique", "referentielVoirie", "referentielVoirieHistorique", "configurationVoirie", "configurationVoirieHistorique",
+  // Sources multiples (lot S1).
+  "regleRapprochementSources", "comparaisonSources", "comparaisonSourcesResultat",
+  // Documents du dossier (lot D1).
+  "documentProjetVoirie", "documentProjetVoirieHistorique",
+  // Export du dossier technique (lot X1).
+  "exportDossierProjetVoirie", "derogationExportProjetVoirie",
 ];
 
-const fichiersDuModule = [...sources(MODULE), ROUTES, ROUTES_CONFLITS, ROUTES_IMPORT, ROUTES_WORKFLOW, ROUTES_RESEAUX];
+const fichiersDuModule = [...sources(MODULE), ROUTES, ROUTES_CONFLITS, ROUTES_IMPORT, ROUTES_WORKFLOW, ROUTES_RESEAUX, ROUTES_GDAL, ROUTES_TERRITOIRES, ROUTES_SOURCES, ROUTES_DOCUMENTS, ROUTES_DOSSIER_TECHNIQUE, ROUTES_TABLEAUX];
 
 describe("le module n'ecrit que dans ses propres tables", () => {
   it("le module contient du code a verifier (garde contre une lecture qui ne trouve rien)", () => {
@@ -114,6 +140,17 @@ describe("rien d'autre dans le code ne lit les donnees du module (jamais d'API p
     join("api-v2", "projets-voirie.import.routes.ts"),
     join("api-v2", "projets-voirie.workflow.routes.ts"),
     join("api-v2", "projets-voirie.reseaux.routes.ts"),
+    join("api-v2", "projets-voirie.gdal.routes.ts"),
+    join("api-v2", "projets-voirie.territoires.routes.ts"),
+    // Sources multiples et comparaison entre sources (lot S1).
+    join("api-v2", "projets-voirie.sources.routes.ts"),
+    // Documents du dossier (lot D1).
+    join("api-v2", "projets-voirie.documents.routes.ts"),
+    // Export du dossier technique et tableaux de bord (lot X1).
+    join("api-v2", "projets-voirie.dossier-technique.routes.ts"),
+    join("api-v2", "projets-voirie.tableaux.routes.ts"),
+    // Demarrage du sondage des jobs de conversion GDAL (lot B2) : un seul appel, desactive par defaut.
+    "server.ts",
     // Cle de module.
     join("lib", "modules.ts"),
   ]);

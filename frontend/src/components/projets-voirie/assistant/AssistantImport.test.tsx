@@ -122,7 +122,7 @@ describe("etape 1 : depot", () => {
     expect(f).toHaveTextContent("GeoJSON : .geojson, .json");
     expect(f).toHaveTextContent("GPX : .gpx");
     expect(f).toHaveTextContent("Tableau délimité (CSV, TSV, TXT) : .csv, .tsv, .txt");
-    expect(f).toHaveTextContent("Pas encore lus : GEOPACKAGE, SHAPEFILE, DXF, DWG");
+    expect(f).toHaveTextContent("Non lus : GEOPACKAGE, SHAPEFILE, DXF, DWG (exportez un DWG en DXF)");
     expect(f).toHaveTextContent(/détecté par le contenu du fichier, pas par son extension/);
     expect(dialogue()).toHaveTextContent("Fichier (25 Mo maximum)");
     expect(dialogue()).toHaveTextContent(/données d'infrastructure sensibles/);
@@ -185,7 +185,7 @@ describe("etape 1 : depot", () => {
     expect(dialogue()).toHaveTextContent(/ne lit pas/);
     await u.click(bouton("Analyser le fichier"));
     const alerte = await screen.findByText(/Code : FORMAT_NON_SUPPORTE/).then((e) => e.closest("[role=alert]") as HTMLElement);
-    expect(alerte).toHaveTextContent(/GeoPackage, Shapefile, DXF et DWG sont prévus à un lot suivant/);
+    expect(alerte).toHaveTextContent(/GeoPackage, Shapefile ZIP et DXF passent par une chaîne de conversion isolée, qui peut être désactivée sur ce serveur ; DWG n'est pas lu/);
     expect(screen.getByRole("heading", { name: "Dépôt du fichier" })).toBeInTheDocument();
   });
   it("hors ligne : on ne peut pas analyser", async () => {
@@ -338,6 +338,13 @@ describe("etape 3 : systeme de coordonnees et unites", () => {
     expect(within(sel).getAllByRole("option").map((o) => o.getAttribute("value"))).toEqual(["", "32629"]);
     expect(screen.getByTestId("crs-obligatoire")).toHaveTextContent(/déclare lui-même EPSG:32629/);
     expect(bouton("Vérifier la transformation")).toBeDisabled();
+    // Defaut D5 du pilote : un CRS declare par le fichier puis confirme n'est pas presente comme un choix inverifiable.
+    s.apercu = apercu({ resume: { ...apercu().resume, crs: { ...CRS_UTM29, origine: "declare_dans_le_fichier" } } });
+    await u.selectOptions(sel, "32629");
+    await u.click(bouton("Vérifier la transformation"));
+    const crs = await screen.findByTestId("bloc-crs");
+    expect(crs).toHaveTextContent("Déclaré par le fichier lui-même");
+    expect(crs).not.toHaveTextContent("Choisi par vous");
   });
 
   it("GeoJSON sans systeme declare : WGS 84 par la norme, choix facultatif", async () => {
@@ -361,7 +368,7 @@ describe("etape 3 : systeme de coordonnees et unites", () => {
     piege("apercu", ERREUR(409, "CONFIRMATION_HORS_ZONE_REQUISE", { nbElementsHorsZone: 4, nbObjets: 10 }));
     await u.click(bouton("Vérifier la transformation"));
     const alerte = await screen.findByTestId("alerte-hors-zone");
-    expect(alerte).toHaveTextContent("4 élément(s) sur 10 tombent hors de la Guinée");
+    expect(alerte).toHaveTextContent("4 élément(s) sur 10 tombent hors de la zone attendue « Guinee »");
     expect(alerte).toHaveTextContent("avancement bloqué");
     expect(bouton("Continuer")).toBeDisabled();
     const confirmer = within(alerte).getByRole("button", { name: "Confirmer et recalculer l'aperçu" });
@@ -484,7 +491,7 @@ describe("etape 5 : controles, echantillon sur tableau ET carte", () => {
     const v = screen.getByTestId("validation-geometrique");
     expect(v).toHaveTextContent("1 géométrie(s) invalide(s) : la base les répare au dépôt");
     expect(within(v).getByRole("region", { name: "Géométries invalides" })).toHaveTextContent("Auto-intersection (sera réparée par la base au dépôt)");
-    expect(within(v).getByRole("region", { name: "Éléments écartés du fichier" })).toHaveTextContent("Hors de la zone attendue (la Guinée)");
+    expect(within(v).getByRole("region", { name: "Éléments écartés du fichier" })).toHaveTextContent("Hors de l'emprise nationale configurée");
     expect(dialogue()).toHaveTextContent(/Altitude|altitude des points est ignorée/);
     expect(screen.getByTestId("bloc-crs")).toBeInTheDocument();
   });
@@ -559,9 +566,11 @@ describe("etape 6 : comparaison avec la version autorisee, rien n'est ecrit avan
     const entrees = [...corps.entries()];
     expect(entrees[entrees.length - 1][0]).toBe("fichier");
     expect(champs(corps)).toMatchObject({
-      role: "RESEAU_TIERS", concessionnaireId: "c1", typeReseau: "TELECOM", natureObjets: "INCONNUE", confidentialite: "CONFIDENTIEL_CONCESSIONNAIRE", classePrecision: "INCONNUE",
+      role: "RESEAU_TIERS", concessionnaireId: "c1", typeReseau: "TELECOM", natureObjets: "INCONNUE", confidentialite: "CONFIDENTIEL_CONCESSIONNAIRE",
       couche: "c1", sha256Attendu: SHA,
     });
+    // Classe de precision inconnue : le champ n'est PAS envoye (le serveur n'accepte que A a E ; defaut D1 du pilote local).
+    expect(champs(corps)).not.toHaveProperty("classePrecision");
     expect(screen.getByTestId("simulation-seule")).toHaveTextContent("Simulation seulement : rien n'a été écrit");
     expect(dialogue()).toHaveTextContent("Version prévue3");
     expect(dialogue()).toHaveTextContent("la version 2 autorisée, une fois cette version autorisée à son tour");
@@ -637,6 +646,11 @@ describe("etape 6 : comparaison avec la version autorisee, rien n'est ecrit avan
     await u.click(bouton("Refuser les suppressions"));
     await waitFor(() => expect(screen.getByTestId("revue-suppressions")).toHaveAttribute("data-statut", "REFUSEES"));
     expect(appels(/revue-suppressions$/)[0][1]).toMatchObject({ decision: "REFUSER" });
+    // Defaut C1-02 (regle O1 du serveur) : apres un refus, accepter est impossible ; le bouton disparait, refuser de nouveau reste permis.
+    const zone = within(screen.getByTestId("revue-suppressions"));
+    expect(zone.queryByRole("button", { name: "Accepter les suppressions" })).toBeNull();
+    expect(zone.getByRole("button", { name: "Refuser les suppressions" })).toBeInTheDocument();
+    expect(screen.getByTestId("derniere-revue")).toHaveTextContent(/Ce refus est définitif/);
   });
   it("sans suppression : rien a revoir, pas de formulaire de revue", async () => {
     s.simulation = reponseDepot({ delta: { ajoutes: 2, modifies: 0, retires: 0, identiques: 3 }, suppressions: { statut: "AUCUNE", nb: 0 } });

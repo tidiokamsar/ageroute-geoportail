@@ -247,6 +247,13 @@ const DOMAINES_TERRITORIAUX = [/^\w+ \/api\/ordres-travaux(\/|$)/, /^\w+ \/api\/
 const SANS_GARDE_TERRITORIALE: Exception[] = [
   { motif: /^GET \/api\/v2\/projets-voirie$/, raison: "liste filtree dans le service (regions du compte : un compte regional ne voit que les projets de ses regions) ; banc projets-voirie" },
   { motif: /^\w+ \/api\/v2\/projets-voirie\/concessionnaires$/, raison: "annuaire national des concessionnaires de reseau : des organismes, pas des donnees regionales" },
+  // Lot T1 : territoires (liste et comptes filtres par perimetre dans le service, creation ADMIN seul : un ADMIN est national), referentiels et configuration (nationaux).
+  { motif: /^GET \/api\/v2\/projets-voirie\/territoires(\/comptes)?$/, raison: "liste et comptes filtres dans le service par la region effective des territoires (regions du compte) ; banc territoires-referentiels" },
+  { motif: /^POST \/api\/v2\/projets-voirie\/territoires$/, raison: "creation reservee a l'ADMIN, qui est toujours national ; lot T1" },
+  { motif: /^\w+ \/api\/v2\/projets-voirie\/referentiels(\/|$)/, raison: "referentiels configurables nationaux (types de reseau, categories, types de document, methodes, statuts de qualite) : aucune donnee regionale ; ecriture ADMIN" },
+  { motif: /^\w+ \/api\/v2\/projets-voirie\/configuration(\/|$)/, raison: "configuration nationale du module (emprise, CRS, protections) : aucune donnee regionale ; ecriture ADMIN" },
+  // Lot X1 : tableau de bord NATIONAL, filtre dans le service par les regions du compte (meme regle que la liste des projets).
+  { motif: /^GET \/api\/v2\/projets-voirie\/tableau-de-bord$/, raison: "agregats filtres dans le service par les regions du compte (projets de ses regions seulement ; national : tout) ; banc exports-tableaux" },
   { motif: /^GET \/api\/v2\/projets-voirie\/workflow\/mon-profil$/, raison: "profil de workflow du compte connecte (role, rattachements, droits) : la liste des projets est filtree dans le service par les regions du compte ; lot B3" },
   { motif: /^GET \/api\/ordres-travaux$/, raison: "liste filtree dans le handler (regions du compte) ; banc F1" },
   { motif: /^GET \/api\/ordres-travaux\/stats$/, raison: "statistiques filtrees dans le service (regions du compte) ; banc F1" },
@@ -344,6 +351,11 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
     "GET /api/v2/projets-voirie/:id/import/options": ["ADMIN", "GESTIONNAIRE"],
     "POST /api/v2/projets-voirie/:id/import/inventaire": ["ADMIN", "GESTIONNAIRE"],
     "POST /api/v2/projets-voirie/:id/import/apercu": ["ADMIN", "GESTIONNAIRE"],
+    // Lot B2 : jobs de conversion GDAL (GeoPackage, Shapefile ZIP, DXF) ; prouves par api-v2/projets-voirie.gdal.routes.test.ts et le banc gdal-jobs.
+    "POST /api/v2/projets-voirie/:id/import/jobs": ["ADMIN", "GESTIONNAIRE"],
+    "GET /api/v2/projets-voirie/:id/import/jobs": ["ADMIN", "GESTIONNAIRE"],
+    "GET /api/v2/projets-voirie/:id/import/jobs/:jobId": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/import/jobs/:jobId/annuler": ["ADMIN", "GESTIONNAIRE"],
     "GET /api/v2/projets-voirie/:id/jeux/:jeuId/delta": ["ADMIN", "GESTIONNAIRE"],
     "POST /api/v2/projets-voirie/:id/jeux/:jeuId/revue-suppressions": ["ADMIN", "GESTIONNAIRE"],
     "POST /api/v2/projets-voirie/:id/jeux/:jeuId/retour-arriere": ["ADMIN", "GESTIONNAIRE"],
@@ -355,9 +367,36 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
     "POST /api/v2/projets-voirie/:id/reseau/relations/:relId/refuser": ["ADMIN", "GESTIONNAIRE"],
     "POST /api/v2/projets-voirie/:id/reseau/relations/:relId/revoquer": ["ADMIN", "GESTIONNAIRE"],
     "POST /api/v2/projets-voirie/:id/reseau/associations/proposer": ["ADMIN", "GESTIONNAIRE"],
+    // Territoires, referentiels et configuration (lot T1, CONTRAT-TERRITOIRES.md section 7) : toute ecriture est reservee a l'ADMIN.
+    "POST /api/v2/projets-voirie/territoires": ["ADMIN"],
+    "PATCH /api/v2/projets-voirie/territoires/:tid": ["ADMIN"],
+    "DELETE /api/v2/projets-voirie/territoires/:tid": ["ADMIN"],
+    "POST /api/v2/projets-voirie/referentiels/:domaine": ["ADMIN"],
+    "PATCH /api/v2/projets-voirie/referentiels/:domaine/:code": ["ADMIN"],
+    "DELETE /api/v2/projets-voirie/referentiels/:domaine/:code": ["ADMIN"],
+    "PUT /api/v2/projets-voirie/configuration/:cle": ["ADMIN"],
+    // Sources multiples et comparaison entre sources (lot S1) : regles de rapprochement (approbation ADMIN seul), comparaison persistee, ouverture d'un dossier
+    // de divergence par une action humaine justifiee. Prouve par api-v2/projets-voirie.sources.routes.test.ts et le banc sources-comparaison.
+    "POST /api/v2/projets-voirie/:id/regles-rapprochement": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/regles-rapprochement/:regleRapId/approuver": ["ADMIN"],
+    "POST /api/v2/projets-voirie/:id/comparaisons": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/comparaisons/:cmpId/dossiers-conflit": ["ADMIN", "GESTIONNAIRE"],
+    // Documents du dossier (lot D1) : creation, depot, version, statut, retrait (le retrait d'une piece VALIDE est reserve a l'ADMIN par le service).
+    // Prouve par api-v2/projets-voirie.documents.routes.test.ts et le banc documents-projet.
+    "POST /api/v2/projets-voirie/:id/documents": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/documents/:docId/depot": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/documents/:docId/versions": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/documents/:docId/statut": ["ADMIN", "GESTIONNAIRE"],
+    "DELETE /api/v2/projets-voirie/:id/documents/:docId": ["ADMIN", "GESTIONNAIRE"],
+    // Export du dossier technique (lot X1) : archive et journal reserves aux comptes qui decident (lectures, mais elles remettent des geometries et des
+    // noms) ; derogation de confidentialite ADMIN seul. Prouve par api-v2/projets-voirie.dossier-technique.routes.test.ts et le banc exports-tableaux.
+    "GET /api/v2/projets-voirie/:id/export/dossier": ["ADMIN", "GESTIONNAIRE"],
+    "GET /api/v2/projets-voirie/:id/export/journal": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/export/derogations": ["ADMIN"],
+    "GET /api/v2/projets-voirie/:id/export/derogations": ["ADMIN"],
   };
 
-  it("expose exactement les 15 routes du socle, les 16 des dossiers de conflit, les 6 de l'import (lot A1) et les 10 des reseaux (lot B1), ni plus (aucun export de geometrie, aucune route d'ordre ou de deplacement), ni moins", () => {
+  it("expose exactement les 15 routes du socle, les 16 des dossiers de conflit, les 6 de l'import (lot A1), les 10 des reseaux (lot B1), les 4 des jobs de conversion GDAL (lot B2), les 15 des territoires, referentiels et configuration (lot T1), les 9 des sources (lot S1), les 8 des documents (lot D1) et les 6 de l export et des tableaux de bord (lot X1), ni plus (aucun export de geometrie SAUF le dossier technique du lot X1, GET /:id/export/dossier, decideurs, jeux AUTORISE d'un niveau exportable ou sous derogation ADMIN ; aucune route d'ordre ou de deplacement), ni moins", () => {
     expect(pv.map(cle).sort()).toEqual([
       "DELETE /api/v2/projets-voirie/:id", "DELETE /api/v2/projets-voirie/:id/jeux/:jeuId",
       "GET /api/v2/projets-voirie", "GET /api/v2/projets-voirie/:id", "GET /api/v2/projets-voirie/:id/analyse",
@@ -376,6 +415,9 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
       // Formats d'import ouverts, CRS, mapping, versions (lot A1, contrat CONTRAT-IMPORT.md)
       "GET /api/v2/projets-voirie/:id/import/options", "POST /api/v2/projets-voirie/:id/import/inventaire", "POST /api/v2/projets-voirie/:id/import/apercu",
       "GET /api/v2/projets-voirie/:id/jeux/:jeuId/delta", "POST /api/v2/projets-voirie/:id/jeux/:jeuId/revue-suppressions", "POST /api/v2/projets-voirie/:id/jeux/:jeuId/retour-arriere",
+      // Jobs de conversion GDAL (lot B2, CONTRAT-IMPORT.md section 13)
+      "POST /api/v2/projets-voirie/:id/import/jobs", "GET /api/v2/projets-voirie/:id/import/jobs", "GET /api/v2/projets-voirie/:id/import/jobs/:jobId",
+      "POST /api/v2/projets-voirie/:id/import/jobs/:jobId/annuler",
       // Reseaux physiques et circuits logiques (lot B1, CONTRAT-RESEAUX.md, section 5)
       "GET /api/v2/projets-voirie/:id/reseau/objets", "GET /api/v2/projets-voirie/:id/reseau/objets/:objetId",
       "PUT /api/v2/projets-voirie/:id/reseau/objets/:objetId/descripteur",
@@ -383,7 +425,26 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
       "POST /api/v2/projets-voirie/:id/reseau/relations/:relId/valider", "POST /api/v2/projets-voirie/:id/reseau/relations/:relId/refuser",
       "POST /api/v2/projets-voirie/:id/reseau/relations/:relId/revoquer",
       "POST /api/v2/projets-voirie/:id/reseau/associations/proposer", "GET /api/v2/projets-voirie/:id/reseau/comptage",
+      // Territoires hierarchiques, referentiels configurables, configuration nationale (lot T1, CONTRAT-TERRITOIRES.md section 7)
+      "GET /api/v2/projets-voirie/territoires", "GET /api/v2/projets-voirie/territoires/comptes", "POST /api/v2/projets-voirie/territoires",
+      "GET /api/v2/projets-voirie/territoires/:tid", "PATCH /api/v2/projets-voirie/territoires/:tid", "DELETE /api/v2/projets-voirie/territoires/:tid",
+      "GET /api/v2/projets-voirie/referentiels", "GET /api/v2/projets-voirie/referentiels/:domaine", "POST /api/v2/projets-voirie/referentiels/:domaine",
+      "GET /api/v2/projets-voirie/referentiels/:domaine/:code", "PATCH /api/v2/projets-voirie/referentiels/:domaine/:code", "DELETE /api/v2/projets-voirie/referentiels/:domaine/:code",
+      "GET /api/v2/projets-voirie/configuration", "GET /api/v2/projets-voirie/configuration/:cle", "PUT /api/v2/projets-voirie/configuration/:cle",
+      // Sources multiples et comparaison entre sources (lot S1, CONTRAT-SOURCES.md, section 5)
+      "GET /api/v2/projets-voirie/:id/sources", "GET /api/v2/projets-voirie/:id/regles-rapprochement", "POST /api/v2/projets-voirie/:id/regles-rapprochement",
+      "POST /api/v2/projets-voirie/:id/regles-rapprochement/:regleRapId/approuver", "POST /api/v2/projets-voirie/:id/comparaisons", "GET /api/v2/projets-voirie/:id/comparaisons",
+      "GET /api/v2/projets-voirie/:id/comparaisons/:cmpId", "GET /api/v2/projets-voirie/:id/comparaisons/:cmpId/objets", "POST /api/v2/projets-voirie/:id/comparaisons/:cmpId/dossiers-conflit",
+      // Documents du dossier et ce que les documents permettent (lot D1, CONTRAT-DOCUMENTS.md, section 5)
+      "GET /api/v2/projets-voirie/:id/completude", "GET /api/v2/projets-voirie/:id/documents", "POST /api/v2/projets-voirie/:id/documents",
+      "GET /api/v2/projets-voirie/:id/documents/:docId", "POST /api/v2/projets-voirie/:id/documents/:docId/depot", "POST /api/v2/projets-voirie/:id/documents/:docId/versions",
+      "POST /api/v2/projets-voirie/:id/documents/:docId/statut", "DELETE /api/v2/projets-voirie/:id/documents/:docId",
+      // Export du dossier technique et tableaux de bord (lot X1, CONTRAT-EXPORTS.md, sections 4.1 et 6.1)
+      "GET /api/v2/projets-voirie/:id/export/dossier", "GET /api/v2/projets-voirie/:id/export/journal", "POST /api/v2/projets-voirie/:id/export/derogations",
+      "GET /api/v2/projets-voirie/:id/export/derogations", "GET /api/v2/projets-voirie/tableau-de-bord", "GET /api/v2/projets-voirie/tableau-de-bord/territoires/:tid",
     ].sort());
+    // Lot S1 : aucune route de fusion, de connexion calculee ni de proposition automatique de connexion.
+    expect(pv.filter((l) => /fusion|fusionn|connect|connexion|continuite/i.test(l.chemin))).toEqual([]);
     // Aucune route ne cree d'ordre, de deplacement ni de decision automatique.
     expect(pv.filter((l) => /ordre|deplac|ordonn/i.test(l.chemin))).toEqual([]);
   });
@@ -402,8 +463,8 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
     for (const l of pv.filter((x) => x.methode === "GET" && !ECRITURES[cle(x)])) expect(l.roles, cle(l)).toEqual([]);
   });
 
-  it("toute route qui designe un projet porte la garde territoriale a 404 masque (lecture comme ecriture), la creation la garde a 403", () => {
-    for (const l of pv.filter((x) => x.chemin.includes("/:id"))) expect(l.territoire, cle(l)).toEqual(["masque"]);
+  it("toute route qui designe un projet ou un territoire porte la garde territoriale a 404 masque (lecture comme ecriture), la creation d'un projet la garde a 403", () => {
+    for (const l of pv.filter((x) => x.chemin.includes("/:id") || x.chemin.includes("/:tid"))) expect(l.territoire, cle(l)).toEqual(["masque"]);
     expect(pv.find((l) => cle(l) === "POST /api/v2/projets-voirie")!.territoire).toEqual(["oui"]);
   });
 });

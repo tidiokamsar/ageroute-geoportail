@@ -11,6 +11,7 @@
  */
 
 import { ErreurMetier } from "../erreurs";
+import { estFormeMethodeAcquisition } from "../config";
 import { CHAMPS_JEU, type ChampJeu } from "./puits.noyau";
 import type { Avertissement } from "../lecture.types";
 
@@ -27,6 +28,8 @@ export const CHAMPS_CIBLES: readonly ChampCible[] = [
   { champ: "methode", portee: "jeu", description: "Methode de leve (200 caracteres au plus) : valeur unique de la colonne." },
   { champ: "dateDonnees", portee: "jeu", description: "Date des donnees AAAA-MM-JJ : valeur unique de la colonne." },
   { champ: "dateConstat", portee: "jeu", description: "Date du constat AAAA-MM-JJ : valeur unique de la colonne." },
+  { champ: "methodeAcquisition", portee: "jeu", description: "Methode d'acquisition (GNSS_RTK, GEORADAR, NUMERISATION_PLAN, PLAN_CAO...) : valeur unique de la colonne, lot S1." },
+  { champ: "connecteA", portee: "objet", description: "Nom de l'objet du MEME fichier auquel l'objet est connecte (declaration du fournisseur, lot S1) : jamais deduit d'une proximite." },
   { champ: "natureObjets", portee: "jeu", description: "Nature des objets (ACTIF_PHYSIQUE, CIRCUIT_LOGIQUE, EQUIPEMENT, INCONNUE ; AXE et EMPRISE sont imposes par le role) : valeur unique de la colonne." },
 ];
 
@@ -83,6 +86,8 @@ function validerValeur(champ: ChampJeu, brut: string): string | number | null {
     case "dateDonnees":
     case "dateConstat": return jourValide(brut) ? brut : null;
     case "concessionnaire": return brut.length <= 200 ? brut : null;
+    // Forme seulement (noyau pur) : la valeur est verifiee contre le referentiel METHODE_ACQUISITION par le depot (correctifs T1+S1, M2).
+    case "methodeAcquisition": { const v = brut.trim().toUpperCase(); return estFormeMethodeAcquisition(v) ? v : null; }
   }
 }
 

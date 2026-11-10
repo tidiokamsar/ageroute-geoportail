@@ -19,7 +19,7 @@ import { ErreurMetier } from "../erreurs";
 import { limiteurAnalyses } from "../limiteurs";
 import type { Acteur } from "../projets.service";
 import { JEU_INTROUVABLE, exigerProjetActif, jour, statutsLisibles } from "./commun";
-import { assemblerComptage, retenirJeux } from "./comptage.noyau";
+import { LIMITE_SOURCES_MULTIPLES, assemblerComptage, retenirJeux, sourcesMultiples } from "./comptage.noyau";
 import * as depot from "./reseaux.depot";
 
 export interface DemandeComptage { jeuId?: string; inclureNonAutorises: boolean }
@@ -96,6 +96,8 @@ export async function comptageProjet(acteur: Acteur, projetId: string, d: Demand
         evaluables: 0, mention: "Aucune évaluation verticale n'est implémentée : aucune conclusion 3D, même quand des données sont fournies.",
       },
     },
-    limites: [...LIMITES_COMPTAGE],
+    // Correctifs T1+S1 (M4) : memes jeux que l'analyse 2D et RC-3 ; plusieurs sources d'un meme reseau s'additionnent, et c'est dit.
+    sourcesMultiples: sourcesMultiples(retenus),
+    limites: [...LIMITES_COMPTAGE, ...(sourcesMultiples(retenus).length > 0 ? [LIMITE_SOURCES_MULTIPLES] : [])],
   };
 }

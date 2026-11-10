@@ -120,6 +120,20 @@ export const MODULE_PAR_ENTITE: Record<string, ModuleKey | null> = {
   ReseauObjetDescripteur: "projets-voirie",
   ReseauRelation: "projets-voirie",
   AssociationsReseau: "projets-voirie",
+  // Territoires, referentiels configurables et configuration nationale (lot T1) : ecritures ADMIN ; l'emprise d'un territoire n'est auditee que
+  // par sa boite englobante et son empreinte, jamais la geometrie.
+  TerritoireVoirie: "projets-voirie",
+  ReferentielVoirie: "projets-voirie",
+  ConfigurationVoirie: "projets-voirie",
+  // Sources multiples et comparaison entre sources (lot S1) : regles de rapprochement, comparaisons persistees. Aucune geometrie dans l audit.
+  RegleRapprochementSources: "projets-voirie",
+  ComparaisonSources: "projets-voirie",
+  // Documents du dossier d'un projet (lot D1) : creation, depot, version, statut, retrait. Reference et empreinte seulement, jamais de contenu de fichier.
+  DocumentProjetVoirie: "projets-voirie",
+  // Export du dossier technique (lot X1) : remise d une archive (empreinte, taille, jeux exportes et ecartes, sans geometrie) et derogations de confidentialite
+  // (creation et consommation, jeux couverts, beneficiaire, justification).
+  ExportDossierProjetVoirie: "projets-voirie",
+  DerogationExportProjetVoirie: "projets-voirie",
   User: null,
   AppSetting: null,
 };

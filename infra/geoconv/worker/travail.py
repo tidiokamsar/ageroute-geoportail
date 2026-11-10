@@ -18,6 +18,8 @@ import unicodedata
 import analyse
 import archive
 import detection
+import dxf
+import processus
 from config import VERSION_CONTRAT, VERSION_WORKER
 from erreurs import ErreurGeoconv, Interruption, nettoyer
 from gdalio import classer_signal
@@ -147,6 +149,7 @@ class Job:
         self.resultat_couches = []
         self.source = None
         self.format_detecte = None
+        self.dxf = None
 
     # -- statut ------------------------------------------------------------------------
     def statut(self, etat, code=None, message=None, etape=None, **extra):
@@ -162,6 +165,12 @@ class Job:
         if r <= 0:
             raise ErreurGeoconv("DELAI_DEPASSE", f"delai total de {self.lim.delai_s} s depasse")
         return r
+
+    def _controle(self):
+        """Appele regulierement par le pre-filtre DXF : delai total et arret du worker."""
+        self.reste_s()
+        if processus.interruption_demandee:
+            raise Interruption()
 
     def duree_ms(self):
         return int((time.monotonic() - self.debut) * 1000)
@@ -215,6 +224,7 @@ class Job:
             "versionContrat": VERSION_CONTRAT, "jobId": self.id, "statut": etat,
             "code": code, "message": nettoyer(message, 500), "details": dict(details or {}),
             "source": self.source, "format": self.format_detecte,
+            "dxf": self.dxf,
             "couches": self.resultat_couches, "avertissements": self.avert,
             "limitesAppliquees": vars(self.lim).copy(),
             "mesures": {"dureeMs": self.duree_ms(), "etapes": self.mesures,
@@ -228,6 +238,7 @@ class Job:
     def _inventaire_final(self):
         inv = dict(self.inventaire)
         inv["couches"] = [{k: v for k, v in c.items() if not k.startswith("_")} for c in self.inventaire["couches"]]
+        inv["dxf"] = self.dxf
         inv["avertissements"] = self.avert
         inv["dureeMs"] = self.duree_ms()
         inv["gdal"] = {"version": self.gdal.version, "proj": self.gdal.proj}
@@ -286,8 +297,26 @@ class Job:
         else:
             p = os.path.join(tmp, "entree.dxf")
             os.rename(local, p)
+            if detection.est_dxf_binaire(p):
+                raise ErreurGeoconv("DXF_BINAIRE_NON_PRIS_EN_CHARGE",
+                                    "DXF binaire non pris en charge : exportez le dessin en DXF texte (ASCII)")
             unites_fichier = detection.unites_dxf(p)
-            sources.append({"chemin": p, "pilote": "DXF", "jeu": None, "prj": None, "options": []})
+            self.statut("en_cours", etape="filtre-dxf")
+            filtre = os.path.join(tmp, "filtre.dxf")
+            t0 = time.monotonic()
+            self.dxf = dxf.filtrer(p, filtre, self._controle)
+            self.mesures.append({"etape": "dxf-filtre", "dureeMs": int((time.monotonic() - t0) * 1000), "picMemoireKo": 0})
+            for code, message, nb in dxf.avertissements(self.dxf):
+                self.avertir(code, message, nb=nb)
+            if sum(self.dxf["lues"].values()) == 0:
+                self.inventaire = {"versionContrat": VERSION_CONTRAT, "jobId": self.id, "source": self.source,
+                                   "format": self.format_detecte, "archive": None,
+                                   "unites": ({"origine": "$INSUNITS (en-tete DXF)", **unites_fichier} if unites_fichier else None),
+                                   "couches": []}
+                raise ErreurGeoconv("DXF_SANS_ENTITE_SUPPORTEE",
+                                    "aucune entite supportee (" + ", ".join(dxf.ENTITES_SUPPORTEES) + ") dans le DXF",
+                                    ignorees=dict(self.dxf["ignorees"]), blocs=dict(self.dxf["blocs"]))
+            sources.append({"chemin": filtre, "pilote": "DXF", "jeu": None, "prj": None, "options": []})
 
         # ---- inventaire
         self.statut("en_cours", etape="inventaire")

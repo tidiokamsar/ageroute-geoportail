@@ -6,6 +6,7 @@ import {
   type Bbox, type ClassePrecision, type Confidentialite, type FormatJeu, type Largeurs, type NatureObjet, type RoleJeu, type StatutJeu, type StatutParametres, type TypeGeom, type TypeReseau,
   TYPES_RESEAU, ROLES_JEU, NIVEAUX_CONFIDENTIALITE, CLASSES_PRECISION, NATURES_OBJET, bboxVersChaine,
 } from "./projetsVoirie";
+import { estNiveau, type TerritoireResume } from "./projetsVoirieTerritoires";
 
 /**
  * Client du module « Projets de voirie et reseaux ». SOURCE DES FORMES : docs/projets-voirie/CONTRAT.md, section 4 (API) et section 5 (analyse).
@@ -35,7 +36,11 @@ export class ReponseInattendue extends Error {
 // Types du contrat
 // ---------------------------------------------------------------------------------------------------
 
-export interface ConcessionnaireRef { id: string; nom: string; typeReseau: TypeReseau | null }
+export interface ConcessionnaireRef {
+  id: string; nom: string; typeReseau: TypeReseau | null;
+  /** Lot T1 : code du referentiel TYPE_RESEAU (la famille `typeReseau` en est derivee). */
+  typeReseauCode?: string | null;
+}
 export interface Concessionnaire extends ConcessionnaireRef { contact: string | null }
 
 export interface Avertissement { code: string; message: string; nb: number | null }
@@ -46,6 +51,10 @@ export interface JeuProjet {
   role: RoleJeu;
   concessionnaire: ConcessionnaireRef | null;
   typeReseau: TypeReseau | null;
+  /** Lot T1 : code du referentiel TYPE_RESEAU porte par le jeu (une valeur desactivee reste affichee) ; nul pour un ancien jeu sans code. */
+  typeReseauCode: string | null;
+  /** Lot S1 : code de la methode d'acquisition (referentiel METHODE_ACQUISITION) ; nul = non renseignee. */
+  methodeAcquisition: string | null;
   nomFichier: string;
   format: FormatJeu | null;
   sha256: string | null;
@@ -86,6 +95,13 @@ export interface ProjetResume {
   /** Compteurs par statut de la liste (`jeux: { CONTROLE: 1, AUTORISE: 2 }`). */
   jeuxParStatut: Partial<Record<StatutJeu, number>>;
   createdAt: string | null;
+  /** Lot T1 : territoire du projet (obligatoire pour un nouveau projet), avec ses ancetres sur la fiche ; nul pour un serveur plus ancien. */
+  territoireId: string | null;
+  territoire: (TerritoireResume & { ancetres: TerritoireResume[] }) | null;
+  /** Lot T1 : categorie (referentiel CATEGORIE_PROJET), nulle si non renseignee. */
+  categorieCode: string | null;
+  /** Region du projet (perimetre) ; `undefined` si le serveur ne la rend pas, `null` pour un projet national. */
+  regionId?: number | null;
 }
 
 export interface ProjetFiche extends ProjetResume {
@@ -120,7 +136,7 @@ export interface Plausibilite {
 export interface BlocCrs {
   source: string | null; cible: string | null; methode: string | null; justification: string | null;
   epsgSource: number | null; epsgCible: number | null; uniteSource: string | null; uniteCible: string | null;
-  origine: "choisi_par_utilisateur" | "norme_du_format" | null; transformation: "ST_Transform" | "aucune" | null; versionProj: string | null;
+  origine: "choisi_par_utilisateur" | "norme_du_format" | "declare_dans_le_fichier" | null; transformation: "ST_Transform" | "aucune" | null; versionProj: string | null;
   plausibilite: Plausibilite | null;
 }
 /** Remplacement d'un jeu : comparaison avec la version precedente. `modifies` : meme cle, contenu different (0 pour un serveur plus ancien). Aucune suppression n'est appliquee automatiquement. */
@@ -147,6 +163,10 @@ export interface DonneesDepot {
   role: RoleJeu;
   concessionnaireId?: string;
   typeReseau?: TypeReseau;
+  /** Lot T1 : code du referentiel TYPE_RESEAU (la famille en est derivee par le serveur ; envoye SEUL, sans `typeReseau`). */
+  typeReseauCode?: string;
+  /** Lot S1 : code de la methode d'acquisition (referentiel METHODE_ACQUISITION). */
+  methodeAcquisition?: string;
   dateDonnees?: string;
   origineFichier?: string;
   classePrecision?: ClassePrecision;
@@ -257,7 +277,13 @@ function lireConcessionnaireRef(v: unknown): ConcessionnaireRef | null {
   if (!estObjet(v)) return null;
   const id = texte(v.id);
   const nom = texte(v.nom);
-  return id && nom ? { id, nom, typeReseau: typeReseau(v.typeReseau) } : null;
+  return id && nom ? { id, nom, typeReseau: typeReseau(v.typeReseau), typeReseauCode: texte(v.typeReseauCode) } : null;
+}
+
+function lireResumeTerritoire(v: unknown): TerritoireResume | null {
+  if (!estObjet(v)) return null;
+  const id = texte(v.id), code = texte(v.code), nom = texte(v.nom);
+  return id && code && nom && estNiveau(v.niveau) ? { id, code, nom, niveau: v.niveau } : null;
 }
 
 export function lireAvertissements(v: unknown): Avertissement[] {
@@ -284,6 +310,8 @@ export function lireJeu(v: unknown): JeuProjet | null {
     projetId: texte(v.projetId),
     concessionnaire: conc,
     typeReseau: typeReseau(v.typeReseau),
+    typeReseauCode: texte(v.typeReseauCode),
+    methodeAcquisition: texte(v.methodeAcquisition),
     nomFichier: texte(v.nomFichier) ?? "Fichier sans nom",
     format: v.format === "KML" || v.format === "KMZ" || v.format === "GEOJSON" || v.format === "GPX" || v.format === "CSV" ? v.format : null,
     sha256: texte(v.sha256),
@@ -328,6 +356,15 @@ export function lireProjetResume(v: unknown): ProjetResume | null {
     nbJeux: vivants ?? versNombre(v.nbJeux) ?? versNombre(v.nbJeuxActifs) ?? compteurs,
     jeuxParStatut,
     createdAt: texte(v.createdAt),
+    territoireId: texte(v.territoireId) ?? (estObjet(v.territoire) ? texte(v.territoire.id) : null),
+    territoire: (() => {
+      const t = lireResumeTerritoire(v.territoire);
+      if (!t || !estObjet(v.territoire)) return null;
+      const a = Array.isArray(v.territoire.ancetres) ? v.territoire.ancetres : [];
+      return { ...t, ancetres: a.flatMap((x) => { const r = lireResumeTerritoire(x); return r ? [r] : []; }) };
+    })(),
+    categorieCode: texte(v.categorieCode),
+    ...("regionId" in v ? { regionId: versNombre(v.regionId) } : {}),
   };
 }
 
@@ -431,7 +468,7 @@ export function lireBlocCrs(b: Record<string, unknown>): BlocCrs {
   return {
     source: texte(b.source), cible: texte(b.cible), methode: texte(b.methode), justification: texte(b.justification),
     epsgSource: versNombre(b.epsgSource), epsgCible: versNombre(b.epsgCible), uniteSource: texte(b.uniteSource), uniteCible: texte(b.uniteCible),
-    origine: b.origine === "choisi_par_utilisateur" || b.origine === "norme_du_format" ? b.origine : null,
+    origine: b.origine === "choisi_par_utilisateur" || b.origine === "norme_du_format" || b.origine === "declare_dans_le_fichier" ? b.origine : null,
     transformation: b.transformation === "ST_Transform" || b.transformation === "aucune" ? b.transformation : null,
     versionProj: texte(b.versionProj),
     plausibilite: p ? {
@@ -563,17 +600,24 @@ export function lireAnalyse(data: unknown): Analyse {
 
 const id = encodeURIComponent;
 
-export async function listerProjets(p: { q?: string; curseur?: string | null; limite?: number } = {}): Promise<PageProjets> {
+export async function listerProjets(p: { q?: string; curseur?: string | null; limite?: number; territoireId?: string | null } = {}, signal?: AbortSignal): Promise<PageProjets> {
   const params: Record<string, string | number> = {};
   if (p.q?.trim()) params.q = p.q.trim();
+  // Lot T1 : le territoire ET ses descendants (filtre du serveur).
+  if (p.territoireId) params.territoireId = p.territoireId;
   if (p.curseur) params.curseur = p.curseur;
   if (p.limite) params.limite = p.limite;
-  const { data } = await api.get(BASE, { params });
+  // Revue m11 : une requete abandonnee (changement de filtre) est interrompue.
+  const { data } = await api.get(BASE, signal ? { params, signal } : { params });
   return lirePageProjets(data);
 }
 
 export interface CorpsProjet {
   code: string; nom: string; commune?: string; prefecture?: string; description?: string; largeurEmpriseM?: number; largeurChausseeM?: number;
+  /** Lot T1 : OBLIGATOIRE (400 TERRITOIRE_REQUIS sinon). */
+  territoireId: string;
+  /** Lot T1 : categorie ; sans largeurs envoyees, le serveur applique celles de la categorie. */
+  categorieCode?: string;
 }
 
 export async function creerProjet(corps: CorpsProjet): Promise<ProjetFiche> {
@@ -587,7 +631,7 @@ export async function lireProjet(projetId: string): Promise<ProjetFiche> {
 }
 
 /** `statutParametres: "VALIDE"` n'est admis par le serveur que pour un ADMIN ; sans lui, toute modification des largeurs remet « theorique ». */
-export async function modifierProjet(projetId: string, corps: Partial<Pick<CorpsProjet, "nom" | "description">> & Partial<Largeurs> & { statutParametres?: "VALIDE" }): Promise<ProjetFiche> {
+export async function modifierProjet(projetId: string, corps: Partial<Pick<CorpsProjet, "nom" | "description" | "territoireId">> & Partial<Largeurs> & { statutParametres?: "VALIDE"; categorieCode?: string | null }): Promise<ProjetFiche> {
   const { data } = await api.patch(`${BASE}/${id(projetId)}`, corps);
   return lireFicheProjet(data);
 }
@@ -602,7 +646,8 @@ export async function listerConcessionnaires(): Promise<Concessionnaire[]> {
   return lireConcessionnaires(data);
 }
 
-export async function creerConcessionnaire(corps: { nom: string; typeReseau: TypeReseau; contact?: string }): Promise<Concessionnaire> {
+/** Lot T1 : `typeReseauCode` (code du referentiel, la famille en est derivee) ou, a defaut, la famille `typeReseau`. */
+export async function creerConcessionnaire(corps: { nom: string; typeReseau?: TypeReseau; typeReseauCode?: string; contact?: string }): Promise<Concessionnaire> {
   const { data } = await api.post(`${BASE}/concessionnaires`, corps);
   const r = lireConcessionnaireRef(data) ?? (estObjet(data) ? lireConcessionnaireRef(data.concessionnaire) : null);
   if (!r) throw new ReponseInattendue(`POST ${BASE}/concessionnaires`);
@@ -624,10 +669,15 @@ export async function deposerJeu(projetId: string, d: DonneesDepot, opts: { simu
   const corps = new FormData();
   corps.append("role", d.role);
   if (d.concessionnaireId) corps.append("concessionnaireId", d.concessionnaireId);
-  if (d.typeReseau) corps.append("typeReseau", d.typeReseau);
+  // Lot T1 : le code du referentiel prime ; la famille n'est envoyee qu'en son absence (les deux ensemble doivent concorder : 400 TYPE_RESEAU_INCOHERENT).
+  if (d.typeReseauCode) corps.append("typeReseauCode", d.typeReseauCode);
+  else if (d.typeReseau) corps.append("typeReseau", d.typeReseau);
+  if (d.methodeAcquisition) corps.append("methodeAcquisition", d.methodeAcquisition);
   if (d.dateDonnees) corps.append("dateDonnees", d.dateDonnees);
   if (d.origineFichier) corps.append("origineFichier", d.origineFichier);
-  if (d.classePrecision) corps.append("classePrecision", d.classePrecision);
+  // Classe inconnue = champ ABSENT (le serveur n'accepte que A a E et laisse la classe nulle sinon) : envoyer « INCONNUE »
+  // faisait refuser tout depot par defaut (400 CHAMPS_INVALIDES, pilote local du 09/11/2026, defaut D1).
+  if (d.classePrecision && d.classePrecision !== "INCONNUE") corps.append("classePrecision", d.classePrecision);
   if (typeof d.precisionHorizontaleM === "number") corps.append("precisionHorizontaleM", String(d.precisionHorizontaleM));
   if (typeof d.precisionVerticaleM === "number") corps.append("precisionVerticaleM", String(d.precisionVerticaleM));
   if (d.methode) corps.append("methode", d.methode);

@@ -1,12 +1,20 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Crosshair, FilePlus2 } from "lucide-react";
+import type { Geometry } from "geojson";
+import { Link, Navigate, useParams } from "react-router-dom";
+import { ArrowLeft, Crosshair, FilePlus2, Handshake, MapPin } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { BandeauHorsLigne, EtatChargement, EtatErreur, EtatVide } from "../components/projets-voirie/EtatsPv";
 import { PanneauAnalyse } from "../components/projets-voirie/PanneauAnalyse";
 import { PanneauCouches, nomDuJeu } from "../components/projets-voirie/PanneauCouches";
 import { FicheObjet } from "../components/projets-voirie/FicheObjet";
 import { OngletConflits, type SurbrillanceConflit } from "../components/projets-voirie/OngletConflits";
+import { OngletReseaux } from "../components/projets-voirie/reseaux/OngletReseaux";
+import { OngletSources } from "../components/projets-voirie/sources/OngletSources";
+import { DialogueTerritoireProjet } from "../components/projets-voirie/territoires/DialogueTerritoireProjet";
+import { useReferentiel } from "../lib/projetsVoirieTerritoiresHooks";
+import { LIBELLE_NIVEAU, libelleDeCode } from "../lib/projetsVoirieTerritoires";
+import type { ResultatLocalisation } from "../components/projets-voirie/reseaux/FicheObjetReseau";
+import type { ObjetReseau } from "../lib/projetsVoirieReseauxApi";
 import { Echantillon, EchantillonAxes, EchantillonConflit } from "../components/projets-voirie/Motifs";
 import { useAuth } from "../lib/auth";
 import {
@@ -23,7 +31,7 @@ const CarteProjet = lazy(() => import("../components/projets-voirie/CarteProjet"
 const AssistantImport = lazy(() => import("../components/projets-voirie/assistant/AssistantImport").then((m) => ({ default: m.AssistantImport })));
 
 /**
- * Page d'un projet : carte plein cadre et panneau a trois onglets (Analyse, Couches, Conflits).
+ * Page d'un projet : carte plein cadre et panneau a quatre onglets (Analyse, Couches, Conflits, Reseaux).
  *
  * Disposition : l'ordre du DOM est l'ordre de lecture ET de tabulation (barre de la carte, carte, panneau) ; il ne change pas d'un point de
  * rupture a l'autre. Sous 1280 px, une seule colonne : la carte puis le panneau. A partir de 1280 px, la carte a gauche et le panneau a droite.
@@ -35,8 +43,12 @@ const AssistantImport = lazy(() => import("../components/projets-voirie/assistan
  * des dialogues (z-50).
  */
 
-type IdOnglet = "analyse" | "couches" | "conflits";
-const ONGLETS: { id: IdOnglet; libelle: string }[] = [{ id: "analyse", libelle: "Analyse" }, { id: "couches", libelle: "Couches" }, { id: "conflits", libelle: "Conflits" }];
+type IdOnglet = "analyse" | "couches" | "conflits" | "reseaux" | "sources";
+const ONGLETS: { id: IdOnglet; libelle: string }[] = [
+  { id: "analyse", libelle: "Analyse" }, { id: "couches", libelle: "Couches" }, { id: "conflits", libelle: "Conflits" }, { id: "reseaux", libelle: "Réseaux" }, { id: "sources", libelle: "Sources" },
+];
+/** Un compte rattache a un concessionnaire n'ouvre que l'ecran des echanges : le serveur repond 403 COMPTE_REFERENT_RESTREINT hors de `/workflow`. */
+export const CODE_COMPTE_REFERENT = "COMPTE_REFERENT_RESTREINT";
 const PLAFOND_OBJETS_LISTE = 5000;
 const PLAFOND_JEUX_CARTE = 50;
 const CONFLITS_PAR_DEFAUT: Record<CleConflit, boolean> = { chaussee: true, emprise: true, hors: false, croisements: true };
@@ -65,11 +77,19 @@ export function ProjetVoirieDetailPage() {
   // Onglet « Conflits » : monte a la premiere visite puis conserve (filtres, dossier ouvert) ; sa geometrie en surbrillance va sur la carte.
   const [conflitsMonte, setConflitsMonte] = useState(false);
   const [surbrillance, setSurbrillance] = useState<SurbrillanceConflit | null>(null);
+  // Onglet « Reseaux » : monte a la premiere visite ; la mise en evidence d'un objet reutilise la geometrie deja chargee par la carte.
+  const [reseauxMonte, setReseauxMonte] = useState(false);
+  const [evidence, setEvidence] = useState<{ cle: string; geometrie: Geometry } | null>(null);
+  // Onglet « Sources » (lot S1) : monte a la premiere visite.
+  const [sourcesMonte, setSourcesMonte] = useState(false);
+  const [editionTerritoire, setEditionTerritoire] = useState(false);
   const refTitreFiche = useRef<HTMLHeadingElement>(null);
   const refOnglets = useRef<Array<HTMLButtonElement | null>>([]);
   const tronqueRef = useRef(false);
 
   const fiche = projet.data;
+  // Libelle de la categorie (une valeur desactivee reste lisible) : chargee seulement si le projet en porte une.
+  const categories = useReferentiel("CATEGORIE_PROJET", !!fiche?.categorieCode);
   // Les jeux en quarantaine sont reserves aux ADMIN et GESTIONNAIRE (403 QUARANTAINE_RESERVEE cote serveur) : un lecteur ne les voit pas du tout.
   const jeux = useMemo(() => (fiche?.jeux ?? []).filter((j) => peutEcrire || (j.statut !== "CONTROLE" && j.statut !== "RECU")), [fiche, peutEcrire]);
   const inclure = peutEcrire && afficherNonAutorises;
@@ -117,6 +137,14 @@ export function ProjetVoirieDetailPage() {
   const retirer = useRetirerJeu(id ?? "");
   const decision = useDecisionJeu(id ?? "");
 
+  const retirerEvidence = useCallback(() => setEvidence(null), []);
+  const localiser = useCallback((o: ObjetReseau): ResultatLocalisation => {
+    const trouve = objets.find((x) => x.id === o.id && (o.jeuId === null || x.jeuId === o.jeuId));
+    if (trouve) { setEvidence({ cle: `${trouve.jeuId}-${trouve.id}`, geometrie: trouve.feature.geometry }); return "TROUVE"; }
+    setEvidence(null);
+    return o.jeuId !== null && !visibles.has(o.jeuId) ? "JEU_NON_AFFICHE" : "HORS_VUE";
+  }, [objets, visibles]);
+
   const surVue = useCallback((bbox: Bbox, zoom: number) => setVue({ bbox, zoom }), []);
   const nomJeu = useCallback((jeuId: string | null) => { const j = jeuId ? jeuParId.get(jeuId) : undefined; return j ? `${nomDuJeu(j)}, v${j.version}` : "Jeu inconnu"; }, [jeuParId]);
 
@@ -146,10 +174,11 @@ export function ProjetVoirieDetailPage() {
   }
 
   // Un changement de projet repart de zero.
-  useEffect(() => { setSelection(null); setApercu(null); setMasques(new Set()); setRequete(null); setVue(null); setConflitsMonte(false); setSurbrillance(null); }, [id]);
-  useEffect(() => { if (onglet === "conflits") setConflitsMonte(true); }, [onglet]);
+  useEffect(() => { setSelection(null); setApercu(null); setMasques(new Set()); setRequete(null); setVue(null); setConflitsMonte(false); setSurbrillance(null); setReseauxMonte(false); setEvidence(null); setSourcesMonte(false); }, [id]);
+  useEffect(() => { if (onglet === "conflits") setConflitsMonte(true); if (onglet === "reseaux") setReseauxMonte(true); if (onglet === "sources") setSourcesMonte(true); }, [onglet]);
 
   if (projet.isPending) return <EtatChargement libelle="Chargement du projet…" />;
+  if (projet.isError && classerErreur(projet.error).code === CODE_COMPTE_REFERENT) return <Navigate to="/projets-voirie/echanges" replace />;
   if (projet.isError || !fiche) {
     return (
       <div className="space-y-3">
@@ -176,11 +205,29 @@ export function ProjetVoirieDetailPage() {
           <Link to="/projets-voirie" className="inline-flex min-h-[44px] items-center gap-1 text-sm text-navy underline xl:min-h-0"><ArrowLeft aria-hidden="true" className="h-4 w-4" /> Projets de voirie</Link>
           <h1 className="break-words text-xl font-bold text-navy">{fiche.nom}</h1>
           <p className="text-sm text-gray-600">{fiche.code}{(fiche.commune || fiche.prefecture) ? ` · ${[fiche.commune, fiche.prefecture].filter(Boolean).join(", ")}` : ""}</p>
+          <p data-testid="territoire-projet" className="flex flex-wrap items-center gap-x-2 text-sm text-gray-800">
+            <MapPin aria-hidden="true" className="h-4 w-4 text-navy" />
+            {fiche.territoire ? (
+              <span>
+                Territoire : <strong>{fiche.territoire.nom}</strong> ({LIBELLE_NIVEAU[fiche.territoire.niveau]})
+                {fiche.territoire.ancetres.length > 0 && <span className="text-gray-600"> · {fiche.territoire.ancetres.map((a) => a.nom).join(" › ")}</span>}
+              </span>
+            ) : <span>Territoire non renseigné</span>}
+            {fiche.categorieCode && <span>· Catégorie : {libelleDeCode(fiche.categorieCode, categories.data?.valeurs)}</span>}
+            {peutEcrire && (
+              <button type="button" className="min-h-[44px] font-medium text-navy underline disabled:text-gray-500 xl:min-h-0" disabled={!enLigne} onClick={() => setEditionTerritoire(true)}>
+                Modifier le territoire ou la catégorie
+              </button>
+            )}
+          </p>
           {fiche.description && <p className="max-w-prose text-sm text-gray-700">{fiche.description}</p>}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button type="button" variant="outline" className="min-h-[44px] xl:min-h-9" onClick={() => setCadrageCle((c) => c + 1)} disabled={!fiche.bbox}>
             <Crosshair aria-hidden="true" /> Centrer sur le projet
+          </Button>
+          <Button asChild type="button" variant="outline" className="min-h-[44px] xl:min-h-9">
+            <Link to={`/projets-voirie/${encodeURIComponent(fiche.id)}/echanges`}><Handshake aria-hidden="true" /> Échanges avec les concessionnaires</Link>
           </Button>
           {peutEcrire && (
             <Button type="button" className="min-h-[44px] xl:min-h-9" disabled={!enLigne} onClick={() => setAssistant({ jeuReprise: null })}>
@@ -235,7 +282,7 @@ export function ProjetVoirieDetailPage() {
             <Suspense fallback={<EtatChargement libelle="Chargement de la carte…" />}>
               <CarteProjet
                 fond={fond} bbox={fiche.bbox} cadrageCle={cadrageCle} couches={couches} jeux={jeux} analyse={analyse.data}
-                conflitsVisibles={conflitsVisibles} selection={selection} surbrillance={surbrillance} onSelect={choisirObjet} onVue={surVue}
+                conflitsVisibles={conflitsVisibles} selection={selection} surbrillance={surbrillance} evidenceReseau={evidence} onSelect={choisirObjet} onVue={surVue}
               />
             </Suspense>
             {sansDonnee && (
@@ -244,7 +291,7 @@ export function ProjetVoirieDetailPage() {
               </p>
             )}
           </div>
-          <Legende jeux={jeuxAffiches} conflitsVisibles={conflitsDisponibles ? conflitsVisibles : null} dossierEnEvidence={surbrillance !== null} />
+          <Legende jeux={jeuxAffiches} conflitsVisibles={conflitsDisponibles ? conflitsVisibles : null} dossierEnEvidence={surbrillance !== null} objetReseauEnEvidence={evidence !== null} />
         </section>
 
         <aside id="pv-panneau" aria-label="Panneau du projet" className="rounded-lg border border-gray-200 bg-white p-3 shadow-sm xl:max-h-[calc(100vh-11rem)] xl:overflow-y-auto">
@@ -253,7 +300,7 @@ export function ProjetVoirieDetailPage() {
               <FicheObjet ref={refTitreFiche} objet={selection} jeu={selJeu} onFermer={() => setSelection(null)} />
             </div>
           )}
-          <div role="tablist" aria-label="Contenu du panneau" className="flex gap-1">
+          <div role="tablist" aria-label="Contenu du panneau" className="flex flex-wrap gap-1">
             {ONGLETS.map((o, i) => (
               <button
                 key={o.id} ref={(el) => { refOnglets.current[i] = el; }} type="button" role="tab" id={`pv-onglet-${o.id}`}
@@ -297,6 +344,19 @@ export function ProjetVoirieDetailPage() {
                 jeuMisEnAvant={jeuEnAvant}
               />
             )}
+            {reseauxMonte && (
+              <div hidden={onglet !== "reseaux"}>
+                <OngletReseaux
+                  projet={fiche} jeux={jeux} actif={onglet === "reseaux"} peutEcrire={peutEcrire} enLigne={enLigne}
+                  localiser={localiser} enEvidence={evidence !== null} onRetirerEvidence={retirerEvidence}
+                />
+              </div>
+            )}
+            {sourcesMonte && (
+              <div hidden={onglet !== "sources"}>
+                <OngletSources projetId={fiche.id} actif={onglet === "sources"} peutEcrire={peutEcrire} estAdmin={estAdmin} compteId={user?.id} enLigne={enLigne} />
+              </div>
+            )}
             {conflitsMonte && (
               <div hidden={onglet !== "conflits"}>
                 <OngletConflits
@@ -309,6 +369,9 @@ export function ProjetVoirieDetailPage() {
         </aside>
       </div>
 
+      {editionTerritoire && (
+        <DialogueTerritoireProjet projet={fiche} enLigne={enLigne} onFermer={() => setEditionTerritoire(false)} onValider={(corps) => modifier.mutateAsync(corps)} />
+      )}
       {assistant && (
         <Suspense fallback={null}>
           <AssistantImport
@@ -322,7 +385,7 @@ export function ProjetVoirieDetailPage() {
 }
 
 /** Legende TEXTUELLE de ce qui est affiche : couleur, motif de trait (nomme) et libelle. */
-function Legende({ jeux, conflitsVisibles, dossierEnEvidence }: { jeux: JeuProjet[]; conflitsVisibles: Record<CleConflit, boolean> | null; dossierEnEvidence: boolean }) {
+function Legende({ jeux, conflitsVisibles, dossierEnEvidence, objetReseauEnEvidence }: { jeux: JeuProjet[]; conflitsVisibles: Record<CleConflit, boolean> | null; dossierEnEvidence: boolean; objetReseauEnEvidence: boolean }) {
   const lignes = new Map<string, { s: ReturnType<typeof styleJeu>; nonAutorise: boolean }>();
   for (const j of jeux) {
     const s = styleJeu(j.role, j.typeReseau ?? j.concessionnaire?.typeReseau ?? null);
@@ -332,7 +395,7 @@ function Legende({ jeux, conflitsVisibles, dossierEnEvidence }: { jeux: JeuProje
   return (
     <div className="border-t border-gray-200 px-3 py-2">
       <p className="text-xs font-semibold text-gray-800">Légende</p>
-      {lignes.size === 0 && conflits.length === 0 && !dossierEnEvidence ? (
+      {lignes.size === 0 && conflits.length === 0 && !dossierEnEvidence && !objetReseauEnEvidence ? (
         <p className="text-xs text-gray-600">Aucune couche affichée.</p>
       ) : (
         <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-800">
@@ -345,6 +408,11 @@ function Legende({ jeux, conflitsVisibles, dossierEnEvidence }: { jeux: JeuProje
           {conflits.map((c) => (
             <li key={c} className="flex items-center gap-1"><EchantillonConflit cle={c} />{STYLE_CONFLIT[c].libelle} ({STYLE_CONFLIT[c].nomMotif})</li>
           ))}
+          {objetReseauEnEvidence && (
+            <li data-testid="legende-objet-reseau" className="flex items-center gap-1">
+              <Echantillon couleur="#0b2545" motif="" epaisseur={6} />Objet de réseau mis en évidence (trait bleu nuit épais cerclé de blanc)
+            </li>
+          )}
           {dossierEnEvidence && (
             <li data-testid="legende-dossier" className="flex items-center gap-1">
               <Echantillon couleur="#7f1d1d" motif="" epaisseur={6} />Dossier de conflit ouvert (trait sombre épais cerclé de blanc)

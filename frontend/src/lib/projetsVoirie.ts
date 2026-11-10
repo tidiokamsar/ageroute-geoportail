@@ -254,9 +254,10 @@ import { MESSAGE_CODE_IMPORT } from "./projetsVoirieMessages";
 export const MESSAGE_CODE: Record<string, string> = {
   JEU_DEJA_CHARGE: "Ce fichier est déjà chargé dans ce projet : un fichier de même empreinte (SHA-256) existe. Rien n'a été écrit.",
   DEPOT_EN_ATTENTE: "Un autre dépôt du même rôle et du même concessionnaire attend déjà son autorisation. Autorisez-le ou rejetez-le avant d'en déposer un nouveau. Rien n'a été écrit.",
-  FORMAT_NON_SUPPORTE: "Format non pris en charge par cet import. Sont lus : KML, KMZ, GeoJSON, GPX et les tableaux CSV, TSV ou TXT. GeoPackage, Shapefile, DXF et DWG sont prévus à un lot suivant (chaîne de conversion isolée) ; PDF et HTML ne sont jamais importés comme données SIG. Exportez le fichier dans un format lu, puis réessayez.",
+  FORMAT_NON_SUPPORTE: "Format non pris en charge par cet import. Sont lus : KML, KMZ, GeoJSON, GPX et les tableaux CSV, TSV ou TXT. GeoPackage, Shapefile ZIP et DXF passent par une chaîne de conversion isolée, qui peut être désactivée sur ce serveur ; DWG n'est pas lu (exportez-le en DXF) ; PDF et HTML ne sont jamais importés comme données SIG. Exportez le fichier dans un format lu, puis réessayez.",
   CONTENU_NON_RECONNU: "Le contenu du fichier n'est pas reconnu comme un format lu (KML, KMZ, GeoJSON, GPX, tableau délimité), quelle que soit son extension. Le fichier n'a pas été exécuté ni interprété comme une page.",
-  HORS_GUINEE: "Des coordonnées sont en dehors de la Guinée (longitude de -15,2 à -7,5 ; latitude de 7,1 à 12,8). Vérifiez le système de coordonnées choisi et l'ordre des colonnes (longitude ou X avant latitude ou Y). Rien n'a été écrit.",
+  // Revue UI-C m7 : l'emprise nationale est configurable (lot T1) ; ses bornes viennent du serveur (options d'import), jamais du code.
+  HORS_GUINEE: "Des coordonnées sont hors de l'emprise nationale de plausibilité configurée sur ce serveur. Vérifiez le système de coordonnées choisi et l'ordre des colonnes (longitude ou X avant latitude ou Y). Rien n'a été écrit.",
   CRS_NON_SUPPORTE: "Le système de coordonnées déclaré par le fichier est illisible ou n'est pas un code EPSG : il n'est pas pris en charge. Rien n'a été écrit.",
   GEOMETRIE_INVALIDE: "Une géométrie du fichier est invalide et n'a pu être réparée. Corrigez-la dans l'outil d'origine puis réessayez. Rien n'a été écrit.",
   FICHIER_VIDE: "Le fichier est vide ou ne contient aucun objet exploitable. Rien n'a été écrit.",
@@ -274,6 +275,7 @@ export const MESSAGE_CODE: Record<string, string> = {
   ANALYSE_TROP_LONGUE: "Le calcul de l'analyse a dépassé le délai autorisé et a été interrompu. Réessayez, ou réduisez le volume de données (jeux retirés ou simplifiés).",
   CARTE_TROP_LONGUE: "L'affichage de la carte a dépassé le délai autorisé. Réessayez, ou zoomez pour réduire la zone affichée.",
   DEPOT_TROP_LONG: "Le traitement du dépôt a dépassé le délai autorisé et a été interrompu : rien n'a été enregistré. Réessayez, ou découpez le fichier.",
+  COMPTE_REFERENT_RESTREINT: "Votre compte est rattaché à un concessionnaire pour des échanges de données : il n'ouvre que l'écran « Échanges avec les concessionnaires », pas le reste du module. Rien n'a été modifié.",
   ...MESSAGE_CODE_IMPORT,
 };
 

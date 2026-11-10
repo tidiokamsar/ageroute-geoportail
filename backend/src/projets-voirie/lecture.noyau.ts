@@ -29,6 +29,12 @@ export function extensionDe(nom: string): string {
   return m ? m[1].toLowerCase() : "";
 }
 
+/**
+ * Lot D1 (CONTRAT-DOCUMENTS.md, section 7.2) : marche a suivre pour un DWG. Aucun convertisseur proprietaire n'est embarque ; le DXF (texte) est lu par la
+ * chaine GDAL isolee quand elle est activee.
+ */
+export const MESSAGE_DWG = "fichier DWG : aucun convertisseur n'est embarque (format proprietaire). Exportez le dessin en DXF ASCII (dans le logiciel de DAO : Enregistrer sous, type DXF ; commande DXFOUT d'AutoCAD), en metres et dans un CRS connu, puis importez le DXF ; le DWG peut etre conserve comme document du projet (POST /:id/documents : statut RECU, non exploitable).";
+
 const debutEgal = (b: Buffer, octets: number[]) => b.length >= octets.length && octets.every((o, i) => b[i] === o);
 
 /**
@@ -42,13 +48,14 @@ export function contenuRefuse(b: Buffer, ext: string, admettreZip = false): Erre
     return new ErreurLecture("FORMAT_NON_SUPPORTE", `archive (KMZ ou ZIP) : la lecture des archives est ${PROCHAIN_LOT}. Decompressez le fichier .kml et deposez-le directement.`);
   }
   if (b.length >= 4 && b.readInt32BE(0) === 9994) return new ErreurLecture("FORMAT_NON_SUPPORTE", `Shapefile : ${PROCHAIN_LOT}.`);
-  if (/^AC10\d\d/.test(b.subarray(0, 6).toString("latin1"))) return new ErreurLecture("FORMAT_NON_SUPPORTE", `fichier DWG : ${PROCHAIN_LOT}.`);
+  // Lot D1 : un DWG n'est jamais converti (aucun convertisseur, decision 2) ; il se conserve comme DOCUMENT du projet (statut RECU, non exploitable).
+  if (/^AC10\d\d/.test(b.subarray(0, 6).toString("latin1"))) return new ErreurLecture("FORMAT_NON_SUPPORTE", MESSAGE_DWG);
   if (["kmz", "zip", "shp", "shx", "dbf", "dxf", "dwg", "gpkg"].filter((x) => !(admettreZip && (x === "kmz" || x === "zip"))).includes(ext)) {
     return new ErreurLecture("FORMAT_NON_SUPPORTE", `format .${ext} : ${PROCHAIN_LOT}.`);
   }
   // Contenus qui ne sont pas des donnees geographiques.
   const signatures: [number[], string][] = [
-    [[0x25, 0x50, 0x44, 0x46, 0x2d], "document PDF"],
+    [[0x25, 0x50, 0x44, 0x46, 0x2d], "document PDF : un PDF n'est jamais importe comme geometrie ; deposez-le comme document de reference du projet (POST /:id/documents)"],
     [[0x7f, 0x45, 0x4c, 0x46], "executable"],
     [[0x4d, 0x5a], "executable"],
     [[0x23, 0x21], "script"],

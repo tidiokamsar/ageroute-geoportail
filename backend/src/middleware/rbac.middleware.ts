@@ -9,7 +9,7 @@ export function requireRole(...allowed: Role[]) {
       return;
     }
     if (!allowed.includes(req.user.role)) {
-      res.status(403).json({ error: "Acces refuse pour votre role" });
+      res.status(403).json({ error: "Accès refusé pour votre rôle" });
       return;
     }
     next();

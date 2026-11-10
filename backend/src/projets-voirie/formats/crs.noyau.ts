@@ -15,7 +15,9 @@ import { ErreurLecture } from "../lecture.types";
 import type { Bbox, FormatFichier } from "../lecture.types";
 
 export const EPSG_CIBLE = 4326;
-export type OrigineCrs = "norme_du_format" | "choisi_par_utilisateur";
+/** `declare_dans_le_fichier` : le fichier declare lui-meme un CRS projete (membre `crs` d'un GeoJSON) et l'utilisateur l'a confirme (defaut D5 du pilote :
+ * ce cas etait annonce comme un choix de l'utilisateur, inverifiable, alors que le fichier le porte). */
+export type OrigineCrs = "norme_du_format" | "choisi_par_utilisateur" | "declare_dans_le_fichier";
 
 export interface MetaCrs {
   epsg: number;
@@ -67,7 +69,28 @@ export function choisirCrs(format: FormatFichier, epsgSource: number | undefined
     const choisi = epsgSource ?? (declare?.epsg ?? EPSG_CIBLE);
     if (epsgSource === undefined) return { epsg: EPSG_CIBLE, origine: "norme_du_format", transformer: false };
     verifierListeBlanche(choisi, autorises);
-    return { epsg: choisi, origine: "choisi_par_utilisateur", transformer: choisi !== EPSG_CIBLE };
+    const origine: OrigineCrs = declare && declare.epsg === choisi ? "declare_dans_le_fichier" : "choisi_par_utilisateur";
+    return { epsg: choisi, origine, transformer: choisi !== EPSG_CIBLE };
+  }
+
+  // Lot D1 : LandXML. Le CRS est TOUJOURS choisi par l'utilisateur (un `CoordinateSystem/@epsgCode` du fichier ne vaut jamais confirmation, il doit
+  // seulement concorder) ; il doit etre projete en metres : les arcs sont discretises en unites lineaires et les axes en plan d'un LandXML ne sont pas
+  // en degres. Le caractere projete d'un autre CRS de la liste blanche est verifie apres lecture de `spatial_ref_sys` (lecture-import.noyau.ts, terminer).
+  if (format === "LANDXML") {
+    if (epsgSource === undefined) {
+      throw new ErreurLecture("CRS_REQUIS", `le CRS des coordonnees d'un LandXML doit etre choisi (epsgSource) : il n'est jamais deduit du fichier${declare?.epsg ? ` (qui declare EPSG:${declare.epsg})` : ""}. Liste blanche : ${autorises.map((e) => `EPSG:${e}`).join(", ")}`);
+    }
+    if (declare && declare.epsg === null) {
+      throw new ErreurLecture("CRS_NON_SUPPORTE", `le fichier declare un systeme de coordonnees « ${declare.nom.slice(0, 60)} » qui n'est pas un code EPSG reconnu : sa concordance avec EPSG:${epsgSource} ne peut pas etre verifiee. Corrigez CoordinateSystem/@epsgCode (par exemple EPSG:${epsgSource}) ou retirez-le`);
+    }
+    if (declare && declare.epsg !== null && declare.epsg !== epsgSource) {
+      throw new ErreurLecture("CRS_CONFLIT", `le fichier declare EPSG:${declare.epsg} mais EPSG:${epsgSource} est demande : un CRS declare ne se surcharge pas`);
+    }
+    if (epsgSource === EPSG_CIBLE) {
+      throw new ErreurLecture("CRS_INCOMPATIBLE_FORMAT", "un LandXML decrit des axes en plan en coordonnees projetees (metres) : EPSG:4326 (degres) ne peut pas lui etre applique");
+    }
+    verifierListeBlanche(epsgSource, autorises);
+    return { epsg: epsgSource, origine: "choisi_par_utilisateur", transformer: true };
   }
 
   // CSV : jamais devine.
@@ -109,6 +132,62 @@ export function metaDepuisSpatialRef(l: { srid: number; srtext: string | null; p
   if (!geographique) {
     const u = /\+units=([A-Za-z-]+)/.exec(proj)?.[1];
     unite = u === undefined || u === "m" ? "metre" : u === "us-ft" ? "pied US" : u === "ft" ? "pied" : u;
+    // Revue D1, m2 : sans +units, un facteur +to_meter different de 1 n'est pas le metre (pied de Clarke, pied US...) ; un facteur illisible est inconnu.
+    const t = /\+to_meter=(\S+)/.exec(proj)?.[1];
+    if (u === undefined && t !== undefined) {
+      const f = Number(t);
+      unite = !Number.isFinite(f) || f <= 0 ? "inconnue" : Math.abs(f - 1) < 1e-12 ? "metre" : Math.abs(f - 0.3048) < 1e-4 ? "pied" : "inconnue";
+    }
   }
   return { epsg: l.srid, nom: m ? m[1] : `EPSG:${l.srid}`, unite, geographique };
+}
+
+/**
+ * CRS d'un fichier CONVERTI par la chaine GDAL (lot B2) : le conteneur a deja transforme les coordonnees vers WGS 84 a partir du CRS qu'il a lu (GeoPackage,
+ * .prj) ou que l'utilisateur a confirme (`epsg_source`) ; ici on decide si CE CRS peut etre ADMIS, avec les memes regles que les autres formats :
+ *   - jamais devine : sans CRS connu (coordonnees brutes), `CRS_REQUIS` ; un CRS sans code EPSG est refuse (`CRS_NON_SUPPORTE`) ;
+ *   - Shapefile : la confirmation de l'utilisateur est TOUJOURS exigee (le .prj est lu, il ne vaut pas confirmation) ;
+ *   - GeoPackage : un CRS declare EPSG:4326 est admis tel quel ; un CRS declare projete exige la confirmation du MEME code (comme un GeoJSON) ;
+ *   - DXF : le CRS vient toujours de la demande (un DXF n'a pas de georeferencement) ;
+ *   - un CRS confirme different du CRS declare est refuse (`CRS_CONFLIT`) : un CRS declare ne se surcharge pas ; un CRS projete doit etre dans la liste blanche.
+ * `confirme` = l'option de la requete, a defaut le choix fait a la creation du job ; deux valeurs differentes sont un conflit.
+ */
+export function choisirCrsConverti(
+  format: "GPKG" | "SHAPEFILE" | "DXF",
+  source: { origine: "fichier" | "demande"; epsg: number | null; nom: string | null } | null,
+  coordonnees: "wgs84" | "brutes",
+  dejaConfirme: number | undefined,
+  optionRequete: number | undefined,
+  autorises: readonly number[],
+): ChoixCrs {
+  if (dejaConfirme !== undefined && optionRequete !== undefined && dejaConfirme !== optionRequete) {
+    throw new ErreurLecture("CRS_CONFLIT", `EPSG:${optionRequete} est demande mais la conversion a ete faite avec EPSG:${dejaConfirme} : relancez une conversion avec le bon epsgSource`);
+  }
+  const confirme = optionRequete ?? dejaConfirme;
+  if (coordonnees === "brutes" || source === null) {
+    throw new ErreurLecture("CRS_REQUIS", "le fichier n'a pas de systeme de coordonnees : il n'est jamais devine. Creez un nouveau job de conversion avec epsgSource");
+  }
+  if (source.epsg === null) {
+    throw new ErreurLecture("CRS_NON_SUPPORTE", "le systeme de coordonnees du fichier n'a pas de code EPSG identifiable : seuls les codes EPSG de la liste blanche sont admis");
+  }
+  if (source.origine === "demande") {
+    if (confirme !== undefined && confirme !== source.epsg) throw new ErreurLecture("CRS_CONFLIT", `EPSG:${confirme} est demande mais la conversion a ete faite avec EPSG:${source.epsg}`);
+    if (source.epsg !== EPSG_CIBLE) verifierListeBlanche(source.epsg, autorises);
+    return { epsg: source.epsg, origine: "choisi_par_utilisateur", transformer: false };
+  }
+  // CRS declare par le fichier
+  const declare = source.epsg;
+  if (format === "SHAPEFILE" && confirme === undefined) {
+    throw new ErreurLecture("CRS_REQUIS", `le .prj du Shapefile declare EPSG:${declare} : confirmez-le (epsgSource=${declare}), un .prj ne vaut pas confirmation`);
+  }
+  if (confirme !== undefined && confirme !== declare) {
+    throw new ErreurLecture("CRS_CONFLIT", `le fichier declare EPSG:${declare} mais EPSG:${confirme} est confirme : un CRS declare ne se surcharge pas`);
+  }
+  if (declare === EPSG_CIBLE && confirme === undefined) return { epsg: EPSG_CIBLE, origine: "declare_dans_le_fichier", transformer: false };
+  if (confirme === undefined) {
+    throw new ErreurLecture("CRS_REQUIS", `le fichier declare EPSG:${declare} : confirmez-le en envoyant epsgSource=${declare} (liste blanche : ${autorises.join(", ")})`);
+  }
+  if (declare !== EPSG_CIBLE) verifierListeBlanche(declare, autorises);
+  // Defaut D5 : le CRS vient du fichier (confirme par l'utilisateur), ce n'est pas un choix inverifiable.
+  return { epsg: declare, origine: "declare_dans_le_fichier", transformer: false };
 }

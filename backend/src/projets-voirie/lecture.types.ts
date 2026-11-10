@@ -15,7 +15,8 @@ export type GeometrieLue =
   | { type: "MultiPolygon"; coordinates: Pos[][][] };
 
 export type TypeGeom = "LIGNE" | "POINT" | "POLYGONE";
-export type FormatFichier = "KML" | "KMZ" | "GEOJSON" | "GPX" | "CSV";
+// Lot D1 : LANDXML (axes en plan et points, lecteur XML du module).
+export type FormatFichier = "KML" | "KMZ" | "GEOJSON" | "GPX" | "CSV" | "GPKG" | "SHAPEFILE" | "DXF" | "LANDXML";
 
 export interface ObjetLu {
   nom: string | null;
@@ -47,7 +48,9 @@ export type CodeAvertissement =
   | "OBJETS_SANS_NOM"
   | "GEOMETRIES_REPAREES"
   | "GEOMETRIES_VIDES_IGNOREES"
-  | "TRACES_SUPERPOSES";
+  | "TRACES_SUPERPOSES"
+  // Lot T1 : objets conserves mais hors de l'emprise (approximative) du territoire du projet.
+  | "ELEMENTS_HORS_TERRITOIRE";
 
 export type Bbox = [number, number, number, number];
 
@@ -111,14 +114,28 @@ export type CodeErreurImport =
   // couches, mapping
   | "COUCHE_INTROUVABLE" | "MAPPING_COLONNE_INTROUVABLE"
   // CRS
-  | "CRS_REQUIS" | "CRS_NON_AUTORISE" | "CRS_NON_DISPONIBLE" | "CRS_INCOMPATIBLE_FORMAT" | "CRS_CONFLIT" | "CRS_INCOHERENT" | "TRANSFORMATION_ECHEC"
-  | "CONFIRMATION_HORS_ZONE_REQUISE";
+  | "SHAPEFILE_INCOMPLET" | "DXF_BINAIRE_NON_PRIS_EN_CHARGE" | "UNITES_REQUISES" | "DXF_UNITES_CONFLIT"
+  | "CRS_MULTIPLES" | "CRS_REQUIS" | "CRS_NON_AUTORISE" | "CRS_NON_DISPONIBLE" | "CRS_INCOMPATIBLE_FORMAT" | "CRS_CONFLIT" | "CRS_INCOHERENT" | "TRANSFORMATION_ECHEC"
+  | "CONFIRMATION_HORS_ZONE_REQUISE"
+  // lot D1 : LandXML (CONTRAT-DOCUMENTS.md, section 7.1)
+  | "LANDXML_SPIRALE_NON_PRISE_EN_CHARGE" | "LANDXML_ARC_DEGENERE" | "LANDXML_UNITES_NON_SUPPORTEES" | "LANDXML_POINT_INTROUVABLE" | "LANDXML_COORDONNEE_ILLISIBLE";
 
 /** Avertissements ajoutes par le lot A1. */
 export type CodeAvertissementImport =
   | "COUCHES_MULTIPLES" | "COUCHES_TRONQUEES" | "LIGNES_CSV_REJETEES" | "COLONNES_RENOMMEES" | "HORODATAGES_IGNORES" | "EXTENSION_INCOHERENTE"
   | "ENTREES_ARCHIVE_IGNOREES" | "MAPPING_VALEURS_MULTIPLES" | "MAPPING_VALEUR_INCONNUE" | "CRS_CHOISI_PAR_UTILISATEUR" | "ELEMENTS_GPX_IGNORES"
-  | "CONCESSIONNAIRE_INCONNU" | "MAPPING_CHAMP_IGNORE";
+  | "CONCESSIONNAIRE_INCONNU" | "MAPPING_CHAMP_IGNORE"
+  // lot B2 : conversion GDAL (codes du conteneur renvoyes tels quels, libelles fixes ; voir gdal/conversion.noyau.ts)
+  | "ATTRIBUTS_ADAPTES" | "COMPTE_DXF_DIVERGENT" | "CRS_DECLARE_DANS_LE_FICHIER" | "DXF_ENTITES_IGNOREES" | "DXF_BLOCS_IGNORES" | "CRS_ABSENT" | "CRS_FOURNI_PAR_LA_DEMANDE"
+  | "CRS_SURCHARGE" | "CRS_SANS_CODE_EPSG" | "COMPTE_DECLARE_DIVERGENT" | "COORDONNEES_NON_FINIES" | "COORDONNEES_HORS_PLAGE" | "GEOMETRIES_NULLES"
+  | "AVERTISSEMENTS_GDAL" | "ANALYSE_GEOMETRIE_PARTIELLE" | "COUCHE_VIDE" | "UNITES_ABSENTES" | "COUCHE_SANS_GEOMETRIE_IGNOREE" | "COUCHE_SANS_GEOMETRIE"
+  | "COUCHE_NOM_REFUSE" | "FICHIERS_ORPHELINS" | "NOM_FICHIER_RENOMME"
+  // lot S1 : connexions declarees par le fichier (mapping connecteA) dont l objet designe est introuvable ou ambigu dans le meme fichier
+  | "CONNEXIONS_NON_RESOLUES"
+  // revue du lot X1, M1 : niveau de confidentialite herite de la lignee, ou abaisse par un ADMIN (justification auditee)
+  | "CONFIDENTIALITE_HERITEE" | "CONFIDENTIALITE_ABAISSEE"
+  // lot D1 : LandXML (elements ignores et comptes, discretisation des arcs)
+  | "LANDXML_ARCS_DISCRETISES" | "LANDXML_SPIRALES" | "LANDXML_DISCONTINUITES" | "LANDXML_PROFILS_IGNORES" | "LANDXML_SURFACES_IGNOREES" | "LANDXML_ELEMENTS_IGNORES";
 
 export class ErreurLecture extends Error {
   constructor(public readonly code: CodeErreurLecture, message: string) {
@@ -140,9 +157,20 @@ export const OBJETS_MAX = 50_000;
 export const SOMMETS_PAR_OBJET_MAX = 100_000;
 export const SOMMETS_PAR_FICHIER_MAX = 2_000_000;
 
+/** Zone geographique nommee (rectangle WGS 84) : emprise nationale de plausibilite ou boite englobante d'un territoire. */
+export interface ZoneLecture { nom: string; bbox: Bbox }
+
 export interface LimitesLecture {
   sommetsParObjet?: number;
   sommetsParFichier?: number;
+  /** Lot T1 : emprise nationale configuree, au-dela de laquelle un element est ECARTE (defaut : ZONE_PAR_DEFAUT). */
+  emprise?: ZoneLecture;
+  /** Lot T1 : emprise (approximative) du territoire du projet : un objet qui en sort est CONSERVE et compte (ELEMENTS_HORS_TERRITOIRE). */
+  territoire?: ZoneLecture;
 }
-/** Emprise de la Guinee : longitude -15,2 a -7,5 ; latitude 7,1 a 12,8. */
+/**
+ * Emprise nationale PAR DEFAUT : longitude -15,2 a -7,5 ; latitude 7,1 a 12,8. Depuis le lot T1 c'est le defaut de la cle de configuration
+ * `EMPRISE_PLAUSIBILITE` (CONTRAT-TERRITOIRES.md section 6) : les services passent la valeur configuree par `LimitesLecture.emprise`.
+ */
 export const BBOX_GUINEE: Bbox = [-15.2, 7.1, -7.5, 12.8];
+export const ZONE_PAR_DEFAUT: ZoneLecture = { nom: "Guinee", bbox: BBOX_GUINEE };

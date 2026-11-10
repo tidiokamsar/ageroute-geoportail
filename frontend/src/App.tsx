@@ -58,7 +58,9 @@ const MoteurProgrammationPage = lazy(() => import("./pages/MoteurProgrammationPa
 const BaremesPage = lazy(() => import("./pages/BaremesPage").then((m) => ({ default: m.BaremesPage })));
 const TeledetectionPage = lazy(() => import("./pages/TeledetectionPage").then((m) => ({ default: m.TeledetectionPage })));
 const ProjetsVoirieListePage = lazy(() => import("./pages/ProjetsVoirieListePage").then((m) => ({ default: m.ProjetsVoirieListePage })));
+const ProjetsVoirieParametresPage = lazy(() => import("./pages/ProjetsVoirieParametresPage").then((m) => ({ default: m.ProjetsVoirieParametresPage })));
 const ProjetVoirieDetailPage = lazy(() => import("./pages/ProjetVoirieDetailPage").then((m) => ({ default: m.ProjetVoirieDetailPage })));
+const ProjetVoirieWorkflowPage = lazy(() => import("./pages/ProjetVoirieWorkflowPage").then((m) => ({ default: m.ProjetVoirieWorkflowPage })));
 const ControlTowerPage = lazy(() => import("./pages/ControlTowerPage").then((m) => ({ default: m.ControlTowerPage })));
 
 function PageFallback() {
@@ -119,7 +121,10 @@ const router = createBrowserRouter(
           <Route path="exploitation/info-route" element={<LazyPage><InfoRoutePage /></LazyPage>} handle={{ title: "Info Route et bulletin" }} />
           <Route path="teledetection" element={<LazyPage><TeledetectionPage /></LazyPage>} handle={{ title: "Observation de la Terre" }} />
           <Route path="projets-voirie" element={<LazyPage><ProjetsVoirieListePage /></LazyPage>} handle={{ title: "Projets de voirie" }} />
+          <Route path="projets-voirie/echanges" element={<LazyPage><ProjetVoirieWorkflowPage /></LazyPage>} handle={{ title: "Échanges avec les concessionnaires" }} />
+          <Route path="projets-voirie/parametres" element={<LazyPage><ProjetsVoirieParametresPage /></LazyPage>} handle={{ title: "Paramètres des projets de voirie" }} />
           <Route path="projets-voirie/:id" element={<LazyPage><ProjetVoirieDetailPage /></LazyPage>} handle={{ title: "Projet de voirie" }} />
+          <Route path="projets-voirie/:id/echanges" element={<LazyPage><ProjetVoirieWorkflowPage /></LazyPage>} handle={{ title: "Échanges avec les concessionnaires" }} />
           <Route path="control-tower" element={<LazyPage><ControlTowerPage /></LazyPage>} handle={{ title: "Control Tower" }} />
           <Route path="ordres-travaux" element={<LazyPage><OrdresTravauxPage /></LazyPage>} handle={{ title: "Ordres de travaux" }} />
           <Route path="securite" element={<LazyPage><SecuritePage /></LazyPage>} handle={{ title: "Sécurité du compte" }} />

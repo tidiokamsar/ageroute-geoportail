@@ -120,3 +120,9 @@ def unites_dxf(chemin, octets_max=8 * 1024 * 1024):
     except OSError:
         return None
     return None
+
+
+def est_dxf_binaire(chemin):
+    """Vrai si le fichier commence par la signature du DXF binaire."""
+    with open(chemin, "rb") as f:
+        return f.read(len(DXF_BINAIRE)) == DXF_BINAIRE

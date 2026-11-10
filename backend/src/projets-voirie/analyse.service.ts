@@ -5,8 +5,10 @@
  * C'est une AIDE A LA DECISION, jamais un verdict : chaque element porte `statut: "A_VERIFIER"`, la regle appliquee et la version
  * de l'algorithme. Rien ici ne cree d'ordre, de decision ni de deplacement. Lecture seule (`SET TRANSACTION READ ONLY`).
  *
- * JEUX RETENUS : par defaut les seuls jeux AUTORISE. Avec `inclureNonAutorises`, un jeu en controle REMPLACE, pour ce calcul seulement,
- * le jeu autorise de meme role et de meme concessionnaire (jamais les deux : on ne compterait pas deux fois le meme reseau).
+ * JEUX RETENUS (correctifs T1+S1, M4 : meme regle que le comptage et que l'analyse persistee RC-3) : par defaut TOUS les jeux AUTORISE, donc
+ * toutes les sources autorisees d'un reseau (une par lignee : role, concessionnaire, type et methode d'acquisition). Avec `inclureNonAutorises`, un
+ * jeu en controle REMPLACE, pour ce calcul seulement, le jeu autorise de SA lignee. Deux sources d'un meme reseau s'additionnent : la reponse le dit
+ * (`reseaux.sourcesMultiples` et une limite).
  */
 
 import { prisma } from "../lib/prisma";
@@ -16,7 +18,7 @@ import { delaiAnalyseMs, delaiVerrouMs } from "./config";
 import { tracerConsultation } from "./consultation";
 import { limiteurAnalyses } from "./limiteurs";
 import {
-  LIBELLES, STATUT_RESULTAT, VERSION_ALGORITHME, VERSION_REGLE, construireHypotheses, construireLimites, epsgPourLongitude, qualificationDe,
+  LIBELLES, STATUT_RESULTAT, VERSION_ALGORITHME, VERSION_REGLE, construireHypotheses, construireLimites, qualificationDe,
   type ClasseLue, type Qualification,
 } from "./analyse.noyau";
 import * as depot from "./analyse.depot";
@@ -24,7 +26,9 @@ import { ErreurMetier, introuvable } from "./erreurs";
 import type { Acteur } from "./projets.service";
 import { descripteursDesObjets } from "./reseaux/reseaux.depot";
 import { classeEffective, natureEffective } from "./reseaux/types.noyau";
+import { LIMITE_SOURCES_MULTIPLES, retenirJeux, sourcesMultiples } from "./reseaux/comptage.noyau";
 import { INCLURE_JEU } from "./vues";
+import { contexteSpatialDuProjet } from "./territoires/contexte-spatial";
 
 export const OBJETS_PAR_AXE_MAX = 100;
 const LIGNES_OBJETS_MAX = 100_000;
@@ -39,6 +43,10 @@ export interface DemandeAnalyse {
   largeurEmpriseM?: number;
   largeurChausseeM?: number;
   inclureNonAutorises: boolean;
+  /** Lot X1 (revue, M3) : l'export n'utilise ni les points de croisement ni les zones : ces requetes, les plus couteuses, ne sont pas executees. */
+  sansGeometries?: boolean;
+  /** Lot X1 (revue, M4) : budget restant de l'appelant ; le delai cote base est le plus petit des deux. */
+  delaiMaxMs?: number;
 }
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
@@ -55,19 +63,6 @@ function lireJeux(projetId: string, inclure: boolean) {
   });
 }
 
-/** Retient un seul jeu par (role, concessionnaire) : le jeu en controle, s'il y en a un, sinon le jeu autorise. */
-function jeuxRetenus(jeux: JeuLu[]): JeuLu[] {
-  const parCle = new Map<string, JeuLu>();
-  const autres: JeuLu[] = [];
-  for (const j of jeux) {
-    if (j.role === "AUTRE") { autres.push(j); continue; }
-    const cle = `${j.role}|${j.concessionnaireId ?? ""}`;
-    const courant = parCle.get(cle);
-    const enAttente = j.statut !== "AUTORISE";
-    if (!courant || (enAttente && courant.statut === "AUTORISE") || (enAttente === (courant.statut !== "AUTORISE") && j.createdAt > courant.createdAt)) parCle.set(cle, j);
-  }
-  return [...parCle.values(), ...autres];
-}
 
 export interface ResultatAnalyse {
   reponse: Record<string, unknown>;
@@ -89,14 +84,17 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
   const surcharge = d.largeurEmpriseM !== undefined || d.largeurChausseeM !== undefined;
   const statutParametres = surcharge && (empr !== Number(projet.largeurEmpriseM) || chau !== Number(projet.largeurChausseeM)) ? "THEORIQUE" : projet.statutParametres;
 
-  const retenus = jeuxRetenus(await lireJeux(d.projetId, d.inclureNonAutorises));
+  // Lot T1 : CRS metrique impose par le territoire du projet, sinon regle par bandes de la configuration nationale (plus de constante).
+  const spatial = await contexteSpatialDuProjet(d.projetId);
+  const retenus = retenirJeux(await lireJeux(d.projetId, d.inclureNonAutorises), d.inclureNonAutorises);
+  const multiples = sourcesMultiples(retenus);
   const axes = retenus.filter((j) => j.role === "AXES_TRAVAUX");
   const reseaux = retenus.filter((j) => j.role === "RESEAU_TIERS");
   const limites = retenus.filter((j) => j.role === "LIMITES_ROUTE");
   const axesIds = axes.map((j) => j.id);
   const reseauIds = reseaux.map((j) => j.id);
 
-  const delai = delaiAnalyseMs();
+  const delai = Math.max(1_000, Math.min(delaiAnalyseMs(), d.delaiMaxMs ?? Number.POSITIVE_INFINITY));
   const trop = () => new ErreurMetier(504, "ANALYSE_TROP_LONGUE", `L'analyse a depasse ${Math.round(delai / 1000)} s et a ete interrompue : le projet est trop volumineux pour un calcul immediat.`);
   // Au plus 3 analyses simultanees (503 SERVICE_OCCUPE au-dela) ; le budget de temps est partage par toutes les requetes de l'analyse.
   const mesures = await limiteurAnalyses.executer(() => avecErreurDelai("ANALYSE_TROP_LONGUE", trop().message, () => prisma.$transaction(async (tx) => {
@@ -112,7 +110,7 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
       }
     }
     const etendue = await budget.etape(() => depot.etendueLongitude(tx, axesIds.length ? axesIds : reseauIds), "etendue");
-    const epsg = etendue ? epsgPourLongitude((etendue.ouest + etendue.est) / 2) : 32629;
+    const epsg = etendue ? spatial.epsgPour((etendue.ouest + etendue.est) / 2) : spatial.epsgDefaut;
     const b: depot.Bandes = { epsg, dc: chau / 2, de: empr / 2, axesIds, reseauIds };
     const liste = axesIds.length ? await budget.etape(() => depot.listerAxes(tx, b), "axes") : { axes: [], longueurFusionneeM: 0 };
     return {
@@ -121,8 +119,8 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
       parJeu: calcule ? await budget.etape(() => depot.mesurerParJeu(tx, b), "par jeu") : [],
       parAxe: calcule ? await budget.etape(() => depot.mesurerParAxe(tx, b), "par axe") : [],
       parObjet: calcule ? await budget.etape(() => depot.mesurerParObjet(tx, b, LIGNES_OBJETS_MAX + 1), "par objet") : [],
-      points: calcule ? await budget.etape(() => depot.pointsDeCroisement(tx, b, CROISEMENTS_MAX), "croisements") : [],
-      zones: calcule ? await budget.etape(() => depot.zones(tx, b), "zones") : { chaussee: null, emprise: null, hors: null },
+      points: calcule && !d.sansGeometries ? await budget.etape(() => depot.pointsDeCroisement(tx, b, CROISEMENTS_MAX), "croisements") : [],
+      zones: calcule && !d.sansGeometries ? await budget.etape(() => depot.zones(tx, b), "zones") : { chaussee: null, emprise: null, hors: null },
     };
   }, { timeout: delai + 15_000, maxWait: 10_000 })));
 
@@ -185,7 +183,7 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
     return {
       concessionnaireId: id, nom: nomConc(js[0]),
       classePrecision: classes.length === 1 ? (classes[0] === "inconnue" ? null : classes[0]) : null, classesPrecision: classes,
-      // Un concessionnaire a au plus un jeu retenu par cle : la qualification est celle de son jeu (la plus prudente si plusieurs).
+      // Un concessionnaire peut avoir plusieurs jeux retenus (types ou sources) : la qualification est la plus prudente de ses jeux.
       qualification: js.every((j) => qualificationDe(classeDe(j)) === "CONFLIT_POTENTIEL") ? "CONFLIT_POTENTIEL" as const : "PROXIMITE_A_VERIFIER" as const,
       ...s, ...etiquette, nonAutorise: js.some((j) => j.statut !== "AUTORISE"),
     };
@@ -270,6 +268,7 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
       parType: [...parType.values()].map((t) => ({ ...t, longueurTraceFusionneM: r2(t.longueurTraceFusionneM), libelleNbObjets: LIBELLES.nbObjets })).sort((a, b) => b.longueurTraceFusionneM - a.longueurTraceFusionneM),
       parConcessionnaire: reseauxConc,
       parNature: reseauxParNature,
+      sourcesMultiples: multiples,
     },
     conflits: {
       total: {
@@ -297,7 +296,7 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
       zones: { chaussee: geo(mesures.zones.chaussee), emprise: geo(mesures.zones.emprise), hors: geo(mesures.zones.hors), tronque: zonesTronquees },
     },
     hypotheses: construireHypotheses(ctx),
-    limites: construireLimites(ctx),
+    limites: [...construireLimites(ctx), ...(multiples.length > 0 ? [LIMITE_SOURCES_MULTIPLES] : [])],
   };
 
   return {

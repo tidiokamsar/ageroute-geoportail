@@ -7,6 +7,7 @@ import { EtatChargement, EtatErreur } from "./EtatsPv";
 import { BadgeEcheanceDepassee, BadgeReexamen, BadgeRisque, BadgeStatutConflit, BadgeStatutDecision, BadgeTypeConflit } from "./BadgesConflit";
 import { DialogueApprobation, DialogueAttribution, DialogueDecision, DialoguePreuve, DialogueReexamen, DialogueTransition } from "./ActionsConflit";
 import { texteValeur } from "./FicheObjet";
+import { BadgeNature } from "./reseaux/BadgesReseau";
 import { useRestitutionFocus } from "./focusDialogue";
 import type {
   ConflitFiche, CorpsApprobation, CorpsAttribution, CorpsDecision, CorpsPreuve, CorpsStatut, DecisionConflit, TransitionPossible,
@@ -21,6 +22,7 @@ import {
   AIDE_CLASSE, LIBELLE_ROLE, STYLE_RESEAU, classeIncertaine, formaterDate, formaterMetres, formaterNombre,
   type RoleJeu,
 } from "../../lib/projetsVoirie";
+import { LIBELLE_QUALIFICATION_CIBLE } from "../../lib/projetsVoirieReseaux";
 
 /**
  * Fiche d'un dossier de conflit : mesure, regle et sa version, sources et versions des jeux, classe de precision, « vertical non evalue »,
@@ -144,6 +146,29 @@ export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(fu
         <ul data-testid="avertissements-dossier" data-source={f.avertissements ? "serveur" : "secours"} className="list-disc space-y-0.5 pl-5 text-xs text-gray-900">
           {(f.avertissements ?? AVERTISSEMENTS_DE_SECOURS).map((a) => <li key={a}>{a}</li>)}
         </ul>
+      </Section>
+
+      <Section id="pv-fc-cible" titre="Cible du conflit (nature de l'objet de réseau)">
+        {f.cible ? (
+          <div data-testid="cible-fiche" data-qualification={f.cible.qualification ?? undefined} className="space-y-1 text-xs text-gray-900">
+            <p className="flex flex-wrap items-center gap-1">
+              {f.cible.nature && <BadgeNature nature={f.cible.nature} origine={f.cible.origineNature} />}
+              {f.cible.qualification && <strong>{LIBELLE_QUALIFICATION_CIBLE[f.cible.qualification]}</strong>}
+            </p>
+            {f.cible.libelle && <p className="break-words">{f.cible.libelle}</p>}
+            {f.cible.supportPhysique && (
+              <p>Support physique : {f.cible.supportPhysique.valides === null ? "non fourni" : formaterNombre(f.cible.supportPhysique.valides, 0)} validé(s), {f.cible.supportPhysique.proposes === null ? "non fourni" : formaterNombre(f.cible.supportPhysique.proposes, 0)} proposition(s) sans effet.</p>
+            )}
+            {f.cible.tracePartagee !== null && (
+              <p data-testid="cible-trace-partagee">
+                {f.cible.tracePartagee === 0 ? "Aucun autre circuit du même jeu ne suit exactement cette trace."
+                  : `${formaterNombre(f.cible.tracePartagee, 0)} autre(s) circuit(s) du même jeu suivent exactement cette trace : ils restent séparés, ce ne sont pas des câbles distincts.`}
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="text-xs text-gray-700">{f.geometrieMasquee ? "Nature de la cible masquée : le jeu de réseau de ce dossier n'est pas lisible pour ce compte." : "Le serveur ne précise pas la nature de l'objet de réseau concerné : elle n'est pas déduite."}</p>
+        )}
       </Section>
 
       <Section id="pv-fc-mesure" titre="Mesure">

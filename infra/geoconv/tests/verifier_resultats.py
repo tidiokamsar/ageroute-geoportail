@@ -104,6 +104,35 @@ def verifier(jid, att):
             tol = 2e-6 if c["coordonnees"] == "wgs84" else 1e-3
             if not ps or any(abs(a - b) > tol for a, b in zip(ps, attendu_ps)):
                 erreurs.append(f"{nom}: premier sommet {ps} au lieu de {attendu_ps}")
+    if "dxf" in att:
+        dxf = res.get("dxf")
+        if not isinstance(dxf, dict):
+            erreurs.append("cle dxf absente du resultat")
+        else:
+            if inv is not None and inv.get("dxf") != dxf:
+                erreurs.append("dxf de l'inventaire different de celui du resultat")
+            for cle, valeur in att["dxf"].items():
+                if dxf.get(cle) != valeur:
+                    erreurs.append(f"dxf.{cle} = {dxf.get(cle)} au lieu de {valeur}")
+            if dxf.get("entitesSupportees") != ["LINE", "LWPOLYLINE", "POLYLINE", "3DPOLYLINE"]:
+                erreurs.append(f"entitesSupportees {dxf.get('entitesSupportees')}")
+    elif res.get("dxf") is not None and "dxf" not in att and att.get("dxf_null"):
+        erreurs.append("dxf devrait etre null")
+    if "layers" in att:
+        vus = {}
+        for c in res.get("couches", []):
+            with open(os.path.join(d, c["fichier"]), "rb") as f:
+                for ligne in f:
+                    if ligne.startswith(b'{"type":"Feature"'):
+                        feat = json.loads(ligne.strip().rstrip(b","))
+                        v = (feat.get("properties") or {}).get("Layer")
+                        vus[v] = vus.get(v, 0) + 1
+        if vus != att["layers"]:
+            erreurs.append(f"valeurs de la propriete Layer {vus} au lieu de {att['layers']}")
+    if "sommets_min" in att:
+        n = sum(c.get("sommets") or 0 for c in res.get("couches", []))
+        if n < att["sommets_min"]:
+            erreurs.append(f"{n} sommets, au moins {att['sommets_min']} attendus (arcs de bulge)")
     if att.get("pas_de_fichier_hors_couches"):
         permis = {"statut.json", "resultat.json", "inventaire.json", "couches"}
         for n in os.listdir(d):

@@ -130,6 +130,37 @@ function SurbrillanceConflit({ cle, geometrie }: { cle: string; geometrie: Geome
   );
 }
 
+/**
+ * Mise en evidence d'un objet de reseau choisi dans l'onglet « Reseaux » : un halo clair large sous un trait bleu nuit plein et epais (la forme se lit sans la
+ * couleur), puis zoom sur son emprise. La geometrie est celle que la carte a DEJA chargee : le volet Reseaux ne demande aucune geometrie au serveur.
+ * Non interactif, construit sans HTML.
+ */
+function EvidenceReseau({ cle, geometrie }: { cle: string; geometrie: Geometry }) {
+  const map = useMap();
+  const feature = useMemo<Feature<Geometry>>(() => ({ type: "Feature", geometry: geometrie, properties: {} }), [geometrie]);
+  const emprise = useMemo(() => bboxDeGeometrie(geometrie), [geometrie]);
+  const cleEmprise = emprise ? emprise.join(",") : "";
+  useEffect(() => {
+    if (!emprise) return;
+    map.fitBounds([[emprise[1], emprise[0]], [emprise[3], emprise[2]]], { padding: [48, 48], maxZoom: 19 });
+  }, [map, cle, cleEmprise]); // eslint-disable-line react-hooks/exhaustive-deps
+  const ident = `${cle}-${identite(geometrie)}`;
+  return (
+    <>
+      <GeoJSON
+        key={`reseau-halo-${ident}`} data={feature} interactive={false}
+        style={() => ({ color: "#ffffff", weight: 16, opacity: 0.95, fill: false, lineCap: "round" })}
+        pointToLayer={(_f, latlng) => L.circleMarker(latlng, { radius: 16, color: "#ffffff", weight: 4, fillColor: "#ffffff", fillOpacity: 0.9, interactive: false })}
+      />
+      <GeoJSON
+        key={`reseau-trait-${ident}`} data={feature} interactive={false}
+        style={() => ({ color: "#0b2545", weight: 8, opacity: 1, fill: false, lineCap: "round" })}
+        pointToLayer={(_f, latlng) => L.circleMarker(latlng, { radius: 9, color: "#0b2545", weight: 4, fillColor: "#ffffff", fillOpacity: 1, interactive: false })}
+      />
+    </>
+  );
+}
+
 function Capteur({ bbox, cadrageCle, onVue }: { bbox: Bbox | null; cadrageCle: number; onVue: (bbox: Bbox, zoom: number) => void }) {
   const map = useMap();
   const lire = useCallback(() => {
@@ -164,12 +195,14 @@ export interface PropsCarteProjet {
   selection: ObjetCarte | null;
   /** Dossier de conflit ouvert : sa geometrie est mise en evidence et la carte zoome dessus. */
   surbrillance?: { cle: string; geometrie: Geometry } | null;
+  /** Objet de reseau mis en evidence depuis l'onglet « Reseaux » (geometrie deja chargee par la carte). */
+  evidenceReseau?: { cle: string; geometrie: Geometry } | null;
   onSelect: (o: ObjetCarte) => void;
   onVue: (bbox: Bbox, zoom: number) => void;
   className?: string;
 }
 
-export function CarteProjet({ fond, bbox, cadrageCle, couches, jeux, analyse, conflitsVisibles, selection, surbrillance = null, onSelect, onVue, className = "h-full w-full" }: PropsCarteProjet) {
+export function CarteProjet({ fond, bbox, cadrageCle, couches, jeux, analyse, conflitsVisibles, selection, surbrillance = null, evidenceReseau = null, onSelect, onVue, className = "h-full w-full" }: PropsCarteProjet) {
   const f = FONDS[fond];
   const jeuParId = useMemo(() => new Map(jeux.map((j) => [j.id, j])), [jeux]);
   const zones = analyse?.conflits.zones;
@@ -187,6 +220,7 @@ export function CarteProjet({ fond, bbox, cadrageCle, couches, jeux, analyse, co
       {analyse?.conflits.croisements && conflitsVisibles.croisements && <Croisements collection={analyse.conflits.croisements} />}
       {selection && <Selection objet={selection} />}
       {surbrillance && <SurbrillanceConflit cle={surbrillance.cle} geometrie={surbrillance.geometrie} />}
+      {evidenceReseau && <EvidenceReseau cle={evidenceReseau.cle} geometrie={evidenceReseau.geometrie} />}
     </MapContainer>
   );
 }

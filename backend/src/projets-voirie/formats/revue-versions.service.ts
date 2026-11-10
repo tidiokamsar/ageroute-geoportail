@@ -16,6 +16,9 @@ import { INCLURE_JEU, vueJeu } from "../vues";
 import { limiteurApercus } from "./apercu.service";
 import { delaiApercuMs } from "./import.config";
 import { colonneIdentifiant, deltaEntreJeux, jeuDeReferenceSuppressions, statutSuppressions } from "./versions.depot";
+import { plusRestrictif } from "../confidentialite-depot.noyau";
+import { filtreCleVersion } from "../sources/cle-version.noyau";
+
 
 type JeuLigne = NonNullable<Awaited<ReturnType<Tx["jeuDonneesProjet"]["findFirst"]>>>;
 
@@ -43,7 +46,7 @@ async function evaluerRetourArriere(tx: Tx, jeu: JeuLigne): Promise<EvaluationRe
   const precedent = await tx.jeuDonneesProjet.findFirst({ where: { id: jeu.remplaceId, projetId: jeu.projetId }, select: { id: true, version: true, statut: true } });
   if (!precedent || precedent.statut !== "REMPLACE") return non("VERSION_PRECEDENTE_INDISPONIBLE");
   const attente = jeu.role === "AUTRE" ? null : await tx.jeuDonneesProjet.findFirst({
-    where: { projetId: jeu.projetId, role: jeu.role, concessionnaireId: jeu.concessionnaireId, statut: { in: ["RECU", "CONTROLE"] } }, select: { id: true },
+    where: { ...filtreCleVersion(jeu), statut: { in: ["RECU", "CONTROLE"] } }, select: { id: true },
   });
   if (attente) return non("DEPOT_EN_ATTENTE", { restaureraJeuId: precedent.id, restaureraVersion: precedent.version, depotEnAttenteId: attente.id });
   return { possible: true, raison: null, restaureraJeuId: precedent.id, restaureraVersion: precedent.version, depotEnAttenteId: null };
@@ -171,7 +174,10 @@ export async function retourArriere(acteur: Acteur, projetId: string, jeuId: str
     }
     // Le jeu actuel passe REMPLACE AVANT que le precedent redevienne AUTORISE (index unique partiel : un seul AUTORISE par cle).
     await tx.jeuDonneesProjet.update({ where: { id: jeu.id }, data: { statut: "REMPLACE" } });
-    await tx.jeuDonneesProjet.update({ where: { id: ev.restaureraJeuId }, data: { statut: "AUTORISE" } });
+    // Revue du lot X1, M1 : la version restauree ne redescend pas sous le niveau de confidentialite de la version qu'elle remplace (le plus restrictif des deux).
+    const restauree = await tx.jeuDonneesProjet.findUniqueOrThrow({ where: { id: ev.restaureraJeuId }, select: { confidentialite: true } });
+    const niveau = plusRestrictif([restauree.confidentialite, jeu.confidentialite])!;
+    await tx.jeuDonneesProjet.update({ where: { id: ev.restaureraJeuId }, data: { statut: "AUTORISE", ...(niveau !== restauree.confidentialite ? { confidentialite: niveau as typeof restauree.confidentialite } : {}) } });
     const e = await tx.evenementImportProjet.create({
       data: {
         projetId, jeuId: jeu.id, jeuLieId: ev.restaureraJeuId, type: "RETOUR_ARRIERE", acteurId: acteur.id, justification: texte,
@@ -180,7 +186,7 @@ export async function retourArriere(acteur: Acteur, projetId: string, jeuId: str
     });
     await logAuditTransactionnelle(tx, {
       userId: acteur.id, action: "RESTORE", entityType: "JeuDonneesProjet", entityId: ev.restaureraJeuId,
-      before: { statut: "REMPLACE" }, after: { statut: "AUTORISE", retourArriereDepuis: jeu.id, versionRestauree: ev.restaureraVersion, versionRetiree: jeu.version, justification: texte, evenementId: e.id },
+      before: { statut: "REMPLACE", confidentialite: restauree.confidentialite }, after: { statut: "AUTORISE", confidentialite: niveau, retourArriereDepuis: jeu.id, versionRestauree: ev.restaureraVersion, versionRetiree: jeu.version, justification: texte, evenementId: e.id },
       ipAddress: acteur.ip,
     });
     await logAuditTransactionnelle(tx, {

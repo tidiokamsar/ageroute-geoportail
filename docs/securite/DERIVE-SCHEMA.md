@@ -366,6 +366,30 @@ PostGIS du serveur n'est pas 3.5.2 ; chaque autre ligne est un ecart a classer. 
 Condition : le conteneur `backend` doit avoir `DATABASE_URL` dans son environnement et la CLI Prisma (`prisma` est dans
 `dependencies`, l'image est construite avec `npm ci --omit=dev`) ; sinon utiliser la commande 2 seule.
 
+## 7 bis. Migration `20261103400000_correctifs_sources_territoires` (correctifs de la revue T1+S1, 10/11/2026)
+
+Objets que la migration ajoute ou change, et ce que `schema.prisma` en declare :
+
+| Objet | Declare par le schema | Classement attendu par l'outil |
+|---|---|---|
+| `conflits_projet.jeuSourceBId` (texte, FK `ON UPDATE CASCADE ON DELETE RESTRICT`), index `conflits_projet_jeuSourceBId_idx` | oui : champ, relation `ConflitJeuSourceB` (`onDelete: Restrict`), `@@index([jeuSourceBId])` | aucun ecart |
+| contrainte `cp_jeu_source_b`, declencheur `conflits_projet_jeu_source_b` | non (Prisma ne represente ni CHECK ni declencheur) | hors du perimetre de l'outil, comme les CHECK et declencheurs des lots precedents |
+| index uniques partiels `projets_voirie_jeux_cle_autorise_key` et `projets_voirie_jeux_cle_attente_key`, recrees sur expression (fonction `pv_identite_type_reseau`) | non (partiels et sur expression) | `EX-PARTIEL` / `EX-EXPRESSION`, comme leur version du lot S1 |
+| fonction `pv_identite_type_reseau`, declencheur `projets_voirie_jeux_methode_acquisition`, contraintes `rrs_systeme`, `rrs_bareme_personne`, `rrs_bareme_separation` (NOT VALID) | non | hors du perimetre de l'outil |
+| defaut de `regles_rapprochement_sources.precisionParClasseM` : `'{}'::jsonb` (au lieu du bareme provisoire) | oui : `@default("{}")` (modifie avec la migration ; sans cela, l'outil signalerait un defaut different) | aucun ecart |
+| donnees : 9 valeurs `METHODE_ACQUISITION`, regle `S1-CORRIDOR-0.1` passee `RETIREE`, regle `S1-CORRIDOR-0.2` | sans objet (donnees) | sans objet |
+
+Montee, descente et remontee : banc `prisma/descentes/verifier.sh --seulement 20261103400000_correctifs_sources_territoires` sur une base reconstruite a 103 migrations (conteneur jetable) : 6 verifications reussies, 0 echec (schema identique apres la descente, aller-retour identique, deux gardes dont une sans derogation possible).
+
+Controle de derive (10/11/2026, conteneur jetable, PostgreSQL 17 / PostGIS 3.5) : `scripts/verifier-derive-schema.ts --reconstruire` sur la chaine des
+103 migrations (dont celle-ci) contre `schema.prisma` de la branche `fix/vague3-revue-t1s1` : code 1 (derive presente), **160** derives et 48 exceptions
+documentees sur toute la chaine. **Aucune ne porte sur un objet de cette migration** (`jeuSourceBId`, sa cle etrangere et son index, les deux index de
+cle de version, les contraintes et declencheurs ajoutes, le defaut de `precisionParClasseM`) : recherche faite dans la sortie complete. Parmi les derives
+voisines, preexistantes et hors de ce lot : la cle etrangere et l'index de `conflits_projet.comparaisonId` et les cles etrangeres de
+`regles_rapprochement_sources` (lot S1, champs sans `@relation`), a corriger avec le lot S1 ou par une reference d'ecarts connus (section 6.2). L'ecart
+de 87 (26/10) a 160 vient des migrations ajoutees depuis par les autres lots ; il n'a pas ete ventile ici. Le fichier `--json` n'a pas ete ecrit
+(chemin du dossier temporaire mal converti sous Git Bash, code 2 a l'ecriture finale apres le rapport) : sans effet sur le decompte.
+
 ## 8. Non verifie
 
 - La production, entierement (section 7).
@@ -377,3 +401,30 @@ Condition : le conteneur `backend` doit avoir `DATABASE_URL` dans son environnem
 - Les corrections de type S : aucune n'a ete appliquee ni essayee sur le schema (pas de `prisma validate` du schema modifie).
 - Le classeur ne comprend que la sortie de Prisma 5.22.0. Une autre version peut formuler les ecarts autrement : toute
   instruction non reconnue est classee derive ("a lire a la main"), jamais ignoree.
+
+## 9. Lot D1 (documents du projet) : ce que Prisma ne représente pas
+
+Migration `20261104100000_completude_documentaire`, modèles `DocumentProjetVoirie` et `DocumentProjetVoirieHistorique` (fin de `schema.prisma`, sans relation Prisma : clés étrangères en SQL seulement, comme le lot B3). Ces objets n'apparaissent pas dans `prisma migrate diff` et ne sont pas des dérives :
+
+| Objet | Nature | Exception |
+|---|---|---|
+| `documents_projet_voirie_en_cours_key`, `documents_projet_voirie_valide_key` | index uniques **partiels** (une version en cours, une version `VALIDE` par lignée, lignes non retirées) | `EX-PARTIEL` |
+| `dpv_titre`, `dpv_description`, `dpv_type_forme`, `dpv_version`, `dpv_lignee`, `dpv_reference`, `dpv_nom_fichier`, `dpv_format`, `dpv_sha256`, `dpv_empreinte_taille`, `dpv_piece_exclusive`, `dpv_attendu_sans_piece`, `dpv_depot`, `dpv_dwg_non_exploitable`, `dpv_separation_validation`, `dpv_justification`, `dpv_justification_longueur`, `dpvh_action`, `dpvh_details` | contraintes `CHECK` | hors du périmètre de `migrate diff` (section 3.3) |
+| `documents_projet_voirie_controle` (matrice des transitions, champs et pièce figés, lignée, jeu du même projet, code `TYPE_DOCUMENT`), `documents_projet_voirie_historiser` (historique écrit par la base), `documents_projet_voirie_remplacement_verifie` (déclencheur de contrainte **différé**), suppression et troncature refusées, historique en ajout seul | déclencheurs et fonctions | idem |
+| clés étrangères vers `projets_voirie`, `documents_projet_voirie` (`remplaceId`), `concessionnaires_reseau`, `projets_voirie_jeux`, `users` | clés étrangères sans relation Prisma | à rapprocher de la section 5.4 (modèles sans relation) |
+
+La valeur `LANDXML` de `FormatJeuProjet` et le type `StatutDocumentProjetVoirie` sont déclarés dans `schema.prisma` (aucune dérive). Contrôle fait : `prisma validate` ; le banc des descentes (`verifier.sh --seulement 20261104100000_completude_documentaire`) compare le schéma complet avant et après la descente. Les lots T1 et S1 n'avaient pas ajouté leur section ici : leurs objets non représentables sont décrits en tête de leurs blocs de `schema.prisma` et dans leurs migrations.
+
+## 10. Lot X1 (export du dossier technique) : ce que Prisma ne représente pas
+
+Migration `20261104200000_exports_tableaux_de_bord`, modèles `ExportDossierProjetVoirie` et `DerogationExportProjetVoirie` (fin de `schema.prisma`, sans relation Prisma : clés étrangères en SQL seulement, comme les lots B3 et D1). Ces objets n'apparaissent pas dans `prisma migrate diff` et ne sont pas des dérives :
+
+| Objet | Nature | Exception |
+|---|---|---|
+| `edpv_sha256`, `edpv_taille`, `edpv_fichiers`, `edpv_geojson`, `edpv_manifeste`, `dxpv_jeux`, `dxpv_justification`, `dxpv_duree` (7 jours au plus), `dxpv_usage` (date et export posés ensemble) | contraintes `CHECK` | hors du périmètre de `migrate diff` (section 3.3) |
+| `exports_dossier_projet_voirie_ajout_seul`, `exports_dossier_projet_voirie_troncature` (journal en ajout seul), `derogations_export_projet_voirie_controle` (dérogation immuable, consommée une seule fois avant son expiration, née inutilisée, jeux distincts), `derogations_export_projet_voirie_suppression`, `derogations_export_projet_voirie_troncature` ; fonctions `derogations_export_projet_voirie_controle()`, `exports_tableaux_refuse()` | déclencheurs et fonctions | idem |
+| clés étrangères vers `projets_voirie`, `users`, `exports_dossier_projet_voirie` (`exportId`) | clés étrangères sans relation Prisma | à rapprocher de la section 5.4 (modèles sans relation) |
+
+Les index (`exports_dossier_projet_voirie_acteurId_createdAt_idx`, `exports_dossier_projet_voirie_projetId_createdAt_idx`, `derogations_export_projet_voirie_exportId_key` unique, `derogations_export_projet_voirie_projetId_createdAt_idx`, `derogations_export_projet_voirie_beneficiaireId_idx`) sont déclarés dans `schema.prisma` sous les mêmes noms. Contrôle fait : `prisma validate` ; le banc des descentes (`verifier.sh --seulement 20261104200000_exports_tableaux_de_bord`) compare le schéma complet avant et après la descente. Les tableaux de bord n'ajoutent aucun objet de base.
+
+Mise à jour après la revue du lot X1 (10/11/2026) : la migration `20261104200000` (non fusionnée, non déployée, modifiée dans son lot) porte en plus les contraintes `edpv_statut`, `edpv_remis`, `edpv_issue`, `edpv_code_echec` (une tentative `EN_COURS` puis une seule issue), `dxpv_separation` (bénéficiaire différent de l'auteur) et `dxpv_usage` réécrite (consommée implique réservée) ; le déclencheur `exports_dossier_projet_voirie_controle` remplace `exports_dossier_projet_voirie_ajout_seul` (naissance `EN_COURS`, une seule issue, identité figée) ; `derogations_export_projet_voirie_controle` contrôle aussi `createdAt` (horloge de la base), la réservation (tentative `EN_COURS` du bénéficiaire sur le projet, avant expiration) et la consommation (par la tentative qui réserve). Colonnes ajoutées au journal, déclarées dans `schema.prisma` : `statut`, `derogationId`, `codeEchec`, `termineLe` ; `sha256`, `tailleOctets`, `nbFichiers` deviennent facultatives (renseignées à l'issue `REMIS`).

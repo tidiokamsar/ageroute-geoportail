@@ -102,7 +102,7 @@ const COMPTES: Record<string, { id: string; role: string; modules: string[]; reg
 const jeton = (c: string) => signAccessToken({ sub: COMPTES[c].id, role: COMPTES[c].role as never, email: `${c}@essai.invalid` });
 const BASE = "/api/v2/projets-voirie";
 const uuid = (n: number) => `${String(n).padStart(8, "0")}-0000-4000-8000-000000000000`;
-const P_R1 = uuid(1), P_R2 = uuid(2), P_SANS = uuid(3), P_INCONNU = uuid(4), J1 = uuid(11), J2 = uuid(12), C1 = uuid(21);
+const P_R1 = uuid(1), P_R2 = uuid(2), P_SANS = uuid(3), P_INCONNU = uuid(4), J1 = uuid(11), J2 = uuid(12), C1 = uuid(21), T_X = uuid(31);
 const fichier = Buffer.from("<kml/>");
 
 beforeEach(() => {
@@ -198,23 +198,28 @@ describe("controle territorial : 404 masque", () => {
     expect(r.body.code).toBe("PROJET_INTROUVABLE");
   });
 
-  it("la creation par un compte regional exige sa region : autre region ou region absente donnent 403", async () => {
-    expect((await avec(request(app).post(BASE).send({ code: "AB-1", nom: "x", regionId: 2 }), "GEST_R1")).status).toBe(403);
-    expect((await avec(request(app).post(BASE).send({ code: "AB-1", nom: "x" }), "GEST_R1")).status).toBe(403);
-    expect((await avec(request(app).post(BASE).send({ code: "AB-1", nom: "x", regionId: 1 }), "GEST_R1")).status).toBe(201);
+  it("la creation par un compte regional sur un territoire inconnu : 404 TERRITOIRE_INTROUVABLE, quelle que soit la region du corps (correctifs T1+S1, m3)", async () => {
+    // T_X est inconnu du simulateur : la garde masquee repond avant la region du corps (voir projets-voirie.territoires.routes.test.ts pour les autres cas).
+    for (const regionId of [2, 1, undefined]) {
+      const r = await avec(request(app).post(BASE).send({ code: "AB-1", nom: "x", ...(regionId === undefined ? {} : { regionId }), territoireId: T_X }), "GEST_R1");
+      expect(r.status, String(regionId)).toBe(404);
+      expect(r.body.code).toBe("TERRITOIRE_INTROUVABLE");
+    }
   });
 });
 
 describe("validation des entrees : 400 avec code, jamais 500, le service n'est pas appele", () => {
   it("creation de projet", async () => {
-    const mauvais = [{ code: "a b", nom: "x" }, { code: "OK-1" }, { code: "OK-1", nom: "" }, { code: "OK-1", nom: "x", extra: 1 }, { code: "OK-1", nom: "x", largeurEmpriseM: -4 }, { code: "OK-1", nom: "x", largeurEmpriseM: 500 }, { code: "OK-1", nom: "x", regionId: "1" }];
+    // Lot T1 : chaque corps porte un territoire valide, pour que seul le defaut vise soit en cause (sans territoire : 400 TERRITOIRE_REQUIS, voir projets-voirie.territoires.routes.test.ts).
+    const t = { territoireId: T_X };
+    const mauvais = [{ code: "a b", nom: "x", ...t }, { code: "OK-1", ...t }, { code: "OK-1", nom: "", ...t }, { code: "OK-1", nom: "x", extra: 1, ...t }, { code: "OK-1", nom: "x", largeurEmpriseM: -4, ...t }, { code: "OK-1", nom: "x", largeurEmpriseM: 500, ...t }, { code: "OK-1", nom: "x", regionId: "1", ...t }, { code: "OK-1", nom: "x", territoireId: "pas-un-uuid" }];
     for (const corps of mauvais) {
       const r = await avec(request(app).post(BASE).send(corps), "GEST");
       expect(r.status, JSON.stringify(corps)).toBe(400);
       expect(r.body.code).toBe("CHAMPS_INVALIDES");
     }
     expect(appelsDe("creerProjet")).toEqual([]);
-    const ok = await avec(request(app).post(BASE).send({ code: "kissi-1", nom: "Voirie", commune: "K" }), "GEST");
+    const ok = await avec(request(app).post(BASE).send({ code: "kissi-1", nom: "Voirie", commune: "K", territoireId: T_X }), "GEST");
     expect(ok.status).toBe(201);
     expect((appelsDe("creerProjet")[0].args[1] as { code: string }).code).toBe("KISSI-1");
   });

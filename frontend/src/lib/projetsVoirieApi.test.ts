@@ -30,10 +30,17 @@ describe("liste, creation, fiche, parametres, retrait du projet", () => {
     expect(lirePageProjets([{ id: "p", code: "C", nom: "N" }]).projets).toHaveLength(1);
     expect(lirePageProjets({ items: [], nextCursor: null })).toEqual({ projets: [], suivant: null });
   });
+  it("revue m11 : la liste des projets transmet le signal d'annulation ; le projet porte sa region", async () => {
+    const ctrl = new AbortController();
+    h.get.mockResolvedValueOnce({ data: { projets: [{ id: "p1", code: "A-1", nom: "A", regionId: 3 }], suivant: null } });
+    const page = await listerProjets({ territoireId: "t" }, ctrl.signal);
+    expect(h.get).toHaveBeenCalledWith(BASE, { params: { territoireId: "t" }, signal: ctrl.signal });
+    expect(page.projets[0].regionId).toBe(3);
+  });
   it("POST / cree un projet", async () => {
     h.post.mockResolvedValueOnce({ data: { id: "p1", code: "A-1", nom: "A", jeux: [] } });
-    const p = await creerProjet({ code: "A-1", nom: "A", largeurEmpriseM: 15, largeurChausseeM: 7 });
-    expect(h.post).toHaveBeenCalledWith(BASE, { code: "A-1", nom: "A", largeurEmpriseM: 15, largeurChausseeM: 7 });
+    const p = await creerProjet({ code: "A-1", nom: "A", largeurEmpriseM: 15, largeurChausseeM: 7, territoireId: "t-1" });
+    expect(h.post).toHaveBeenCalledWith(BASE, { code: "A-1", nom: "A", largeurEmpriseM: 15, largeurChausseeM: 7, territoireId: "t-1" });
     expect(p.id).toBe("p1");
   });
   it("GET /:id : forme a plat ou imbriquee, emprise, jeux", async () => {
@@ -64,7 +71,7 @@ describe("liste, creation, fiche, parametres, retrait du projet", () => {
 describe("concessionnaires", () => {
   it("GET et POST /concessionnaires", async () => {
     h.get.mockResolvedValueOnce({ data: [{ id: "c1", nom: "Operateur", typeReseau: "TELECOM", contact: "x" }, { nom: "sans id" }] });
-    expect(await listerConcessionnaires()).toEqual([{ id: "c1", nom: "Operateur", typeReseau: "TELECOM", contact: "x" }]);
+    expect(await listerConcessionnaires()).toEqual([{ id: "c1", nom: "Operateur", typeReseau: "TELECOM", typeReseauCode: null, contact: "x" }]);
     expect(h.get).toHaveBeenCalledWith(`${BASE}/concessionnaires`);
     h.post.mockResolvedValueOnce({ data: { id: "c2", nom: "Eaux", typeReseau: "EAU_POTABLE" } });
     const c = await creerConcessionnaire({ nom: "Eaux", typeReseau: "EAU_POTABLE" });

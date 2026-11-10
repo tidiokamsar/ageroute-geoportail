@@ -1,12 +1,13 @@
 # Chaîne de conversion GDAL isolée (GeoPackage, Shapefile ZIP, DXF)
 
-Statut : lot RC-1 bis, préparation. Document du 28/10/2026. Code : `infra/geoconv/`. **Rien de ce lot n'est branché au déploiement** : ni `docker-compose.yml`, ni `infra/deployer-console.sh`, ni le `Dockerfile` ou la configuration nginx du backend ne sont modifiés. Le backend ne sait pas encore appeler cette chaîne : ce document fixe le contrat que l'autre agent implémentera.
+Statut : lot RC-1 bis, préparation. Document du 28/10/2026. Code : `infra/geoconv/`. **Rien de ce lot n'est branché au déploiement** : ni `docker-compose.yml`, ni `infra/deployer-console.sh`, ni le `Dockerfile` ou la configuration nginx du backend ne sont modifiés. **Mise à jour du 08/11/2026 (lot B2)** : le backend appelle désormais cette chaîne par jobs asynchrones, derrière l'interrupteur `PROJETS_VOIRIE_GDAL` **désactivé par défaut** (voir la section 7 et `CONTRAT-IMPORT.md` sections 13 et 14) ; rien n'est activé ni déployé en production, le conteneur n'est pas dans le déploiement actuel.
 
 ## 1. Décisions d'architecture appliquées
 
 - Un conteneur GDAL **isolé** convertit les fichiers d'ingénierie en GeoJSON WGS84. Il est non privilégié, sans réseau, sans secret, avec système de fichiers racine en lecture seule, limites de ressources, délai maximal et liste blanche de pilotes.
 - Le worker n'a **jamais** accès à la base de production : ni réseau, ni identifiant, ni socket Docker. Il ne connaît que deux répertoires (le « spool »).
 - Les contrôles de géométrie, de CRS, d'attributs, de doublons et l'aperçu cartographique restent au backend, avant toute autorisation. Le worker fournit une sortie propre, des mesures et des avertissements typés, pas un verdict.
+- Un DXF est **filtré avant GDAL** (version 0.2.0) : seules les entités LINE, LWPOLYLINE, POLYLINE et POLYLINE 3D sont converties, tout le reste (blocs, hachures, textes, cercles, arcs, points, espace papier...) est ignoré et **compté** (section 2.1). Le DXF binaire n'est pas pris en charge.
 - Un DXF n'a pas de georéférencement : le CRS n'est **jamais** déduit. Sortie `crs: null`, `reprojete: false`, avertissement `CRS_ABSENT`, tant que l'utilisateur n'a pas fourni un EPSG explicite.
 - Un format n'est déclaré pris en charge qu'après vérification du pilote et test réel (voir `MATRICE-FORMATS.md`).
 
@@ -24,7 +25,18 @@ backend (autre conteneur, non root ou root)             conteneur geoconv (rése
 
 Langage du worker : **Python 3.14 (bibliothèque standard seule)**, déjà présent dans l'image GDAL officielle. Justification : `zipfile` et `struct` permettent de lire l'enregistrement de fin et le répertoire central d'un ZIP avant toute décompression, `resource` et `subprocess` donnent des limites POSIX et un arrêt par groupe de processus, et un script shell aurait demandé de l'interpolation et un shell dans l'image. Le worker n'importe **pas** les liaisons `osgeo` dans son propre processus (sauf un enfant minuscule qui relève la version de PROJ) : tout fichier hostile n'est lu que par des processus `ogrinfo` et `ogr2ogr` tués au délai, avec limites de mémoire, de CPU et de taille de fichier.
 
-L'image est dérivée de `ghcr.io/osgeo/gdal:ubuntu-small-3.13.3`, épinglée par empreinte (`sha256:64250faf...c0b40`). Le Dockerfile ajoute l'utilisateur 10001, le code du worker (en lecture seule) et supprime les shells (`sh`, `bash`, `dash`), `apt`/`dpkg`, `su`/`login`, `perl`, `unzip` et les bits setuid. `/var/lib/dpkg/status` est conservé pour les scanneurs de vulnérabilités.
+L'image (`ageroute-geoconv:0.2.0`, worker 0.2.0) est dérivée de `ghcr.io/osgeo/gdal:ubuntu-small-3.13.3`, épinglée par empreinte (`sha256:64250faf...c0b40`). Le Dockerfile ajoute l'utilisateur 10001, le code du worker (en lecture seule) et supprime les shells (`sh`, `bash`, `dash`), `apt`/`dpkg`, `su`/`login`, `perl`, `unzip` et les bits setuid. `/var/lib/dpkg/status` est conservé pour les scanneurs de vulnérabilités.
+
+### 2.1 Pré-filtre DXF (worker 0.2.0)
+
+Pourquoi : le pilote DXF de GDAL range tout dans une seule couche `entities` ; `SubClasses` n'existe que si le fichier porte des marqueurs 100, un ARC, un CERCLE et un bloc inséré ressortent comme des `LINESTRING`, un TEXT comme un `POINT`, un HATCH comme un `POLYGON` (mesuré sur GDAL 3.13.3). Le type d'entité d'origine ne se lit donc pas dans la sortie de GDAL. Le tri se fait avant GDAL, dans `worker/dxf.py` (bibliothèque standard seule), par une analyse en flux des paires (code de groupe, valeur) du DXF texte :
+
+- gardées : `LINE`, `LWPOLYLINE`, `POLYLINE` 2D avec ses `VERTEX` et son `SEQEND`, `POLYLINE` 3D (drapeau 8, comptée `3DPOLYLINE`) ; hors espace papier (groupe 67 = 1) ;
+- ignorées et comptées par nom d'entité : `INSERT`, `TEXT`, `MTEXT`, `HATCH`, `CIRCLE`, `ARC`, `POINT`, `SPLINE`, `ELLIPSE`, `DIMENSION`... (200 noms distincts au plus, puis `AUTRES`), `POLYLINE_MAILLAGE` (maillages et polyfaces, drapeaux 16 et 64), `ESPACE_PAPIER` ; les définitions de blocs et le nombre d'entités qu'elles contiennent sont comptés à part ;
+- réécriture d'un DXF minimal pour GDAL : en-tête réduit à `$ACADVER`, `$DWGCODEPAGE`, `$INSUNITS` valides, puis `ENTITIES` avec des groupes en liste blanche (valeurs numériques validées, aucune valeur `nan` ou illisible : le fichier est refusé). Les octets des noms de calques sont recopiés sans décodage (caractères de contrôle neutralisés) : GDAL fait le changement d'encodage depuis `$DWGCODEPAGE` et `$ACADVER` ;
+- bornes : ligne de 64 Kio, entité de 400 000 groupes, 1 000 calques, délai total et arrêt du worker contrôlés tous les 50 000 paires. Un fichier sans marqueur `EOF` est refusé comme tronqué.
+
+Le CRS reste **jamais déduit** (inchangé). Le DXF binaire est refusé (`DXF_BINAIRE_NON_PRIS_EN_CHARGE`) : le pré-filtre ne lit que le texte.
 
 ## 3. Modèle de menaces
 
@@ -41,7 +53,9 @@ L'image est dérivée de `ghcr.io/osgeo/gdal:ubuntu-small-3.13.3`, épinglée pa
 | Nom de couche ou valeur d'attribut pris pour une commande | arguments passés **en liste**, jamais de shell ; nom de couche commençant par `-` ou contenant un caractère de contrôle refusé ; fichier de sortie nommé par un slug ASCII calculé par le worker | m20 |
 | Géométries aberrantes (NaN, 1e308, WKB tronqué, bowtie) | GDAL les lit ; le worker compte les nulls, les coordonnées hors plage, les avertissements GDAL ; échec propre si la reprojection échoue | m24, m25 |
 | Géométrie de plusieurs millions de sommets | plafonds de mémoire (espace d'adressage par processus), de taille de sortie, de délai ; analyse en flux avec borne par ligne | m26, m29 |
-| Bombe de blocs DXF, ligne géante | délai dur ; erreur GDAL sur ligne trop longue | m27, m28 |
+| Bombe de blocs DXF, ligne géante | les sections BLOCKS, TABLES, OBJECTS ne sont **jamais réécrites** vers GDAL (le pré-filtre ne garde que les entités supportées d'ENTITIES) ; ligne de plus de 64 Kio refusée (`FICHIER_INVALIDE`) ; délai dur et contrôle du délai pendant le pré-filtre | m27, m28 |
+| DXF malformé (paires impaires, code non numérique, coordonnée `nan`, EOF absent) | refus typé `FICHIER_INVALIDE` par le pré-filtre, jamais d'erreur interne | d08a à d08e |
+| Nombre de calques démesuré | plus de 1 000 calques : `DXF_TROP_DE_CALQUES` | d06b |
 | Sortie volumineuse | `RLIMIT_FSIZE` sur `ogr2ogr` + plafond total | g04 |
 | Exfiltration réseau, résolution de noms, `/vsicurl/`, base distante | `network_mode: none`, pilotes réseau retirés, `PROJ_NETWORK=OFF` | `verifier_isolement.py` |
 | Écriture hors zone, élévation de privilèges | racine en lecture seule, `cap_drop: ALL`, `no-new-privileges`, UID 10001, `/tmp` en `noexec` | `verifier_isolement.py` |
@@ -104,6 +118,8 @@ Le répertoire `sortie/<jobId>/` est créé de façon atomique : c'est la récla
 
 `inventaire.json` : ce que le fichier contient, avant et après conversion : `source`, `format`, `archive` (entrées, tailles), `unites` (DXF : `$INSUNITS`, avec la mention que cela ne vaut pas CRS), et par couche : `nom`, `jeu` (nom du Shapefile), `geometrie`, `nbObjets` (compte **déclaré** par le fichier), `typeGeometrieDeclare`, `champs` (nom, type, largeur, précision), `emprise` (système d'origine), `crs` **tel que déclaré par le fichier** (`epsg`, `autorite`, `nom`, `type`, `unite`, `wkt`) ou `null`, `unites`, et après conversion `typesGeometrieReels`, `empriseSortie`, `sommets`. Racine : `avertissements`, `dureeMs`, `gdal { version, proj }`.
 
+`dxf` (clé présente dans `resultat.json` ET `inventaire.json`, `null` hors DXF ; ajoutée par le worker 0.2.0, contrat toujours en version 1) : `{ version` (`$ACADVER` ou `null`)`, codepage` (`$DWGCODEPAGE` ou `null`)`, entitesSupportees: ["LINE","LWPOLYLINE","POLYLINE","3DPOLYLINE"], lues: { TYPE: n }, ignorees: { TYPE: n }, blocs: { definitions: n, entitesDansBlocs: n }, calques: [ { nom, lues, ignorees } ]` (triés par nom, 1 000 au plus)`, nbEntitesTotal }`. `nbEntitesTotal` = entités de ENTITIES lues + ignorées (le contenu des blocs n'y figure pas). Les entités de l'espace papier sont comptées sous `ignorees.ESPACE_PAPIER` seulement. Le nombre d'objets de la couche `entities` du résultat est la somme de `lues` (les objets viennent du fichier réécrit) ; la propriété `Layer` de chaque Feature porte le calque, recodé en UTF-8 par GDAL. Les noms de calques de `dxf.calques` sont décodés par le worker (UTF-8 pour AC1021 et suivants, sinon `$DWGCODEPAGE`, sinon latin-1) : ils peuvent différer de `Layer` pour un encodage exotique, le backend doit se fonder sur la propriété `Layer` des Features pour filtrer.
+
 ### 4.3 Codes d'échec (`statut.code`)
 
 Entrée et demande : `ENTREE_ABSENTE`, `DEMANDE_INVALIDE`, `FICHIER_VIDE`, `FICHIER_TROP_GROS`, `FICHIER_TRONQUE`, `FICHIER_INVALIDE`, `FORMAT_NON_RECONNU`, `FORMAT_NON_AUTORISE`.
@@ -111,11 +127,12 @@ Archive : `ARCHIVE_INVALIDE`, `ARCHIVE_TROP_D_ENTREES`, `ARCHIVE_CHEMIN_DANGEREU
 Lecture et sélection : `SOURCE_ILLISIBLE`, `PILOTE_INATTENDU`, `TROP_DE_COUCHES`, `CHAMPS_TROP_NOMBREUX`, `AUCUNE_COUCHE`, `COUCHE_INTROUVABLE`, `COUCHE_AMBIGUE`.
 CRS et conversion : `CRS_CONFLIT`, `CRS_NON_RECONNU`, `REPROJECTION_ECHEC`, `CONVERSION_ECHEC`, `TROP_D_OBJETS`, `AUCUN_OBJET`, `SORTIE_TROP_GROSSE`.
 Ressources : `DELAI_DEPASSE`, `MEMOIRE_EPUISEE`, `GDAL_PLANTAGE`, `INTERROMPU`, `ERREUR_INTERNE`.
+DXF (worker 0.2.0) : `DXF_BINAIRE_NON_PRIS_EN_CHARGE` (DXF binaire), `DXF_SANS_ENTITE_SUPPORTEE` (aucune entité LINE, LWPOLYLINE, POLYLINE ou 3DPOLYLINE ; `details` : `ignorees`, `blocs` ; `resultat.json` et `inventaire.json` portent alors la clé `dxf`), `DXF_TROP_DE_CALQUES` (plus de 1 000 calques). Un DXF illisible (paire incomplète, code non numérique, coordonnée illisible ou `nan`, ligne de plus de 64 Kio, marqueur EOF absent) échoue en `FICHIER_INVALIDE`.
 Au démarrage seulement (le worker refuse de démarrer, code de sortie 3) : `PILOTES_NON_CONFORMES`.
 
 ### 4.4 Avertissements typés `{ code, message, nb? }`
 
-`EXTENSION_INCOHERENTE`, `ENTREES_ARCHIVE_IGNOREES`, `FICHIERS_ORPHELINS`, `NOM_FICHIER_RENOMME`, `UNITES_ABSENTES`, `COUCHE_SANS_GEOMETRIE_IGNOREE`, `COUCHE_SANS_GEOMETRIE`, `COUCHE_NOM_REFUSE`, `CRS_ABSENT`, `CRS_FOURNI_PAR_LA_DEMANDE`, `CRS_SURCHARGE`, `CRS_SANS_CODE_EPSG`, `COMPTE_DECLARE_DIVERGENT`, `COORDONNEES_NON_FINIES`, `COORDONNEES_HORS_PLAGE`, `GEOMETRIES_NULLES`, `AVERTISSEMENTS_GDAL`, `ANALYSE_GEOMETRIE_PARTIELLE`, `COUCHE_VIDE`.
+`EXTENSION_INCOHERENTE`, `ENTREES_ARCHIVE_IGNOREES`, `FICHIERS_ORPHELINS`, `NOM_FICHIER_RENOMME`, `UNITES_ABSENTES`, `COUCHE_SANS_GEOMETRIE_IGNOREE`, `COUCHE_SANS_GEOMETRIE`, `COUCHE_NOM_REFUSE`, `CRS_ABSENT`, `CRS_FOURNI_PAR_LA_DEMANDE`, `CRS_SURCHARGE`, `CRS_SANS_CODE_EPSG`, `COMPTE_DECLARE_DIVERGENT`, `COORDONNEES_NON_FINIES`, `COORDONNEES_HORS_PLAGE`, `GEOMETRIES_NULLES`, `AVERTISSEMENTS_GDAL`, `ANALYSE_GEOMETRIE_PARTIELLE`, `COUCHE_VIDE`, et pour les DXF (0.2.0) `DXF_ENTITES_IGNOREES` (`nb` = total des entités ignorées de ENTITIES ; le message cite les cinq types principaux) et `DXF_BLOCS_IGNORES` (`nb` = INSERT + définitions de blocs).
 
 Le backend doit traiter `crs: null` (avec `CRS_ABSENT`) comme « coordonnées brutes, CRS à fournir » : proposer à l'utilisateur de choisir un EPSG ou des points de contrôle, puis soumettre un **nouveau job** avec `epsg_source`. Aucun défaut n'est appliqué.
 
@@ -154,7 +171,10 @@ Limites du conteneur (overlay) : `mem_limit` 1 Go sans swap, 1 CPU, 64 processus
 - Dépôt : écrire `fichier.<ext>`, puis `demande.json` par rename. Suivi : lire `statut.json` jusqu'à `termine` ou `echec`. Délai d'attente côté backend : `delai_s` + marge ; au-delà, considérer le job perdu et rejouer avec un nouveau `jobId`.
 - Après consommation, le backend copie ce dont il a besoin dans sa propre base, puis supprime `entree/<jobId>/` et `sortie/<jobId>/`. Les fichiers GeoJSON du spool ne sont **pas** un stockage : ils sont purgés.
 - Les GeoJSON de sortie contiennent des données sensibles de concessionnaires : le volume `geoconv_sortie` doit rester interne, sans exposition par nginx ni traefik.
-- Conséquence sur CONTRAT.md : la détection de formats du backend (4.1, « archives, Shapefile, DXF, DWG, GPX : 415 `FORMAT_NON_SUPPORTE` ») restera valable tant que le backend n'appelle pas cette chaîne ; l'appel se fera dans un lot dédié, derrière la clé de module `projets-voirie`.
+- **Branchement réalisé (lot B2)** : le backend écrit `entree/<jobId>-t<n>/fichier.<ext>` puis `demande.json` en dernier, lit `statut.json` par un sondage borné (`backend/src/projets-voirie/gdal/traiteur.ts`), valide la sortie contre un schéma strict (`sortie.noyau.ts` : le conteneur est un écrivain non fiable), puis lit les couches ligne à ligne. L'identifiant de job du contrat est `<uuid du job>-t<tentative>` ; chaque relance utilise un nouveau dossier. Le backend purge `entree/<id>/` et `sortie/<id>/` (donc `geoconv_sortie` doit lui être inscriptible pour la suppression : décision DSI, voir `LOT-B2-RAPPORT.md`) et ne supprime jamais le dossier de sortie d'un job que le conteneur traite encore. Les formats GeoPackage, Shapefile ZIP et DXF ne se lisent plus jamais dans l'API : 415 `FORMAT_GDAL_DESACTIVE` quand l'interrupteur est coupé, 422 `CONVERSION_ASYNCHRONE_REQUISE` quand il est actif.
+- Particularité vérifiée : pour une source déjà en EPSG:4326, GDAL n'écrit aucun membre `crs` dans le GeoJSON (défaut de GeoJSON) ; le CRS explicite est celui de `resultat.json`.
+- **Durcissement du lot V2 (08/11/2026)** : le fichier déposé attend dans un **dossier privé du backend** (`PROJETS_VOIRIE_GDAL_PRIVE`, défaut `<spool>/prive`), qui ne doit **jamais** être monté dans le conteneur ; il n'est copié dans `entree/<jobId>-t<n>/` qu'à la réclamation et en est retiré dès la fin du job. Le conteneur ne voit donc que les entrées des `concurrence` jobs qu'il traite (limite résiduelle et réglage `CONCURRENCE=1` : `CONTRAT-IMPORT.md` 13.5). Le backend ouvre les fichiers de `sortie/` sans suivre de lien et **sans bloquer** (`O_NOFOLLOW | O_NONBLOCK` puis `fstat`), borne chaque tour du sondage dans le temps, ne purge que des noms connus, et ne déclare jamais un job en échec pour une panne qui lui est propre. Si le backend tourne sans être root, `sortie/` doit lui être inscriptible (purge) : le contrôle de disponibilité l'exige désormais.
+- **Volume `geoconv_sortie` sans borne** : le pilote `local` de Docker ne pose pas de quota. Le backend borne par construction ce qu'il laisse dans `sortie/` : `_RESULTATS_MAX` (20) résultats `TERMINE` non utilisés × `_SORTIE_MAX_OCTETS` (80 Mo) + `concurrence` jobs en cours × `GEOCONV_LIMITE_SORTIE` (200 Mo), soit environ 2 Go avec les défauts ; le worker purge à `GEOCONV_RETENTION_H` ce que le backend n'aurait pas retiré. Option pour une borne dure : déclarer `geoconv_sortie` en tmpfs (`driver_opts: type: tmpfs, device: tmpfs, o: "size=3g,uid=10001,gid=10001,mode=0755"`, bloc commenté dans le compose) ; les sorties sont alors perdues au redémarrage de l'hôte (jamais au redémarrage du seul conteneur), ce qui est acceptable pour des fichiers temporaires que le backend revalide à chaque usage (un résultat disparu répond 410 `RESULTAT_EXPIRE`). Décision DSI.
 
 ## 8. Activation en préproduction
 
@@ -169,7 +189,7 @@ docker logs geoconv-worker | head -3                                            
 bash infra/geoconv/tests/lancer-tests.sh                                             # banc complet (volumes jetables)
 ```
 
-Contrôles d'acceptation : image construite sans erreur ; `healthy` ; journal de démarrage listant exactement `DXF, ESRI Shapefile, GPKG, GeoJSON` ; `lancer-tests.sh` : « TOUS LES CONTROLES SONT CONFORMES » (71 jobs, 23 contrôles d'isolement, arrêt propre).
+Contrôles d'acceptation : image construite sans erreur ; `healthy` ; journal de démarrage listant exactement `DXF, ESRI Shapefile, GPKG, GeoJSON` ; `lancer-tests.sh` : « TOUS LES CONTROLES SONT CONFORMES » (85 jobs, 23 contrôles d'isolement, arrêt propre).
 
 Les images ne sont jamais mises à jour implicitement : pour changer de version de GDAL, modifier l'argument `GDAL_IMAGE` du Dockerfile (tag **et** empreinte), reconstruire et rejouer le banc.
 
@@ -178,11 +198,11 @@ Les images ne sont jamais mises à jour implicitement : pour changer de version 
 ```bash
 docker compose -f infra/geoconv/docker-compose.geoconv.yml -p geoconv down          # arrête et supprime le conteneur
 docker volume rm geoconv_entree geoconv_sortie                                       # supprime le spool (données temporaires)
-docker image rm ageroute-geoconv:0.1.0                                               # facultatif
+docker image rm ageroute-geoconv:0.2.0                                               # facultatif
 ```
 
 Aucune base, aucune migration, aucun fichier du déploiement existant n'est touché : le retour arrière est complet après ces trois commandes. Tant que le backend n'appelle pas la chaîne, l'arrêter n'a aucun effet sur la console.
 
 ## 10. Limites connues et décisions à prendre
 
-Voir `docs/reports/LOT-RC-01B-GDAL-RAPPORT.md` (sections « Erreurs connues » et « Décisions à prendre »). Points structurants : l'image fait environ 600 Mo ; l'image de base charge `libtcmalloc` par `LD_PRELOAD` ; la lecture d'un DXF binaire ne relève pas `$INSUNITS` ; une géométrie de plus de 16 Mo de GeoJSON n'est comptée mais pas analysée (`ANALYSE_GEOMETRIE_PARTIELLE`) ; un seul worker est supposé (la réclamation par `mkdir` évite le double traitement, mais le contrôle des orphelins au démarrage suppose une seule instance).
+Voir `docs/reports/LOT-RC-01B-GDAL-RAPPORT.md` (sections « Erreurs connues » et « Décisions à prendre »). Points structurants : l'image fait environ 600 Mo ; l'image de base charge `libtcmalloc` par `LD_PRELOAD` ; le DXF binaire n'est pas pris en charge depuis le worker 0.2.0 ; une géométrie de plus de 16 Mo de GeoJSON n'est comptée mais pas analysée (`ANALYSE_GEOMETRIE_PARTIELLE`) ; un seul worker est supposé (la réclamation par `mkdir` évite le double traitement, mais le contrôle des orphelins au démarrage suppose une seule instance).

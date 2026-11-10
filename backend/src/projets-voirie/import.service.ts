@@ -20,18 +20,24 @@ import { prisma } from "../lib/prisma";
 import { Limiteur } from "../import/limiteur";
 import { logAuditTransactionnelle } from "../utils/audit";
 import { avecErreurDelai } from "./bd";
-import { delaiDepotMs } from "./config";
+import { delaiDepotMs, estFormeMethodeAcquisition } from "./config";
 import { ErreurMetier, introuvable } from "./erreurs";
 import { META_WGS84 } from "./formats/crs.noyau";
 import { resoudreCrs, transformerSommets, versionProj } from "./formats/crs.service";
 import { classerRaison, type Probleme } from "./formats/validation.noyau";
 import { LISTE_MAX, limitesImport, modeConservationOriginal } from "./formats/import.config";
-import { detecter, preparer, type OptionsImport, type Preparation, type ResultatImport } from "./formats/lecture-import.noyau";
+import { detecter, detecterConvertie, preparer, type OptionsImport, type Preparation, type ResultatImport } from "./formats/lecture-import.noyau";
+import type { ConversionValidee } from "./gdal/conversion.noyau";
 import { deltaEntreJeux, type DeltaJeux } from "./formats/versions.depot";
 import type { PropositionJeu } from "./formats/mapping.noyau";
 import type { Avertissement, ObjetLu, TypeGeom } from "./lecture.types";
 import { verrouillerProjet, type Acteur, type Tx } from "./projets.service";
+import { contexteSpatialDuProjet } from "./territoires/contexte-spatial";
+import { resoudreTypeReseau } from "./territoires/referentiels.service";
 import { INCLURE_JEU, vueJeu } from "./vues";
+import { filtreCleVersion } from "./sources/cle-version.noyau";
+import { insererConnexionsDeclarees } from "./reseaux/reseaux.depot";
+import { niveauDuDepot } from "./confidentialite-depot.noyau";
 
 export type Role = "AXES_TRAVAUX" | "RESEAU_TIERS" | "LIMITES_ROUTE" | "AUTRE";
 export type Nature = "ACTIF_PHYSIQUE" | "CIRCUIT_LOGIQUE" | "EQUIPEMENT" | "AXE" | "EMPRISE" | "INCONNUE";
@@ -43,6 +49,8 @@ export interface ChampsDepot {
   role: Role;
   concessionnaireId?: string;
   typeReseau?: TypeReseau;
+  /** Lot T1 : code du referentiel TYPE_RESEAU ; la famille `typeReseau` en est derivee (repli sur la famille declaree sans code). */
+  typeReseauCode?: string;
   dateDonnees?: string;
   origineFichier?: string;
   confidentialite?: Niveau;
@@ -52,6 +60,10 @@ export interface ChampsDepot {
   precisionVerticaleM?: number;
   methode?: string;
   dateConstat?: string;
+  /** Lot S1 : code de la methode d'acquisition (referentiel METHODE_ACQUISITION, valeur active : correctifs T1+S1, M2) ; composante de la cle de version d'un reseau. */
+  methodeAcquisition?: string;
+  /** Revue du lot X1, M1 : justification (ADMIN seul) d'un niveau de confidentialite plus bas que celui de la lignee ou du role. */
+  justificationConfidentialite?: string;
 }
 
 export interface DemandeDepot {
@@ -65,7 +77,17 @@ export interface DemandeDepot {
   options?: OptionsImport;
   /** Lot A1 : empreinte attendue (garde contre un fichier modifie entre l'apercu et le depot). */
   sha256Attendu?: string;
+  /**
+   * Lot B2 : resultat VALIDE d'une conversion GDAL. `fichier` est alors vide ; l'empreinte, la taille et le nom sont ceux du fichier d'origine du job. Le resultat
+   * entre dans le MEME pipeline (quarantaine, CRS, mapping, delta, revue des suppressions) : aucune seconde voie.
+   */
+  conversion?: ConversionValidee;
+  /** Lot B2 : appele DANS la transaction du depot reel (jamais en simulation), apres l'insertion : consomme le job (un seul depot par job). */
+  apresDepot?: (tx: Tx, jeuId: string) => Promise<void>;
 }
+
+/** Taille du fichier d'origine : celle du job pour une conversion, sinon celle du fichier recu. */
+const tailleDe = (d: DemandeDepot): number => (d.conversion ? d.conversion.source.octets : d.fichier.length);
 
 /** Ce que renvoie le depot en plus du socle : delta detaille, suppressions a revoir, validation geometrique. */
 export interface Suppressions { statut: "AUCUNE" | "A_REVOIR"; nb: number }
@@ -82,6 +104,7 @@ class SimulationTerminee extends Error {
   constructor(public readonly resultat: unknown) { super("simulation terminee"); }
 }
 
+/** Defaut du role (premiere version) ; une nouvelle version herite du niveau le plus restrictif de sa lignee (`confidentialite-depot.noyau.ts`). */
 export const confidentialiteParDefaut = (role: Role): Niveau => (role === "RESEAU_TIERS" ? "CONFIDENTIEL_CONCESSIONNAIRE" : "RESTREINT_PROJET");
 
 /** Nature imposee par le role, ou celle demandee (jamais AXE ou EMPRISE pour un reseau). */
@@ -189,22 +212,27 @@ function controlerLecture(c: ChampsDepot, lecture: ResultatImport): void {
 }
 
 export async function deposerJeu(d: DemandeDepot): Promise<ResultatDepot> {
-  const sha256 = createHash("sha256").update(d.fichier).digest("hex");
+  const sha256 = d.conversion ? d.conversion.source.sha256 : createHash("sha256").update(d.fichier).digest("hex");
   if (d.sha256Attendu !== undefined && d.sha256Attendu !== sha256) {
     throw new ErreurMetier(409, "EMPREINTE_DIVERGENTE", "Le fichier envoyé n'est pas celui de l'aperçu (empreinte SHA-256 différente) : relancez l'aperçu avec ce fichier.", { sha256 });
   }
   const options = d.options ?? {};
   const limites = limitesImport();
+  // Lot T1 : emprise nationale configuree, emprise du territoire du projet et liste blanche effective (CONTRAT-TERRITOIRES.md, section 6).
+  const ctx = await contexteSpatialDuProjet(d.projetId);
+  limites.lecture.emprise = ctx.zoneNationale;
+  limites.lecture.territoire = ctx.zoneTerritoire ?? undefined;
+  limites.crsAutorises = ctx.crsAutorises;
   // Lecture AVANT toute connexion a la base : un fichier refuse ne consomme ni transaction ni place dans le limiteur.
-  const preparation = preparer(detecter(d.fichier, d.nomFichier, options, limites), options, limites);
+  const preparation = preparer(d.conversion ? detecterConvertie(d.conversion, options) : detecter(d.fichier, d.nomFichier, options, limites), options, limites);
   const c = d.champs;
   natureEffective(c.role, c.natureObjets);
   // Un concessionnaire peut venir du mapping (colonne `concessionnaire`) : il est alors resolu dans la transaction.
   if (c.role === "RESEAU_TIERS" && !c.concessionnaireId && options.mapping?.concessionnaire === undefined) {
     throw new ErreurMetier(400, "CONCESSIONNAIRE_REQUIS", "Un réseau de concessionnaire exige le champ concessionnaireId.");
   }
-  if (c.role !== "RESEAU_TIERS" && (c.concessionnaireId || c.typeReseau)) {
-    throw new ErreurMetier(400, "CHAMPS_INVALIDES", "concessionnaireId et typeReseau ne s'appliquent qu'au rôle RESEAU_TIERS.");
+  if (c.role !== "RESEAU_TIERS" && (c.concessionnaireId || c.typeReseau || c.typeReseauCode)) {
+    throw new ErreurMetier(400, "CHAMPS_INVALIDES", "concessionnaireId, typeReseau et typeReseauCode ne s'appliquent qu'au rôle RESEAU_TIERS.");
   }
   // WGS 84 : la lecture est complete ici. CRS projete : elle s'acheve dans la transaction, apres ST_Transform.
   const lecture: ResultatImport | null = preparation.besoinTransformation ? null : preparation.terminer(META_WGS84, null);
@@ -222,6 +250,14 @@ export async function deposerJeu(d: DemandeDepot): Promise<ResultatDepot> {
       throw new ErreurMetier(409, "DEPOT_EN_ATTENTE", "Un dépôt équivalent vient d'être enregistré : relisez la liste des jeux.");
     }
     throw e;
+  }
+}
+
+/** 422 METHODE_ACQUISITION_INCONNUE si le code n'est pas une valeur active et non retiree du referentiel (une valeur desactivee reste lisible sur les jeux existants). */
+export async function exigerMethodeAcquisition(tx: Pick<Tx, "referentielVoirie">, code: string): Promise<void> {
+  const v = !estFormeMethodeAcquisition(code) ? null : await tx.referentielVoirie.findFirst({ where: { domaine: "METHODE_ACQUISITION", code, deletedAt: null, actif: true }, select: { id: true } });
+  if (!v) {
+    throw new ErreurMetier(422, "METHODE_ACQUISITION_INCONNUE", `La méthode d'acquisition « ${code.slice(0, 40)} » n'est pas une valeur active du référentiel METHODE_ACQUISITION (voir GET /referentiels/METHODE_ACQUISITION).`, { methodeAcquisition: code.slice(0, 40) });
   }
 }
 
@@ -262,6 +298,7 @@ async function appliquerPropositions(tx: Tx, c: ChampsDepot, props: ResultatImpo
       case "dateDonnees": if (c.dateDonnees === undefined) { champs.dateDonnees = String(prop.valeur); depuisMapping[champ] = prop; } break;
       case "dateConstat": if (c.dateConstat === undefined) { champs.dateConstat = String(prop.valeur); depuisMapping[champ] = prop; } break;
       case "natureObjets": if (c.natureObjets === undefined) { champs.natureObjets = prop.valeur as Nature; depuisMapping[champ] = prop; } break;
+      case "methodeAcquisition": if (c.methodeAcquisition === undefined) { champs.methodeAcquisition = String(prop.valeur); depuisMapping[champ] = prop; } break;
     }
   }
   return { champs, depuisMapping, avertissements };
@@ -293,17 +330,29 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
   if (c.role === "RESEAU_TIERS" && !c.concessionnaireId) throw new ErreurMetier(400, "CONCESSIONNAIRE_REQUIS", "Un réseau de concessionnaire exige le champ concessionnaireId (ou une colonne « concessionnaire » dont le nom est connu).");
 
   let typeReseau: TypeReseau | null = null;
+  let typeReseauCode: string | null = null;
   if (c.role === "RESEAU_TIERS") {
     const conc = await tx.concessionnaireReseau.findFirst({ where: { id: c.concessionnaireId, deletedAt: null } });
     if (!conc) throw introuvable("Concessionnaire", "CONCESSIONNAIRE_INTROUVABLE");
-    typeReseau = c.typeReseau ?? conc.typeReseau;
+    // Lot T1 : le code du referentiel (du depot, sinon du concessionnaire) donne la famille ; sans code, la famille declaree (repli).
+    // Correctifs T1+S1 (m6) : une famille demandee SANS code et differente de celle du concessionnaire est une surcharge (admise par le socle et par
+    // l'assistant) : le code du concessionnaire, d'une autre famille, n'est alors pas herite (sinon 400 TYPE_RESEAU_INCOHERENT).
+    const surchargeFamille = !c.typeReseauCode && c.typeReseau !== undefined && c.typeReseau !== conc.typeReseau;
+    const type = await resoudreTypeReseau(tx, { code: c.typeReseauCode ?? (surchargeFamille ? null : conc.typeReseauCode), famille: c.typeReseau ?? conc.typeReseau });
+    typeReseau = type.famille as TypeReseau;
+    typeReseauCode = type.code;
   }
   const concId = c.role === "RESEAU_TIERS" ? c.concessionnaireId! : null;
+  // Correctifs T1+S1 (M2) : la methode d'acquisition (du formulaire ou du mapping) est une valeur ACTIVE du referentiel METHODE_ACQUISITION.
+  if (c.methodeAcquisition) await exigerMethodeAcquisition(tx, c.methodeAcquisition);
 
   let version = 1;
   let remplace: { id: string; version: number } | null = null;
+  let niveauxLignee: string[] = [];
   if (c.role !== "AUTRE") {
-    const cle = { projetId: d.projetId, role: c.role, concessionnaireId: concId };
+    // Lot S1 : la methode d'acquisition fait partie de la cle d'un reseau de concessionnaire (seconde source), pas des autres roles (CONTRAT-SOURCES.md, 3.1).
+    // Correctifs T1+S1 (M3) : et le type de reseau (code configurable, sinon famille) : deux types d'un meme concessionnaire ne sont jamais versions l'un de l'autre.
+    const cle = filtreCleVersion({ projetId: d.projetId, role: c.role, concessionnaireId: concId, methodeAcquisition: c.methodeAcquisition ?? null, typeReseauCode, typeReseau });
     const attente = await tx.jeuDonneesProjet.findFirst({ where: { ...cle, statut: { in: ["RECU", "CONTROLE"] } }, select: { id: true, version: true } });
     if (attente) {
       throw new ErreurMetier(409, "DEPOT_EN_ATTENTE", "Un dépôt de même rôle et de même concessionnaire attend déjà son autorisation : autorisez-le, rejetez-le ou retirez-le d'abord.", { jeuId: attente.id, version: attente.version });
@@ -312,17 +361,24 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
     const max = await tx.jeuDonneesProjet.aggregate({ where: cle, _max: { version: true } });
     version = (max._max.version ?? 0) + 1;
     remplace = courant;
+    // Revue du lot X1, M1 : niveaux de TOUTE la lignee (tous statuts) ; la nouvelle version ne descend pas sous le plus restrictif sans ADMIN.
+    niveauxLignee = (await tx.jeuDonneesProjet.findMany({ where: cle, select: { confidentialite: true } })).map((j) => j.confidentialite);
+  }
+  const niveau = niveauDuDepot({ role: c.role, demande: c.confidentialite, niveauxLignee, roleActeur: d.acteur.role, justification: c.justificationConfidentialite });
+  if (!niveau.ok) throw new ErreurMetier(niveau.status, niveau.code, niveau.message, niveau.extra);
+  if (c.justificationConfidentialite !== undefined && !niveau.abaissement) {
+    throw new ErreurMetier(400, "CHAMPS_INVALIDES", "justificationConfidentialite ne s'emploie que pour abaisser le niveau de confidentialite sous celui de la lignee ou du role (ADMIN).");
   }
 
   const id = randomUUID();
   await tx.jeuDonneesProjet.create({
     data: {
-      id, projetId: d.projetId, role: c.role, concessionnaireId: concId, typeReseau,
-      nomFichier: d.nomFichier.slice(0, 255), format: lecture.format, sha256, tailleOctets: d.fichier.length, nbObjets: 0,
+      id, projetId: d.projetId, role: c.role, concessionnaireId: concId, typeReseau, typeReseauCode,
+      nomFichier: d.nomFichier.slice(0, 255), format: lecture.format, sha256, tailleOctets: tailleDe(d), nbObjets: 0,
       dateDonnees: dateJour(c.dateDonnees), origineFichier: c.origineFichier ?? null,
       classePrecision: c.classePrecision ?? null, precisionHorizontaleM: c.precisionHorizontaleM ?? null, precisionVerticaleM: c.precisionVerticaleM ?? null,
-      methode: c.methode ?? null, dateConstat: dateJour(c.dateConstat), natureObjets: nature,
-      confidentialite: c.confidentialite ?? confidentialiteParDefaut(c.role), statut: "CONTROLE", version, remplaceId: remplace?.id ?? null,
+      methode: c.methode ?? null, methodeAcquisition: c.methodeAcquisition ?? null, dateConstat: dateJour(c.dateConstat), natureObjets: nature,
+      confidentialite: niveau.niveau as Niveau, statut: "CONTROLE", version, remplaceId: remplace?.id ?? null,
       creeParId: d.acteur.id,
     },
   });
@@ -336,6 +392,8 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
   if (process.env.PV_TRACE === "1") console.info(`[projets-voirie] mesures (union des trace) : ${Math.round(performance.now() - t1)} ms`);
 
   const avertissements: Avertissement[] = [...lecture.avertissements, ...mappe.avertissements];
+  if (niveau.herite) avertissements.push({ code: "CONFIDENTIALITE_HERITEE", message: `Niveau de confidentialite herite de la lignee du jeu (${niveau.niveau}) : une nouvelle version ne descend pas sous le niveau le plus restrictif de ses versions.` });
+  if (niveau.abaissement) avertissements.push({ code: "CONFIDENTIALITE_ABAISSEE", message: `Niveau abaisse par un administrateur de ${niveau.abaissement.de} a ${niveau.abaissement.vers} (justification auditee).` });
   if (bilan.reparees > 0) avertissements.push({ code: "GEOMETRIES_REPAREES", message: "Géométries invalides réparées par la base (anneau qui se croise, par exemple).", nb: bilan.reparees });
   if (bilan.vides > 0) avertissements.push({ code: "GEOMETRIES_VIDES_IGNOREES", message: "Géométries devenues vides après réparation, ignorées.", nb: bilan.vides });
 
@@ -348,7 +406,8 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
     delta = { ajoutes: dj.ajoutes, modifies: dj.modifies, retires: dj.retires, identiques: dj.identiques };
     suppressions = { statut: dj.retires > 0 ? "A_REVOIR" : "AUCUNE", nb: dj.retires };
   }
-  const conservation = modeConservationOriginal();
+  // Un fichier converti n'est jamais conserve en entier : seuls l'empreinte et la taille du fichier d'origine le sont (le spool est purge).
+  const conservation = d.conversion ? "EMPREINTE_SEULE" : modeConservationOriginal();
   const validationGeometrique: ValidationGeometrique = { nbProblemes: bilan.reparees, problemes: bilan.problemes, tronque: bilan.reparees > bilan.problemes.length, elementsEcartes: lecture.ecartes };
 
   const resume = {
@@ -371,9 +430,22 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
       avertissements: avertissements as unknown as Prisma.InputJsonValue, resume: resume as unknown as Prisma.InputJsonValue,
     },
   });
+  // Lot S1 : connexions DECLAREES par une colonne du fichier (mapping `connecteA`) : resolues par le NOM d'un objet du meme jeu, jamais par proximite.
+  // Avant la fin d'une simulation : le resume les compte, la transaction annulee ne garde rien.
+  const colonneConnexion = lecture.importInfo.mapping.connecteA;
+  let connexions: { creees: number; nonResolues: number } | null = null;
+  if (colonneConnexion !== undefined) {
+    if (nature !== "ACTIF_PHYSIQUE" && nature !== "EQUIPEMENT") {
+      throw new ErreurMetier(422, "CONNECTE_A_NATURE_REQUISE", "Des connexions déclarées (mapping connecteA) ne relient que des objets physiques : déclarez la nature du jeu (ACTIF_PHYSIQUE ou EQUIPEMENT).");
+    }
+    connexions = await insererConnexionsDeclarees(tx, { projetId: d.projetId, jeuId: id, colonne: colonneConnexion, acteurId: d.acteur.id, justification: `Connexion déclarée par le fichier ${d.nomFichier.slice(0, 120)} (colonne ${colonneConnexion.slice(0, 60)})` });
+    if (connexions.nonResolues > 0) avertissements.push({ code: "CONNEXIONS_NON_RESOLUES", message: "Des objets désignent un objet connecté introuvable ou ambigu dans le même fichier : aucune connexion n'est créée pour eux (rien n'est deviné).", nb: connexions.nonResolues });
+    (resume.import as Record<string, unknown>).connexionsDeclarees = connexions;
+    await tx.jeuDonneesProjet.update({ where: { id }, data: { avertissements: avertissements as unknown as Prisma.InputJsonValue, resume: resume as unknown as Prisma.InputJsonValue } });
+  }
   // Fichier d'origine : seulement si la configuration le demande (retention a decider ; defaut : empreinte seule, comme le socle).
   if (conservation === "STOCKE" && !d.simuler) {
-    await tx.fichierOrigineJeuProjet.create({ data: { jeuId: id, sha256, tailleOctets: d.fichier.length, contenu: d.fichier } });
+    await tx.fichierOrigineJeuProjet.create({ data: { jeuId: id, sha256, tailleOctets: tailleDe(d), contenu: d.fichier } });
   }
 
   const jeu = await tx.jeuDonneesProjet.findUniqueOrThrow({ where: { id }, include: INCLURE_JEU });
@@ -388,13 +460,15 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
     validationGeometrique,
   };
   if (d.simuler) throw new SimulationTerminee(resultat);
+  if (d.apresDepot) await d.apresDepot(tx, id);
 
   await logAuditTransactionnelle(tx, {
     userId: d.acteur.id, action: "CREATE", entityType: "JeuDonneesProjet", entityId: id,
     after: {
       projetId: d.projetId, role: c.role, concessionnaireId: concId, nomFichier: jeu.nomFichier, format: lecture.format, sha256,
-      tailleOctets: d.fichier.length, nbObjets: mesures.nbObjets, longueurTraceFusionneM: mesures.longueurTraceFusionneM,
-      version, statut: "CONTROLE", confidentialite: jeu.confidentialite, natureObjets: nature, classePrecision: c.classePrecision ?? null,
+      tailleOctets: tailleDe(d), nbObjets: mesures.nbObjets, longueurTraceFusionneM: mesures.longueurTraceFusionneM,
+      version, statut: "CONTROLE", confidentialite: jeu.confidentialite, abaissementConfidentialite: niveau.abaissement, natureObjets: nature, classePrecision: c.classePrecision ?? null, methodeAcquisition: c.methodeAcquisition ?? null,
+      connexionsDeclarees: connexions,
       origineFichier: c.origineFichier ?? null, remplaceId: remplace?.id ?? null, delta, suppressions,
       avertissements: avertissements.map((a) => ({ code: a.code, nb: a.nb ?? null })),
       // CRS source, cible, unites et methode : conserves dans l'audit (jamais de geometrie).
@@ -408,6 +482,8 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
         champsDepuisMapping: Object.fromEntries(Object.entries(mappe.depuisMapping).map(([k, v]) => [k, v.colonne])),
         csv: lecture.importInfo.csv ? { mode: lecture.importInfo.csv.mode, delimiteur: lecture.importInfo.csv.delimiteur, encodage: lecture.importInfo.csv.encodage, nbLignesRejetees: lecture.importInfo.csv.nbLignesRejetees } : null,
         conservationOriginal: conservation,
+        // Lot B2 : provenance d'une conversion GDAL (job, version de GDAL et de PROJ, couches lues, comptes DXF) : jamais de geometrie.
+        conversion: lecture.importInfo.conversion ?? null,
       },
     },
     ipAddress: d.acteur.ip,

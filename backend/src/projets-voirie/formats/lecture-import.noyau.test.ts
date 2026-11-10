@@ -58,12 +58,12 @@ describe("detection par le contenu, jamais par l'extension", () => {
     expect(code(() => lire(Buffer.from("a,b\n1,\u0000\n"), "a.csv"))).toBe("CONTENU_NON_RECONNU");
   });
 
-  it("texte libre, DXF renomme, XML d'une autre racine, ZIP de Shapefile, JSON non GeoJSON : FORMAT_NON_SUPPORTE", () => {
+  it("texte libre, XML d'une autre racine, JSON non GeoJSON : FORMAT_NON_SUPPORTE ; DXF et ZIP de Shapefile : FORMAT_GDAL_DESACTIVE (lot B2, interrupteur coupe par defaut)", () => {
     expect(code(() => lire("Bonjour,\nceci est une lettre.\n", "plan.txt"))).toBe("FORMAT_NON_SUPPORTE");
-    expect(code(() => lire("0\nSECTION\n2\nHEADER\n0\nENDSEC\n", "plan.txt"))).toBe("FORMAT_NON_SUPPORTE");
-    expect(code(() => lire("0\nSECTION\n2\nHEADER\n", "plan.dxf"))).toBe("FORMAT_NON_SUPPORTE");
+    expect(code(() => lire("0\nSECTION\n2\nHEADER\n0\nENDSEC\n", "plan.txt"))).toBe("FORMAT_GDAL_DESACTIVE"); // reconnu comme DXF par le contenu
+    expect(code(() => lire("0\nSECTION\n2\nHEADER\n", "plan.dxf"))).toBe("FORMAT_GDAL_DESACTIVE");
     expect(code(() => lire(`<svgx/>`, "a.xml"))).toBe("FORMAT_NON_SUPPORTE");
-    expect(code(() => lire(construireZip([{ nom: "axes.shp", contenu: "x" }, { nom: "axes.dbf", contenu: "x" }]).buffer, "axes.zip"))).toBe("FORMAT_NON_SUPPORTE");
+    expect(code(() => lire(construireZip([{ nom: "axes.shp", contenu: "x" }, { nom: "axes.dbf", contenu: "x" }]).buffer, "axes.zip"))).toBe("FORMAT_GDAL_DESACTIVE");
     expect(code(() => lire(JSON.stringify({ hello: 1 }), "a.json"))).toBe("FORMAT_NON_SUPPORTE");
   });
 
@@ -254,7 +254,11 @@ describe("CRS : choisi par l'utilisateur, jamais devine", () => {
     const projete = (name: string) => geojson([feat({}, [380000, 1015000])], { crs: { type: "name", properties: { name } } });
     expect(code(() => lire(projete("urn:ogc:def:crs:EPSG::32629"), "a.geojson"))).toBe("CRS_REQUIS");
     expect(code(() => lire(projete("urn:ogc:def:crs:EPSG::32629"), "a.geojson", { epsgSource: 32628 }))).toBe("CRS_CONFLIT");
-    expect(lire(projete("EPSG:32629"), "a.geojson", { epsgSource: 32629 }).crs).toMatchObject({ transformation: "ST_Transform", epsgSource: 32629 });
+    const declare = lire(projete("EPSG:32629"), "a.geojson", { epsgSource: 32629 });
+    expect(declare.crs).toMatchObject({ transformation: "ST_Transform", epsgSource: 32629, origine: "declare_dans_le_fichier" });
+    // Defaut D5 du pilote : le fichier declare son CRS, ce n'est pas un choix inverifiable de l'utilisateur.
+    expect(declare.avertissements.map((a) => a.code)).not.toContain("CRS_CHOISI_PAR_UTILISATEUR");
+    expect(declare.crs.justification).toMatch(/declare par le fichier et confirme/);
     expect(code(() => lire(projete("urn:ogc:def:crs:OGC:1.3:CRS83"), "a.geojson", { epsgSource: 32629 }))).toBe("CRS_NON_SUPPORTE");
     const wgs = geojson([feat({}, [-10.1, 9.2])], { crs: { type: "name", properties: { name: "urn:ogc:def:crs:OGC:1.3:CRS84" } } });
     expect(code(() => lire(wgs, "a.geojson", { epsgSource: 32629 }))).toBe("CRS_CONFLIT");

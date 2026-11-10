@@ -12,7 +12,7 @@ export const S = 9.18;
 export function jeu(over: Partial<JeuProjet> = {}): JeuProjet {
   return {
     id: "jeu-1", projetId: "p1", role: "RESEAU_TIERS",
-    concessionnaire: { id: "c1", nom: "Operateur synthetique A", typeReseau: "TELECOM" }, typeReseau: "TELECOM",
+    concessionnaire: { id: "c1", nom: "Operateur synthetique A", typeReseau: "TELECOM" }, typeReseau: "TELECOM", typeReseauCode: null, methodeAcquisition: null,
     nomFichier: "reseau-synthetique.kml", format: "KML", sha256: "a".repeat(64), nbObjets: 4, longueurTotaleM: 2600, longueurTraceFusionneM: 1800,
     dateDonnees: "2026-10-24", origineFichier: null, classePrecision: "INCONNUE", precisionHorizontaleM: null, precisionVerticaleM: null, methode: null, dateConstat: null,
     natureObjet: "INCONNUE", confidentialite: "CONFIDENTIEL_CONCESSIONNAIRE", statut: "AUTORISE", nonAutorise: false, justification: null, version: 1,
@@ -37,7 +37,8 @@ export const JEU_GAZ_CONTROLE = jeu({
 export function projetResume(over: Partial<ProjetResume> = {}): ProjetResume {
   return {
     id: "p1", code: "VOIRIE-SYNTH-2026", nom: "Voirie synthetique", commune: "Commune test", prefecture: "Prefecture test",
-    largeurEmpriseM: 15, largeurChausseeM: 7, statutParametres: "THEORIQUE", nbJeux: 3, jeuxParStatut: { AUTORISE: 3 }, createdAt: "2026-10-28T08:00:00Z", ...over,
+    largeurEmpriseM: 15, largeurChausseeM: 7, statutParametres: "THEORIQUE", nbJeux: 3, jeuxParStatut: { AUTORISE: 3 }, createdAt: "2026-10-28T08:00:00Z",
+    territoireId: null, territoire: null, categorieCode: null, ...over,
   };
 }
 

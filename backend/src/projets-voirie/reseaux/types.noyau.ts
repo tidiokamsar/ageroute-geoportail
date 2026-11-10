@@ -29,13 +29,14 @@ export const TYPES_OBJET_PAR_NATURE: Readonly<Record<NatureDeclarable, readonly 
   EQUIPEMENT: ["VANNE", "TRANSFORMATEUR", "BOITE", "JONCTION", "ARMOIRE", "COMPTEUR", "BORNE", "AUTRE"],
 };
 
-export const TYPES_RELATION = ["PORTE_PAR", "CONTENU_DANS"] as const;
+/** Lot S1 : CONNECTE_A est une connexion DECLAREE (import ou saisie), jamais deduite d une proximite ; elle porte une preuve. */
+export const TYPES_RELATION = ["PORTE_PAR", "CONTENU_DANS", "CONNECTE_A"] as const;
 export type TypeRelation = (typeof TYPES_RELATION)[number];
 
 export const STATUTS_RELATION = ["PROPOSEE", "VALIDEE", "REFUSEE", "REVOQUEE"] as const;
 export type StatutRelation = (typeof STATUTS_RELATION)[number];
 
-export const ORIGINES_RELATION = ["AUTOMATIQUE", "MANUELLE"] as const;
+export const ORIGINES_RELATION = ["AUTOMATIQUE", "MANUELLE", "IMPORT_DECLARATIF"] as const;
 export type OrigineRelation = (typeof ORIGINES_RELATION)[number];
 
 /** Un identifiant d'objet (`bigint` de la base, rendu en TEXTE) : entier positif sur au plus 18 chiffres, la seule forme acceptee sans debordement. */

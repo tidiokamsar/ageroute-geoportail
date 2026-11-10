@@ -8,8 +8,8 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 vi.mock("react-leaflet", async () => (await import("../components/projets-voirie/carteDouble.testutil")).moduleReactLeaflet());
 
-const h = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
-vi.mock("../lib/api", () => ({ api: { get: h.get, post: h.post, patch: vi.fn(), delete: vi.fn() } }));
+const h = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn() }));
+vi.mock("../lib/api", () => ({ api: { get: h.get, post: h.post, put: h.put, patch: vi.fn(), delete: vi.fn() } }));
 vi.mock("../lib/auth", () => ({ useAuth: () => ({ user: { id: "u", role: "ADMIN", modulesAutorises: [] } }) }));
 vi.mock("../lib/toast", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock("../lib/download", () => ({ downloadViaApi: vi.fn().mockResolvedValue(undefined) }));
@@ -19,6 +19,9 @@ import { analyse, couche, ligne, projetFiche } from "../components/projets-voiri
 import { BASE, reponseApi } from "../components/projets-voirie/conflitsPage.testutil";
 import { OPTIONS, apercu as apercuImport, inventaireKmlUneCouche, reponseDepot } from "../components/projets-voirie/assistant/assistantImport.testutil";
 import { downloadViaApi } from "../lib/download";
+import { BASE_RESEAU, carteAvecObjets, objetQualifie, projetFicheReseau, reponseApiReseau, resultatPropositionServeur } from "../components/projets-voirie/reseaux/reseauxSynthetiques.testutil";
+import { D2, T1, R1, W, demandeEnvoyee, ficheDemandeServeur, profilServeur, recolementServeur, ficheRecolementServeur, transRec, reponseApiWorkflow } from "../components/projets-voirie/workflow/workflowSynthetiques.testutil";
+import { ProjetVoirieWorkflowPage } from "./ProjetVoirieWorkflowPage";
 
 /**
  * AUCUN RESEAU DE CONCESSIONNAIRE N'EST CONSERVE SUR L'APPAREIL (contrat, sections 2 et 6).
@@ -54,8 +57,11 @@ const sansCommentaires = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "").repla
 describe("preuve statique", () => {
   const fichiers = fichiersDuModule();
   it("le module compte bien des fichiers (la recherche ne porte pas sur un dossier vide)", () => {
-    // Socle (14) + dossiers de conflit (lot RC-3 : 3 lib, 8 composants) + assistant d'import (lot A2 : 6 lib, 10 composants).
-    expect(fichiers.length).toBeGreaterThanOrEqual(40);
+    // Socle (14) + dossiers de conflit (lot RC-3 : 3 lib, 8 composants) + assistant d'import (lot A2 : 6 lib, 10 composants) + reseaux (lot UI-B1 : 3 lib, 8 composants).
+    expect(fichiers.length).toBeGreaterThanOrEqual(50);
+    expect(fichiers.some((f) => /reseaux[\\/]OngletReseaux\.tsx$/.test(f))).toBe(true);
+    expect(fichiers.some((f) => /projetsVoirieReseauxApi\.ts$/.test(f))).toBe(true);
+    expect(fichiers.some((f) => /components[\\/]projets-voirie[\\/]CadreDialogue\.tsx$/.test(f))).toBe(true);
     expect(fichiers.some((f) => /assistant[\\/]AssistantImport\.tsx$/.test(f))).toBe(true);
     expect(fichiers.some((f) => /projetsVoirieImportApi\.ts$/.test(f))).toBe(true);
   });
@@ -98,6 +104,23 @@ describe("preuve statique", () => {
       const src = sansCommentaires(readFileSync(f, "utf8"));
       expect(src, path.relative(RACINE, f)).not.toMatch(/FileReader|createObjectURL|\.text\(\)|\.arrayBuffer\(|dangerouslySetInnerHTML|innerHTML|bindPopup|setHTML/);
     }
+  });
+  it("les reseaux n'appellent que les routes du lot B1 : aucune geometrie, aucun ordre, aucun deplacement, aucune suppression, aucune API publique", () => {
+    const api = sansCommentaires(readFileSync(path.join(RACINE, "lib/projetsVoirieReseauxApi.ts"), "utf8"));
+    expect(api).not.toMatch(/\/api\/public|\/public\//);
+    expect(api).not.toMatch(/export\.(geojson|kml|kmz|shp)/i);
+    const routes = [...api.matchAll(/`\$\{BASE\}([^`]*)`/g)].map((m) => m[1].replace(/\/\$\{id\(\w+\)\}/g, "").replace(/\/\$\{action\}/, "/:action"));
+    expect(routes.sort()).toEqual(["/reseau/associations/proposer", "/reseau/comptage", "/reseau/objets", "/reseau/objets", "/reseau/objets/descripteur", "/reseau/relations", "/reseau/relations", "/reseau/relations/:action"].sort());
+    expect(routes.filter((r) => /deplacer|ordre|ordonner|executer|geometrie/i.test(r))).toEqual([]);
+    expect(api).not.toMatch(/api\.delete/);
+  });
+  it("le workflow n'appelle que les routes du lot B3 : aucun envoi, message, ordre, deplacement, suppression ni fichier ; aucune API publique", () => {
+    const api = sansCommentaires(readFileSync(path.join(RACINE, "lib/projetsVoirieWorkflowApi.ts"), "utf8"));
+    expect(api).not.toMatch(/\/api\/public|\/public\//);
+    const routes = [...api.matchAll(/`\$\{(?:BASE|W\(projetId\))\}([^`]*)`/g)].map((m) => m[1].replace(/\/\$\{id\(\w+\)\}/g, ""));
+    expect(routes.length).toBeGreaterThanOrEqual(20);
+    expect(routes.filter((r) => /envoyer|message|mail|notifier|ordre|ordonner|deplacer|executer|supprimer|fichier|upload|telecharg/i.test(r))).toEqual([]);
+    expect(api).not.toMatch(/api\.delete|FormData|multipart/);
   });
   it("aucune route, aucun appel du module ne vise l'API publique ni une exportation de geometrie", () => {
     const api = sansCommentaires(readFileSync(path.join(RACINE, "lib/projetsVoirieApi.ts"), "utf8"));
@@ -167,7 +190,7 @@ describe("preuve a l'execution : un parcours complet ne touche aucun stockage", 
     await userEvent.click(screen.getByRole("tab", { name: "Couches" }));
     await screen.findByRole("heading", { name: /Fichiers reçus, à autoriser/ });
     await userEvent.click(screen.getByRole("button", { name: /Ajouter des données/ }));
-    const d = await screen.findByRole("dialog");
+    const d = await screen.findByRole("dialog", undefined, { timeout: 15000 });
     await screen.findByTestId("formats-acceptes");
     await userEvent.upload(d.querySelector("input[type=file]")!, new File(["<kml/>"], "reseau-synthetique.kml"));
     await screen.findByRole("option", { name: /Operateur synthetique A/ });
@@ -242,6 +265,98 @@ describe("preuve a l'execution : un parcours complet ne touche aucun stockage", 
     expect(espions.length).toBeGreaterThanOrEqual(10);
     expect(espions.flatMap((e) => e.mock.calls)).toEqual([]);
   }, 90_000);
+
+  it("onglet Reseaux : liste, fiche, qualification, validation d'une relation, proposition automatique, comptage, mise en evidence sur la carte : zero appel de stockage", async () => {
+    h.get.mockImplementation(async (url: string, opts?: { params?: Record<string, unknown> }) => reponseApiReseau(url, opts?.params, { fiche: JSON.parse(JSON.stringify(projetFicheReseau())), carte: carteAvecObjets() }));
+    h.post.mockReset(); h.post.mockImplementation(async (url: string) => ({ data: url.endsWith("/associations/proposer") ? resultatPropositionServeur() : {} }));
+    h.put.mockReset(); h.put.mockResolvedValue({ data: { objet: objetQualifie({ id: "10" }) } });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(
+      <MemoryRouter initialEntries={["/projets-voirie/p1"]}>
+        <QueryClientProvider client={qc}>
+          <Routes><Route path="/projets-voirie/:id" element={<ProjetVoirieDetailPage />} /></Routes>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    await userEvent.click(await screen.findByRole("tab", { name: "Réseaux" }, { timeout: 25000 }));
+    await screen.findAllByTestId("objet-carte", undefined, { timeout: 25000 });
+    await userEvent.click(await waitFor(() => { const b = document.querySelector<HTMLButtonElement>('button[data-objet-reseau-id="10"]'); if (!b) throw new Error("liste absente"); return b; }, { timeout: 25000 }));
+    const f = await screen.findByTestId("fiche-objet-reseau");
+    await userEvent.click(within(f).getByRole("button", { name: /Mettre en évidence sur la carte/ }));
+    await screen.findByTestId("legende-objet-reseau");
+    // Qualification.
+    await userEvent.click(within(f).getByRole("button", { name: "Qualifier l'objet" }));
+    let d = await screen.findByRole("dialog");
+    await userEvent.selectOptions(within(d).getByLabelText("Classe de précision"), "A");
+    await userEvent.type(within(d).getByLabelText(/Justification/), "Levé contrôlé avec le chef de projet");
+    await userEvent.click(within(d).getByRole("button", { name: "Enregistrer le descripteur" }));
+    await waitFor(() => expect(h.put).toHaveBeenCalledWith(`${BASE_RESEAU}/objets/10/descripteur`, expect.anything()));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // Validation d'une proposition.
+    await userEvent.click(within(f).getByRole("button", { name: /Valider cette association/ }));
+    d = await screen.findByRole("dialog");
+    await userEvent.type(within(d).getByLabelText(/Justification/), "Superposition confirmée sur le terrain");
+    await userEvent.click(within(d).getByRole("button", { name: "Valider la relation" }));
+    await waitFor(() => expect(h.post).toHaveBeenCalledWith(expect.stringMatching(/\/relations\/.+\/valider$/), { justification: "Superposition confirmée sur le terrain" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    // Proposition automatique et comptage.
+    await userEvent.click(within(f).getByRole("button", { name: "Retour à la liste des objets" }));
+    await userEvent.click(screen.getByRole("button", { name: "Relations" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Lancer une proposition automatique" }));
+    await screen.findByTestId("resultat-proposition");
+    await userEvent.click(screen.getByRole("button", { name: "Comptage" }));
+    await screen.findByTestId("resultat-comptage");
+    expect(espions.length).toBeGreaterThanOrEqual(10);
+    expect(espions.flatMap((e) => e.mock.calls)).toEqual([]);
+  }, 120_000);
+
+  it("ecran des echanges : profil, demande (envoi enregistre), tache, recolement (soumission), preuve, referents : zero appel de stockage", async () => {
+    const soumettre = recolementServeur({ transitionsPossibles: [transRec("SOUMIS")] });
+    h.get.mockImplementation(async (url: string, opts?: { params?: Record<string, unknown> }) => reponseApiWorkflow(url, opts?.params, {
+      profil: profilServeur("ADMIN"), demandes: { demandes: [demandeEnvoyee()], compteurs: { ENVOYEE: 1 }, curseurSuivant: null },
+      fichesDemandes: { [D2]: ficheDemandeServeur(demandeEnvoyee(), ["RECUE", "CLOTUREE", "ANNULEE"], [], []) },
+      recolements: { recolements: [soumettre], compteurs: { BROUILLON: 1 }, curseurSuivant: null }, fichesRecolements: { [R1]: ficheRecolementServeur(soumettre, [], []) },
+    }));
+    h.post.mockReset(); h.post.mockResolvedValue({ data: {} });
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    render(
+      <MemoryRouter initialEntries={["/projets-voirie/p1/echanges"]}>
+        <QueryClientProvider client={qc}>
+          <Routes><Route path="/projets-voirie/:id/echanges" element={<ProjetVoirieWorkflowPage />} /></Routes>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: /Releve des chambres/ }, { timeout: 25000 }));
+    const f = await screen.findByTestId("fiche-demande");
+    await userEvent.click(within(f).getByRole("button", { name: "Annuler la demande" }));
+    let d = await screen.findByRole("dialog");
+    await userEvent.type(within(d).getByLabelText(/Motif/), "Doublon de la demande n° 2");
+    await userEvent.click(within(d).getByRole("button", { name: "Annuler la demande" }));
+    await waitFor(() => expect(h.post).toHaveBeenCalledWith(`${W}/demandes/${D2}/statut`, { vers: "ANNULEE", justification: "Doublon de la demande n° 2" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await userEvent.click(screen.getByRole("tab", { name: "Tâches" }));
+    await screen.findByRole("list", { name: "Liste : taches" });
+    expect(document.querySelector(`button[data-tache-id="${T1}"]`)).toBeTruthy();
+    await userEvent.click(screen.getByRole("tab", { name: "Récolements" }));
+    await userEvent.click(await waitFor(() => { const b = document.querySelector<HTMLButtonElement>(`button[data-recolement-id="${R1}"]`); if (!b) throw new Error("liste absente"); return b; }, { timeout: 25000 }));
+    const r = await screen.findByTestId("fiche-recolement");
+    await userEvent.click(within(r).getByRole("button", { name: "Soumettre pour validation" }));
+    d = await screen.findByRole("dialog");
+    await userEvent.type(within(d).getByLabelText(/Justification/), "Pret pour validation");
+    await userEvent.click(within(d).getByRole("button", { name: "Enregistrer" }));
+    await waitFor(() => expect(h.post).toHaveBeenCalledWith(`${W}/recolements/${R1}/statut`, { vers: "SOUMIS", justification: "Pret pour validation" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await userEvent.click(within(r).getByRole("button", { name: "Ajouter une preuve" }));
+    d = await screen.findByRole("dialog");
+    await userEvent.type(within(d).getByLabelText(/Texte de la preuve/), "Plan de recolement signe");
+    await userEvent.click(within(d).getByRole("button", { name: "Ajouter la preuve" }));
+    await waitFor(() => expect(h.post).toHaveBeenCalledWith(`${W}/recolements/${R1}/preuves`, expect.objectContaining({ texte: "Plan de recolement signe" })));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await userEvent.click(screen.getByRole("tab", { name: "Référents" }));
+    await screen.findByRole("list", { name: "Liste : référents" });
+    expect(espions.length).toBeGreaterThanOrEqual(10);
+    expect(espions.flatMap((e) => e.mock.calls)).toEqual([]);
+  }, 120_000);
 
   it("contre-epreuve : les espions voient bien un appel de stockage", () => {
     localStorage.setItem("essai", "1");

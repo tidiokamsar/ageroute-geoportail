@@ -11,10 +11,13 @@
  *   PROJETS_VOIRIE_CSV_LIGNES_MAX                    defaut 500 000            (100 a 5 000 000)
  *   PROJETS_VOIRIE_APERCU_ECHANTILLON                defaut 20                 (1 a 100)
  *   PROJETS_VOIRIE_DELAI_APERCU_MS                   defaut 30 000             (1 000 a 300 000)
+ *   PROJETS_VOIRIE_LANDXML_TOLERANCE_ARC_MM          defaut 10                 (1 a 1 000) lot D1 : fleche maximale (mm) entre un arc LandXML et ses cordes
  */
 
 import { sommetsParFichierMax, sommetsParObjetMax } from "../config";
 import { TAILLE_MAX_OCTETS } from "../lecture.types";
+import { configurationEnCache } from "../territoires/configuration.cache";
+import { CRS_PAR_DEFAUT, listeCrsEnv } from "../territoires/configuration.noyau";
 import type { LimitesCsv } from "./csv.noyau";
 import type { LimitesImport } from "./lecture-import.noyau";
 import type { LimitesZip } from "./zip.noyau";
@@ -26,15 +29,19 @@ function borne(nom: string, defaut: number, min: number, max: number): number {
   return Number.isInteger(v) && v >= min && v <= max ? v : defaut;
 }
 
-export const CRS_PAR_DEFAUT: readonly number[] = [4326, 32628, 32629];
+// Lot T1 : la liste par defaut vit dans le noyau de configuration (une seule definition) ; reexportee pour les appelants historiques.
+export { CRS_PAR_DEFAUT } from "../territoires/configuration.noyau";
 
-/** Liste blanche des CRS source qu'un utilisateur peut choisir. Une entree illisible fait revenir a la liste par defaut en entier. */
+/**
+ * Liste blanche des CRS source qu'un utilisateur peut choisir. Une entree illisible fait revenir a la liste par defaut en entier.
+ * Lot T1 : resolution environnement > configuration en base (derniere lecture en cache) > defaut ; les services asynchrones passent par
+ * `contexteSpatialDuProjet` (territoires/contexte-spatial.ts), qui rafraichit le cache avant de lire.
+ */
 export function crsSourceAutorises(): number[] {
-  const brut = process.env.PROJETS_VOIRIE_CRS_SOURCE_AUTORISES;
-  if (brut === undefined || brut.trim() === "") return [...CRS_PAR_DEFAUT];
-  const morceaux = brut.split(",").map((s) => s.trim());
-  if (morceaux.length > 20 || morceaux.some((s) => !/^[1-9]\d{3,5}$/.test(s))) return [...CRS_PAR_DEFAUT];
-  return [...new Set(morceaux.map(Number))];
+  const env = listeCrsEnv(process.env.PROJETS_VOIRIE_CRS_SOURCE_AUTORISES);
+  if (env) return env;
+  const base = configurationEnCache()?.CRS_IMPORT_LISTE_BLANCHE.epsg;
+  return base ? [...base] : [...CRS_PAR_DEFAUT];
 }
 
 export type ModeConservation = "EMPREINTE_SEULE" | "STOCKE";
@@ -72,4 +79,8 @@ export const limitesImport = (): LimitesImport => ({
   zip: limitesZip(),
   csv: limitesCsv(),
   crsAutorises: crsSourceAutorises(),
+  landxml: { toleranceArcM: toleranceArcLandXmlMm() / 1000 },
 });
+
+/** Lot D1 : tolerance de discretisation des arcs d'un LandXML, en millimetres (borne de protection, a valider par le DSI). */
+export const toleranceArcLandXmlMm = () => borne("PROJETS_VOIRIE_LANDXML_TOLERANCE_ARC_MM", 10, 1, 1_000);

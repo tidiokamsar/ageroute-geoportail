@@ -54,12 +54,16 @@ export async function listerConflitsVue(acteur: ActeurWorkflow, projetId: string
   if (filtre.statuts !== null) and.push({ statut: { in: [...filtre.statuts] as never[] } });
   if (f.statuts?.length) and.push({ statut: { in: f.statuts as never[] } });
   if (f.types?.length) and.push({ type: { in: f.types as never[] } });
-  if (filtre.jeuxAutorisesSeulement) and.push({ jeuReseau: { is: { statut: "AUTORISE" } } }, { OR: [{ jeuAxesId: null }, { jeuAxes: { is: { statut: "AUTORISE" } } }] });
+  if (filtre.jeuxAutorisesSeulement) {
+    and.push({ jeuReseau: { is: { statut: "AUTORISE" } } }, { OR: [{ jeuAxesId: null }, { jeuAxes: { is: { statut: "AUTORISE" } } }] },
+      // Correctifs T1+S1 (B1) : le jeu B d'un dossier DIVERGENCE_SOURCES doit aussi etre AUTORISE.
+      { OR: [{ jeuSourceBId: null }, { jeuSourceB: { is: { statut: "AUTORISE" } } }] });
+  }
   const lignes = await prisma.conflitProjet.findMany({
     where: { AND: [...and, ...(clauseCurseur(curseur) as Prisma.ConflitProjetWhereInput[])] }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: limite + 1,
     select: {
       id: true, type: true, axe: true, statut: true, risque: true, echeance: true, aReexaminer: true, responsableId: true, concessionnaireId: true, createdAt: true, updatedAt: true,
-      jeuReseau: { select: { statut: true } }, objet: { select: { nom: true } }, concessionnaire: { select: { id: true, nom: true } },
+      jeuReseau: { select: { statut: true } }, jeuSourceB: { select: { statut: true } }, objet: { select: { nom: true } }, concessionnaire: { select: { id: true, nom: true } },
     },
   });
   const page = lignes.slice(0, limite);
@@ -73,7 +77,7 @@ export async function listerConflitsVue(acteur: ActeurWorkflow, projetId: string
   return {
     conflits: page.map((c) => {
       // Les donnees tirees d'un jeu RETIRE ne sortent pour personne (regle du socle).
-      const lisible = c.jeuReseau === null || c.jeuReseau.statut !== "RETIRE";
+      const lisible = (c.jeuReseau === null || c.jeuReseau.statut !== "RETIRE") && (c.jeuSourceB === null || c.jeuSourceB.statut !== "RETIRE");
       const d = retenue.get(c.id);
       return {
         id: c.id, type: c.type, axe: c.axe, statut: c.statut,

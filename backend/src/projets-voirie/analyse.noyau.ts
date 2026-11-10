@@ -18,7 +18,11 @@
 
 export type Pt = readonly [number, number];
 
-/** EPSG 32628 (UTM 28N, meridien central -15) si la longitude est inferieure a -12, sinon 32629 (UTM 29N, meridien -9). */
+/**
+ * EPSG 32628 (UTM 28N, meridien central -15) si la longitude est inferieure a -12, sinon 32629 (UTM 29N, meridien -9).
+ * Lot T1 : c'est la REGLE PAR DEFAUT, exprimee en donnees dans la configuration `CRS_METRIQUE_BANDES` (territoires/configuration.noyau.ts,
+ * `epsgPourLongitudeSelon`) ; les services passent par `contexteSpatialDuProjet`. Cette fonction reste l'oracle du defaut pour les tests.
+ */
 export function epsgPourLongitude(longitude: number): 32628 | 32629 {
   return longitude < -12 ? 32628 : 32629;
 }

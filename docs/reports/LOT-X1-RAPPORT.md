@@ -1,0 +1,178 @@
+# Rapport du lot X1 : export du dossier technique, tableaux de bord national et par territoire
+
+Date : 10/11/2026. Branche `feat/exports-tableaux-de-bord` (issue de `feat/vague3-integration`, `facba4e`). Worktree `C:\ageroute-secours\w-x1`. Contrat : `docs/projets-voirie/CONTRAT-EXPORTS.md` (écrit et commité en premier, `1601651`). Migration : `20261104200000_exports_tableaux_de_bord`. Un seul agent, aucun sous-agent. Aucun push, aucun déploiement, aucun frontend, lecteur F: jamais utilisé, production non touchée. Deux coupures réseau pendant le lot : l'état du worktree a été vérifié après chacune (rien de perdu, rien de rejoué deux fois).
+
+## 1. Ce qui est fait
+
+- **Export du dossier technique** `GET /:id/export/dossier` (ADMIN et GESTIONNAIRE du périmètre ; 404 masqué hors périmètre ; projet retiré : 404 pour tous) : archive ZIP produite par le serveur, sous une racine `dossier-<code>/` : `LISEZMOI.txt`, `fiche-projet.json`, `fiche-projet.pdf` (PDF texte simple), `analyse/agregats.json` (analyse 2D sur les jeux `AUTORISE`, sans croisements, zones ni listes d'objets, et résumé de la dernière analyse de conflits), `conflits/dossiers.csv` (**le CSV existant**, même fonction, même neutralisation des formules), `documents/journal.json` et `journal.csv` (documents et historique de leurs lignées), `documents/completude.json`, GeoJSON des jeux exportables, `manifeste.json` (empreinte SHA-256 et taille de chaque fichier, jeux inclus et écartés avec leur raison) et `manifeste.sha256` (vérifiable par `sha256sum -c`). En-têtes `X-Export-Id`, `X-Empreinte-Sha256`, `X-Fichiers`, `X-Jeux-Geojson`.
+- **Confidentialité** : GeoJSON des seuls jeux `AUTORISE` d'un niveau exportable (`PUBLIC`, `INTERNE`, `RESTREINT_PROJET` par défaut ; réglage qui ne peut que restreindre) ; **jamais** `CONFIDENTIEL_CONCESSIONNAIRE` ni `INFRASTRUCTURE_SENSIBLE` sans dérogation ; niveau inconnu refusé (échec fermé) ; attributs des fichiers source jamais exportés ; **rien d'un jeu `RETIRE`** nulle part (fiche, GeoJSON, CSV, journal des documents : les détails d'historique qui désignent un jeu non lisible sont masqués).
+- **Dérogation ADMIN** `POST|GET /:id/export/derogations` : nominative (bénéficiaire ADMIN ou GESTIONNAIRE actif, avec la clé, dont le périmètre couvre la région du projet), justifiée (20 caractères), bornée (24 h par défaut, 7 jours au plus), pour des jeux nommés `AUTORISE` d'un niveau sensible (sinon 409 `DEROGATION_INUTILE`), **à usage unique** : vérifiée avant la fabrication, consommée sous condition dans la transaction de remise (journal, dérogation, audits : tout ou rien), et garantie par un déclencheur (immuable, consommée une seule fois, avant expiration).
+- **Bornes et protections** : objets et sommets comptés en base avant toute lecture de géométrie côté Node (422), taille de l'archive **compressée**, vérifiée après sa fabrication complète en mémoire (422 ; affirmation corrigée après revue, m9 : ce n'était pas une borne de la mémoire, voir section 8), délai total (504) et `statement_timeout` sur chaque lecture (une transaction `READ ONLY` pour la fiche, les jeux, les documents et l'historique ; celles de l'analyse, du CSV et de la complétude ont les leurs) ; 1 export par compte et 2 par processus (503) ; cadence par compte **comptée en base** (journal) et revérifiée sous verrou consultatif au moment de la remise (429 + `Retry-After`).
+- **Journal et audit** : table `exports_dossier_projet_voirie` en ajout seul (empreinte de l'archive, taille, manifeste sans géométrie) ; audits `ExportDossierProjetVoirie` (avant la remise) et `DerogationExportProjetVoirie` (création, consommation) ; `GET /:id/export/journal`.
+- **Tableaux de bord** `GET /tableau-de-bord` (national du compte, `parRegion`) et `GET /tableau-de-bord/territoires/:tid` (territoire et descendants : `total`, `rattachesDirectement`, `enfants`, `nonVentiles`) : projets, jeux par statut, dossiers par statut, documents manquants (types obligatoires non fournis, projets incomplets, pièces en attente), référents actifs ; **agrégats seulement** ; filtrés par périmètre ; un compte qui ne décide pas ne compte que les jeux `AUTORISE`, les dossiers dont **chaque** jeu lié est `AUTORISE` (réseau, plan d'axes **et jeu B d'une comparaison** : le défaut B1 de la revue T1+S1 n'est pas reproduit), et reçoit `null` pour les pièces en cours et les référents ; une transaction `READ ONLY` à budget côté base, 4 calculs par processus, cadence par compte. `GET /territoires/comptes` (T1) n'est **pas** réutilisé (constat m1 : ni délai, ni cadence, sous-requêtes corrélées) ni modifié.
+- **Producteurs sans dépendance** (aucune bibliothèque ZIP ni PDF dans `backend/package.json`, aucune ajoutée) : ZIP déterministe (deflate de `node:zlib` ou stocké, CRC du module, sans ZIP64, noms sûrs, hôte MS-DOS sans attribut Unix), relu par le lecteur ZIP borné du module ; PDF 1.4 déterministe (Helvetica et Helvetica-Bold standard, WinAnsi, chaînes entièrement échappées, coupure des lignes, pages numérotées, table de renvois exacte).
+- `EXPORT_DOSSIER` de la complétude (lot D1) passe `DISPONIBLE` sans condition.
+
+## 2. Fichiers
+
+**Nouveaux** : `backend/src/projets-voirie/exports/` (`zip-ecriture.noyau.ts`, `pdf.noyau.ts`, `manifeste.noyau.ts`, `confidentialite.noyau.ts`, `cadence.noyau.ts`, `fiche.noyau.ts`, `journal-documents.noyau.ts`, `config.ts`, `limiteurs.ts`, `lecture-dossier.ts`, `dossier.service.ts`, `derogations.service.ts`, deux fichiers de tests) ; `backend/src/projets-voirie/tableaux/` (`tableau.noyau.ts`, `tableau.service.ts`, un test) ; `backend/src/api-v2/projets-voirie.dossier-technique.routes.ts` (nommé sans « export » : le test d'isolation refuse ce mot dans la liste blanche, pour protéger l'export de la carte) et son test ; `backend/src/api-v2/projets-voirie.tableaux.routes.ts` ; migration et descente `20261104200000_exports_tableaux_de_bord` ; banc `backend/tests-integration/exports-tableaux.integration.mts` ; `docs/projets-voirie/CONTRAT-EXPORTS.md` ; ce rapport.
+
+**Fichiers partagés modifiés (à surveiller à la fusion)** :
+
+| Fichier | Modification |
+|---|---|
+| `backend/prisma/schema.prisma` | **fin de fichier** : deux modèles sans relation Prisma |
+| `backend/src/api-v2/projets-voirie.routes.ts` | deux `import`, `monterRoutesTableaux` juste après `monterRoutesTerritoires` (routes littérales avant `/:id`), `monterRoutesExports` **en fin de fichier**, commentaire d'en-tête (l'exception X1 à « aucune route n'exporte de géométrie ») |
+| `backend/src/projets-voirie/conflits/dossiers.service.ts` | `produireCsvConflits` extrait d'`exporterConflitsCsv` (contenu sans audit) ; l'export CSV existant inchangé (même contenu, même audit) |
+| `backend/src/projets-voirie/documents/completude.noyau.ts` (+ test, + banc D1 ligne 140) | `EXPORT_DOSSIER: []` |
+| `backend/src/lib/access.ts` | types d'entité d'audit `ExportDossierProjetVoirie`, `DerogationExportProjetVoirie` |
+| `securite/inventaire-acces.test.ts`, `projets-voirie/isolation.test.ts` | 6 routes, 4 gardes de rôle, une exception territoriale documentée (`GET /tableau-de-bord`, filtrée dans le service), 2 tables, 2 délégués, 2 fichiers de routes |
+| `tests-integration/run.sh`, `README.md` | banc X1 |
+| `docs/projets-voirie/{API,CONTRAT-DOCUMENTS}.md`, `docs/securite/{CONTROLE-ACCES,DERIVE-SCHEMA}.md` | **ajouts** seulement (section 10 de `DERIVE-SCHEMA.md`) |
+
+**Client Prisma** : `node_modules` du backend privé à ce worktree ; `npx prisma generate` lancé une fois depuis `w-x1/backend` après le changement de schéma.
+
+## 3. Tests exécutés (chiffres réels, 10/11/2026)
+
+Conteneur jetable `x1-postgis` (`postgis/postgis:17-3.5`, port 5484), mot de passe aléatoire lu par `docker inspect`, jamais affiché ni écrit. Base `replay` fabriquée par une copie de `fabriquer-replay.sh` (racine remplacée) : **104 migrations** (migration X1 comprise). Un premier démarrage du conteneur s'est arrêté pendant son initialisation (fabrication lancée trop tôt) ; il a été relancé et la fabrication refaite. `bdri-dev-db`, `e2e-c1-db`, `v3-postgis`, `fix-postgis` non touchés.
+
+| Test | Résultat |
+|---|---|
+| `npx tsc --noEmit` (backend) | **0 erreur** (après le dernier changement de code) |
+| Suite backend complète `npx vitest run` | **331 fichiers, 6 767 tests réussis, 1 ignoré, 0 échec** (551 s) |
+| Noyaux X1 (`exports/producteurs.noyau.test.ts`, `exports/regles.noyau.test.ts`, `tableaux/tableau.noyau.test.ts`) | **34 tests** : ZIP relu par le lecteur strict (noms, contenus, CRC, tailles, deflate et stocké, drapeaux), déterminisme, date DOS, 12 noms refusés, doublon, archive vide ; PDF (structure, table de renvois et `/Length` exacts, texte retrouvé avec accents, euro, œ, tirets, guillemets, chaîne hostile qui ne ferme rien, caractères non représentables, NFD, coupure, pages, déterminisme) ; manifeste et `sha256sum` (altération détectée) ; **matrice complète** statut x niveau x dérogation x demande (120 cas), dérogation nommée seulement, niveau sensible jamais ouvert par un réglage, niveau inconnu refusé, réglage restrictif ; dérogation citée (404 identique, usage unique, expiration), création (11 refus typés), bénéficiaire ; cadence (fenêtre, horloge future, mémoire bornée), réglages bornés ; **injection de formules** (7 préfixes, journal des documents), masquage d'un jeu non lisible ; agrégats sans géométrie ; rangement des agrégats, lisibilité du lecteur |
+| Routes (`projets-voirie.dossier-technique.routes.test.ts`) | **10 tests** : 6 routes x (401, 403 sans module, matrice ADMIN, GESTIONNAIRE, LECTEUR, INSPECTEUR), 404 masqué identique avant toute validation (projet et territoire), en-têtes et corps binaires, validations, erreurs typées (404, 409, 422, 429 et 503 avec `Retry-After`, 504) |
+| Inventaire des accès, isolation | **21 + 9 tests** verts |
+| Banc PostGIS `exports-tableaux` | **43/43** (premiers passages 27/30 puis 42/43 : défauts du banc, voir 4) |
+| Banc des descentes (`verifier.sh --seulement 20261104200000_exports_tableaux_de_bord`) | **6/6** : schéma identique après descente, aller-retour, deux gardes avec et sans autorisation |
+| Non-régression (replay à 104 migrations) | `projets-voirie` **141/141**, `conflits-projets-voirie` **169/169**, `documents-projet` **42/42**, `territoires-referentiels` **78/78**, `sources-comparaison` **55/55** (un premier passage 0/1 pendant la coupure réseau : transaction de 5 s expirée après 108 s, poste saturé ; relancé seul : 55/55) |
+| Octets NUL | aucun dans les 39 fichiers du lot |
+
+Ce que le banc X1 prouve contre PostGIS : gardes (lecteur, inspecteur, sans module, sans jeton, autre région) sans journal ni audit ; archive relue et **toutes ses empreintes vérifiées** ; empreinte de l'en-tête = SHA-256 des octets = journal ; GeoJSON des seuls jeux `INTERNE` et `RESTREINT_PROJET`, géométrie identique à la base, sans attribut source ; **le jeu retiré absent de toute l'archive** alors qu'il est lié à un document ; aucun nom ni géométrie des jeux écartés ; CSV existant (en-tête, une ligne par dossier, nom de concessionnaire hostile neutralisé) ; journal des documents neutralisé ; PDF ; audit sans coordonnée ; dérogation (cinq refus typés, création auditée, autre compte et autre projet : même 404, **deux exports simultanés : une seule archive, consommation unique**, GeoJSON sensibles marqués, réutilisation 409, huit refus de la base en SQL direct, expirée 409 et non consommable en base) ; cadence en base (429, aucune ligne en plus) ; `geojson=false` ; volume compté avant lecture (422, 12 000 sommets pour 10 000) ; **délai côté base** (table des objets verrouillée par une autre connexion : 504 en quelques secondes) ; tableaux national décideur (égaux aux comptes de la base), lecteur (**aucun comptage de quarantaine**, égal à la liste des jeux ; dossiers égaux à la liste **moins** le dossier dont le jeu B est en quarantaine, que la liste actuelle compte encore), types obligatoires égaux à la complétude D1, lecteur sans pièces ni référents, aucune géométrie ni nom, compte régional limité à sa région, territoire avec descendants, 404 masqué, ancêtres hors périmètre non nommés, cadence (429), délai côté base (504) ; projet supprimé 404 ; une ligne d'audit par archive remise ; tronçons du référentiel inchangés.
+
+**Mutations** (une à la fois, fichier restauré par Git, arbre propre vérifié après chacune) :
+
+| Mutation | Détectée par |
+|---|---|
+| M1 confidentialité : un jeu `CONFIDENTIEL_CONCESSIONNAIRE` ou `INFRASTRUCTURE_SENSIBLE` exporté sans dérogation (`selectionGeojson`) | noyau **3 échecs** sur 15 ; banc **2 échecs** (41/43 : GeoJSON du télécom et de l'eau dans l'archive, noms d'objets écartés présents) |
+| M2 filtre lecteur des agrégats : les jeux de tous statuts comptés pour un lecteur (`tableau.service.ts`) | banc **1 échec** (42/43 : quarantaine comptée pour le lecteur) ; non visible des tests unitaires (SQL) |
+| M3 filtre lecteur, jeu B : la condition sur le jeu B d'une comparaison retirée | banc **1 échec** (42/43 : le dossier dont le jeu B est en quarantaine compté pour le lecteur) |
+| M4 usage unique, première couche : une dérogation déjà utilisée acceptée à la vérification préalable (`verifierDerogationCitee`) | noyau **1 échec** ; banc **1 échec** (42/43) : la réutilisation reste refusée en 409 par la deuxième couche (consommation conditionnelle à la remise), mais avec `etat: UTILISEE_OU_EXPIREE` au lieu de `UTILISEE` ; aucune archive remise |
+| M5 usage unique, deuxième couche : la condition `utiliseeLe: null` retirée de la consommation | **non détectée** (43/43) : mutant équivalent tant que les couches 1 (vérification préalable) et 3 (déclencheur de la base, prouvé en SQL direct par le banc) tiennent, et que la place unique par compte empêche deux exports concurrents du bénéficiaire. Défense en profondeur assumée, pas une garde orpheline |
+
+Après la campagne : arbre propre (0 fichier modifié), tests ciblés rejoués **84/84** (7 fichiers).
+
+## 4. Écarts, défauts trouvés et corrigés, limites
+
+- Banc X1, premiers passages : rattachement d'un référent demandé par un gestionnaire (la matrice du workflow le réserve à l'ADMIN : corrigé dans le banc) ; clé synthétique d'un dossier de conflit hors du format de la base (`cp_cle_format`) ; paramètre SQL mal numéroté dans une vérification ; connexion de verrou sans gestionnaire d'erreur. Défauts du banc, aucun du code.
+- Défaut de conception corrigé pendant le lot : la fiche était d'abord lue par `ficheProjet` du socle, sans `statement_timeout` ; une table verrouillée aurait suspendu l'export. Les lectures sont passées dans une transaction `READ ONLY` à délais côté base (`lecture-dossier.ts`), ce que le banc prouve (504).
+- `GET /:id/conflits` (liste RC-3) compte encore, pour un lecteur, un dossier `DIVERGENCE_SOURCES` dont le jeu B n'est pas `AUTORISE` (revue T1+S1, B1 ; correctif sur la branche des correctifs) : le tableau de bord, lui, l'exclut. Après fusion des correctifs, l'égalité « liste moins un » du banc deviendra « liste » : la vérification 7 du banc sera à ajuster.
+- Le CSV des dossiers dans l'archive suit la règle des décideurs de RC-3 (dossiers d'un jeu en quarantaine compris, données d'un jeu `RETIRE` masquées) ; il ne porte aucune donnée du jeu B d'une comparaison.
+- Non éprouvés en banc : la borne de taille de l'archive (le plancher du réglage, 1 Mo, n'est pas atteint par des fixtures raisonnables : vérifiée par lecture du code seulement) et le délai total de fabrication (`PROJETS_VOIRIE_EXPORT_DELAI_MS`, plancher 10 s) ; le délai côté base, lui, est prouvé. Volume réel (milliers de jeux, dizaines de Mo) non mesuré.
+- La cadence des tableaux et les plafonds de concurrence sont par processus (plusieurs instances les multiplient) ; la cadence des exports est en base.
+- La fiche, l'analyse, le CSV, la complétude et le GeoJSON sont lus dans des transactions distinctes : un jeu autorisé ou remplacé pendant la fabrication peut donner une archive légèrement incohérente (le GeoJSON revérifie le statut du jeu et l'écarte s'il n'est plus `AUTORISE`).
+- La dérogation est consommée par l'export qui la cite, même si un jeu couvert a été remplacé entre-temps (le manifeste le dit). Pas de révocation : elle expire.
+- Non exécutés : `run.sh` en entier, bancs `import-formats`, `workflow-roles`, `reseau-physique-logique`, `gdal-jobs` (non demandés), interface, lecture de l'archive par d'autres outils (unzip, lecteurs PDF) par ce lot (affirmation corrigée après revue, m9 : `unzip`, Python `zipfile`, pypdf et MuPDF sont présents sur le poste ; la revue les a passés avec succès, preuve P1).
+
+## 5. Décisions prises (hors contrat initial, documentées dans le contrat)
+
+1. Décideurs = ADMIN et GESTIONNAIRE du périmètre du projet ; dérogation : ADMIN seul ; le journal des exports est réservé aux décideurs.
+2. Niveaux exportables par défaut : `PUBLIC`, `INTERNE`, `RESTREINT_PROJET` (le dossier est celui du projet) ; le réglage ne peut que restreindre ; aucun réglage n'ouvre les deux niveaux sensibles.
+3. Un jeu non `AUTORISE` est décrit dans la fiche (le décideur le lit déjà) mais jamais exporté en GeoJSON ni compté dans les agrégats d'analyse.
+4. Export synchrone borné (pas de file asynchrone) ; refus explicite (422) plutôt qu'une archive tronquée.
+5. L'analyse 2D refusée (volume, délai, largeurs) n'arrête pas l'export : `disponible: false` et le code.
+6. Dérogation consommée par un export, sans révocation ; une dérogation sans GeoJSON est refusée (400).
+7. Tableau national : par région administrative (l'unité du contrôle d'accès) ; par territoire : par enfant visible, plus « rattachés directement » et « non ventilés ».
+8. `EXPORT_DOSSIER` disponible sans condition dans la complétude.
+9. Aucune signature cryptographique de l'archive : l'authenticité repose sur le journal et l'audit (empreinte de l'archive remise).
+
+## 6. Décisions à prendre (DSI)
+
+1. `RESTREINT_PROJET` exportable sans dérogation ? C'est le niveau **par défaut** des plans d'axes et des limites de route : le le retirer (`PROJETS_VOIRIE_EXPORT_GEOJSON_NIVEAUX=PUBLIC,INTERNE`) rend leur GeoJSON inexportable, sans autre voie (la dérogation ne vise que les deux niveaux sensibles).
+2. Valeurs de protection : 50 000 objets, 1 000 000 de sommets, 64 Mo, 120 s, 10 exports par heure et par compte, 30 tableaux par minute, dérogation de 24 h (7 jours au plus).
+3. Un GESTIONNAIRE peut-il être bénéficiaire d'une dérogation (choix actuel : oui, nommément, par un ADMIN), et faut-il une révocation explicite ?
+4. Faut-il signer l'archive (clé de l'organisme) pour un dossier transmis hors d'AGEROUTE ?
+5. Rétention du journal des exports et des dérogations (aujourd'hui : illimitée, ajout seul).
+6. Les attributs des fichiers source doivent-ils un jour sortir dans le GeoJSON (aujourd'hui : jamais) ?
+
+## 7. Commits
+
+Au-dessus de `facba4e` (`feat/vague3-integration`), dans l'ordre :
+
+- `1601651` contrat du lot X1 (commité en premier)
+- `5064e85` migration 20261104200000 et sa descente, schéma Prisma
+- `be2bac2` CSV des dossiers produit sans audit (fonction partagée)
+- `7898a1a` `EXPORT_DOSSIER` disponible
+- `92f5f2d` producteurs ZIP et PDF, manifeste
+- `3f44ffb` export, dérogation, tableaux de bord (services, routes, tests, inventaire, isolation)
+- `5c908be` documentation (API, contrôle d'accès, dérive du schéma, précision D1)
+- `aa9ff40` banc PostGIS `exports-tableaux`, `run.sh`, README
+- ce rapport (commit suivant)
+
+Aucun push.
+
+## 8. Corrections après revue (10/11/2026)
+
+Revue indépendante : `C:\ageroute-secours\REVUE-LOT-X1.md` (fusionnable après corrections, aucun bloquant). Décisions de l'architecte du 10/11/2026. Conteneur jetable `x1-postgis` recréé (même méthode, mot de passe jamais affiché), `replay` refabriquée à **104 migrations** (migration X1 modifiée comprise), conteneur supprimé à la fin ; aucun autre conteneur touché. La migration `20261104200000` n'étant ni fusionnée ni déployée, elle a été **modifiée dans son lot** (pas de nouvelle migration), sa descente aussi.
+
+### 8.1 Ce qui est corrigé
+
+| Constat | Correction | Test qui échoue avant |
+|---|---|---|
+| M1 niveau choisi par le déposant | Dans le dépôt du socle (`import.service.ts`, noyau `confidentialite-depot.noyau.ts`) : une nouvelle version hérite du niveau le plus restrictif de sa lignée (tous statuts) ; un `RESEAU_TIERS` ne descend pas sous `CONFIDENTIEL_CONCESSIONNAIRE` ; abaisser est réservé à l'ADMIN avec `justificationConfidentialite`, audité (`abaissementConfidentialite`) : 403 `CONFIDENTIALITE_ABAISSEMENT_RESERVE` pour tout autre compte, 400 `JUSTIFICATION_INVALIDE` pour un ADMIN sans justification ; le retour arrière ne redescend pas sous la version qu'il remplace. Documenté dans `CONTRAT-IMPORT.md` (section 16) et `CONTRAT-EXPORTS.md` (section 9). | noyau (6 tests) ; banc : redépôt `INTERNE` d'un réseau confidentiel et de limites `RESTREINT_PROJET` par un gestionnaire 403, héritage sans niveau, ADMIN sans justification 400, avec justification 201 et audit, réseau confidentiel toujours écarté de l'export |
+| M2 auto-dérogation | `beneficiaireId` obligatoire ; 409 `SEPARATION_DES_TACHES` si c'est l'ADMIN auteur (service) ; contrainte `dxpv_separation` (base) ; plus de bénéficiaire par défaut | noyau ; routes (corps sans bénéficiaire 400) ; banc : 409 par l'API et 23514 en SQL direct |
+| M3 octets, mémoire, cadence | Plafond sur les octets **non compressés** de tous les fichiers : estimation préalable (sommets, objets, octets des noms bornés) puis comptage pendant la fabrication, arrêt au dépassement (422) ; GeoJSON lu par lots de 5 000 ; noms tronqués à 500 caractères (`nomTronque`) ; agrégats bornés (1 000 axes, noms de 500 caractères) ; bornes hautes ramenées (200 000 objets, 5 000 000 de sommets, 256 Mo) ; l'analyse de l'export n'exécute ni croisements ni zones ; **chaque tentative** est une ligne du journal et compte dans la cadence | banc : un export refusé en volume est consigné `ECHEC` et compté ; mesure de la mémoire (8.2) |
+| M4 remise sans réception | Budget de fabrication 45 s par défaut, **50 s au plus**, sous le délai par défaut de nginx (60 s ; `frontend/nginx.conf` et `docker-compose.yml` non modifiés), chaque lecture bornée par ce qui reste ; la dérogation est **réservée** par la tentative, consommée et le journal passé `REMIS` **après l'événement `finish`** de la réponse ; client parti : `ECHEC_ENVOI` (`CLIENT_DECONNECTE`), dérogation libérée ; réservation d'une tentative restée `EN_COURS` au-delà du budget plus 120 s reprenable | routes : client qui abandonne pendant la fabrication, consignation « non envoyée » ; banc : abandon réel, `ECHEC_ENVOI`, dérogation non consommée, puis export complet qui la consomme |
+| m1 mesure du jeu B | Le CSV des dossiers masque la mesure d'un dossier issu d'une comparaison quand le jeu B n'est pas lisible (jeu B `RETIRE` : jamais) | banc : dossier `DIVERGENCE_SOURCES` à jeu B retiré, `distanceMinM` vide |
+| m3 déclencheur | `createdAt` à 5 minutes de l'horloge de la base ; réservation par une tentative `EN_COURS` du bénéficiaire sur ce projet ; consommation par la seule tentative qui réserve | banc : date de création choisie 23514, journal figé après son issue 23001, réservation d'une dérogation expirée 23514 |
+| m4 horloges | Expiration, réservation et dates de création comparées à l'horloge de la base seulement ; violation du déclencheur à la réservation rendue en 409 | banc (dérogation expirée 409, réservation refusée en SQL) ; noyau (état calculé par la base) |
+| m5 concurrence entre connexions | Preuve ajoutée : deux ouvertures de tentative en parallèle (deux connexions, sans la place unique du compte) : une seule réservation, l'autre 409 ; un export pendant la réservation : 409 `RESERVEE` | banc |
+| m6 orientation | Polygones `ST_ForcePolygonCCW` (RFC 7946) ; lignes et points inchangés (la fonction inverse aussi une ligne : constaté par le banc, d'où le `CASE`) | banc : polygone stocké horaire, aire signée positive dans le GeoJSON |
+| m7 lectures du tableau par territoire | Dans une transaction `READ ONLY` à délais côté base | structurel (bancs du tableau inchangés et verts) |
+| m8 libellé du test d'inventaire | Il nomme l'exception X1 | - |
+| m9 rapport | Les deux affirmations fausses sont corrigées (sections 1 et 4) | - |
+
+Non corrigé, avec la raison : **m2** (le comptage préalable lit les géométries en base, `ST_NPoints` sous `statement_timeout`) : dit dans le contrat ; une colonne de nombre de sommets écrite au dépôt toucherait le socle et ses migrations, hors du lot. Les points « vérifié correct » de la revue tiennent (bancs et suite ci-dessous).
+
+### 8.2 Mesure de la mémoire de pointe (cas de la revue)
+
+Banc `backend/tests-integration/exports-memoire.integration.mts` (clone jetable, route réelle dans le processus, RSS échantillonné toutes les 20 ms ; ce n'est pas la mémoire du conteneur de production). 50 000 objets, 999 982 sommets.
+
+Deux passages du code final (le RSS varie d'un passage à l'autre avec le ramasse-miettes) :
+
+| Cas | Résultat | Hausse de RSS (passage 1 / 2) | Durée (passage 1 / 2) |
+|---|---|---|---|
+| Jeu `LIMITES_ROUTE`, noms de 1 500 caractères | 200, archive 3 Mo (noms tronqués à 500) | **+125 Mo / +191 Mo** (pointe 324 / 354 Mo) | 32,0 s / 36,2 s |
+| Jeu `LIMITES_ROUTE`, noms de 20 caractères | 200, archive 3 Mo | **+91 Mo / +36 Mo** (pointe 339 / 328 Mo) | 21,3 s / 23,3 s |
+| Plan d'**axes** (`AXES_TRAVAUX`), noms de 1 500 caractères | 504 `EXPORT_TROP_LONG` (budget atteint dans l'analyse 2D) | +62 Mo / +218 Mo (pointe 225 / 378 Mo) | 48,3 s / 46,2 s |
+| Même plan d'axes, passage précédent (avant la borne des agrégats) | 422 `EXPORT_TROP_VOLUMINEUX` (142 895 928 octets comptés, plafond 67 108 864) | **+525 Mo** (pointe 687 Mo) | 44,5 s |
+
+Lecture : le GeoJSON est désormais borné (la revue mesurait 686 Mo pour le seul GeoJSON de ce volume). Le cas le plus coûteux reste l'**analyse 2D du socle** sur un plan de 50 000 axes : sa réponse complète est construite en mémoire par `calculer` (comme pour `GET /:id/analyse`, ouverte à tout lecteur) avant que l'export ne la réduise ; le compteur arrête bien la fabrication, mais après ce pic. Défaut du socle, signalé, non corrigé ici. Les deux passages du plan d'axes diffèrent par le code (borne des agrégats ajoutée entre les deux) et par la durée de l'analyse, proche du budget.
+
+### 8.3 Chiffres réels après corrections
+
+| Contrôle | Résultat |
+|---|---|
+| `npx tsc --noEmit` | 0 erreur |
+| Suite backend `npx vitest run` | **332 fichiers, 6 774 réussis, 1 ignoré, 0 échec** |
+| Banc `exports-tableaux` | **54/54** |
+| Banc `exports-memoire` | **3/3** (dernier passage ; le précédent, 2/3, n'admettait pas encore un 504 avant 55 s pour le plan d'axes) |
+| Banc des descentes (migration modifiée) | **6/6** |
+| Non-régression | `projets-voirie` **141/141**, `import-formats` **89/89**, `conflits-projets-voirie` **169/169**, `documents-projet` **42/42**, `sources-comparaison` **55/55** |
+
+Mutations (une à la fois, restaurées, arbre vérifié) :
+
+| Mutation | Détectée par |
+|---|---|
+| M1 héritage : la lignée n'est plus lue (seul le défaut du rôle compte) | noyau **3 échecs** sur 6 ; banc **1 échec** (53/54 : nouvelle version de limites `INTERNE` acceptée) |
+| M2 CHECK : contrainte `dxpv_separation` retirée de la base | banc **1 échec** (53/54 : l'auto-dérogation en SQL direct passe) ; contrainte rétablie et vérifiée |
+| M4 consignation : la remise est consignée tout de suite, sans attendre `finish` | routes **1 échec** sur 11 ; banc **2 échecs** (52/54 : abandon consigné `REMIS`, dérogation consommée, l'export suivant refusé) |
+
+### 8.4 Limites et décisions qui restent
+
+- `finish` atteste que la réponse est remise au système d'exploitation, pas qu'un client derrière nginx l'a reçue en entier : une coupure pendant le transfert final peut encore consigner `REMIS`.
+- Une tentative interrompue par l'arrêt du processus reste `EN_COURS` (et compte dans la cadence) ; sa réservation de dérogation devient reprenable après le budget plus 120 s.
+- Les jeux déposés avant la règle d'héritage gardent leur niveau : relevé à faire par l'ADMIN.
+- L'analyse 2D d'un très grand plan d'axes reste coûteuse en mémoire (8.2) : décision du DSI sur une borne propre à l'analyse du socle.
+- `proxy_read_timeout` de production laissé au défaut (60 s) ; si le DSI le baisse, `PROJETS_VOIRIE_EXPORT_DELAI_MS` doit rester en dessous.
+- Le commit `d4297f9` (dérogation, tentatives, remise) ne compile qu'avec le suivant (`b5ce59d`, option de délai du CSV) : à fusionner ensemble.

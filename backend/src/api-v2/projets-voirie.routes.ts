@@ -14,14 +14,22 @@ import { carte } from "../projets-voirie/carte.service";
 import { reserverReception } from "../projets-voirie/limiteurs";
 import { monterRoutesConflits } from "./projets-voirie.conflits.routes";
 import { champsImport, monterRoutesImport, optionsDepuis } from "./projets-voirie.import.routes";
+import { monterRoutesGdal, sourceConvertie } from "./projets-voirie.gdal.routes";
+import { consommerDansTx, purgerApresDepot } from "../projets-voirie/gdal/jobs.service";
 import { monterRoutesWorkflow } from "./projets-voirie.workflow.routes";
 import { gardeReferent } from "../projets-voirie/workflow/garde";
 import { monterRoutesReseaux } from "./projets-voirie.reseaux.routes";
+import { monterRoutesSources } from "./projets-voirie.sources.routes";
 import { deposerJeu } from "../projets-voirie/import.service";
 import {
   creerConcessionnaire, creerProjet, decider, decoderCurseur, ficheProjet, listerConcessionnaires, listerJeux, listerProjets,
-  modifierProjet, regionsDuProjet, retirerJeu, retirerProjet, voitTousLesJeux, type Acteur, type Portee,
+  modifierProjet, regionDuTerritoire, regionsDuProjet, retirerJeu, retirerProjet, voitTousLesJeux, type Acteur, type Portee,
 } from "../projets-voirie/projets.service";
+import { monterRoutesTerritoires } from "./projets-voirie.territoires.routes";
+import { monterRoutesDocuments } from "./projets-voirie.documents.routes";
+import { regionsDuTerritoire } from "../projets-voirie/territoires/territoires.service";
+import { monterRoutesExports } from "./projets-voirie.dossier-technique.routes";
+import { monterRoutesTableaux } from "./projets-voirie.tableaux.routes";
 
 /**
  * `/api/v2/projets-voirie` -- Projets de voirie et reseaux (contrat : docs/projets-voirie/CONTRAT.md, v2 ; reference :
@@ -33,7 +41,8 @@ import {
  *   - lecture : toute personne qui a la cle de module ;
  *   - ecritures : ADMIN et GESTIONNAIRE (depot, autorisation, rejet, retrait, creation, modification) ; DELETE d'un projet : ADMIN ;
  *   - export CSV de l'analyse : ADMIN et GESTIONNAIRE, audite ; agregats seulement, AUCUNE geometrie ;
- *   - aucune route n'exporte les geometries d'un jeu (ni fichier GeoJSON, ni KML) ; la carte est une couche d'affichage bornee ;
+ *   - aucune route n'exporte les geometries d'un jeu (ni fichier GeoJSON, ni KML), SAUF le dossier technique du lot X1 (`/:id/export/dossier`, decideurs,
+ *     audite, jeux AUTORISE d'un niveau exportable ou sous derogation ADMIN a usage unique) ; la carte est une couche d'affichage bornee ;
  *   - un projet sans region n'est visible que des comptes nationaux ; un projet d'une region visible des seuls comptes de cette region.
  *
  * Donnees sensibles (traces d'infrastructure de tiers) : `Cache-Control: no-store`, `nosniff`, et JAMAIS dans l'API publique.
@@ -129,6 +138,8 @@ const requeteListe = z.object({
   q: optionnel(texte(100)),
   limite: z.preprocess(vide, z.coerce.number().int().min(1).max(100).default(25)),
   curseur: optionnel(z.string().max(300)),
+  // Lot T1 : projets du territoire ET de ses descendants.
+  territoireId: optionnel(z.string().regex(UUID, "UUID attendu")),
 }).strict();
 
 /** Regions visibles du compte : `null` = pays entier. */
@@ -145,11 +156,13 @@ projetsVoirieV2Router.get("/", enveloppe(async (req, res) => {
     curseur = decoderCurseur(p.data.curseur) ?? undefined;
     if (!curseur) { res.status(400).json({ error: "Curseur invalide : repartez de la première page", code: "CURSEUR_INVALIDE" }); return; }
   }
-  res.json(await listerProjets(await porteeDe(req), { q: p.data.q, limite: p.data.limite, curseur, tousLesJeux: voitTousLesJeux(req.user!.role) }));
+  res.json(await listerProjets(await porteeDe(req), { q: p.data.q, limite: p.data.limite, curseur, tousLesJeux: voitTousLesJeux(req.user!.role), territoireId: p.data.territoireId }));
 }));
 
+const codeReferentiel = z.string().trim().min(2).max(64).transform((s) => s.toUpperCase()).pipe(z.string().regex(/^[A-Z0-9][A-Z0-9_-]{1,63}$/, "lettres, chiffres, tirets et soulignés"));
+
 const corpsProjet = z.object({
-  code: z.string().trim().min(2).max(64).transform((s) => s.toUpperCase()).pipe(z.string().regex(/^[A-Z0-9][A-Z0-9_-]{1,63}$/, "lettres, chiffres, tirets et soulignés")),
+  code: codeReferentiel,
   nom: texte(200),
   commune: z.string().trim().max(200).nullable().optional(),
   prefecture: z.string().trim().max(200).nullable().optional(),
@@ -157,28 +170,63 @@ const corpsProjet = z.object({
   description: z.string().trim().max(4000).nullable().optional(),
   largeurEmpriseM: largeur.optional(),
   largeurChausseeM: largeur.optional(),
+  // Lot T1 : territoire obligatoire (CONTRAT-TERRITOIRES.md, section 7) et categorie facultative (referentiel CATEGORIE_PROJET).
+  territoireId: z.string().regex(UUID, "UUID attendu"),
+  categorieCode: codeReferentiel.nullable().optional(),
 }).strict();
+
+const UUID_SOUPLE = /^[0-9a-f-]{36}$/i;
+
+/**
+ * Correctifs T1+S1 (m3) : a la creation d'un projet par un compte REGIONAL, un territoire inexistant, retire, hors perimetre ou sans region effective
+ * repond la MEME chose (404 TERRITOIRE_INTROUVABLE, meme corps que la fiche d'un territoire) : aucun oracle d'existence d'un territoire d'une autre
+ * region. Un compte national passe (il voit tout). Sans `territoireId`, la route repond 400 TERRITOIRE_REQUIS.
+ */
+const TERRITOIRE_INTROUVABLE = { error: "Territoire introuvable", code: "TERRITOIRE_INTROUVABLE" } as const;
+const territoireMasque = requireTerritoireMasque(async (req) => regionsDuTerritoire(String(req.body.territoireId)), { corps: TERRITOIRE_INTROUVABLE });
+const gardeTerritoireCreation = (req: Request, res: Response, next: NextFunction): void => {
+  const tid = req.body?.territoireId;
+  if (typeof tid !== "string" || !UUID_SOUPLE.test(tid)) { next(); return; }
+  void territoireMasque(req, res, next);
+};
 
 projetsVoirieV2Router.post(
   "/",
   ecriture,
-  // Creation : un compte regional ne cree que dans sa region (403 sinon) ; une region inconnue lui est refusee.
-  requireTerritoire(async (req) => [typeof req.body?.regionId === "number" ? req.body.regionId : null]),
+  gardeTerritoireCreation,
+  // Creation : un compte regional ne cree que dans sa region (403 sinon) ; une region inconnue lui est refusee. Lot T1 : sans `regionId`,
+  // la region touchee est la region effective du territoire (un territoire inconnu vaut region inconnue pour un compte regional).
+  requireTerritoire(async (req) => {
+    if (typeof req.body?.regionId === "number") return [req.body.regionId];
+    const tid = typeof req.body?.territoireId === "string" && UUID_SOUPLE.test(req.body.territoireId) ? req.body.territoireId : undefined;
+    return [await regionDuTerritoire(tid)];
+  }),
   enveloppe(async (req, res) => {
+    if (req.body && typeof req.body === "object" && !Array.isArray(req.body) && req.body.territoireId === undefined) {
+      res.status(400).json({ error: "Le territoire du projet est obligatoire (territoireId)", code: "TERRITOIRE_REQUIS" });
+      return;
+    }
     const p = corpsProjet.safeParse(req.body);
     if (!p.success) return refuser(res, p.error, "CHAMPS_INVALIDES");
     res.status(201).json({ projet: await creerProjet(acteurDe(req), p.data) });
   }),
 );
 
+// Lot T1 : territoires, referentiels et configuration. Routes LITTERALES, montees AVANT `/:id` (sinon `:id` les avalerait).
+monterRoutesTerritoires(projetsVoirieV2Router, { administrateur, acteurDe, porteeDe, enveloppe, refuser, UUID });
+// Lot X1 : tableaux de bord national et par territoire (agregats), routes LITTERALES aussi montees AVANT `/:id`.
+monterRoutesTableaux(projetsVoirieV2Router, { acteurDe, porteeDe, enveloppe, refuser });
+
 // `/concessionnaires` AVANT `/:id`, sinon `:id` l'avalerait.
 projetsVoirieV2Router.get("/concessionnaires", enveloppe(async (_req, res) => { res.json(await listerConcessionnaires()); }));
 
 const corpsConcessionnaire = z.object({
   nom: texte(200),
-  typeReseau: z.enum(TYPES_RESEAU),
+  // Lot T1 : la famille (enumeration) OU le code du referentiel TYPE_RESEAU (la famille en est derivee) ; au moins l'un des deux.
+  typeReseau: z.enum(TYPES_RESEAU).optional(),
+  typeReseauCode: codeReferentiel.optional(),
   contact: z.string().trim().max(300).nullable().optional(),
-}).strict();
+}).strict().refine((c) => c.typeReseau !== undefined || c.typeReseauCode !== undefined, { message: "typeReseau ou typeReseauCode requis", path: ["typeReseau"] });
 
 projetsVoirieV2Router.post("/concessionnaires", ecriture, enveloppe(async (req, res) => {
   const p = corpsConcessionnaire.safeParse(req.body);
@@ -196,6 +244,8 @@ const corpsModif = z.object({
   largeurEmpriseM: largeur.optional(),
   largeurChausseeM: largeur.optional(),
   statutParametres: z.enum(["THEORIQUE", "VALIDE"]).optional(),
+  territoireId: z.string().regex(UUID, "UUID attendu").optional(),
+  categorieCode: codeReferentiel.nullable().optional(),
 }).strict().refine((o) => Object.keys(o).length > 0, "au moins un champ à modifier");
 
 projetsVoirieV2Router.patch("/:id", ecriture, gardeProjet, enveloppe(async (req, res) => {
@@ -247,6 +297,7 @@ const champsDepot = z.object({
   role: z.enum(["AXES_TRAVAUX", "RESEAU_TIERS", "LIMITES_ROUTE", "AUTRE"]),
   concessionnaireId: optionnel(z.string().regex(UUID, "UUID attendu")),
   typeReseau: optionnel(z.enum(TYPES_RESEAU)),
+  typeReseauCode: optionnel(codeReferentiel),
   dateDonnees: optionnel(jourIso),
   origineFichier: optionnel(z.string().trim().min(1).max(500)),
   confidentialite: optionnel(z.enum(["PUBLIC", "INTERNE", "RESTREINT_PROJET", "CONFIDENTIEL_CONCESSIONNAIRE", "INFRASTRUCTURE_SENSIBLE"])),
@@ -256,6 +307,12 @@ const champsDepot = z.object({
   precisionVerticaleM: optionnel(z.coerce.number().positive().max(100_000)),
   methode: optionnel(z.string().trim().min(1).max(200)),
   dateConstat: optionnel(jourIso),
+  // Lot S1 : methode d'acquisition (deux methodes = deux sources d'un reseau de concessionnaire). Correctifs T1+S1 (M2) : code du referentiel
+  // METHODE_ACQUISITION ; la route ne verifie que la forme, le depot verifie la valeur (422 METHODE_ACQUISITION_INCONNUE si inconnue, retiree ou inactive).
+  // Toute valeur absente, inactive ou mal formee du referentiel rend 422 METHODE_ACQUISITION_INCONNUE (decision de l'architecte du 10/11/2026), jamais 400.
+  methodeAcquisition: optionnel(z.string().trim().min(1).max(64).transform((s) => s.toUpperCase())),
+  // Revue du lot X1, M1 : justification d'un abaissement du niveau de confidentialite (ADMIN seul, verifie par le service).
+  justificationConfidentialite: optionnel(z.string().trim().min(1).max(2000)),
 }).merge(champsImport).strict();
 
 const requeteDepot = z.object({ simuler: booleenRequete }).strict();
@@ -265,12 +322,17 @@ projetsVoirieV2Router.post("/:id/jeux", ecriture, gardeProjet, placeDeReception,
   if (!q.success) return refuser(res, q.error);
   const c = champsDepot.safeParse(req.body);
   if (!c.success) return refuser(res, c.error, "CHAMPS_INVALIDES");
-  if (!req.file) { res.status(400).json({ error: "Fichier manquant (champ multipart « fichier »)", code: "FICHIER_MANQUANT" }); return; }
+  // Lot B2 : `jobId` = resultat valide d'une conversion GDAL (GeoPackage, Shapefile ZIP, DXF) a la place du fichier ; MEME depot ensuite (quarantaine, CRS, delta).
+  const src = c.data.jobId !== undefined ? await sourceConvertie(req.params.id, c.data.jobId, c.data.couche, req.file !== undefined) : null;
+  if (!src && !req.file) { res.status(400).json({ error: "Fichier manquant (champ multipart « fichier »)", code: "FICHIER_MANQUANT" }); return; }
+  const acteur = acteurDe(req);
   const r = await deposerJeu({
-    acteur: acteurDe(req), projetId: req.params.id, fichier: req.file.buffer, nomFichier: req.file.originalname, champs: c.data, simuler: q.data.simuler,
+    acteur, projetId: req.params.id, fichier: src ? Buffer.alloc(0) : req.file!.buffer, nomFichier: src ? src.nomFichier : req.file!.originalname, champs: c.data, simuler: q.data.simuler,
     // Lot A1 : couche, CRS, colonnes CSV, mapping, confirmation, empreinte attendue (CONTRAT-IMPORT.md).
     options: optionsDepuis(c.data), sha256Attendu: c.data.sha256Attendu,
+    ...(src ? { conversion: src.conversion, apresDepot: (tx, jeuId) => consommerDansTx(tx, src.job.id, jeuId, acteur) } : {}),
   });
+  if (src && !r.simulation) await purgerApresDepot(src.job.id);
   res.status(r.simulation ? 200 : 201).json(r);
 }));
 
@@ -378,6 +440,8 @@ monterRoutesConflits(projetsVoirieV2Router, { ecriture, administrateur, gardePro
 // ------------------------------------------------------------------------------------------------
 
 monterRoutesImport(projetsVoirieV2Router, { ecriture, gardeProjet, acteurDe, enveloppe, refuser, placeDeReception, recevoir });
+// Jobs de conversion GDAL (lot B2) : memes gardes, meme ordre (voir projets-voirie.gdal.routes.ts). Interrupteur PROJETS_VOIRIE_GDAL, desactive par defaut.
+monterRoutesGdal(projetsVoirieV2Router, { ecriture, gardeProjet, acteurDe, enveloppe, refuser, placeDeReception, recevoir });
 // Workflow concessionnaire, referents, taches, preuves et recolement (lot B3). Memes gardes, meme ordre (voir projets-voirie.workflow.routes.ts).
 // ------------------------------------------------------------------------------------------------
 
@@ -387,3 +451,15 @@ monterRoutesWorkflow(projetsVoirieV2Router, { gardeProjet, acteurDe, enveloppe, 
 // ------------------------------------------------------------------------------------------------
 
 monterRoutesReseaux(projetsVoirieV2Router, { ecriture, gardeProjet, acteurDe, enveloppe, refuser, UUID });
+// Sources multiples, regles de rapprochement et comparaison entre sources (lot S1) : memes gardes, meme ordre (voir projets-voirie.sources.routes.ts).
+// ------------------------------------------------------------------------------------------------
+
+monterRoutesSources(projetsVoirieV2Router, { ecriture, administrateur, gardeProjet, acteurDe, enveloppe, refuser, UUID });
+// Documents du dossier et « ce que les documents permettent » (lot D1) : memes gardes, meme ordre (voir projets-voirie.documents.routes.ts).
+// ------------------------------------------------------------------------------------------------
+
+monterRoutesDocuments(projetsVoirieV2Router, { ecriture, gardeProjet, acteurDe, enveloppe, refuser, UUID, placeDeReception, recevoir, refuserNul });
+// Export du dossier technique et derogations de confidentialite (lot X1) : memes gardes, meme ordre (voir projets-voirie.dossier-technique.routes.ts).
+// ------------------------------------------------------------------------------------------------
+
+monterRoutesExports(projetsVoirieV2Router, { ecriture, administrateur, gardeProjet, acteurDe, enveloppe, refuser, UUID });

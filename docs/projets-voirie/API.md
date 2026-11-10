@@ -184,7 +184,7 @@ Axe A;Societe des Eaux Synthetique;EAU_POTABLE;r2.kml;1;AUTORISE;inconnue;PROXIM
 | 409 | `STATUT_INCOMPATIBLE` | autoriser / rejeter un jeu qui n'est pas en contrôle, retirer un jeu déjà retiré |
 | 409 | `CODE_DEJA_UTILISE`, `CONCESSIONNAIRE_DEJA_CONNU` | unicité |
 | 413 | `FICHIER_TROP_GROS` | plus de 25 Mo |
-| 415 | `FORMAT_NON_SUPPORTE` | GeoPackage, Shapefile (y compris dans un ZIP), DXF, DWG (formats non branchés, voir `MATRICE-FORMATS.md`), contenu texte qui n'est ni du KML, du GeoJSON, du GPX ni un tableau délimité. KMZ, GPX et CSV sont lus (`CONTRAT-IMPORT.md`, sections 4 à 6) |
+| 415 | `FORMAT_NON_SUPPORTE` | DWG, contenu texte qui n'est ni du KML, du GeoJSON, du GPX ni un tableau délimité. KMZ, GPX et CSV sont lus (`CONTRAT-IMPORT.md`, sections 4 à 6). GeoPackage, Shapefile ZIP et DXF : voir la section « Conversion GDAL asynchrone » (415 `FORMAT_GDAL_DESACTIVE` quand l'interrupteur est coupé, ce qui est le défaut) |
 | 422 | `CONTENU_NON_RECONNU` | HTML, PDF, exécutable, image, binaire, octets NUL |
 | 422 | `FICHIER_VIDE`, `TROP_D_OBJETS` (> 50 000), `GEOMETRIE_INVALIDE`, `HORS_GUINEE` | contenu refusé |
 | 422 | `XML_INVALIDE`, `DTD_REFUSEE`, `ENTITE_REFUSEE`, `XML_TROP_PROFOND`, `XML_TROP_VOLUMINEUX`, `JSON_INVALIDE`, `JSON_TROP_PROFOND`, `ENCODAGE_NON_SUPPORTE`, `CRS_NON_SUPPORTE` | document illisible ou dangereux |
@@ -513,7 +513,7 @@ Journaux en **ajout seul** (UPDATE et DELETE refusés, code 23001) : `conflits_p
 
 ## Import des formats ouverts, CRS, mapping et versions (lot A1)
 
-Contrat : `docs/projets-voirie/CONTRAT-IMPORT.md` (fait foi pour les règles) ; les exemples ci-dessous sont des réponses réelles du banc `backend/tests-integration/import-formats.integration.mts` (données 100 % synthétiques, identifiants raccourcis, listes tronquées). Formats lus : KML, KMZ, GeoJSON, GPX, CSV/TSV/TXT. Toujours refusés en 415 : GeoPackage, Shapefile (y compris en ZIP), DXF, DWG (chaîne GDAL, lot à part).
+Contrat : `docs/projets-voirie/CONTRAT-IMPORT.md` (fait foi pour les règles) ; les exemples ci-dessous sont des réponses réelles du banc `backend/tests-integration/import-formats.integration.mts` (données 100 % synthétiques, identifiants raccourcis, listes tronquées). Formats lus : KML, KMZ, GeoJSON, GPX, CSV/TSV/TXT. GeoPackage, Shapefile ZIP et DXF passent par la conversion asynchrone du lot B2 (section « Conversion GDAL asynchrone », désactivée par défaut) ; DWG reste refusé.
 
 ### Routes ajoutées (toutes `ADMIN` et `GESTIONNAIRE`, lectures comprises)
 
@@ -614,7 +614,7 @@ Retour arrière (`POST .../retour-arriere`, `{ "justification": "..." }`) :
 
 ### Codes d'erreur ajoutés par le lot A1
 
-Voir `CONTRAT-IMPORT.md`, sections 5.4, 6 et 11 (archives `ARCHIVE_*`, `KMZ_*`, CSV, CRS, mapping, couches, suppressions, retour arrière). Statuts : 400 `MAPPING_INVALIDE`, `CONCESSIONNAIRE_REQUIS` ; 404 `JEU_INTROUVABLE` ; 409 `EMPREINTE_DIVERGENTE`, `CONFIRMATION_HORS_ZONE_REQUISE`, `SUPPRESSIONS_A_REVOIR`, `SUPPRESSIONS_REFUSEES`, `AUCUNE_SUPPRESSION`, `AUCUNE_VERSION_PRECEDENTE`, `VERSION_PRECEDENTE_INDISPONIBLE` ; 415 `FORMAT_NON_SUPPORTE` (GeoPackage, Shapefile, DXF, DWG, archive de Shapefile) ; 422 tous les autres codes de lecture ; 504 `APERCU_TROP_LONG`.
+Voir `CONTRAT-IMPORT.md`, sections 5.4, 6 et 11 (archives `ARCHIVE_*`, `KMZ_*`, CSV, CRS, mapping, couches, suppressions, retour arrière). Statuts : 400 `MAPPING_INVALIDE`, `CONCESSIONNAIRE_REQUIS` ; 404 `JEU_INTROUVABLE` ; 409 `EMPREINTE_DIVERGENTE`, `CONFIRMATION_HORS_ZONE_REQUISE`, `SUPPRESSIONS_A_REVOIR`, `SUPPRESSIONS_REFUSEES`, `AUCUNE_SUPPRESSION`, `AUCUNE_VERSION_PRECEDENTE`, `VERSION_PRECEDENTE_INDISPONIBLE` ; 415 `FORMAT_NON_SUPPORTE` (DWG) et `FORMAT_GDAL_DESACTIVE` (GeoPackage, Shapefile, DXF, interrupteur coupé) ; 422 tous les autres codes de lecture ; 504 `APERCU_TROP_LONG`.
 
 ### Réglages serveur ajoutés
 
@@ -622,7 +622,7 @@ Voir `CONTRAT-IMPORT.md`, sections 5.4, 6 et 11 (archives `ARCHIVE_*`, `KMZ_*`, 
 
 ### Ce que le lot A1 ne fait pas
 
-- GeoPackage, Shapefile, DXF, DWG, raster, IFC, LAS : hors lot (chaîne GDAL, `CHAINE-GDAL.md`).
+- GeoPackage, Shapefile, DXF : lot B2 (conversion GDAL asynchrone). DWG, raster, IFC, LAS : hors lot.
 - Pas de traitement asynchrone : plafonds stricts et synchrones (25 Mo, 50 000 objets, 2 000 000 de sommets, 500 000 lignes CSV, 100 entrées d'archive), contrat d'un futur job dans `CONTRAT-IMPORT.md`, section 13.
 - CSV : pas de fichier sans en-tête, pas de séparateur de milliers, pas de délimiteur espace, pas de polygones construits depuis des points, pas de clés d'axe imbriquées ; la rupture de chaînage d'une ligne reconstruite n'est pas détectée.
 - Le fichier d'origine n'est conservé que si `PROJETS_VOIRIE_CONSERVER_ORIGINAL=oui`, et aucune route ne le relit.
@@ -766,7 +766,7 @@ Un objet **sans** descripteur (hérite du jeu, classe inconnue, vertical absent)
 }
 ```
 
-La fiche porte aussi `relations` (chacune avec son `role` : `SOURCE` ou `CIBLE`, et les actions possibles pour le compte) et `tracePartagee` : nombre d'**autres** objets du même jeu à la trace strictement identique (circuits superposés : ils restent séparés, ce ne sont pas des câbles distincts).
+La fiche porte aussi `relations` (chacune avec son `role` : `SOURCE` ou `CIBLE`, et les actions possibles pour le compte) et `tracePartagee` : pour une ligne, l'objet `{ nbAutresObjets, libelle }` (`nbAutresObjets` : nombre d'**autres** objets du même jeu à la trace strictement identique ; circuits superposés : ils restent séparés, ce ne sont pas des câbles distincts) ; `null` pour un point ou un polygone (défaut C1-04 du lot C1 : la doc parlait d'un nombre). Sur la fiche d'un dossier de conflit, `cible.tracePartagee` reste un nombre.
 
 ### Descripteur (PUT)
 
@@ -1027,3 +1027,301 @@ Descripteur : un seul par objet ; objets d'un plan d'axes ou de limites de route
 - Les tolérances et le seuil de couverture sont des **valeurs provisoires** (le cahier demande de ne pas attribuer une précision standard) ; la classe d'un objet est une déclaration humaine justifiée et auditée, pas une mesure.
 - Pas de GET d'une relation seule (la liste filtrée par `objetId` suffit) ; pas de lot (un descripteur par requête) ; l'historique des valeurs d'un descripteur est dans l'audit (`before` et `after`), pas dans une table dédiée.
 - Jeux comptés par `GET /comptage` et propositions : les jeux de rôle `AUTRE` sont inclus ; les propositions n'examinent que les jeux `AUTORISE`.
+
+## Conversion GDAL asynchrone : GeoPackage, Shapefile ZIP, DXF (lot B2)
+
+Contrat : `CONTRAT-IMPORT.md` sections 13 et 14 (règles) ; spool et conteneur : `CHAINE-GDAL.md` ; preuves : banc `backend/tests-integration/gdal-jobs.integration.mts` (conteneur GDAL réel, fichiers 100 % synthétiques). **Interrupteur `PROJETS_VOIRIE_GDAL`, DÉSACTIVÉ par défaut** : désactivé, aucune dépendance au conteneur (ni au démarrage, ni dans les routes, ni dans le sondage).
+
+### Routes (toutes `ADMIN` et `GESTIONNAIRE`, lectures comprises ; mêmes gardes que l'import, projet supprimé : 404 à tous)
+
+| Méthode | Chemin | Rôle |
+|---|---|---|
+| POST | `/:id/import/jobs` | multipart : `fichier` + `epsgSource` (Shapefile et DXF : obligatoire ; GeoPackage : facultatif) + `unitesDxf` (`metre` ou `degre`, DXF : obligatoire). Répond **202** `{ job }` |
+| GET | `/:id/import/jobs?limite=` | jobs du projet, du plus récent au plus ancien, `limite` de 1 à 50 (20 par défaut) : `{ jobs, total, tronque }` |
+| GET | `/:id/import/jobs/:jobId` | `{ job }` ; un job d'un autre projet répond le même 404 `JOB_INTROUVABLE` qu'un job inexistant |
+| POST | `/:id/import/jobs/:jobId/annuler` | EN_ATTENTE ou EN_COURS vers ANNULE ; 409 `JOB_NON_ANNULABLE` sinon |
+| POST | `/:id/import/inventaire`, `/:id/import/apercu`, `/:id/jeux` | champ `jobId` **à la place de** `fichier` (les deux ensemble : 400 `CHAMPS_INVALIDES`) : le résultat validé du job entre dans le MÊME pipeline (CRS, mapping, validation géométrique, simulation, quarantaine `CONTROLE`, delta, revue des suppressions) |
+
+`GET /:id/import/options` annonce `formatsGdal` : `{ actif, disponible, raison, spoolConfigure, formats: [{ format, extensions, etat: "SUPPORTE" | "INDISPONIBLE", raison, crs, specifique, preuve }], limites }`. Désactivé (défaut) : les trois formats sont `INDISPONIBLE` avec la raison, `limites` est `null`. Un format n'est `SUPPORTE` que si l'interrupteur est actif, le dossier d'échange accessible, et qu'une preuve de bout en bout est citée (`preuve.verification`, vérifiée par un test unitaire).
+
+### Le job
+
+```
+{ "job": { "id", "projetId", "format": "GPKG" | "SHAPEFILE" | "DXF", "statut": "EN_ATTENTE" | "EN_COURS" | "TERMINE" | "ECHEC" | "ANNULE" | "EXPIRE",
+           "nomFichier", "tailleOctets", "sha256", "parametres": { "epsgSource", "unitesDxf" }, "etape", "progression": 0 a 100,
+           "codeErreur", "messageErreur" (libellé FIXE), "tentatives", "tentativesMax", "creeLe", "reclameLe", "finLe", "expireLe",
+           "fichiersPurges", "utilisable", "jeuId",
+           "resume": { "format", "source": { nom, octets, sha256 }, "gdal": { version, proj },
+                       "couches": [ { id, nom, nbObjets, parTypeGeom, typesReels, sommets, emprise, attributs, coordonnees, reprojete, crsSource: { origine: "fichier" | "demande", epsg, nom }, slug } ],
+                       "champsDisponibles", "dxf": { lues, ignorees, blocs, calques, unitesDeclarees, insunits, ... } | null, "avertissements", "integrite" } | null } }
+```
+
+`resume` n'existe que pour un job `TERMINE` et ne porte **jamais** une coordonnée d'objet. `utilisable` : TERMINE, non utilisé, non expiré, fichiers présents. Un seul dépôt par job (`jeuId`) : le job utilisé répond ensuite 409 `JOB_DEJA_UTILISE`.
+
+### Règles de CRS et d'unités (rien n'est deviné)
+
+- **Shapefile** : `epsgSource` obligatoire à la création (422 `CRS_REQUIS` sinon, aucun job créé). Le `.prj` est lu mais ne vaut jamais confirmation ; un `.prj` d'un autre EPSG fait échouer le job (`CRS_CONFLIT`), un `.prj` sans code EPSG identifiable aussi. Sans `.prj`, le CRS confirmé est appliqué (avertissement `CRS_FOURNI_PAR_LA_DEMANDE`).
+- **DXF** : `epsgSource` obligatoire, `unitesDxf` obligatoire (422 `UNITES_REQUISES`). `metre` exige un CRS en mètres, `degre` un CRS géographique (422 `DXF_UNITES_CONFLIT`). L'en-tête `$INSUNITS` doit être absent, 0 ou 6 (mètres) pour `metre` ; millimètres, pieds, pouces donnent un job en `ECHEC` `DXF_UNITES_CONFLIT` : **aucune mise à l'échelle silencieuse**.
+- **GeoPackage** : CRS déclaré par le fichier. WGS 84 : aucune confirmation. Projeté : l'aperçu exige `epsgSource` identique (422 `CRS_REQUIS`, 422 `CRS_CONFLIT` si différent). Fichier sans CRS : création avec `epsgSource`, sinon coordonnées brutes refusées à l'usage (`CRS_REQUIS`).
+- Dans tous les cas : liste blanche `PROJETS_VOIRIE_CRS_SOURCE_AUTORISES` (422 `CRS_NON_AUTORISE`) ; plusieurs couches de CRS source différents ne se mélangent pas (422 `CRS_MULTIPLES`, choisir `couche`).
+
+### DXF : entités et calques
+
+Lues : `LINE`, `LWPOLYLINE`, `POLYLINE` 2D, `POLYLINE` 3D (`3DPOLYLINE`). Ignorées **et comptées** (`resume.dxf.ignorees`, avertissement `DXF_ENTITES_IGNOREES`) : `TEXT`, `MTEXT`, `HATCH`, `POINT`, `CIRCLE`, `ARC`, `SPLINE`, cotes, maillages, espace papier ; les blocs (`INSERT` et définitions) sont ignorés et comptés (`DXF_BLOCS_IGNORES`). Les calques sont les couches du wizard : `couche=calque:<nom>`. Le DXF binaire est refusé (422 `DXF_BINAIRE_NON_PRIS_EN_CHARGE`). L'altitude est ignorée (GDAL l'écarte).
+
+### Codes d'erreur
+
+| Statut | Code | Cas |
+|---|---|---|
+| 415 | `FORMAT_GDAL_DESACTIVE` | interrupteur coupé : dépôt d'un job, aperçu ou dépôt synchrone d'un GeoPackage, d'un Shapefile ZIP ou d'un DXF (champ `format`) |
+| 503 | `GDAL_DESACTIVE` | interrupteur coupé : lecture, liste, annulation, `jobId` à l'aperçu ; `SPOOL_INDISPONIBLE` : dossier d'échange absent ou illisible |
+| 422 | `CONVERSION_ASYNCHRONE_REQUISE` | fichier GDAL envoyé aux routes synchrones alors que l'interrupteur est actif : créer un job |
+| 422 | `CRS_REQUIS`, `CRS_CONFLIT`, `CRS_NON_AUTORISE`, `CRS_MULTIPLES`, `UNITES_REQUISES`, `DXF_UNITES_CONFLIT`, `DXF_BINAIRE_NON_PRIS_EN_CHARGE`, `SHAPEFILE_INCOMPLET`, `ARCHIVE_*`, `COUCHE_INTROUVABLE`, `HORS_GUINEE` | règles ci-dessus ; mêmes codes que les autres formats pour le reste |
+| 415 | `FORMAT_NON_SUPPORTE` | contenu qui n'est ni GeoPackage, ni archive de Shapefile, ni DXF texte (création d'un job) |
+| 409 | `JOB_DEJA_EN_COURS` (`jobId`, `statut`), `JOB_NON_TERMINE` (`statut`, `codeErreur`), `JOB_DEJA_UTILISE` (`jeuId`), `JOB_NON_ANNULABLE`, `RESULTAT_ALTERE` | un fichier du spool ne correspond plus à ce qui a été validé |
+| 410 | `RESULTAT_EXPIRE` | fichiers temporaires retirés |
+| 404 | `JOB_INTROUVABLE` | job inexistant ou d'un autre projet |
+| 429 | `PLAFOND_JOBS_COMPTE`, `PLAFOND_JOBS_PROJET`, `JOBS_TROP_FREQUENTS` | plafonds de jobs actifs, cadence par heure ; `Retry-After` en secondes |
+| 503 | `FILE_JOBS_PLEINE` | file globale pleine ; `Retry-After` |
+| 503 | `PLAFOND_RESULTATS_EN_ATTENTE` | trop de jobs `TERMINE` non encore utilisés au total (`_RESULTATS_MAX`, 20 par défaut) : chacun retient sa sortie dans le dossier d'échange ; déposer ou annuler avant d'en créer un ; `Retry-After` (lot V2, m6) |
+
+`COUCHE_INTROUVABLE` (422) porte un message **fixe** : ni la valeur demandée, ni les identifiants de couche issus du conteneur ; la liste des couches est celle de `POST /:id/import/inventaire` avec `jobId` (lot V2).
+
+`codeErreur` d'un job en `ECHEC` ou `EXPIRE` : code du conteneur (CHAINE-GDAL.md 4.3, `ENTREE_ABSENTE` à `ERREUR_INTERNE`, `DXF_*`) ou propre au backend (`SORTIE_INVALIDE`, `SORTIE_INCOHERENTE`, `SPOOL_INDISPONIBLE`, `JOB_PERDU`, `DXF_UNITES_CONFLIT`, `CONVERSION_EXPIREE`). Le message est **fixe** par code : le texte libre du conteneur n'est jamais renvoyé (il peut citer un chemin ou une ligne de fichier).
+
+### Réglages serveur (variables d'environnement, bornées : une valeur illisible redonne le défaut)
+
+`PROJETS_VOIRIE_GDAL` (absent = désactivé), `PROJETS_VOIRIE_GDAL_SPOOL` (aucun défaut), `_DELAI_S` 90 (10 à 120), `_SORTIE_MAX_OCTETS` 80 Mo (1 à 200 Mo), `_TENTATIVES` 3 (1 à 5), `_RETENTION_H` 24 (1 à 72), `_SONDAGE_S` 3 (1 à 60), `_CONCURRENCE` 2 (1 à 4), `_ACTIFS_COMPTE` 2, `_ACTIFS_PROJET` 3, `_FILE_MAX` 20, `_CREATIONS_HEURE` 12, et depuis le lot V2 : `_RESULTATS_MAX` 20 (1 à 500, jobs `TERMINE` non utilisés au total), `_DELAI_TOUR_S` 120 (1 à 600, budget de temps d'un tour du sondage), `_PRIVE` (dossier privé du backend où le fichier attend sa réclamation, défaut `<spool>/prive`, jamais monté dans le conteneur). Valeurs de départ à valider par le DSI.
+
+## Territoires, référentiels configurables et configuration nationale (lot T1)
+
+Contrat : `CONTRAT-TERRITOIRES.md` (modèle, règles, schémas, codes) ; preuves : banc `backend/tests-integration/territoires-referentiels.integration.mts` (78 vérifications, données synthétiques). Mêmes gardes que le socle ; **toute écriture est réservée à l'ADMIN**, auditée et historisée (ajout seul).
+
+### Routes
+
+| Méthode | Chemin | Rôle | Contenu |
+|---|---|---|---|
+| GET | `/territoires` | lecture | `?niveau=&parentId=&q=&actifs=&limite=(1..500, 200)&curseur=` : `{ territoires, curseurSuivant }` (ordre du chemin, filtré par périmètre) |
+| GET | `/territoires/comptes` | lecture | `?territoireId=` : `{ comptes: [ { territoireId, code, nom, niveau, parentId, profondeur, projets, jeux: { STATUT: n }, conflits: { STATUT: n } } ], tronque }` (territoire et descendants) |
+| POST | `/territoires` | ADMIN | `{ code, nom, niveau, parentId?, regionId?, crsMetriqueEpsg?, emprise?, source? }` : 201 `{ territoire, avertissements }` |
+| GET | `/territoires/:tid` | lecture | `{ territoire: { ...vue, ancetres, nbEnfants } }` ; 404 masqué |
+| PATCH | `/territoires/:tid` | ADMIN | `{ nom?, regionId?, crsMetriqueEpsg?, emprise? (ou null), actif?, source? }` : `{ territoire, avertissements }` |
+| DELETE | `/territoires/:tid` | ADMIN | `{ id, retire: true }` ; 409 `TERRITOIRE_UTILISE` |
+| GET | `/referentiels` | lecture | `{ domaines: [ { domaine, nb, nbActifs } ] }` |
+| GET | `/referentiels/:domaine` | lecture | `?tous=true` : `{ domaine, valeurs }` |
+| GET | `/referentiels/:domaine/:code` | lecture | `{ valeur }` |
+| POST | `/referentiels/:domaine` | ADMIN | `{ code, libelle, ordre?, actif?, parametres }` : 201 `{ valeur }` |
+| PATCH | `/referentiels/:domaine/:code` | ADMIN | `{ libelle?, ordre?, actif?, parametres? }` : `{ valeur }` |
+| DELETE | `/referentiels/:domaine/:code` | ADMIN | `{ code, retire: true }` ; 409 `VALEUR_UTILISEE` |
+| GET | `/configuration` | lecture | `{ configuration: [ { cle, valeur, source, valeurBase, valeurDefaut, variableEnvironnement, version, approuvePar, approuveLe, justification, updatedAt } ] }` |
+| GET | `/configuration/:cle` | lecture | `{ configuration }` |
+| PUT | `/configuration/:cle` | ADMIN | `{ valeur, justification? }` : `{ configuration }` |
+
+Vue d'un territoire : `{ id, code, nom, niveau, parentId, chemin, profondeur, regionId, regionEffectiveId, crsMetriqueEpsg, emprise, bbox, source, actif, version, creePar, createdAt, updatedAt }`. Vue d'une valeur : `{ id, domaine, code, libelle, ordre, actif, parametres, version, systeme, approuvePar, approuveLe, createdAt, updatedAt }`.
+
+Exemple (banc, données synthétiques) : `POST /territoires` avec `{ "code": "BANC-CORRIDOR-RN", "niveau": "ZONE", "parentId": "<région>", "emprise": { "type": "Polygon", ... } }` répond 201, `niveau` ZONE, `regionEffectiveId` celle de la région, `bbox` `[-9.5, 8.8, -8.5, 10.5]`, `avertissements` vide. Deux projets (`largeurEmpriseM` 40 et 30) s'y rattachent par `territoireId` ; `GET /?territoireId=<corridor>` les rend tous deux, et eux seuls.
+
+### Changements des routes du socle
+
+- `POST /` : `territoireId` **obligatoire** (400 `TERRITOIRE_REQUIS`), `categorieCode?` (largeurs par défaut de la catégorie), `regionId` dérivé du territoire ; `commune` et `prefecture` dérivées des ancêtres. Codes : `TERRITOIRE_INTROUVABLE` (inconnu, retiré ou inactif), `TERRITOIRE_REGION_INCOHERENTE`, `CATEGORIE_INCONNUE`.
+- `PATCH /:id` : `territoireId?`, `categorieCode?`. `GET /` : `?territoireId=`. Les vues de projet portent `territoireId`, `categorieCode`, `territoire` (`GET /:id` : avec `ancetres`).
+- `POST /concessionnaires` : `typeReseau` **ou** `typeReseauCode`. `POST /:id/jeux` : `typeReseauCode?` (400 `TYPE_RESEAU_INCONNU`, `TYPE_RESEAU_INCOHERENT`). Les vues de jeu et de concessionnaire portent `typeReseauCode`.
+- Lecture des fichiers : l'emprise nationale est celle de la configuration (`EMPRISE_PLAUSIBILITE` ; codes `ELEMENTS_HORS_GUINEE` et `HORS_GUINEE` conservés pour la compatibilité, messages avec le nom configuré) ; un objet hors de l'emprise du **territoire du projet** est conservé et compté (avertissement `ELEMENTS_HORS_TERRITOIRE`) ; `resume.crs.plausibilite.zoneAttendue` est l'emprise du territoire quand il en porte une ; la confirmation `CONFIRMATION_HORS_ZONE_REQUISE` compte les deux.
+- Analyse 2D, analyse de conflits et propositions d'associations : CRS métrique imposé par le territoire du projet (ou son plus proche ancêtre), sinon règle par bandes de la configuration.
+- `GET /:id/import/options` : `crs.sourcesAutorises` (liste blanche effective), `crs.zoneAttendue`, `crs.zoneNationale`, `crs.territoireId`, `crs.crsMetriqueImpose`.
+
+### Réglages
+
+`PROJETS_VOIRIE_CONFIG_CACHE_MS` (défaut 30 000, bornes 1 000 à 600 000) : durée de fraîcheur de la configuration lue en base, par processus (invalidée à l'écriture dans le même processus ; une autre instance la relit à l'expiration). Les variables d'environnement des protections (`PROJETS_VOIRIE_ANALYSE_INTERVALLE_S`, `_CONFLITS_MAX`, `_SOMMETS_PAR_OBJET`, `_SOMMETS_PAR_FICHIER`, `_DELAI_ANALYSE_MS`, `_DELAI_CARTE_MS`, `_DELAI_DEPOT_MS`) et de la liste blanche (`PROJETS_VOIRIE_CRS_SOURCE_AUTORISES`) restent **prioritaires** sur la base ; `GET /configuration` dit la source.
+
+## Sources multiples, comparaison entre sources et connectivité déclarative (lot S1)
+
+Contrat : `docs/projets-voirie/CONTRAT-SOURCES.md` (modèle, algorithme `S1-CORRIDOR-UTM-1`, modes, décisions). Preuves : `backend/src/api-v2/projets-voirie.sources.routes.test.ts`, noyaux `backend/src/projets-voirie/sources/*.noyau.test.ts`, test statique `connectivite.statique.test.ts`, banc `backend/tests-integration/sources-comparaison.integration.mts` (données 100 % synthétiques).
+
+**Principe.** Une source est un jeu `AUTORISE` ; pour un réseau de concessionnaire, deux méthodes d'acquisition font deux sources du même réseau. Une **source unique** est l'état normal (`SOURCE_UNIQUE_COMPARAISON_INDISPONIBLE`) : rien n'est calculé, aucun avertissement d'erreur. Une **comparaison** apparie les objets linéaires de deux jeux par un corridor `max(précision A, précision B) + marge` (règle versionnée, approuvée ; 1 m par défaut), seulement si les deux précisions sont connues ; sinon `RAPPROCHEMENT_INCERTAIN` sans mesure. Un plan d'axes (rôle `AXES_TRAVAUX`) se compare en mode **version candidate** : le jeu en contrôle face à la version autorisée qu'il remplacera. **Un résultat n'est jamais une décision** ; aucune géométrie n'est modifiée, fusionnée ni rendue. Seule une personne ouvre, depuis une divergence, un dossier RC-3 `DIVERGENCE_SOURCES`.
+
+Mêmes gardes, dans le même ordre, que le socle (« Gardes, dans l'ordre ») ; projet retiré ou hors périmètre : 404 `PROJET_INTROUVABLE` ; `:cmpId`, `:regleRapId` : UUID (400 `IDENTIFIANT_INVALIDE`).
+
+### Routes
+
+| Route | Rôle | Réponse |
+|---|---|---|
+| `GET /:id/sources` | lecture | `{ reseaux: [{ role, concessionnaire, typeReseau, statut, nbSources, sources: [{ jeuId, role, version, methodeAcquisition, dateDonnees, dateDepot, nomFichier, classePrecision, precisionHorizontaleM, nbObjets, confidentialite }], derniereComparaison, versionsCandidates?, mention }], totaux, limites }` ; `versionsCandidates` : ADMIN et GESTIONNAIRE seulement |
+| `GET /:id/regles-rapprochement` | lecture | `{ regles: [{ id, portee, famille, code, version, margeM, rayonAppariementM, partHorsCorridorMax, precisionParClasseM, statut, justification, systeme, creePar, approuvePar, approuveLe, ... }], effectives: [{ famille, regleId, code, version, portee, margeM, ... }], avertissements }` |
+| `POST /:id/regles-rapprochement` | ADMIN, GESTIONNAIRE | corps `{ famille?, code, margeM? (1), rayonAppariementM? (10), partHorsCorridorMax? (0), precisionParClasseM? ({ A, B, C, D } > 0), justification }` ; 201 `{ regle }` `BROUILLON` |
+| `POST /:id/regles-rapprochement/:regleRapId/approuver` | ADMIN | `{ justification, derogation? }` ; `{ regle }` ; 409 `REGLE_IMMUABLE`, `SEPARATION_DES_TACHES` |
+| `POST /:id/comparaisons` | ADMIN, GESTIONNAIRE | corps `{ jeuAId, jeuBId }` (ordre indifférent ; ni mode ni paramètre de calcul) ; 201 `{ comparaison, resume }` |
+| `GET /:id/comparaisons` | lecture | `{ comparaisons, curseurSuivant }` ; `limite` 1 à 100 (25), `curseur`, `jeuId` |
+| `GET /:id/comparaisons/:cmpId` | lecture | `{ comparaison }` |
+| `GET /:id/comparaisons/:cmpId/objets` | lecture | `{ resultats, masque, curseurSuivant, filtres }` ; `statut` (liste), `limite` 1 à 200 (50), `curseur` |
+| `POST /:id/comparaisons/:cmpId/dossiers-conflit` | ADMIN, GESTIONNAIRE | `{ resultatId, justification }` ; 201 `{ conflit: { id, cle, type: "DIVERGENCE_SOURCES", statut: "A_INVESTIGUER", axe, comparaisonId, resultatId, jeuReseauId, jeuAxesId } }` |
+
+### Comparaison
+
+```
+{ "comparaison": { "id", "projetId", "numero", "statut": "TERMINEE" | "ECHEC", "mode": "SOURCES" | "VERSION_CANDIDATE", "role": "RESEAU_TIERS" | "AXES_TRAVAUX",
+                   "jeuAId", "jeuBId", "concessionnaireId", "typeReseau",
+                   "regle": { "regleId", "code", "version", "famille", "portee", "margeM", "rayonAppariementM", "partHorsCorridorMax", "precisionParClasseM" },
+                   "versionAlgorithme": "S1-CORRIDOR-UTM-1", "epsg": 32629,
+                   "jeux": [{ "role": "A" | "B", "jeuId", "sha256", "version", "methodeAcquisition", "dateDonnees", "classePrecision", "precisionHorizontaleM", "nbObjets", "nomFichier", "confidentialite" }],
+                   "donneesMasquees": false, "declenchePar", "duree", "createdAt", "limites": [...] },
+  "resume": { "statut": "TERMINEE", "versionAlgorithme",
+              "totaux": { "CONCORDANCE", "DIVERGENCE", "RAPPROCHEMENT_INCERTAIN", "SANS_CORRESPONDANCE_A", "SANS_CORRESPONDANCE_B", "resultats", "objetsA", "objetsB", "nonEvaluesA", "nonEvaluesB" },
+              "corridor": { "minM", "maxM", "couplesSansCorridor", "margeM", "rayonAppariementM" }, "limites": [...] } }
+```
+
+`jeux` ne garde que `{ role, jeuId }` et `donneesMasquees` vaut `true` quand un jeu est `RETIRE` (ou, impossible pour un lecteur puisqu'il ne voit pas la comparaison, non `AUTORISE`). Le `resume` (agrégats figés) n'est pas filtré.
+
+### Résultat par objet
+
+```
+{ "id", "ordre", "cle", "statut": "CONCORDANCE" | "DIVERGENCE" | "RAPPROCHEMENT_INCERTAIN" | "SANS_CORRESPONDANCE_A" | "SANS_CORRESPONDANCE_B",
+  "objetA": { "id", "nom", "precisionM", "originePrecision": "OBJET" | "JEU" | "CLASSE" | "INCONNUE" } | null,
+  "objetB": { ... } | null, "corridorM": 2 | null,
+  "mesure": { "hausdorffM", "longueurAM", "longueurBM", "longueurRecouvrementM", "longueurHorsCorridorM", "partHorsCorridor", "distanceMinM" } | null,
+  "conflitId": null }
+```
+
+Mesures du banc (fixtures synthétiques, UTM 29N) : deux câbles de 100 m de précision 1 m, corridor 2 m ; décalage de 0,5 m : `CONCORDANCE`, Hausdorff 0,5 m, 0 m hors corridor ; décalage de 3 m : `DIVERGENCE`, Hausdorff 3 m, 100 m hors corridor, part 1 ; précisions inconnues : `RAPPROCHEMENT_INCERTAIN`, `mesure` et `corridorM` nuls. Plan d'axes en version candidate : version 1 de classe C (précision attribuée 2 m, origine `CLASSE`), version 2 de précision 0,1 m, corridor 3 m ; axe décalé de 1,5 m : `CONCORDANCE` ; axe décalé de 5 m : `DIVERGENCE`.
+
+### Codes d'erreur ajoutés par ce lot
+
+| Statut | Code | Cas |
+|---|---|---|
+| 409 | `JEUX_NON_COMPARABLES` (`motif` : `MEME_JEU`, `ROLE`, `RESEAU_DIFFERENT`, `STATUT`, `LIGNEE_DIFFERENTE`) | deux jeux qui ne décrivent pas la même chose, ou un statut qui ne permet aucun des deux modes |
+| 409 | `RESULTAT_NON_DIVERGENT`, `DOSSIER_DEJA_OUVERT` (`conflitId`), `COMPARAISON_NON_TERMINEE`, `REGLE_IMMUABLE`, `SEPARATION_DES_TACHES` | ouverture d'un dossier, approbation d'une règle |
+| 404 | `COMPARAISON_INTROUVABLE`, `RESULTAT_INTROUVABLE`, `REGLE_INTROUVABLE`, `JEU_INTROUVABLE` | inconnu, d'un autre projet, ou illisible pour le compte (même réponse) |
+| 422 | `JUSTIFICATION_REQUISE`, `COMPARAISON_TROP_VOLUMINEUSE` (`objetsMax` ou `sommets`), `CONNECTE_A_NATURE_REQUISE` | |
+| 429 | `COMPARAISON_TROP_FREQUENTE` (`retryAfterS`, en-tête `Retry-After`) | cadence |
+| 503 / 504 | `PROJET_OCCUPE`, `SERVICE_OCCUPE` / `COMPARAISON_TROP_LONGUE` | verrou, limiteur, délai côté base (ligne `ECHEC`) |
+
+### Extensions des routes existantes
+
+- `POST /:id/jeux` : champ `methodeAcquisition` (`GNSS_RTK`, `GNSS_DIFFERENTIEL`, `GNSS_AUTONOME`, `TOPOGRAPHIE`, `DETECTION_ELECTROMAGNETIQUE`, `GEORADAR`, `NUMERISATION_PLAN`, `PLAN_CAO`, `RECOLEMENT_TRAVAUX`, `DECLARATIF_FOURNISSEUR`, `INCONNUE`) ; champs de mapping `methodeAcquisition` (jeu) et `connecteA` (objet : colonne portant le nom de l'objet connecté du même fichier). La vue d'un jeu porte `methodeAcquisition`. Avertissement `CONNEXIONS_NON_RESOLUES`, `resume.import.connexionsDeclarees: { creees, nonResolues }`.
+- `POST /:id/reseau/relations` : `type: "CONNECTE_A"` avec `preuve` (`CONFIRMEE_PAR_FOURNISSEUR`, `INCONNUE`) ; la vue d'une relation porte `preuve` (nulle hors `CONNECTE_A`).
+- `GET /:id/reseau/objets/:objetId` : `connexions: { etat: "CONFIRMEE" | "INCONNUE" | "NON_FOURNIE", nbConfirmees, nbInconnues, libelle }`.
+- Dossiers de conflit : `conflit.comparaisonId` ; un dossier `DIVERGENCE_SOURCES` a `premiereAnalyseId` et `derniereAnalyseId` nuls (voir `CONTRAT-CONFLITS.md`, points 42 à 46).
+
+### Réglages serveur
+
+`PROJETS_VOIRIE_COMPARAISON_OBJETS_MAX` (20 000, bornes 100 à 200 000), `PROJETS_VOIRIE_COMPARAISON_INTERVALLE_S` (60, bornes 0 à 3 600 ; 0 réservé aux bancs). Délai côté base : `PROJETS_VOIRIE_DELAI_ANALYSE_MS` (celui de l'analyse). Valeurs par défaut de la règle `S1-CORRIDOR-0.1` (marge 1 m, rayon 10 m, part 0, précisions par classe `{ A: 0.5, B: 1, C: 2, D: 5 }`) : **provisoires, à valider par le DSI**.
+
+## Documents du projet, complétude documentaire et formats d'ingénierie (lot D1)
+
+Contrat : `docs/projets-voirie/CONTRAT-DOCUMENTS.md` (modèle, statuts, matrice des transitions, conditions des fonctions, LandXML, DWG, PDF). Preuves : `backend/src/api-v2/projets-voirie.documents.routes.test.ts`, noyaux `backend/src/projets-voirie/documents/*.noyau.test.ts` et `formats/landxml.noyau.test.ts`, banc `backend/tests-integration/documents-projet.integration.mts` (données 100 % synthétiques).
+
+**Principe.** Un document du dossier est typé par le référentiel `TYPE_DOCUMENT` (lot T1), versionné (une ligne par version, `ligneeId`), au statut contrôlé par le service ET par la base. Sa pièce est une **référence** (texte), une **empreinte** de fichier (PDF, DWG : le fichier n'est jamais conservé) ou un **jeu importé** du même projet. Le déposant d'une pièce ne la valide pas. « Ce que les documents permettent » dit, pour un projet, les fonctions disponibles avec les jeux `AUTORISE` et les pièces manquantes avec la fonction que chacune débloquerait ; **aucune pièce manquante ne bloque une fonction qui n'en dépend pas**.
+
+Mêmes gardes, dans le même ordre, que le socle ; projet retiré ou hors périmètre : 404 `PROJET_INTROUVABLE` ; `:docId` : UUID (400 `IDENTIFIANT_INVALIDE`). Les routes à pièce acceptent du JSON ou du multipart (champ `fichier`, 25 Mo, place de réception du dépôt d'un jeu).
+
+### Routes
+
+| Route | Rôle | Réponse |
+|---|---|---|
+| `GET /:id/completude` | lecture | `{ projetId, calculeLe, fonctions: [{ code, libelle, etat: DISPONIBLE\|INDISPONIBLE\|NON_LIVREE, conditions: [{ code, libelle, remplie, nb }] }], reseaux: [{ concessionnaireId, concessionnaire, typeReseau, typeReseauCode, nbSources, comparable }], piecesManquantes: [...], documents: { total, parStatut }, regle }` |
+| `GET /:id/documents` | lecture | `?statut=A,B&typeCode=&versions=courantes\|toutes&limite=(1..100, 50)&curseur=` : `{ documents: [vue], curseurSuivant }` ; un lecteur ne reçoit que des `VALIDE` |
+| `GET /:id/documents/:docId` | lecture | `{ document, versions: [{ id, version, statut, createdAt }], historique? }` (historique de la lignée, écrit par la base : décideurs seulement) ; 404 `DOCUMENT_INTROUVABLE` |
+| `POST /:id/documents` | ADMIN, GESTIONNAIRE | `{ typeCode, titre, description?, dateDocument?, concessionnaireId?, reference?, jeuId? }` + `fichier?` : sans pièce 201 `ATTENDU`, avec pièce 201 `RECU` ; `{ document, avertissements }` |
+| `POST /:id/documents/:docId/depot` | ADMIN, GESTIONNAIRE | pièce (`reference?`, `jeuId?`, `fichier?`) d'un document `ATTENDU` : `{ document, avertissements }` |
+| `POST /:id/documents/:docId/versions` | ADMIN, GESTIONNAIRE | pièce de la version suivante : 201 `{ document, remplace: { id, version, statut }, avertissements }` |
+| `POST /:id/documents/:docId/statut` | ADMIN, GESTIONNAIRE | `{ statut: EN_ANALYSE\|EXPLOITABLE\|INCOMPLET\|A_CORRIGER\|VALIDE\|REJETE, justification? }` (10 caractères pour INCOMPLET, A_CORRIGER, VALIDE, REJETE) : `{ document }` |
+| `DELETE /:id/documents/:docId` | ADMIN, GESTIONNAIRE (pièce `VALIDE` : ADMIN) | `{ justification }` : `{ id, retire: true }` |
+
+Vue d'un document : `{ id, projetId, ligneeId, version, remplaceId, typeCode, type: { code, libelle, actif }, titre, description, dateDocument, concessionnaire, statut, piece: { reference, nomFichier, format, sha256, tailleOctets, jeuLie }, jeu: { id, statut, role, version, format } | null, exploitable: { possible, raison }, aide, creePar, createdAt, deposePar, deposeLe, validePar, valideLe, derniereAction: { par, le, justification }, transitionsPossibles? }`. `jeu` (et le nom et le format de la pièce liée) ne sont rendus que si le jeu est lisible par le compte ; `derniereAction.justification` et `transitionsPossibles` : décideurs seulement.
+
+Pièce manquante : `{ nature: "CONDITION", code: PLAN_AXES_AUTORISE|RESEAU_AUTORISE|SECONDE_SOURCE|DECISION_DEPLACEMENT, libelle, reseau, fonctions, suffiraitPour, typesDocument, documents? }`, `{ nature: "TYPE_OBLIGATOIRE", typeDocument, roleJeu, fonctions, suffiraitPour, documents? }`, `{ nature: "DOCUMENT", document, fonctions }` (décideurs). `fonctions` : fonctions indisponibles qui l'exigent ; `suffiraitPour` : celles que cette seule pièce rendrait disponibles.
+
+Exemple réel (banc, projet aux axes et au réseau autorisés, réduit) :
+
+```json
+{ "fonctions": [
+    { "code": "ANALYSE_2D", "etat": "DISPONIBLE", "conditions": [ { "code": "PLAN_AXES_AUTORISE", "remplie": true, "nb": 1 }, { "code": "RESEAU_AUTORISE", "remplie": true, "nb": 1 } ] },
+    { "code": "COMPARAISON_SOURCES", "etat": "INDISPONIBLE", "conditions": [ { "code": "DEUX_SOURCES_MEME_RESEAU", "remplie": false, "nb": 0 } ] },
+    { "code": "RECOLEMENT", "etat": "INDISPONIBLE" }, { "code": "EXPORT_DOSSIER", "etat": "NON_LIVREE" } ],
+  "piecesManquantes": [
+    { "nature": "CONDITION", "code": "SECONDE_SOURCE", "reseau": { "concessionnaire": "Operateur Telecom Synthetique D1", "typeReseau": "TELECOM" },
+      "fonctions": ["COMPARAISON_SOURCES"], "suffiraitPour": ["COMPARAISON_SOURCES"], "typesDocument": [ { "code": "RESEAU_CONCESSIONNAIRE" } ] },
+    { "nature": "CONDITION", "code": "DECISION_DEPLACEMENT", "fonctions": ["RECOLEMENT"], "suffiraitPour": ["RECOLEMENT"], "typesDocument": [] } ] }
+```
+
+### Codes d'erreur ajoutés par ce lot
+
+400 `CHAMPS_INVALIDES`, `JUSTIFICATION_INVALIDE`, `TYPE_DOCUMENT_INCONNU`, `CONCESSIONNAIRE_INCONNU`, `PIECE_REQUISE`, `PIECE_EXCLUSIVE` ; 403 `ROLE_INSUFFISANT` ; 404 `DOCUMENT_INTROUVABLE`, `JEU_INTROUVABLE` ; 409 `TRANSITION_INTERDITE` (`de`, `vers`, `possibles`), `STATUT_INCOMPATIBLE`, `DOCUMENT_ATTENDU`, `VERSION_NON_COURANTE`, `VERSION_EN_COURS`, `DOCUMENT_NON_EXPLOITABLE` (`aide`), `JEU_NON_AUTORISE`, `SEPARATION_DES_TACHES`, `REFERENCE_INVALIDE`, `CONTRAINTE_DOCUMENT` ; 415 `FORMAT_DOCUMENT_NON_PRIS_EN_CHARGE` ; 503 `PROJET_OCCUPE` ; 504 `COMPLETUDE_TROP_LONGUE`, `DOCUMENTS_LECTURE_TROP_LONGUE`. Fiche : `versionsTronquees`, `historiqueTronque` ; complétude : `documents.tronque` ; vue : `exploitable` et (pour un lecteur) `piece.jeuLie` nuls quand le jeu lié n'est pas lisible. Avertissements : `DWG_NON_EXPLOITABLE`, `PDF_REFERENCE`, `JEU_NON_AUTORISE`.
+
+### LandXML à l'import (routes du lot A1, inchangées)
+
+`GET /:id/import/options` annonce `LANDXML` (`choixCrs: "obligatoire"`). Inventaire : couches `alignements` (axes en plan) et `cgpoints`, `crs.declareDansLeFichier` (`CoordinateSystem/@epsgCode`, jamais une confirmation). Aperçu, simulation et dépôt : `epsgSource` obligatoire (CRS projeté en mètres de la liste blanche), `resume.import.landxml` (tolérance des arcs, comptes d'éléments lus et ignorés, CRS et unités déclarés). Codes 422 : `CRS_REQUIS`, `CRS_CONFLIT`, `CRS_INCOMPATIBLE_FORMAT`, `UNITES_REQUISES`, `LANDXML_UNITES_NON_SUPPORTEES`, `LANDXML_SPIRALE_NON_PRISE_EN_CHARGE`, `LANDXML_ARC_DEGENERE`, `LANDXML_COORDONNEE_ILLISIBLE`, `LANDXML_POINT_INTROUVABLE`, `DTD_REFUSEE`, `ENTITE_REFUSEE`, `TROP_DE_SOMMETS`. Avertissements : `LANDXML_ARCS_DISCRETISES`, `LANDXML_SPIRALES` (inventaire), `LANDXML_DISCONTINUITES`, `LANDXML_PROFILS_IGNORES`, `LANDXML_SURFACES_IGNOREES`, `LANDXML_ELEMENTS_IGNORES`. Un PDF déposé à l'import : 422 `CONTENU_NON_RECONNU` (message qui renvoie aux documents) ; un DWG : 415 `FORMAT_NON_SUPPORTE` (marche à suivre pour exporter en DXF).
+
+### Réglages serveur
+
+`PROJETS_VOIRIE_LANDXML_TOLERANCE_ARC_MM` (10, bornes 1 à 1 000) : flèche maximale entre un arc LandXML et ses cordes ; **valeur de protection à valider par le DSI**. Délais côté base : `PROJETS_VOIRIE_DELAI_CARTE_MS` (complétude), `PROJETS_VOIRIE_DELAI_DEPOT_MS` et `PROJETS_VOIRIE_VERROU_MS` (écritures).
+
+## Correctifs après la revue T1+S1 (09/11/2026)
+
+Migration `20261103400000_correctifs_sources_territoires` ; rapport `docs/reports/CORRECTIFS-REVUE-T1S1.md` ; contrats mis à jour : `CONTRAT-SOURCES.md`, `CONTRAT-TERRITOIRES.md`. Aucune route ajoutée ni retirée ; formes de réponse changées :
+
+| Route | Changement |
+|---|---|
+| `GET /:id/conflits`, `GET /:id/conflits/:cid`, `GET /:id/conflits/export.csv` | B1 : un dossier `DIVERGENCE_SOURCES` dépend aussi du jeu B (`jeuSourceBId`) : lecteur, B non `AUTORISE` : absent, 404 ; B `RETIRE` : `mesure: null`, `geometrie: null`, `objet: null`, historique calculé `{ masquees: true }` pour tous |
+| `POST /:id/comparaisons`, `GET /:id/comparaisons[/:cmpId]` | M1 : `epsg` choisi comme l'analyse 2D ; `resume.crs: { epsg, source: "TERRITOIRE" \| "BANDES", crsImpose, territoireId }`. M6 : `regle.code` `S1-CORRIDOR-0.2` par défaut, `regle.precisionParClasseM: null` (aucun barème), `regle.bareme: { applicable, applique, source: "REGLE_APPROUVEE" \| null, approuveParId }`, `resume.bareme: { applique, couples, regle: { regleId, code, version, approuveParId } \| null }`, une limite qui cite la règle et sa version quand un corridor repose sur une classe |
+| `GET /:id/comparaisons/:cmpId/objets` | M5 : `cle` = empreinte du projet et des identifiants des deux objets ; deux objets de même nom donnent deux résultats ; `origineCorridor` (`PRECISIONS_METRES`, `BAREME_APPROUVE`, `BAREME_NON_ATTESTE` (classe convertie sans bareme approuve atteste : comparaisons anterieures aux correctifs M6), `INCERTAIN`, nul sans couple) |
+| `POST /:id/comparaisons`, `GET /:id/comparaisons[/:cmpId]` (provenance) | `resume.corridor.origine` (`PRECISIONS_METRES`, `BAREME_APPROUVE`, `BAREME_NON_ATTESTE` (classe convertie sans bareme approuve atteste : comparaisons anterieures aux correctifs M6), `INCERTAIN`), `resume.corridor.regleBareme` (`regleId`, `code`, `version`) et `resume.corridor.parOrigine` (demande de l'architecte du 10/11/2026) |
+| `GET /:id/sources` | M3 : un groupe par (concessionnaire, type configurable sinon famille), champs `typeReseau` (famille), `typeReseauCode` et `typeReseauLibelle` |
+| `GET /:id/regles-rapprochement`, `POST .../approuver` | M6 : `baremeApplicable` sur chaque règle et chaque règle effective ; (décision de l'architecte du 10/11/2026) corps `{ justification }` seulement (`derogation` : 400 `CHAMPS_INVALIDES`) ; l'auteur reçoit toujours 409 `SEPARATION_DES_TACHES` (`bareme` : vrai si la règle porte un barème) |
+| `POST /:id/jeux` | M2 : `methodeAcquisition` (64 caractères au plus, mis en majuscules) : tout code absent, inactif, retiré ou mal formé du référentiel `METHODE_ACQUISITION` rend 422 `METHODE_ACQUISITION_INCONNUE` (avec `methodeAcquisition`), jamais 400. M3 : un autre type du même concessionnaire n'est jamais une nouvelle version. m6 : une famille demandée sans code, autre que celle du concessionnaire, est acceptée sans code hérité |
+| `GET /:id/analyse`, `GET /:id/reseau/comptage` | M4 : toutes les sources autorisées d'un réseau ; `reseaux.sourcesMultiples` (analyse) et `sourcesMultiples` (comptage) : `[ { concessionnaireId, typeReseau, nbSources, jeuxIds } ]`, et une limite sur le double compte |
+| `GET /:id/reseau/objets/:objetId` | m8 : `connexions` ne compte que les liens vers des jeux lisibles pour le compte |
+| `GET /territoires` | m2 : vue de liste sans `emprise` ; `aEmprise` et `bbox` |
+| `GET /territoires/comptes` | m1 : 429 `COMPTES_TROP_FREQUENTS` (`retryAfterS`, `Retry-After`), 504 `COMPTES_TROP_LONGS`, 503 `SERVICE_OCCUPE` ; un dossier ne compte pour un lecteur que si chaque jeu lié est autorisé |
+| `POST /` (projet) | m3 : compte régional, territoire inconnu, retiré, d'une autre région ou sans région : 404 `TERRITOIRE_INTROUVABLE` (même corps) |
+| `POST /territoires`, `PATCH /territoires/:tid` | m4 : 400 `TERRITOIRE_REGION_INCOHERENTE` (région autre que celle du parent), 409 `TERRITOIRE_REGION_PROJETS` (`projets`), 409 `TERRITOIRE_REGION_DESCENDANTS` (`descendants`) |
+| `PATCH /:id` (projet) | m10 : déplacé vers un territoire sans commune ni préfecture, le projet a `commune` et `prefecture` nulles (sauf valeurs envoyées) |
+| `PATCH /referentiels/TYPE_RESEAU/:code` | m7 : 409 `FAMILLE_FIGEE` (`usages`) si la famille change alors que le code est porté |
+| `DELETE /referentiels/METHODE_ACQUISITION/:code` | M2 : 409 `VALEUR_UTILISEE` (`usages.jeux`) si un jeu non retiré porte la méthode |
+| `PUT /configuration/CRS_IMPORT_LISTE_BLANCHE` | m9 : 409 `CRS_NON_AUTORISE` (`epsg`, `territoires`) pour un CRS imposé par un territoire |
+| `PUT /configuration/:cle` | décision de l'architecte du 10/11/2026 : `justification` obligatoire (10 caractères au moins) : 422 `JUSTIFICATION_REQUISE` sinon |
+
+Réglage ajouté : `PROJETS_VOIRIE_COMPTES_PAR_MINUTE` (défaut 30, bornes 1 à 600) : requêtes `GET /territoires/comptes` par compte et par minute.
+
+## Export du dossier technique et tableaux de bord (lot X1)
+
+Contrat : `docs/projets-voirie/CONTRAT-EXPORTS.md` (contenu de l'archive, confidentialité, dérogation, bornes, agrégats, lisibilité). Preuves : `backend/src/api-v2/projets-voirie.dossier-technique.routes.test.ts`, noyaux `backend/src/projets-voirie/exports/*.test.ts` et `tableaux/tableau.noyau.test.ts`, banc `backend/tests-integration/exports-tableaux.integration.mts` (données 100 % synthétiques).
+
+**Principe.** Le dossier technique est une archive ZIP produite par le serveur pour un compte qui décide (ADMIN, GESTIONNAIRE du périmètre), auditée avant la remise, bornée. Elle rassemble la fiche (JSON et PDF texte simple), les agrégats de l'analyse 2D (jeux `AUTORISE`, sans géométrie), le CSV existant des dossiers de conflit, le journal des documents, la complétude et, **seulement si la confidentialité le permet**, le GeoJSON des jeux `AUTORISE`. Un jeu `CONFIDENTIEL_CONCESSIONNAIRE` ou `INFRASTRUCTURE_SENSIBLE` ne sort que par une **dérogation ADMIN nominative, justifiée et à usage unique**. Les tableaux de bord ne rendent que des nombres, filtrés par le périmètre du compte et, pour un compte qui ne décide pas, calculés sur ce qu'il peut lire.
+
+Mêmes gardes, dans le même ordre, que le socle ; projet retiré ou hors périmètre : 404 `PROJET_INTROUVABLE` ; territoire hors périmètre : 404 `TERRITOIRE_INTROUVABLE` ; identifiants d'URL en UUID (400 `IDENTIFIANT_INVALIDE`).
+
+### Routes
+
+| Route | Rôle | Réponse |
+|---|---|---|
+| `GET /:id/export/dossier` | ADMIN, GESTIONNAIRE | `?geojson=true\|false` (défaut `true`) `&derogation=<uuid>` (avec GeoJSON seulement) : 200 `application/zip`, `Content-Disposition: attachment; filename="dossier-<code>-<AAAA-MM-JJ>.zip"`, `X-Export-Id`, `X-Empreinte-Sha256` (SHA-256 de l'archive), `X-Fichiers`, `X-Jeux-Geojson` |
+| `GET /:id/export/journal` | ADMIN, GESTIONNAIRE | `?limite=(1..100, 50)` : `{ exports: [ { id, acteur: { id, nomComplet }, createdAt, sha256, tailleOctets, nbFichiers, nbJeuxGeojson, derogationId } ] }` |
+| `POST /:id/export/derogations` | ADMIN | `{ jeuxIds: uuid[1..20], justification (20..2000), beneficiaireId?, dureeHeures? (1..168) }` : 201 `{ derogation }` |
+| `GET /:id/export/derogations` | ADMIN | `{ derogations: [ { id, projetId, jeuxIds, beneficiaire, accordeePar, justification, createdAt, expireLe, utiliseeLe, exportId, etat: DISPONIBLE\|UTILISEE\|EXPIREE } ] }` |
+| `GET /tableau-de-bord` | lecture | aucun paramètre : `{ portee: "NATIONAL", perimetre: { national, regions }, lisibilite, total, parRegion: [ { regionId, region, ...agrégat } ], tronque, calculeLe, regle }` |
+| `GET /tableau-de-bord/territoires/:tid` | lecture | aucun paramètre : `{ portee: "TERRITOIRE", territoire: { id, code, nom, niveau, ancetres }, perimetre, lisibilite, total, rattachesDirectement, enfants: [ { territoireId, code, nom, niveau, ...agrégat } ], nonVentiles, tronque, calculeLe, regle }` |
+
+Agrégat : `{ projets, jeux: { <statut>: n }, conflits: { <statut>: n }, documentsManquants: { typesObligatoiresNonFournis, projetsIncomplets, piecesEnAttente, piecesEnAttenteParStatut }, referentsActifs: { comptes, rattachements } }`. Pour un compte qui ne décide pas : `jeux` ne porte que `AUTORISE`, `conflits` ne compte que les dossiers dont chaque jeu lié est `AUTORISE` (jeu B d'une comparaison compris), `piecesEnAttente`, `piecesEnAttenteParStatut` et `referentsActifs` valent `null` ; `lisibilite` le dit (`{ jeux: AUTORISE_SEULEMENT, conflits: DOSSIERS_VISIBLES, documentsEnCours: false, referents: false }`).
+
+Archive (racine `dossier-<code>/`) : `LISEZMOI.txt`, `fiche-projet.json`, `fiche-projet.pdf`, `analyse/agregats.json`, `conflits/dossiers.csv`, `documents/journal.json`, `documents/journal.csv`, `documents/completude.json`, `geojson/<role>-v<version>-<jeuId>.geojson` (jeux exportés), `manifeste.json` (`format: "BDRI-DOSSIER-1"`, `exportId`, `geojson: { demande, niveauxExportables, inclus, ecartes: [ { jeuId, raison: NON_AUTORISE|CONFIDENTIALITE|NIVEAU_NON_EXPORTABLE|GEOJSON_NON_DEMANDE } ] }`, `derogationId`, `bornes`, `fichiers: [ { chemin, octets, sha256 } ]`, `avertissements`), `manifeste.sha256` (format `sha256sum -c`). Un GeoJSON : `{ "type": "FeatureCollection", "bdri": { jeuId, role, version, sha256Source, confidentialite, derogation }, "features": [ { "type": "Feature", "geometry": ..., "properties": { objetId, nom, typeGeom, longueurM, ordre } } ] }` ; les attributs du fichier source ne sont pas exportés.
+
+### Codes d'erreur ajoutés par ce lot
+
+400 `PARAMETRES_INVALIDES`, `CHAMPS_INVALIDES`, `JUSTIFICATION_INVALIDE` ; 404 `DEROGATION_INTROUVABLE` (inconnue, autre projet ou autre bénéficiaire : même réponse), `JEU_INTROUVABLE`, `TERRITOIRE_INTROUVABLE` ; 409 `DEROGATION_INDISPONIBLE` (`etat`), `DEROGATION_INUTILE`, `JEU_NON_AUTORISE` ; 422 `EXPORT_TROP_VOLUMINEUX` (`objets`, `objetsMax`, `sommets`, `sommetsMax` ou `octets`, `octetsMax`), `BENEFICIAIRE_NON_HABILITE`, `BENEFICIAIRE_HORS_PERIMETRE` ; 429 `EXPORT_TROP_FREQUENT`, `TABLEAU_DE_BORD_TROP_FREQUENT` (`retryAfterS`, en-tête `Retry-After`) ; 503 `SERVICE_OCCUPE`, `PROJET_OCCUPE` ; 504 `EXPORT_TROP_LONG`, `TABLEAU_DE_BORD_TROP_LONG`.
+
+### Extensions des routes existantes
+
+`GET /:id/completude` : la fonction `EXPORT_DOSSIER` passe `DISPONIBLE` (aucune condition). `GET /:id/conflits/export.csv` : inchangé (même contenu, même audit `ExportConflitsProjetVoirie`) ; son contenu est aussi celui de `conflits/dossiers.csv` dans l'archive.
+
+### Réglages serveur (bornés : une valeur illisible ou hors bornes redonne le défaut ; valeurs de protection à valider par le DSI)
+
+`PROJETS_VOIRIE_EXPORT_GEOJSON_NIVEAUX` (défaut `PUBLIC,INTERNE,RESTREINT_PROJET`, ne peut que restreindre), `PROJETS_VOIRIE_EXPORT_OBJETS_MAX` (50 000), `PROJETS_VOIRIE_EXPORT_SOMMETS_MAX` (1 000 000), `PROJETS_VOIRIE_EXPORT_TAILLE_MAX_OCTETS` (64 Mo), `PROJETS_VOIRIE_EXPORT_DELAI_MS` (120 000), `PROJETS_VOIRIE_EXPORT_CADENCE_MAX` (10) par `PROJETS_VOIRIE_EXPORT_CADENCE_FENETRE_S` (3 600), `PROJETS_VOIRIE_EXPORT_DEROGATION_DUREE_H` (24, 168 au plus), `PROJETS_VOIRIE_TABLEAU_CADENCE_MAX` (30) par `PROJETS_VOIRIE_TABLEAU_CADENCE_FENETRE_S` (60). Concurrence (processus) : 2 exports, 1 par compte ; 4 tableaux. Délais côté base : `PROJETS_VOIRIE_DELAI_ANALYSE_MS` (lectures de l'export), `PROJETS_VOIRIE_DELAI_CARTE_MS` (tableaux), `PROJETS_VOIRIE_VERROU_MS`.
+
+### Corrections après revue du lot X1 (10/11/2026)
+
+- `POST /:id/export/derogations` : `beneficiaireId` **obligatoire**, autre personne que l'ADMIN (409 `SEPARATION_DES_TACHES`).
+- `GET /:id/export/dossier` : la réponse est la même ; la remise (journal `REMIS`, consommation de la dérogation, audit) est consignée après l'écriture complète de la réponse ; client parti : `ECHEC_ENVOI`, dérogation libérée. Dérogation tenue par une autre tentative en cours : 409 `DEROGATION_INDISPONIBLE` (`etat: RESERVEE`). 422 `EXPORT_TROP_VOLUMINEUX` porte aussi `octetsEstimes` (estimation préalable) ou `octets` (comptage pendant la fabrication), sur les octets non compressés.
+- `GET /:id/export/journal` : une ligne par **tentative** : `{ id, acteur, statut: EN_COURS|REMIS|ECHEC|ECHEC_ENVOI, codeEchec, createdAt, termineLe, sha256, tailleOctets, nbFichiers, nbJeuxGeojson, derogationId }`.
+- `POST /:id/jeux` : champ `justificationConfidentialite` (ADMIN, abaissement) ; 403 `CONFIDENTIALITE_ABAISSEMENT_RESERVE` ; avertissements `CONFIDENTIALITE_HERITEE`, `CONFIDENTIALITE_ABAISSEE` (`CONTRAT-IMPORT.md`, section 16).
+- Réglages : `PROJETS_VOIRIE_EXPORT_DELAI_MS` 45 000 (50 000 au plus) ; `PROJETS_VOIRIE_EXPORT_TAILLE_MAX_OCTETS` sur les octets non compressés (256 Mo au plus) ; `PROJETS_VOIRIE_EXPORT_OBJETS_MAX` (200 000 au plus) ; `PROJETS_VOIRIE_EXPORT_SOMMETS_MAX` (5 000 000 au plus).

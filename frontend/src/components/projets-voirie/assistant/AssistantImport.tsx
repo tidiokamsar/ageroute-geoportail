@@ -7,7 +7,7 @@ import { useInvalidationProjet } from "../../../lib/projetsVoirieHooks";
 import { autoriserJeu, rejeterJeu } from "../../../lib/projetsVoirieApi";
 import { classerErreur, type ErreurPv } from "../../../lib/projetsVoirie";
 import {
-  champsLecture, construireDonneesDepot, erreurCrs, erreurFormat, libelleEtape, modeCrs, type IdEtape, type Lecture, type LectureCsv, type OptionsImportApi, type Saisie,
+  champsLecture, construireDonneesDepot, precisionHorsZone, erreurCrs, erreurFormat, libelleEtape, modeCrs, type IdEtape, type Lecture, type LectureCsv, type OptionsImportApi, type Saisie,
 } from "../../../lib/projetsVoirieImport";
 import { etapeVoisine, etatInitial, reduire, retourPossible } from "../../../lib/projetsVoirieImportEtat";
 import { CODES_LECTURE_TABLEAU } from "../../../lib/projetsVoirieImportErreurs";
@@ -119,14 +119,14 @@ export function AssistantImport({ projetId, enLigne, onFermer, onVoirJeu, jeuRep
   // -------------------------------------------------------------------------------------------------- Appels
   const donneesDepot = (l: Lecture, sha: string | undefined) => {
     if (!options) return null;
-    return construireDonneesDepot(saisie, options.formats, options.limites.tailleMaxOctets, champsLecture(l, sha)).donnees;
+    return construireDonneesDepot(saisie, options.formats, options.limites.tailleMaxOctets, champsLecture(l, sha), options.formatsGdal).donnees;
   };
 
   async function lancerInventaire(depuisEtapeDepot: boolean) {
     if (!options) return;
     setInfo(null);
     if (depuisEtapeDepot) {
-      const { erreurs: errs, donnees } = construireDonneesDepot(saisie, options.formats, options.limites.tailleMaxOctets);
+      const { erreurs: errs, donnees } = construireDonneesDepot(saisie, options.formats, options.limites.tailleMaxOctets, {}, options.formatsGdal);
       setErreurs(errs);
       if (!donnees) return;
     }
@@ -342,7 +342,7 @@ export function AssistantImport({ projetId, enLigne, onFermer, onVoirJeu, jeuRep
         </section>
 
         {info && <Encart ton="attention" testid="info-assistant"><p>{info}</p></Encart>}
-        {erreur && <ZoneErreurImport erreur={erreur} etapeCourante={etape} onVoirJeu={onVoirJeu} onAller={aller} />}
+        {erreur && <ZoneErreurImport erreur={precisionHorsZone(erreur, options)} etapeCourante={etape} onVoirJeu={onVoirJeu} onAller={aller} />}
         {!enLigne && <p role="alert" className="text-sm text-amber-900">Vous êtes hors ligne : l&apos;assistant a besoin du réseau.</p>}
         {Object.keys(erreurs).length > 0 && <p role="alert" className="text-sm text-red-700">Corrigez les champs signalés avant de lancer l&apos;analyse du fichier.</p>}
         {etape === "format" && messageFormat && inventaire && <p className="text-xs text-gray-700" data-testid="blocage-format">{messageFormat}</p>}

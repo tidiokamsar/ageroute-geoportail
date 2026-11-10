@@ -11,6 +11,7 @@
 // Les longueurs sont comparees a la distance geodesique de Vincenty (sans projection).
 import { ouvrirBancClone } from "./lib/banc-clone.mts";
 import { verifier, conclure, proche } from "./lib/verdict.ts";
+import { avecTerritoireParDefaut } from "./lib/territoire-par-defaut.mts";
 import { distanceVincenty, lonLatVersUtm, utmVersLonLat } from "./lib/geodesie.ts";
 
 const banc = await ouvrirBancClone("essai_import_formats");
@@ -20,7 +21,8 @@ const { signAccessToken } = await banc.imp("utils/jwt");
 const { construireZip, kmzSimple } = await banc.imp("projets-voirie/formats/zip.fixtures");
 const request = (await import("supertest")).default;
 
-const app = createApp();
+// Lot T1 : territoire par defaut ajoute aux creations de projet du banc (voir lib/territoire-par-defaut.mts).
+const app = avecTerritoireParDefaut(createApp(), prisma);
 const BASE = "/api/v2/projets-voirie";
 const sql = <T = Record<string, unknown>>(texte: string, ...v: unknown[]) => prisma.$queryRawUnsafe(texte, ...v) as Promise<T[]>;
 const compter = async (texte: string, ...v: unknown[]) => Number((await sql<{ n: bigint }>(texte, ...v))[0].n);
@@ -274,8 +276,8 @@ async function main() {
     && await kmzCode(construireZip([{ nom: "/etc/doc.kml", contenu: KML_OK }]).buffer) === "422 ARCHIVE_CHEMIN_DANGEREUX");
   verifier("6. bombe de decompression : 5 Mo de zeros dans moins de 10 ko d'archive : 422 ARCHIVE_TAUX_COMPRESSION", await kmzCode(construireZip([{ nom: "doc.kml", contenu: Buffer.alloc(5 * 1024 * 1024) }]).buffer) === "422 ARCHIVE_TAUX_COMPRESSION");
   verifier("6. trop d'entrees : 101 entrees : 422 ARCHIVE_TROP_D_ENTREES", await kmzCode(construireZip(Array.from({ length: 101 }, (_, i) => ({ nom: `f${i}.png`, contenu: "x" }))).buffer) === "422 ARCHIVE_TROP_D_ENTREES");
-  verifier("6. KMZ sans KML : 422 KMZ_SANS_KML ; archive de Shapefile : 415 FORMAT_NON_SUPPORTE ; archive corrompue : 422 ARCHIVE_INVALIDE ; entree chiffree : 422 ARCHIVE_CHIFFREE ; lien symbolique : 422 ARCHIVE_LIEN_SYMBOLIQUE",
-    await kmzCode(construireZip([{ nom: "notes.txt", contenu: "x" }]).buffer) === "422 KMZ_SANS_KML" && await kmzCode(construireZip([{ nom: "a.shp", contenu: "x" }]).buffer) === "415 FORMAT_NON_SUPPORTE"
+  verifier("6. KMZ sans KML : 422 KMZ_SANS_KML ; archive de Shapefile : 415 FORMAT_GDAL_DESACTIVE (lot B2, interrupteur coupe par defaut) ; archive corrompue : 422 ARCHIVE_INVALIDE ; entree chiffree : 422 ARCHIVE_CHIFFREE ; lien symbolique : 422 ARCHIVE_LIEN_SYMBOLIQUE",
+    await kmzCode(construireZip([{ nom: "notes.txt", contenu: "x" }]).buffer) === "422 KMZ_SANS_KML" && await kmzCode(construireZip([{ nom: "a.shp", contenu: "x" }]).buffer) === "415 FORMAT_GDAL_DESACTIVE"
     && await kmzCode(kmzSimple(KML_OK).subarray(0, 60)) === "422 ARCHIVE_INVALIDE" && await kmzCode(construireZip([{ nom: "doc.kml", contenu: KML_OK, flags: 1 }]).buffer) === "422 ARCHIVE_CHIFFREE"
     && await kmzCode(construireZip([{ nom: "doc.kml", contenu: KML_OK }, { nom: "l", contenu: "x", faitPar: (3 << 8) | 20, attrExterne: (0o120777 << 16) >>> 0 }]).buffer) === "422 ARCHIVE_LIEN_SYMBOLIQUE");
   const deuxKml = construireZip([{ nom: "a.kml", contenu: KML_OK }, { nom: "b.kml", contenu: KML_OK.replace(">A<", ">B<") }]).buffer;
@@ -495,7 +497,9 @@ async function main() {
 
   // ---------------------------------------------------------------- 13. Ecritures hors module, absence de geometrie dans les reponses, performances
   const etatFinal = await instantane();
-  const TABLES_MODULE = new Set(["projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau", "audit_logs", "projets_voirie_import_evenements", "projets_voirie_fichiers_origine", "users", "regions", "perimetres_comptes"]);
+  const TABLES_MODULE = new Set(["projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau", "audit_logs", "projets_voirie_import_evenements", "projets_voirie_fichiers_origine", "users", "regions", "perimetres_comptes",
+    // Lot T1 : territoire par defaut ajoute par lib/territoire-par-defaut.mts (table du module).
+    "territoires_voirie"]);
   const horsModule = Object.keys(etatFinal).filter((t) => etatFinal[t] !== etatInitial[t] && !TABLES_MODULE.has(t));
   verifier("13. apres tout le banc, SEULES les tables du module (et audit, comptes et perimetres des fixtures) ont change : troncons, ouvrages, portions, chantiers... intacts", horsModule.length === 0, horsModule);
   const refJeuxLecteur = JSON.stringify((await get(`/${PID}/jeux`, T.lecteur)).body);

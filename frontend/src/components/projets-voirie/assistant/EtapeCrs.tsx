@@ -20,7 +20,7 @@ export function BlocSystemeCoordonnees({ crs }: { crs: BlocCrs }) {
       <dt className="text-gray-700">Unités</dt><dd>{unite(crs.uniteSource)} (source), {unite(crs.uniteCible)} (cible)</dd>
       <dt className="text-gray-700">Méthode</dt><dd>{crs.methode ?? "Non indiquée"}{crs.versionProj ? `, PROJ ${crs.versionProj}` : ""}</dd>
       <dt className="text-gray-700">Origine du choix</dt>
-      <dd>{crs.origine === "choisi_par_utilisateur" ? "Choisi par vous (le fichier ne permet pas de le vérifier)" : crs.origine === "norme_du_format" ? "Imposé par la norme du format" : "Non indiquée"}</dd>
+      <dd>{crs.origine === "choisi_par_utilisateur" ? "Choisi par vous (le fichier ne permet pas de le vérifier)" : crs.origine === "norme_du_format" ? "Imposé par la norme du format" : crs.origine === "declare_dans_le_fichier" ? "Déclaré par le fichier lui-même" : "Non indiquée"}</dd>
       <dt className="text-gray-700">Justification</dt><dd className="break-words">{crs.justification ?? "Non indiquée"}</dd>
       {p?.empriseResultat && (<><dt className="text-gray-700">Emprise du résultat</dt><dd className="break-words">{bboxTexte(p.empriseResultat)} (degrés WGS 84)</dd></>)}
       {p?.zoneAttendue && (<><dt className="text-gray-700">Zone attendue</dt><dd className="break-words">{p.zoneAttendue.nom} : {bboxTexte(p.zoneAttendue.bbox)}</dd></>)}
@@ -94,7 +94,7 @@ export function EtapeCrs({ inventaire, mode, lecture, options, apercu, horsZone,
         <div role="alert" data-testid="alerte-hors-zone" className="space-y-2 rounded border-2 border-red-300 bg-red-50 p-3 text-sm text-red-900">
           <p className="flex items-start gap-2 font-semibold"><AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />Résultat hors de la zone attendue : avancement bloqué</p>
           <p>
-            Avec ce système, {formaterNombre(horsZone.nbElements, 0)} élément(s){horsZone.nbObjets !== null ? ` sur ${formaterNombre(horsZone.nbObjets, 0)}` : ""} tombent hors de la Guinée.
+            Avec ce système, {formaterNombre(horsZone.nbElements, 0)} élément(s){horsZone.nbObjets !== null ? ` sur ${formaterNombre(horsZone.nbObjets, 0)}` : ""} tombent hors de la zone attendue{options.crs.zoneAttendue ? ` « ${options.crs.zoneAttendue.nom} »` : ""}.
             Vérifiez d&apos;abord le système choisi : une mauvaise zone UTM ou une inversion de colonnes produit ce symptôme.
             Si vous êtes sûr du système, vous pouvez confirmer : les éléments hors zone seront écartés et jamais stockés ; les autres seront importés.
           </p>
