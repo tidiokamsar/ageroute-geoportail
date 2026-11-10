@@ -132,6 +132,8 @@ export type CodeAvertissementImport =
   | "COUCHE_NOM_REFUSE" | "FICHIERS_ORPHELINS" | "NOM_FICHIER_RENOMME"
   // lot S1 : connexions declarees par le fichier (mapping connecteA) dont l objet designe est introuvable ou ambigu dans le meme fichier
   | "CONNEXIONS_NON_RESOLUES"
+  // revue du lot X1, M1 : niveau de confidentialite herite de la lignee, ou abaisse par un ADMIN (justification auditee)
+  | "CONFIDENTIALITE_HERITEE" | "CONFIDENTIALITE_ABAISSEE"
   // lot D1 : LandXML (elements ignores et comptes, discretisation des arcs)
   | "LANDXML_ARCS_DISCRETISES" | "LANDXML_SPIRALES" | "LANDXML_DISCONTINUITES" | "LANDXML_PROFILS_IGNORES" | "LANDXML_SURFACES_IGNOREES" | "LANDXML_ELEMENTS_IGNORES";
 

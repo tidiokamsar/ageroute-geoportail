@@ -295,6 +295,8 @@ const champsDepot = z.object({
   dateConstat: optionnel(jourIso),
   // Lot S1 : methode d'acquisition, code de la liste du serveur (deux methodes = deux sources d'un reseau de concessionnaire).
   methodeAcquisition: optionnel(z.enum(METHODES_ACQUISITION)),
+  // Revue du lot X1, M1 : justification d'un abaissement du niveau de confidentialite (ADMIN seul, verifie par le service).
+  justificationConfidentialite: optionnel(z.string().trim().min(1).max(2000)),
 }).merge(champsImport).strict();
 
 const requeteDepot = z.object({ simuler: booleenRequete }).strict();

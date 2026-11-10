@@ -16,6 +16,7 @@ import { INCLURE_JEU, vueJeu } from "../vues";
 import { limiteurApercus } from "./apercu.service";
 import { delaiApercuMs } from "./import.config";
 import { colonneIdentifiant, deltaEntreJeux, jeuDeReferenceSuppressions, statutSuppressions } from "./versions.depot";
+import { plusRestrictif } from "../confidentialite-depot.noyau";
 import { filtreCleVersion } from "../sources/cle-version.noyau";
 
 
@@ -173,7 +174,10 @@ export async function retourArriere(acteur: Acteur, projetId: string, jeuId: str
     }
     // Le jeu actuel passe REMPLACE AVANT que le precedent redevienne AUTORISE (index unique partiel : un seul AUTORISE par cle).
     await tx.jeuDonneesProjet.update({ where: { id: jeu.id }, data: { statut: "REMPLACE" } });
-    await tx.jeuDonneesProjet.update({ where: { id: ev.restaureraJeuId }, data: { statut: "AUTORISE" } });
+    // Revue du lot X1, M1 : la version restauree ne redescend pas sous le niveau de confidentialite de la version qu'elle remplace (le plus restrictif des deux).
+    const restauree = await tx.jeuDonneesProjet.findUniqueOrThrow({ where: { id: ev.restaureraJeuId }, select: { confidentialite: true } });
+    const niveau = plusRestrictif([restauree.confidentialite, jeu.confidentialite])!;
+    await tx.jeuDonneesProjet.update({ where: { id: ev.restaureraJeuId }, data: { statut: "AUTORISE", ...(niveau !== restauree.confidentialite ? { confidentialite: niveau as typeof restauree.confidentialite } : {}) } });
     const e = await tx.evenementImportProjet.create({
       data: {
         projetId, jeuId: jeu.id, jeuLieId: ev.restaureraJeuId, type: "RETOUR_ARRIERE", acteurId: acteur.id, justification: texte,
@@ -182,7 +186,7 @@ export async function retourArriere(acteur: Acteur, projetId: string, jeuId: str
     });
     await logAuditTransactionnelle(tx, {
       userId: acteur.id, action: "RESTORE", entityType: "JeuDonneesProjet", entityId: ev.restaureraJeuId,
-      before: { statut: "REMPLACE" }, after: { statut: "AUTORISE", retourArriereDepuis: jeu.id, versionRestauree: ev.restaureraVersion, versionRetiree: jeu.version, justification: texte, evenementId: e.id },
+      before: { statut: "REMPLACE", confidentialite: restauree.confidentialite }, after: { statut: "AUTORISE", confidentialite: niveau, retourArriereDepuis: jeu.id, versionRestauree: ev.restaureraVersion, versionRetiree: jeu.version, justification: texte, evenementId: e.id },
       ipAddress: acteur.ip,
     });
     await logAuditTransactionnelle(tx, {
