@@ -16,7 +16,8 @@ Lecture : **A** = à trancher avant la préproduction de la vague 3 ; **B** = av
 | Confidentialité d'une nouvelle version | Elle hérite du niveau le plus restrictif de sa lignée ; seul un ADMIN abaisse un niveau, avec justification. | `CONTRAT-IMPORT.md` section 16, `CONTRAT-EXPORTS.md` section 9 |
 | Dérogation d'export | Accordée par un ADMIN à une **autre** personne, nominative, à usage unique, consommée seulement après l'envoi complet. | `CONTRAT-EXPORTS.md` |
 | Délai de fabrication d'un export | 45 s par défaut, 50 s au plus, sous le délai de 60 s du mandataire nginx (aucune modification de `nginx.conf`). | idem |
-| Dossiers de couverture insuffisante | Un dossier par axe nommé (et non par morceau d'axe). | lot D4-D7 en cours |
+| Dossiers de couverture insuffisante | Un dossier par axe (colonne `identifiant` du mapping, sinon nom normalisé), et non par morceau d'axe ; un axe sans nom garde son dossier ; le détail par morceau reste sur la fiche. | `CORRECTIFS-PILOTE-D4-D7.md` |
+| Capacité des calculs | Comptage préalable sans calcul géométrique et refus 422 au-delà des plafonds, jamais un 500 ou un 504 tardif. | idem |
 | Classe de précision « inconnue » | Champ absent, jamais une valeur inventée. | défaut D1 du pilote |
 
 ## 2. Gouvernance et séparation des tâches
@@ -70,7 +71,9 @@ Lecture : **A** = à trancher avant la préproduction de la vague 3 ; **B** = av
 |---|---|---|---|
 | A | Conteneur GDAL `ageroute-geoconv` : hébergement de l'image (environ 600 Mo, empreinte épinglée), cadence de mise à jour, profil seccomp, scan de vulnérabilités, antivirus des fichiers déposés | désactivé par défaut ; conditions non remplies | `LOT-B2-RAPPORT.md` J.2 à J.5 |
 | A | Plafonds GDAL de production : 50 000 objets, 25 Mo en entrée, 80 Mo en sortie, 90 s, 2 jobs par compte, 3 par projet, file de 20, 12 créations par heure | valeurs de départ | idem J.1 |
-| B | Capacité réelle de l'analyse 2D, du comptage et de l'analyse persistée (défaut D4 du pilote) et borne mémoire de l'analyse 2D sur un très grand plan | mesure et refus précoce en cours (lot D4-D7) | `CORRECTIFS-PILOTE-D4-D7.md` (à venir), `LOT-X1-RAPPORT.md` section 8 |
+| A | Plafonds de l'analyse 2D, du comptage et de l'analyse persistée (défaut D4 du pilote) : 5 000 objets linéaires et 200 000 sommets par défaut, mesurés sur un poste chargé ; au-delà, refus 422 `ANALYSE_TROP_VOLUMINEUSE` en moins d'une seconde. À fixer après mesure sur le serveur réel (banc `projets-voirie-capacite` avec `PV_CAPACITE_MESURE=1`). | 5 000 / 200 000 | `CORRECTIFS-PILOTE-D4-D7.md` |
+| B | Traitement asynchrone des très gros projets (au-delà des plafonds) et borne mémoire de l'analyse 2D sur un très grand plan | refus 422, pas de traitement en tâche de fond | idem, `LOT-X1-RAPPORT.md` section 8 |
+| B | Dossiers de couverture regroupés par axe (défaut D7) : deux axes distincts de même nom, sans colonne `identifiant` dans le mapping, sont réunis en un seul dossier | nom normalisé, sinon identifiant mappé | `CORRECTIFS-PILOTE-D4-D7.md` |
 | B | Rétention du spool GDAL et droit de purge du backend | 24 h (72 h au plus) | `LOT-B2-RAPPORT.md` J.4 |
 | C | Politique d'échec par objet d'un fichier converti | fichier entier refusé | idem J.7 |
 
