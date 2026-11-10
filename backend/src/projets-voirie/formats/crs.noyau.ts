@@ -129,6 +129,12 @@ export function metaDepuisSpatialRef(l: { srid: number; srtext: string | null; p
   if (!geographique) {
     const u = /\+units=([A-Za-z-]+)/.exec(proj)?.[1];
     unite = u === undefined || u === "m" ? "metre" : u === "us-ft" ? "pied US" : u === "ft" ? "pied" : u;
+    // Revue D1, m2 : sans +units, un facteur +to_meter different de 1 n'est pas le metre (pied de Clarke, pied US...) ; un facteur illisible est inconnu.
+    const t = /\+to_meter=(\S+)/.exec(proj)?.[1];
+    if (u === undefined && t !== undefined) {
+      const f = Number(t);
+      unite = !Number.isFinite(f) || f <= 0 ? "inconnue" : Math.abs(f - 1) < 1e-12 ? "metre" : Math.abs(f - 0.3048) < 1e-4 ? "pied" : "inconnue";
+    }
   }
   return { epsg: l.srid, nom: m ? m[1] : `EPSG:${l.srid}`, unite, geographique };
 }
