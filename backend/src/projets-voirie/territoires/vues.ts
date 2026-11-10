@@ -13,11 +13,20 @@ export interface LigneTerritoire {
 /** Emprise lue a part : GeoJSON (objet) et boite englobante, nuls sans emprise. */
 export interface EmpriseLue { geojson: unknown | null; bbox: [number, number, number, number] | null; md5: string | null }
 
+/** Vue d'un territoire (fiche, ecritures) : emprise GeoJSON complete et boite englobante. */
 export function vueTerritoire(t: LigneTerritoire, emprise: EmpriseLue | null) {
+  return { ...vueTerritoireListe(t, emprise), emprise: emprise?.geojson ?? null };
+}
+
+/**
+ * Vue d'un territoire dans une LISTE (correctifs T1+S1, m2) : boite englobante seulement, jamais l'emprise complete (jusqu'a 10 000 sommets par
+ * territoire, 500 territoires par page) ; `aEmprise` dit si la fiche en porte une.
+ */
+export function vueTerritoireListe(t: LigneTerritoire, emprise: Pick<EmpriseLue, "bbox"> | null) {
   return {
     id: t.id, code: t.code, nom: t.nom, niveau: t.niveau, parentId: t.parentId, chemin: t.chemin, profondeur: t.profondeur,
     regionId: t.regionId, regionEffectiveId: t.regionEffectiveId, crsMetriqueEpsg: t.crsMetriqueEpsg,
-    emprise: emprise?.geojson ?? null, bbox: emprise?.bbox ?? null,
+    aEmprise: (emprise?.bbox ?? null) !== null, bbox: emprise?.bbox ?? null,
     source: t.source, actif: t.actif, version: t.version,
     creePar: t.creePar ? { id: t.creePar.id, nomComplet: t.creePar.nomComplet } : null,
     createdAt: t.createdAt, updatedAt: t.updatedAt,

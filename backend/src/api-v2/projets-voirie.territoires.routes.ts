@@ -6,7 +6,7 @@ import { voitTousLesJeux } from "../projets-voirie/projets.service";
 import { ecrireConfiguration, lireCle, lireConfiguration } from "../projets-voirie/territoires/configuration.service";
 import { NIVEAUX } from "../projets-voirie/territoires/hierarchie.noyau";
 import { creerValeur, lireValeur, listerDomaines, listerValeurs, modifierValeur, retirerValeur } from "../projets-voirie/territoires/referentiels.service";
-import { comptesParTerritoire, creerTerritoire, ficheTerritoire, listerTerritoires, modifierTerritoire, regionsDuTerritoire, retirerTerritoire } from "../projets-voirie/territoires/territoires.service";
+import { comptesParTerritoire, creerTerritoire, exigerCadenceComptes, ficheTerritoire, listerTerritoires, modifierTerritoire, regionsDuTerritoire, retirerTerritoire } from "../projets-voirie/territoires/territoires.service";
 
 /**
  * `/api/v2/projets-voirie/{territoires,referentiels,configuration}` -- TERRITOIRES HIERARCHIQUES, REFERENTIELS CONFIGURABLES, CONFIGURATION
@@ -72,6 +72,8 @@ export function monterRoutesTerritoires(router: Router, o: OutilsRoutesTerritoir
   router.get("/territoires/comptes", enveloppe(async (req, res) => {
     const p = requeteComptes.safeParse(req.query);
     if (!p.success) return refuser(res, p.error);
+    // Correctifs T1+S1 (m1) : cadence par compte (429 COMPTES_TROP_FREQUENTS, Retry-After), puis delai et limiteur dans le service.
+    exigerCadenceComptes(req.user!.id);
     res.json(await comptesParTerritoire(await porteeDe(req), voitTousLesJeux(req.user!.role), p.data.territoireId));
   }));
 

@@ -27,6 +27,7 @@ import {
   modifierProjet, regionDuTerritoire, regionsDuProjet, retirerJeu, retirerProjet, voitTousLesJeux, type Acteur, type Portee,
 } from "../projets-voirie/projets.service";
 import { monterRoutesTerritoires } from "./projets-voirie.territoires.routes";
+import { regionsDuTerritoire } from "../projets-voirie/territoires/territoires.service";
 
 /**
  * `/api/v2/projets-voirie` -- Projets de voirie et reseaux (contrat : docs/projets-voirie/CONTRAT.md, v2 ; reference :
@@ -173,9 +174,23 @@ const corpsProjet = z.object({
 
 const UUID_SOUPLE = /^[0-9a-f-]{36}$/i;
 
+/**
+ * Correctifs T1+S1 (m3) : a la creation d'un projet par un compte REGIONAL, un territoire inexistant, retire, hors perimetre ou sans region effective
+ * repond la MEME chose (404 TERRITOIRE_INTROUVABLE, meme corps que la fiche d'un territoire) : aucun oracle d'existence d'un territoire d'une autre
+ * region. Un compte national passe (il voit tout). Sans `territoireId`, la route repond 400 TERRITOIRE_REQUIS.
+ */
+const TERRITOIRE_INTROUVABLE = { error: "Territoire introuvable", code: "TERRITOIRE_INTROUVABLE" } as const;
+const territoireMasque = requireTerritoireMasque(async (req) => regionsDuTerritoire(String(req.body.territoireId)), { corps: TERRITOIRE_INTROUVABLE });
+const gardeTerritoireCreation = (req: Request, res: Response, next: NextFunction): void => {
+  const tid = req.body?.territoireId;
+  if (typeof tid !== "string" || !UUID_SOUPLE.test(tid)) { next(); return; }
+  void territoireMasque(req, res, next);
+};
+
 projetsVoirieV2Router.post(
   "/",
   ecriture,
+  gardeTerritoireCreation,
   // Creation : un compte regional ne cree que dans sa region (403 sinon) ; une region inconnue lui est refusee. Lot T1 : sans `regionId`,
   // la region touchee est la region effective du territoire (un territoire inconnu vaut region inconnue pour un compte regional).
   requireTerritoire(async (req) => {

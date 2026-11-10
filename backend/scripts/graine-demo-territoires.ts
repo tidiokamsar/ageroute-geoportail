@@ -59,7 +59,8 @@ async function main(): Promise<void> {
       return id;
     };
     for (const v of VILLES) {
-      const region = await prisma.$queryRaw<{ id: number }[]>`SELECT "id" FROM "regions" WHERE lower(unaccent("nom")) = lower(unaccent(${v.region})) ORDER BY "id" LIMIT 1`;
+      // Correctifs T1+S1 (m12) : rapprochement sans accents, casse, apostrophes ni espaces (« N'Zérékoré » de la graine, « Nzérékoré » de prisma/seed.ts).
+      const region = await prisma.$queryRaw<{ id: number }[]>`SELECT "id" FROM "regions" WHERE regexp_replace(lower(unaccent("nom")), '[^a-z0-9]', '', 'g') = regexp_replace(lower(unaccent(${v.region})), '[^a-z0-9]', '', 'g') ORDER BY "id" LIMIT 1`;
       const regionId = region[0]?.id ?? null;
       const existante = v.codeRegionExistant ? await prisma.territoireVoirie.findUnique({ where: { code: v.codeRegionExistant }, select: { id: true } }) : null;
       const regId = existante?.id ?? await creer(`DEMO-REG-${v.cle}`, `${v.region} (DEMO)`, "REGION", nation.id, regionId);

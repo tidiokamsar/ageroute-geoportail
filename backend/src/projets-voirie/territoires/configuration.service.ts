@@ -135,6 +135,16 @@ export async function ecrireConfiguration(acteur: Acteur, cle: string, brut: unk
     const hors = epsgHorsListe(courante.CRS_METRIQUE_BANDES, (v.valeur as ValeurDe<"CRS_IMPORT_LISTE_BLANCHE">).epsg);
     if (hors.length) throw new ErreurMetier(409, "CRS_NON_AUTORISE", `La règle des bandes de CRS métrique utilise ${hors.map((e) => `EPSG:${e}`).join(", ")} : modifiez-la avant de retirer ce code de la liste blanche.`, { epsg: hors });
   }
+  if (cle === "CRS_IMPORT_LISTE_BLANCHE") {
+    // Correctifs T1+S1 (m9) : un CRS impose par un territoire non retire reste dans la liste (sinon le contexte spatial l'ignorerait sans le dire).
+    const nouvelle = (v.valeur as ValeurDe<"CRS_IMPORT_LISTE_BLANCHE">).epsg;
+    const imposes = await prisma.territoireVoirie.findMany({ where: { deletedAt: null, crsMetriqueEpsg: { not: null } }, select: { code: true, crsMetriqueEpsg: true } });
+    const orphelins = imposes.filter((t) => !nouvelle.includes(Number(t.crsMetriqueEpsg)));
+    if (orphelins.length) {
+      const codes = [...new Set(orphelins.map((t) => Number(t.crsMetriqueEpsg)))];
+      throw new ErreurMetier(409, "CRS_NON_AUTORISE", `${orphelins.length} territoire(s) imposent ${codes.map((e) => `EPSG:${e}`).join(", ")} : changez leur CRS avant de retirer ce code de la liste blanche.`, { epsg: codes, territoires: orphelins.slice(0, 20).map((t) => t.code) });
+    }
+  }
   const texte = justification?.trim() || null;
   const resultat = await prisma.$transaction(async (tx) => {
     const avant = await tx.configurationVoirie.findUnique({ where: { cle } });

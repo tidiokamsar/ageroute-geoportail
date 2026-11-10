@@ -16,7 +16,7 @@ import { ouvrirBancClone } from "./lib/banc-clone.mts";
 import { verifier, conclure } from "./lib/verdict.ts";
 import { AXES, R1_BASE, constructeurs } from "./lib/fixtures-conflits.mts";
 
-const banc = await ouvrirBancClone("essai_territoires", { migrations: ["20261103100000_territoires_referentiels"] });
+const banc = await ouvrirBancClone("essai_territoires", { migrations: ["20261103100000_territoires_referentiels", "20261103400000_correctifs_sources_territoires"] });
 const { prisma } = await banc.imp("lib/prisma");
 const { createApp } = await banc.imp("app");
 const { signAccessToken } = await banc.imp("utils/jwt");
@@ -85,8 +85,9 @@ async function main() {
     JSON.stringify(pilote.map((p) => [p.niveau, p.profondeur, p.emprise])) === JSON.stringify([["REGION", 1, false], ["PREFECTURE", 2, false], ["COMMUNE", 3, true]]), pilote);
   verifier("1. la migration ne cree AUCUN autre territoire nomme (aucune ville de demonstration)", (await compter(`SELECT count(*) n FROM territoires_voirie WHERE code NOT LIKE 'GN%' AND code <> 'NON_RENSEIGNE' AND code NOT LIKE 'MIG-%'`)) === 0);
   const domaines = (await get("/referentiels", T.lecteur)).body.domaines as { domaine: string; nb: number }[];
-  verifier("1. referentiels peuples par la migration : 6 types de reseau, 1 categorie, 4 types de document, 5 methodes, 3 statuts",
-    JSON.stringify(domaines.map((d) => [d.domaine, d.nb])) === JSON.stringify([["TYPE_RESEAU", 6], ["CATEGORIE_PROJET", 1], ["TYPE_DOCUMENT", 4], ["METHODE_ACQUISITION", 5], ["STATUT_QUALITE", 3]]), domaines);
+  // Correctifs T1+S1 (M2) : les 9 codes du lot S1 (GNSS_RTK, TOPOGRAPHIE, GEORADAR, PLAN_CAO...) entrent au referentiel : 5 + 9 = 14 methodes.
+  verifier("1. referentiels peuples par les migrations : 6 types de reseau, 1 categorie, 4 types de document, 14 methodes (T1 et S1), 3 statuts",
+    JSON.stringify(domaines.map((d) => [d.domaine, d.nb])) === JSON.stringify([["TYPE_RESEAU", 6], ["CATEGORIE_PROJET", 1], ["TYPE_DOCUMENT", 4], ["METHODE_ACQUISITION", 14], ["STATUT_QUALITE", 3]]), domaines);
   const conf0 = (await get("/configuration", T.lecteur)).body.configuration as { cle: string; source: unknown; valeur: unknown }[];
   const bandes0 = conf0.find((c) => c.cle === "CRS_METRIQUE_BANDES")!;
   verifier("1. configuration : quatre cles ; bandes de CRS = regle historique (-12 => 32628, sinon 32629), source BASE",
@@ -122,7 +123,14 @@ async function main() {
   verifier("3. un compte de la region K cree le projet dans la commune (201) : region, commune et prefecture derivees du territoire",
     prj.status === 201 && prj.body.projet.regionId === RK && prj.body.projet.commune === "Ville K (banc)" && prj.body.projet.prefecture === "Prefecture K (banc)" && prj.body.projet.territoire?.code === "BANC-COM-K", prj.body);
   verifier("3. sans territoire : 400 TERRITOIRE_REQUIS", (await envoyer("post", "", { code: "BANC-SANS", nom: "x" }, T.chef)).body.code === "TERRITOIRE_REQUIS");
-  verifier("3. un compte de la region A ne cree pas dans la region K (403 HORS_PERIMETRE)", (await envoyer("post", "", { code: "BANC-A-K", nom: "x", territoireId: COM_K }, T.regA)).body.code === "HORS_PERIMETRE");
+  // Correctifs T1+S1 (m3) : territoire d'une autre region, inconnu ou sans region (nation) : la MEME reponse (404 TERRITOIRE_INTROUVABLE), aucun oracle.
+  const [horsK, inconnu, sansRegion] = await Promise.all([
+    envoyer("post", "", { code: "BANC-A-K", nom: "x", territoireId: COM_K }, T.regA),
+    envoyer("post", "", { code: "BANC-A-X", nom: "x", territoireId: "00000000-0000-4000-8000-0000000000aa" }, T.regA),
+    envoyer("post", "", { code: "BANC-A-N", nom: "x", territoireId: NATION }, T.regA)]);
+  verifier("3. m3 : un compte de la region A qui vise un territoire de la region K, inconnu ou sans region recoit la MEME reponse (404 TERRITOIRE_INTROUVABLE, meme corps) ; rien n'est cree",
+    [horsK, inconnu, sansRegion].every((r) => r.status === 404 && JSON.stringify(r.body) === JSON.stringify(horsK.body)) && horsK.body.code === "TERRITOIRE_INTROUVABLE"
+    && (await compter(`SELECT count(*) n FROM projets_voirie WHERE code LIKE 'BANC-A-%'`)) === 0, [horsK.body, inconnu.body, sansRegion.body]);
   verifier("3. region du corps incoherente avec celle du territoire : 400 TERRITOIRE_REGION_INCOHERENTE", (await envoyer("post", "", { code: "BANC-INC", nom: "x", territoireId: COM_K, regionId: RA }, T.chef)).body.code === "TERRITOIRE_REGION_INCOHERENTE");
   const avecCat = await envoyer("post", "", { code: "BANC-K-CAT", nom: "Projet a categorie", territoireId: COM_K, categorieCode: "VOIRIE_URBAINE" }, T.chef);
   verifier("3. categorie de projet : largeurs par defaut lues dans le referentiel (15 / 7)", avecCat.status === 201 && avecCat.body.projet.largeurEmpriseM === 15 && avecCat.body.projet.largeurChausseeM === 7 && avecCat.body.projet.categorieCode === "VOIRIE_URBAINE", avecCat.body);
@@ -301,7 +309,8 @@ async function main() {
     && (await envoyer("post", "", { code: "BANC-INACTIF", nom: "x", territoireId: prefs[2] }, T.chef)).body.code === "TERRITOIRE_INTROUVABLE");
   verifier("13. deplacer un projet vers un territoire d'une autre region : 400 TERRITOIRE_REGION_INCOHERENTE", (await envoyer("patch", `/${PK}`, { territoireId: comW.id }, T.chef)).body.code === "TERRITOIRE_REGION_INCOHERENTE");
   const mv = await envoyer("patch", `/${PK}`, { territoireId: COR }, T.chef);
-  verifier("13. deplacer un projet vers un territoire de la meme region (corridor) : 200, region inchangee", mv.status === 200 && mv.body.projet.regionId === RK && mv.body.projet.territoireId === COR, mv.body);
+  verifier("13. deplacer un projet vers un territoire de la meme region (corridor) : 200, region inchangee ; m10 : commune et prefecture deviennent nulles (le corridor n'en a pas, rien n'est invente)",
+    mv.status === 200 && mv.body.projet.regionId === RK && mv.body.projet.territoireId === COR && mv.body.projet.commune === null && mv.body.projet.prefecture === null, mv.body);
   await envoyer("patch", `/${PK}`, { territoireId: COM_K }, T.chef);
   const sqlstate = async (q: string, ...v: unknown[]) => { try { await sql(q, ...v); return "ok"; } catch (e) { return String((e as { meta?: { code?: string } }).meta?.code ?? (e as Error).message).slice(0, 80); } };
   const rDel = await sqlstate(`DELETE FROM territoires_voirie WHERE id = $1`, QUA);
@@ -313,6 +322,51 @@ async function main() {
   const propage = await sql<{ code: string; r: number }>(`SELECT code, "regionEffectiveId" r FROM territoires_voirie WHERE chemin LIKE (SELECT chemin FROM territoires_voirie WHERE id = $1) || '%' ORDER BY chemin`, REG_K);
   verifier("13. changement de region : la base propage la region effective a tous les descendants sans region propre", propage.every((p) => p.r === RA), propage);
   await sql(`UPDATE territoires_voirie SET "regionId" = $1 WHERE id = $2`, RK, REG_K);
+
+  // ================================================================ 13 bis. Correctifs T1+S1 (mineurs m1, m2, m4, m7, m9)
+  // m1 : les comptes (agregat par projet puis cumul par chemin) egalent un oracle SQL ecrit a part (sous-requetes correlees, l'ancienne formulation).
+  const cptNat = (await get("/territoires/comptes")).body.comptes as { territoireId: string; projets: number; jeux: Record<string, number> }[];
+  const oracle = await sql<{ id: string; p: bigint; j: bigint }>(`SELECT t.id,
+      (SELECT count(*) FROM projets_voirie p JOIN territoires_voirie s ON s.id = p."territoireId" WHERE p."deletedAt" IS NULL AND s.chemin LIKE t.chemin || '%') p,
+      (SELECT count(*) FROM projets_voirie_jeux j JOIN projets_voirie p ON p.id = j."projetId" JOIN territoires_voirie s ON s.id = p."territoireId"
+        WHERE p."deletedAt" IS NULL AND s.chemin LIKE t.chemin || '%' AND j.statut <> 'RETIRE') j
+      FROM territoires_voirie t WHERE t."deletedAt" IS NULL`);
+  const ecartsComptes = oracle.filter((o) => { const c = cptNat.find((x) => x.territoireId === o.id); return !c || c.projets !== Number(o.p) || Object.values(c.jeux).reduce((a, n) => a + n, 0) !== Number(o.j); });
+  verifier("13 bis. m1 : comptes de chaque territoire (projets, jeux non retires) egaux a l'oracle SQL", cptNat.length === oracle.length && ecartsComptes.length === 0, ecartsComptes.slice(0, 5));
+  process.env.PROJETS_VOIRIE_COMPTES_PAR_MINUTE = "1";
+  const cad1 = await get("/territoires/comptes", T.chef), cad2 = await get("/territoires/comptes", T.chef);
+  delete process.env.PROJETS_VOIRIE_COMPTES_PAR_MINUTE;
+  verifier("13 bis. m1 : cadence par compte : au-dela, 429 COMPTES_TROP_FREQUENTS avec Retry-After", cad1.status === 200 && cad2.status === 429 && cad2.body.code === "COMPTES_TROP_FREQUENTS" && Number(cad2.headers["retry-after"]) > 0, cad2.body);
+  // m2 : la liste ne rend que la boite englobante ; l'emprise complete est sur la fiche.
+  const lst = (await get("/territoires?limite=500", T.lecteur)).body.territoires as { id: string; emprise?: unknown; bbox: number[] | null; aEmprise: boolean }[];
+  const comKListe = lst.find((t) => t.id === COM_K);
+  const comKFiche = (await get(`/territoires/${COM_K}`, T.lecteur)).body.territoire;
+  verifier("13 bis. m2 : la liste des territoires ne porte aucune emprise complete (boite englobante et aEmprise seulement) ; la fiche porte l'emprise GeoJSON",
+    lst.length > 0 && lst.every((t) => !("emprise" in t)) && !JSON.stringify(lst).includes("coordinates") && comKListe?.aEmprise === true && JSON.stringify(comKListe.bbox) === JSON.stringify([-9.36, 10.33, -9.26, 10.43])
+    && comKFiche.emprise?.type === "Polygon", comKListe);
+  // m4 : changer la region d'un territoire qui porte des projets d'une autre region est refuse ; un enfant ne porte pas une autre region que son parent.
+  const chgRegion = await envoyer("patch", `/territoires/${REG_K}`, { regionId: RA });
+  const chgCommune = await envoyer("patch", `/territoires/${COM_K}`, { regionId: RA });
+  const enfantIncoherent = await envoyer("post", "/territoires", { code: "BANC-PREF-KA", nom: "Prefecture incoherente", niveau: "PREFECTURE", parentId: REG_K, regionId: RA });
+  verifier("13 bis. m4 : region K (dont les descendants portent des projets de K) passee en A : 409 TERRITOIRE_REGION_PROJETS, rien n'est change ; une commune de K qui prendrait la region A, ou un enfant d'une autre region que son parent : 400 TERRITOIRE_REGION_INCOHERENTE",
+    chgRegion.status === 409 && chgRegion.body.code === "TERRITOIRE_REGION_PROJETS" && chgRegion.body.projets >= 1 && chgCommune.status === 400 && chgCommune.body.code === "TERRITOIRE_REGION_INCOHERENTE"
+    && (await sql<{ r: number | null }>(`SELECT "regionEffectiveId" r FROM territoires_voirie WHERE id = $1`, COM_K))[0].r === RK
+    && (await sql<{ r: number | null }>(`SELECT "regionEffectiveId" r FROM territoires_voirie WHERE id = $1`, REG_K))[0].r === RK
+    && enfantIncoherent.status === 400 && enfantIncoherent.body.code === "TERRITOIRE_REGION_INCOHERENTE", [chgRegion.body, chgCommune.body, enfantIncoherent.body]);
+  // m7 : la famille d'un type de reseau porte par un jeu ne change plus.
+  const famille = await envoyer("patch", "/referentiels/TYPE_RESEAU/FIBRE_BANC", { parametres: { famille: "ELECTRICITE" } });
+  const couleur = await envoyer("patch", "/referentiels/TYPE_RESEAU/FIBRE_BANC", { parametres: { famille: "TELECOM", couleur: "#123456" } });
+  verifier("13 bis. m7 : changer la famille d'un type de reseau porte par un jeu : 409 FAMILLE_FIGEE ; changer sa couleur (meme famille) reste possible",
+    famille.status === 409 && famille.body.code === "FAMILLE_FIGEE" && couleur.status === 200, [famille.body, couleur.body]);
+  // m9 : un CRS impose par un territoire reste dans la liste blanche.
+  await envoyer("put", "/configuration/CRS_IMPORT_LISTE_BLANCHE", { valeur: { epsg: [4326, 32628, 32629, 32630] } });
+  const impose30 = await envoyer("patch", `/territoires/${COM_K}`, { crsMetriqueEpsg: 32630 });
+  const retraitImpose = await envoyer("put", "/configuration/CRS_IMPORT_LISTE_BLANCHE", { valeur: { epsg: [4326, 32628, 32629] } });
+  await envoyer("patch", `/territoires/${COM_K}`, { crsMetriqueEpsg: null });
+  const retraitLibre = await envoyer("put", "/configuration/CRS_IMPORT_LISTE_BLANCHE", { valeur: { epsg: [4326, 32628, 32629] } });
+  verifier("13 bis. m9 : retirer de la liste blanche un CRS impose par un territoire : 409 CRS_NON_AUTORISE (le territoire est nomme) ; une fois l'imposition levee, il se retire",
+    impose30.status === 200 && retraitImpose.status === 409 && retraitImpose.body.code === "CRS_NON_AUTORISE" && (retraitImpose.body.territoires as string[] | undefined)?.includes("BANC-COM-K") === true
+    && retraitLibre.status === 200, [impose30.body, retraitImpose.body, retraitLibre.body]);
 
   // ================================================================ 14. Isolation
   verifier("14. aucune ecriture dans le referentiel officiel (troncons)", (await compter(`SELECT count(*) n FROM troncons`)) === troncons);

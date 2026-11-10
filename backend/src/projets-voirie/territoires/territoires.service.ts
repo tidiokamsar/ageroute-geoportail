@@ -9,11 +9,14 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { logAuditTransactionnelle } from "../../utils/audit";
+import { avecErreurDelai, poserDelais } from "../bd";
+import { comptesParMinuteMax, delaiAnalyseMs, delaiVerrouMs } from "../config";
 import { ErreurMetier, introuvable } from "../erreurs";
+import { CadenceParCompte, limiteurAnalyses } from "../limiteurs";
 import type { Acteur, Portee, Tx } from "../projets.service";
 import { configurationCourante, listeBlancheEffective } from "./configuration.service";
 import { CODE_TERRITOIRE, NIVEAUX, bboxContient, lireEmprise, parentAdmissible, type EmpriseGeoJson, type NiveauTerritoire } from "./hierarchie.noyau";
-import { instantaneTerritoire, vueTerritoire, type EmpriseLue } from "./vues";
+import { instantaneTerritoire, vueTerritoire, vueTerritoireListe, type EmpriseLue } from "./vues";
 
 const INCLURE = { creePar: { select: { id: true, nomComplet: true } } } as const;
 type Lecteur = Pick<Tx, "$queryRaw" | "territoireVoirie">;
@@ -39,6 +42,17 @@ export async function lireEmprises(lecteur: Pick<Tx, "$queryRaw">, ids: readonly
       ? { geojson: null, bbox: null, md5: null }
       : { geojson: JSON.parse(l.geojson) as unknown, bbox: [Number(l.ouest), Number(l.sud), Number(l.est), Number(l.nord)], md5: l.md5 });
   }
+  return sortie;
+}
+
+/** Boites englobantes seules d'un lot de territoires (liste : jamais l'emprise complete, correctifs T1+S1, m2). */
+async function lireBoites(lecteur: Pick<Tx, "$queryRaw">, ids: readonly string[]): Promise<Map<string, { bbox: [number, number, number, number] | null }>> {
+  const sortie = new Map<string, { bbox: [number, number, number, number] | null }>();
+  if (ids.length === 0) return sortie;
+  const lignes = await lecteur.$queryRaw<{ id: string; ouest: number | null; sud: number | null; est: number | null; nord: number | null }[]>`
+    SELECT "id", ST_XMin("emprise") AS "ouest", ST_YMin("emprise") AS "sud", ST_XMax("emprise") AS "est", ST_YMax("emprise") AS "nord"
+      FROM "territoires_voirie" WHERE "id" = ANY(${[...ids]}::text[])`;
+  for (const l of lignes) sortie.set(l.id, { bbox: l.ouest === null ? null : [Number(l.ouest), Number(l.sud), Number(l.est), Number(l.nord)] });
   return sortie;
 }
 
@@ -99,9 +113,10 @@ export async function listerTerritoires(portee: Portee, f: FiltresTerritoires) {
   if (f.curseur) and.push({ chemin: { gt: f.curseur } });
   const lignes = await prisma.territoireVoirie.findMany({ where: { AND: and }, include: INCLURE, orderBy: { chemin: "asc" }, take: f.limite + 1 });
   const page = lignes.slice(0, f.limite);
-  const emprises = await lireEmprises(prisma, page.map((t) => t.id));
+  // m2 : la liste ne rend que la boite englobante ; l'emprise complete est sur la fiche (GET /territoires/:tid).
+  const boites = await lireBoites(prisma, page.map((t) => t.id));
   return {
-    territoires: page.map((t) => vueTerritoire(t, emprises.get(t.id) ?? null)),
+    territoires: page.map((t) => vueTerritoireListe(t, boites.get(t.id) ?? null)),
     curseurSuivant: lignes.length > f.limite ? page[page.length - 1].chemin : null,
   };
 }
@@ -130,6 +145,9 @@ export async function ficheTerritoire(id: string) {
  * la region, la commune et la prefecture. 400 TERRITOIRE_INTROUVABLE sinon (la creation d'un projet n'a rien a masquer : le compte choisit).
  */
 export async function territoirePourProjet(lecteur: Lecteur, id: string) {
+  // Correctifs T1+S1 (m11) : verrou partage de la ligne du territoire jusqu'a la fin de la transaction : un retrait concurrent (qui la modifie)
+  // attend, puis compte le projet cree (409 TERRITOIRE_UTILISE) ; un projet ne nait pas sur un territoire retire dans la meme seconde.
+  await lecteur.$queryRaw`SELECT 1 AS "ok" FROM "territoires_voirie" WHERE "id" = ${id} FOR SHARE`;
   const t = await lecteur.territoireVoirie.findFirst({ where: { id, deletedAt: null, actif: true }, select: { id: true, code: true, nom: true, niveau: true, chemin: true, regionEffectiveId: true } });
   if (!t) throw new ErreurMetier(400, "TERRITOIRE_INTROUVABLE", "Territoire inconnu, retiré ou inactif.");
   const chaine = [...(await ancetresDe(lecteur, t.chemin)), { id: t.id, code: t.code, nom: t.nom, niveau: t.niveau }];
@@ -166,6 +184,17 @@ function lireEmpriseOuErreur(brut: unknown) {
   return e;
 }
 
+/**
+ * Correctifs T1+S1 (m4) : une region propre doit etre celle du parent quand le parent en a une (une prefecture d'une region R ne porte pas la
+ * region R2). 400 TERRITOIRE_REGION_INCOHERENTE sinon.
+ */
+function verifierRegionDuParent(regionId: number | null | undefined, regionParent: number | null | undefined): void {
+  if (regionId === null || regionId === undefined || regionParent === null || regionParent === undefined) return;
+  if (regionId !== regionParent) {
+    throw new ErreurMetier(400, "TERRITOIRE_REGION_INCOHERENTE", "La région d'un territoire doit être celle de son parent quand le parent en porte une : créez le territoire sous la bonne région.", { regionParent });
+  }
+}
+
 export async function creerTerritoire(acteur: Acteur, d: CreationTerritoire) {
   const code = d.code.trim().toUpperCase();
   if (!CODE_TERRITOIRE.test(code)) throw new ErreurMetier(400, "CHAMPS_INVALIDES", "Code : lettres majuscules, chiffres, tirets et soulignés, 2 à 64 caractères.");
@@ -174,9 +203,9 @@ export async function creerTerritoire(acteur: Acteur, d: CreationTerritoire) {
   await verifierCrs(d.crsMetriqueEpsg);
   try {
     return await prisma.$transaction(async (tx) => {
-      let parent: { id: string; niveau: string; deletedAt: Date | null; actif: boolean } | null = null;
+      let parent: { id: string; niveau: string; deletedAt: Date | null; actif: boolean; regionEffectiveId: number | null } | null = null;
       if (d.parentId) {
-        parent = await tx.territoireVoirie.findFirst({ where: { id: d.parentId, deletedAt: null }, select: { id: true, niveau: true, deletedAt: true, actif: true } });
+        parent = await tx.territoireVoirie.findFirst({ where: { id: d.parentId, deletedAt: null }, select: { id: true, niveau: true, deletedAt: true, actif: true, regionEffectiveId: true } });
         if (!parent) throw new ErreurMetier(400, "TERRITOIRE_PARENT_INTROUVABLE", "Territoire parent inconnu ou retiré.");
       }
       const admissible = parentAdmissible(d.niveau, parent ? (parent.niveau as NiveauTerritoire) : null);
@@ -185,6 +214,7 @@ export async function creerTerritoire(acteur: Acteur, d: CreationTerritoire) {
         throw new ErreurMetier(409, "NATION_DEJA_DEFINIE", "Une nation existe déjà : un seul territoire de niveau NATION à la fois.");
       }
       await verifierRegion(tx, d.regionId);
+      verifierRegionDuParent(d.regionId, parent?.regionEffectiveId);
       // Chemin et profondeur sont calcules par la base (declencheur) : des valeurs provisoires sont ecrites puis remplacees.
       const cree = await tx.territoireVoirie.create({
         data: {
@@ -227,6 +257,7 @@ export async function modifierTerritoire(acteur: Acteur, id: string, m: ModifTer
     });
     if (emprise !== undefined) await ecrireEmprise(tx, id, emprise === null ? null : emprise.geojson);
     const apres = await tx.territoireVoirie.findUniqueOrThrow({ where: { id }, include: INCLURE });
+    if (m.regionId !== undefined && m.regionId !== avant.regionId) await verifierChangementRegion(tx, apres);
     const empApres = (await lireEmprises(tx, [id])).get(id) ?? null;
     const instAvant = instantaneTerritoire(avant, empAvant);
     const instApres = instantaneTerritoire(apres, empApres);
@@ -237,8 +268,35 @@ export async function modifierTerritoire(acteur: Acteur, id: string, m: ModifTer
   });
 }
 
+/**
+ * Correctifs T1+S1 (m4) : apres un changement de region (propage par la base aux descendants sans region propre), refus (la transaction est annulee) :
+ *   - 400 TERRITOIRE_REGION_INCOHERENTE si la nouvelle region propre n'est pas celle du parent ;
+ *   - 409 TERRITOIRE_REGION_PROJETS si un projet non retire du sous-arbre porte une autre region que la region effective de son territoire (la region
+ *     d'un projet decide du perimetre des comptes : elle ne change pas par un geste sur le territoire ; deplacez ou recreez d'abord les projets) ;
+ *   - 409 TERRITOIRE_REGION_DESCENDANTS si un descendant porte une region propre differente de la nouvelle.
+ */
+async function verifierChangementRegion(tx: Tx, t: { id: string; chemin: string; parentId: string | null; regionId: number | null; regionEffectiveId: number | null }): Promise<void> {
+  if (t.parentId) {
+    const parent = await tx.territoireVoirie.findUnique({ where: { id: t.parentId }, select: { regionEffectiveId: true } });
+    verifierRegionDuParent(t.regionId, parent?.regionEffectiveId);
+  }
+  const r = await tx.$queryRaw<{ projets: number; descendants: number }[]>`
+    SELECT (SELECT count(*)::int FROM "projets_voirie" p JOIN "territoires_voirie" s ON s."id" = p."territoireId"
+             WHERE p."deletedAt" IS NULL AND s."chemin" LIKE ${t.chemin} || '%' AND p."regionId" IS DISTINCT FROM s."regionEffectiveId") AS "projets",
+           (SELECT count(*)::int FROM "territoires_voirie" s
+             WHERE s."deletedAt" IS NULL AND s."chemin" LIKE ${t.chemin} || '%' AND s."id" <> ${t.id} AND s."regionId" IS NOT NULL AND s."regionId" IS DISTINCT FROM ${t.regionEffectiveId}::int) AS "descendants"`;
+  if (r[0].projets > 0) {
+    throw new ErreurMetier(409, "TERRITOIRE_REGION_PROJETS", `${r[0].projets} projet(s) non retiré(s) de ce territoire ou de ses descendants porteraient une autre région que leur territoire : la région d'un projet ne change pas par un geste sur le territoire (déplacez ou recréez d'abord ces projets).`, { projets: r[0].projets });
+  }
+  if (r[0].descendants > 0) {
+    throw new ErreurMetier(409, "TERRITOIRE_REGION_DESCENDANTS", `${r[0].descendants} territoire(s) descendant(s) portent une autre région propre : corrigez-les d'abord.`, { descendants: r[0].descendants });
+  }
+}
+
 export async function retirerTerritoire(acteur: Acteur, id: string) {
   return prisma.$transaction(async (tx) => {
+    // m11 : verrou exclusif AVANT de compter : une creation de projet en cours (verrou partage) se termine d'abord, et son projet est compte.
+    await tx.$queryRaw`SELECT 1 AS "ok" FROM "territoires_voirie" WHERE "id" = ${id} FOR UPDATE`;
     const avant = await territoireOuErreur(tx, id);
     const [enfants, projets] = await Promise.all([tx.territoireVoirie.count({ where: { parentId: id, deletedAt: null } }), tx.projetVoirie.count({ where: { territoireId: id, deletedAt: null } })]);
     if (enfants > 0 || projets > 0) {
@@ -263,10 +321,26 @@ export const TERRITOIRES_COMPTES_MAX = 2_000;
 
 interface LigneCompte { id: string; code: string; nom: string; niveau: string; parentId: string | null; profondeur: number; projets: bigint | number; jeux: Record<string, number> | null; conflits: Record<string, number> | null }
 
+/** Correctifs T1+S1 (m1) : cadence des comptes par compte (fenetre d'une minute). */
+export const cadenceComptes = new CadenceParCompte(comptesParMinuteMax);
+
+/** 429 COMPTES_TROP_FREQUENTS (avec `retryAfterS`, repris en Retry-After par la route) au-dela de la cadence du compte. */
+export function exigerCadenceComptes(compteId: string): void {
+  const attente = cadenceComptes.admettre(compteId);
+  if (attente !== null) {
+    throw new ErreurMetier(429, "COMPTES_TROP_FREQUENTS", `Trop de demandes de comptes par territoire (${comptesParMinuteMax()} par minute au plus) : réessayez dans ${attente} s.`, { retryAfterS: attente });
+  }
+}
+
 /**
  * Pour chaque territoire visible (du sous-arbre de `territoireId` s'il est donne) : projets, jeux par statut et conflits par statut du
  * territoire ET de ses descendants. Perimetre : projets des regions du compte seulement ; un compte qui ne decide pas ne compte que les jeux
- * AUTORISE et les conflits dont le jeu de reseau est AUTORISE (memes regles que les listes). Un jeu RETIRE n'est jamais compte.
+ * AUTORISE et les dossiers dont CHAQUE jeu lie (reseau, plan d'axes, jeu B d'une divergence) est AUTORISE (memes regles que les listes). Un jeu
+ * RETIRE n'est jamais compte, ni un dossier qui depend d'un jeu RETIRE.
+ *
+ * COUT (correctifs T1+S1, m1) : agregat par PROJET d'abord, puis cumul par ancetre en UNE passe (chaque projet est ventile sur les identifiants de
+ * son chemin), au lieu de sous-requetes correlees territoire par territoire. Transaction READ ONLY, delai cote base (504 COMPTES_TROP_LONGS),
+ * 3 calculs simultanes au plus (limiteur des analyses, 503 SERVICE_OCCUPE), cadence par compte (route : 429 COMPTES_TROP_FREQUENTS).
  */
 export async function comptesParTerritoire(portee: Portee, tousLesJeux: boolean, territoireId?: string) {
   let prefixe = "/";
@@ -277,32 +351,55 @@ export async function comptesParTerritoire(portee: Portee, tousLesJeux: boolean,
   }
   const national = portee === null;
   const regions = portee === null ? [] : [...portee];
-  const lignes = await prisma.$queryRaw<LigneCompte[]>`
+  const delai = delaiAnalyseMs();
+  const trop = `Le calcul des comptes par territoire a dépassé ${Math.round(delai / 1000)} s et a été interrompu : restreignez-le à un territoire (territoireId).`;
+  const lignes = await limiteurAnalyses.executer(() => avecErreurDelai("COMPTES_TROP_LONGS", trop, () => prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SET TRANSACTION READ ONLY`;
+    await poserDelais(tx, delai, delaiVerrouMs());
+    return tx.$queryRaw<LigneCompte[]>`
     WITH visibles AS (
       SELECT t."id", t."code", t."nom", t."niveau"::text AS "niveau", t."parentId", t."profondeur", t."chemin"
         FROM "territoires_voirie" t
        WHERE t."deletedAt" IS NULL AND t."chemin" LIKE ${prefixe} || '%'
          AND (${national} OR t."regionEffectiveId" = ANY(${regions}::int[]))
        ORDER BY t."chemin" LIMIT ${TERRITOIRES_COMPTES_MAX + 1}
-    ), projets AS (
+    ), projets AS MATERIALIZED (
       SELECT p."id", t."chemin"
         FROM "projets_voirie" p JOIN "territoires_voirie" t ON t."id" = p."territoireId"
-       WHERE p."deletedAt" IS NULL AND (${national} OR p."regionId" = ANY(${regions}::int[]))
+       WHERE p."deletedAt" IS NULL AND t."chemin" LIKE ${prefixe} || '%' AND (${national} OR p."regionId" = ANY(${regions}::int[]))
+    ), ancetres AS MATERIALIZED (
+      -- Chaque projet ventile sur les identifiants de son chemin (son territoire et tous ses ancetres) : une seule passe.
+      SELECT p."id" AS "pid", a."anc" FROM projets p CROSS JOIN LATERAL unnest(string_to_array(btrim(p."chemin", '/'), '/')) AS a("anc")
+    ), jeux_p AS (
+      SELECT j."projetId" AS "pid", j."statut"::text AS "s", count(*)::int AS "n"
+        FROM "projets_voirie_jeux" j JOIN projets p ON p."id" = j."projetId"
+       WHERE j."statut" <> 'RETIRE' AND (${tousLesJeux} OR j."statut" = 'AUTORISE')
+       GROUP BY 1, 2
+    ), conflits_p AS (
+      SELECT c."projetId" AS "pid", c."statut"::text AS "s", count(*)::int AS "n"
+        FROM "conflits_projet" c JOIN projets p ON p."id" = c."projetId"
+        LEFT JOIN "projets_voirie_jeux" jr ON jr."id" = c."jeuReseauId"
+        LEFT JOIN "projets_voirie_jeux" ja ON ja."id" = c."jeuAxesId"
+        LEFT JOIN "projets_voirie_jeux" jb ON jb."id" = c."jeuSourceBId"
+       WHERE (jr."id" IS NULL OR jr."statut" <> 'RETIRE') AND (ja."id" IS NULL OR ja."statut" <> 'RETIRE') AND (jb."id" IS NULL OR jb."statut" <> 'RETIRE')
+         AND (${tousLesJeux} OR ((jr."id" IS NULL OR jr."statut" = 'AUTORISE') AND (ja."id" IS NULL OR ja."statut" = 'AUTORISE') AND (jb."id" IS NULL OR jb."statut" = 'AUTORISE')))
+       GROUP BY 1, 2
+    ), nb_projets AS (
+      SELECT "anc", count(*) AS "n" FROM ancetres GROUP BY 1
+    ), nb_jeux AS (
+      SELECT q."anc", jsonb_object_agg(q."s", q."n") AS "agg" FROM (
+        SELECT a."anc", jp."s", sum(jp."n")::int AS "n" FROM ancetres a JOIN jeux_p jp ON jp."pid" = a."pid" GROUP BY 1, 2) q GROUP BY 1
+    ), nb_conflits AS (
+      SELECT q."anc", jsonb_object_agg(q."s", q."n") AS "agg" FROM (
+        SELECT a."anc", cp."s", sum(cp."n")::int AS "n" FROM ancetres a JOIN conflits_p cp ON cp."pid" = a."pid" GROUP BY 1, 2) q GROUP BY 1
     )
-    SELECT v."id", v."code", v."nom", v."niveau", v."parentId", v."profondeur",
-           (SELECT count(*) FROM projets p WHERE p."chemin" LIKE v."chemin" || '%') AS "projets",
-           (SELECT jsonb_object_agg(s."statut", s."n") FROM (
-              SELECT j."statut"::text AS "statut", count(*)::int AS "n"
-                FROM "projets_voirie_jeux" j JOIN projets p ON p."id" = j."projetId"
-               WHERE p."chemin" LIKE v."chemin" || '%' AND j."statut" <> 'RETIRE' AND (${tousLesJeux} OR j."statut" = 'AUTORISE')
-               GROUP BY 1) s) AS "jeux",
-           (SELECT jsonb_object_agg(s."statut", s."n") FROM (
-              SELECT c."statut"::text AS "statut", count(*)::int AS "n"
-                FROM "conflits_projet" c JOIN projets p ON p."id" = c."projetId"
-                LEFT JOIN "projets_voirie_jeux" j ON j."id" = c."jeuReseauId"
-               WHERE p."chemin" LIKE v."chemin" || '%' AND (j."id" IS NULL OR j."statut" <> 'RETIRE') AND (${tousLesJeux} OR j."statut" = 'AUTORISE')
-               GROUP BY 1) s) AS "conflits"
-      FROM visibles v ORDER BY v."chemin"`;
+    SELECT v."id", v."code", v."nom", v."niveau", v."parentId", v."profondeur", COALESCE(np."n", 0) AS "projets", nj."agg" AS "jeux", nc."agg" AS "conflits"
+      FROM visibles v
+      LEFT JOIN nb_projets np ON np."anc" = v."id"
+      LEFT JOIN nb_jeux nj ON nj."anc" = v."id"
+      LEFT JOIN nb_conflits nc ON nc."anc" = v."id"
+     ORDER BY v."chemin"`;
+  }, { timeout: delai + 15_000, maxWait: 10_000 })));
   const tronque = lignes.length > TERRITOIRES_COMPTES_MAX;
   return {
     comptes: lignes.slice(0, TERRITOIRES_COMPTES_MAX).map((l) => ({

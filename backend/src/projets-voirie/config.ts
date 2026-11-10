@@ -67,6 +67,10 @@ export { borne as borneEnv };
 export const comparaisonObjetsMax = () => borne("PROJETS_VOIRIE_COMPARAISON_OBJETS_MAX", 20_000, 100, 200_000);
 export const comparaisonIntervalleMinS = () => borne("PROJETS_VOIRIE_COMPARAISON_INTERVALLE_S", 60, 0, 3_600);
 
+// Correctifs T1+S1 (m1) : cadence de GET /territoires/comptes (agregats sur tout le sous-arbre, ouverts aux lecteurs).
+//   PROJETS_VOIRIE_COMPTES_PAR_MINUTE  defaut 30 (bornes 1 a 600) : requetes par compte et par minute (429 COMPTES_TROP_FREQUENTS au-dela).
+export const comptesParMinuteMax = () => borne("PROJETS_VOIRIE_COMPTES_PAR_MINUTE", 30, 1, 600);
+
 /**
  * Methodes d acquisition d un jeu (`projets_voirie_jeux.methodeAcquisition`) : correctifs T1+S1 (M2), la SEULE source de verite est le referentiel
  * METHODE_ACQUISITION du lot T1 (administrable, aucune liste dans le code). Le code ne connait que la FORME d un code, celle que la base impose a la

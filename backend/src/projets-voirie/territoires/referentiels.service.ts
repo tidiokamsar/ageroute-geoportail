@@ -88,6 +88,15 @@ export async function modifierValeur(acteur: Acteur, domaineBrut: string, code: 
       const p = validerParametres(domaine, m.parametres);
       if (!p.ok) throw new ErreurMetier(400, "PARAMETRES_INVALIDES", `Paramètres invalides pour le domaine ${domaine}.`, { details: p.erreurs });
       parametres = p.parametres as Prisma.JsonValue;
+      // Correctifs T1+S1 (m7) : la famille d'un type de reseau porte par un jeu ou un concessionnaire ne change plus (les jeux existants garderaient
+      // l'ancienne famille, les nouveaux depots la nouvelle : un meme code porterait deux familles). Creez un nouveau code.
+      const familleAvant = (avant.parametres as { famille?: unknown } | null)?.famille;
+      const familleApres = (parametres as { famille?: unknown } | null)?.famille;
+      if (domaine === "TYPE_RESEAU" && familleAvant !== familleApres) {
+        const usages = await usagesDuCode(tx, domaine, code);
+        const total = Object.values(usages).reduce((s, n) => s + n, 0);
+        if (total > 0) throw new ErreurMetier(409, "FAMILLE_FIGEE", `La famille du type « ${code} » est portée par ${total} objet(s) : elle ne change plus (créez un nouveau code de type).`, { usages });
+      }
     }
     const version = prochaineVersion(avant.version);
     const maintenant = new Date();

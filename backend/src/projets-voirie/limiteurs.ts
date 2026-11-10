@@ -52,5 +52,27 @@ export async function reserverReception(compte: string): Promise<() => void> {
   };
 }
 
+/**
+ * Cadence par compte sur une fenetre glissante (correctifs T1+S1, m1) : au plus `max()` appels par `fenetreMs` et par compte. Au-dela : le delai a
+ * attendre, en secondes (jamais une file). Portee : le processus (comme les limiteurs ci-dessus).
+ */
+export class CadenceParCompte {
+  private readonly appels = new Map<string, number[]>();
+  constructor(private readonly max: () => number, private readonly fenetreMs = 60_000) {}
+  /** `null` : l'appel est admis (et compte) ; sinon le nombre de secondes a attendre. */
+  admettre(compte: string, maintenant = Date.now()): number | null {
+    const recents = (this.appels.get(compte) ?? []).filter((t) => t > maintenant - this.fenetreMs);
+    if (recents.length >= this.max()) {
+      this.appels.set(compte, recents);
+      return Math.max(1, Math.ceil((recents[0] + this.fenetreMs - maintenant) / 1000));
+    }
+    recents.push(maintenant);
+    this.appels.set(compte, recents);
+    if (this.appels.size > 10_000) for (const [k, l] of this.appels) if (l.every((t) => t <= maintenant - this.fenetreMs)) this.appels.delete(k);
+    return null;
+  }
+  vider(): void { this.appels.clear(); }
+}
+
 /** Etat observable (tests). */
 export const etatReceptions = () => ({ comptes: receptionsParCompte.size, global: limiteurReceptions.etat });

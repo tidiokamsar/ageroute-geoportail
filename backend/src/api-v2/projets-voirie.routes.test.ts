@@ -198,11 +198,13 @@ describe("controle territorial : 404 masque", () => {
     expect(r.body.code).toBe("PROJET_INTROUVABLE");
   });
 
-  it("la creation par un compte regional exige sa region : autre region ou region absente donnent 403", async () => {
-    // Lot T1 : territoire obligatoire ; T_X est inconnu du simulateur (region inconnue) : seule la region du corps decide ici.
-    expect((await avec(request(app).post(BASE).send({ code: "AB-1", nom: "x", regionId: 2, territoireId: T_X }), "GEST_R1")).status).toBe(403);
-    expect((await avec(request(app).post(BASE).send({ code: "AB-1", nom: "x", territoireId: T_X }), "GEST_R1")).status).toBe(403);
-    expect((await avec(request(app).post(BASE).send({ code: "AB-1", nom: "x", regionId: 1, territoireId: T_X }), "GEST_R1")).status).toBe(201);
+  it("la creation par un compte regional sur un territoire inconnu : 404 TERRITOIRE_INTROUVABLE, quelle que soit la region du corps (correctifs T1+S1, m3)", async () => {
+    // T_X est inconnu du simulateur : la garde masquee repond avant la region du corps (voir projets-voirie.territoires.routes.test.ts pour les autres cas).
+    for (const regionId of [2, 1, undefined]) {
+      const r = await avec(request(app).post(BASE).send({ code: "AB-1", nom: "x", ...(regionId === undefined ? {} : { regionId }), territoireId: T_X }), "GEST_R1");
+      expect(r.status, String(regionId)).toBe(404);
+      expect(r.body.code).toBe("TERRITOIRE_INTROUVABLE");
+    }
   });
 });
 
