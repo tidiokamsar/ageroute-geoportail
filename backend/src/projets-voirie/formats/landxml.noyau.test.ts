@@ -190,6 +190,23 @@ describe("revue D1, M3 : un element de ligne illisible refuse l'axe, il ne le tr
   });
 });
 
+describe("revue D1, m1 et m6 : declarations ambigues ou non reconnues", () => {
+  const corps = alignements(axe("Axe U", ligneXml([0, 0], [10, 0])));
+  it("m1 : deux elements Units, ou Metric et Imperial ensemble : LANDXML_UNITES_NON_SUPPORTEES (unites ambigues), jamais lu en metres", () => {
+    expect(code(() => traverser(landxml(corps, { unites: `<Units><Imperial linearUnit="USSurveyFoot"/><Metric linearUnit="meter"/></Units>` })))).toBe("LANDXML_UNITES_NON_SUPPORTEES");
+    expect(code(() => traverser(landxml(corps, { unites: `<Units><Metric linearUnit="meter"/></Units><Units><Imperial linearUnit="USSurveyFoot"/></Units>` })))).toBe("LANDXML_UNITES_NON_SUPPORTEES");
+    expect(code(() => traverser(landxml(corps, { unites: `<Units><Metric linearUnit="meter"/><Metric linearUnit="meter"/></Units>` })))).toBe("LANDXML_UNITES_NON_SUPPORTEES");
+  });
+  it("m6 : epsgCode prefixe (EPSG:xxxx, urn OGC) reconnu et compare ; une valeur non reconnue est montree et refusee (CRS_NON_SUPPORTE), jamais ignoree", () => {
+    const avec = (v: string) => landxml(corps, { crs: `<CoordinateSystem epsgCode="${v}"/>` });
+    expect(crsDeclareLandXml(lireXml(avec("EPSG:2263")))).toMatchObject({ epsg: 2263 });
+    expect(crsDeclareLandXml(lireXml(avec("urn:ogc:def:crs:EPSG::32629")))).toMatchObject({ epsg: 32629 });
+    expect(code(() => lire(avec("EPSG:32628"), 32629))).toBe("CRS_CONFLIT");
+    expect(code(() => lire(avec("Lambert local"), 32629))).toBe("CRS_NON_SUPPORTE");
+    expect(inventorier(detecter(Buffer.from(avec("Lambert local")), "a.xml", {}, LIM)).crs.declareDansLeFichier).toBe("non reconnu : « Lambert local »");
+  });
+});
+
 describe("CRS jamais deduit, liste blanche, projete en metres", () => {
   const xml = landxml(alignements(axe("Axe K", ligneXml([0, 0], [100, 0]))), { crs: `<CoordinateSystem name="UTM 29 synthetique" epsgCode="32629"/>` });
 
@@ -216,7 +233,7 @@ describe("CRS jamais deduit, liste blanche, projete en metres", () => {
     const inv = inventorier(detecter(Buffer.from(xml), "axes.xml", {}, LIM));
     expect(inv.format).toBe("LANDXML");
     expect(inv.crs).toEqual({ normeDuFormat: null, declareDansLeFichier: "EPSG:32629", choixObligatoire: true });
-    expect(crsDeclareLandXml(lireXml(xml))).toEqual({ epsg: 32629, nom: "UTM 29 synthetique" });
+    expect(crsDeclareLandXml(lireXml(xml))).toEqual({ epsg: 32629, nom: "UTM 29 synthetique", brut: null });
   });
 });
 

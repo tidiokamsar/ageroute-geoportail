@@ -46,7 +46,8 @@ export interface OptionsLandXml {
   inventaire?: boolean;
 }
 
-export interface CrsDeclareLandXml { epsg: number | null; nom: string | null }
+/** `brut` : valeur de `epsgCode` telle que lue (bornee) quand elle n'est pas un code reconnu ; nul sinon (revue D1, m6). */
+export interface CrsDeclareLandXml { epsg: number | null; nom: string | null; brut: string | null }
 
 export interface ResultatLandXml {
   avertissements: Avertissement[];
@@ -100,21 +101,23 @@ function versBrut(nombres: readonly number[], avecAltitude: boolean): Brut {
 export function crsDeclareLandXml(racine: NoeudXml): CrsDeclareLandXml | null {
   const cs = enfant(racine, "CoordinateSystem");
   if (!cs) return null;
-  const brut = (cs.attrs.epsgCode ?? "").trim();
-  const epsg = /^\d{4,6}$/.test(brut) ? Number(brut) : null;
+  // eslint-disable-next-line no-control-regex
+  const brut = (cs.attrs.epsgCode ?? "").replace(/[\u0000-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "").trim().slice(0, 60);
+  // Revue D1, m6 : « 32629 », « EPSG:32629 » et « urn:ogc:def:crs:EPSG::32629 » sont reconnus ; toute autre valeur est gardee pour etre montree et refusee.
+  const m = /^(?:EPSG:|urn:ogc:def:crs:EPSG:[0-9.]*:)?(\d{4,6})$/i.exec(brut);
+  const epsg = m ? Number(m[1]) : null;
   const nom = (cs.attrs.name ?? cs.attrs.desc ?? "").trim().slice(0, 120) || null;
-  return { epsg, nom };
+  return { epsg, nom, brut: epsg === null && brut !== "" ? brut : null };
 }
 
 /** Unite lineaire declaree (`Units/Metric/@linearUnit` ou `Units/Imperial/@linearUnit`), nulle si absente. */
-export function unitesLandXml(racine: NoeudXml): { systeme: "Metric" | "Imperial" | null; lineaire: string | null } {
-  const u = enfant(racine, "Units");
-  if (!u) return { systeme: null, lineaire: null };
-  const m = enfant(u, "Metric");
-  if (m) return { systeme: "Metric", lineaire: (m.attrs.linearUnit ?? "").trim().slice(0, 40) || null };
-  const imp = enfant(u, "Imperial");
-  if (imp) return { systeme: "Imperial", lineaire: (imp.attrs.linearUnit ?? "").trim().slice(0, 40) || null };
-  return { systeme: null, lineaire: null };
+export function unitesLandXml(racine: NoeudXml): { systeme: "Metric" | "Imperial" | null; lineaire: string | null; ambigu: boolean } {
+  const groupes = enfants(racine, "Units");
+  // Revue D1, m1 : plusieurs Units, ou plusieurs declarations (Metric, Imperial) : ambigu, donc refuse ; jamais « la premiere gagne ».
+  const decl = groupes.flatMap((u) => u.enfants.filter((e) => e.nom === "Metric" || e.nom === "Imperial"));
+  if (groupes.length > 1 || decl.length > 1) return { systeme: null, lineaire: null, ambigu: true };
+  if (decl.length === 0) return { systeme: null, lineaire: null, ambigu: false };
+  return { systeme: decl[0].nom as "Metric" | "Imperial", lineaire: (decl[0].attrs.linearUnit ?? "").trim().slice(0, 40) || null, ambigu: false };
 }
 
 /** Motif d'un arc degenere (jamais de coordonnee). */
@@ -175,9 +178,12 @@ export function traverserLandXml(racine: NoeudXml, col: Puits, o: OptionsLandXml
   const unites = unitesLandXml(racine);
   const r: ResultatLandXml = {
     avertissements: [], toleranceArcM: tolerance, nbAlignements: 0, nbLignes: 0, nbArcs: 0, nbIrreguliers: 0, nbSpirales: 0, sommetsArcs: 0, nbPoints: 0,
-    nbSurfacesIgnorees: 0, nbProfilsIgnores: 0, nbAutresIgnores: 0, nbDiscontinuites: 0, crsDeclare: crsDeclareLandXml(racine), unites: unites.lineaire,
+    nbSurfacesIgnorees: 0, nbProfilsIgnores: 0, nbAutresIgnores: 0, nbDiscontinuites: 0, crsDeclare: crsDeclareLandXml(racine), unites: unites.ambigu ? "ambigu" : unites.lineaire,
   };
   if (!inventaire) {
+    if (unites.ambigu) {
+      throw new ErreurLecture("LANDXML_UNITES_NON_SUPPORTEES", "unites ambigues : plusieurs elements Units ou plusieurs declarations (Metric, Imperial). Une seule declaration Units/Metric/@linearUnit=\"meter\" est lue, sans aucune mise a l'echelle");
+    }
     if (unites.lineaire === null) {
       throw new ErreurLecture("UNITES_REQUISES", "le LandXML ne declare pas ses unites (Units/Metric/@linearUnit) : elles ne sont jamais devinees. Exportez-le en metres avec la balise Units");
     }

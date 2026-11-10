@@ -77,6 +77,9 @@ export function choisirCrs(format: FormatFichier, epsgSource: number | undefined
     if (epsgSource === undefined) {
       throw new ErreurLecture("CRS_REQUIS", `le CRS des coordonnees d'un LandXML doit etre choisi (epsgSource) : il n'est jamais deduit du fichier${declare?.epsg ? ` (qui declare EPSG:${declare.epsg})` : ""}. Liste blanche : ${autorises.map((e) => `EPSG:${e}`).join(", ")}`);
     }
+    if (declare && declare.epsg === null) {
+      throw new ErreurLecture("CRS_NON_SUPPORTE", `le fichier declare un systeme de coordonnees « ${declare.nom.slice(0, 60)} » qui n'est pas un code EPSG reconnu : sa concordance avec EPSG:${epsgSource} ne peut pas etre verifiee. Corrigez CoordinateSystem/@epsgCode (par exemple EPSG:${epsgSource}) ou retirez-le`);
+    }
     if (declare && declare.epsg !== null && declare.epsg !== epsgSource) {
       throw new ErreurLecture("CRS_CONFLIT", `le fichier declare EPSG:${declare.epsg} mais EPSG:${epsgSource} est demande : un CRS declare ne se surcharge pas`);
     }
