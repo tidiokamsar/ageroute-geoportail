@@ -212,10 +212,12 @@ async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: { 
   const resultats = assemblerResultats(projet.id, appariements, [...compB.values()], regle.partHorsCorridorMax);
   const totaux = totauxDe(resultats);
   // M6 : couples dont le corridor repose sur une classe convertie par le bareme approuve (origine CLASSE d'un cote au moins).
-  const couplesBareme = resultats.filter((r) => origineCorridorDe(r) === "BAREME_APPROUVE").length;
-  const parOrigine: Record<OrigineCorridor, number> = { PRECISIONS_METRES: 0, BAREME_APPROUVE: 0, INCERTAIN: 0 };
-  for (const r of resultats) if (r.objetAId !== null && r.objetBId !== null) parOrigine[origineCorridorDe(r)] += 1;
-  const origineGlobale: OrigineCorridor = parOrigine.BAREME_APPROUVE > 0 ? "BAREME_APPROUVE" : parOrigine.PRECISIONS_METRES > 0 ? "PRECISIONS_METRES" : "INCERTAIN";
+  // Depuis M6, une classe n'est convertie que par un bareme approuve par un ADMIN autre que l'auteur : atteste si la regle porte son approbateur.
+  const atteste = bareme !== null && typeof regle.approuveParId === "string" && regle.approuveParId.length > 0;
+  const couplesBareme = resultats.filter((r) => origineCorridorDe(r, atteste) !== "PRECISIONS_METRES" && r.corridorM !== null).length;
+  const parOrigine: Record<OrigineCorridor, number> = { PRECISIONS_METRES: 0, BAREME_APPROUVE: 0, BAREME_NON_ATTESTE: 0, INCERTAIN: 0 };
+  for (const r of resultats) if (r.objetAId !== null && r.objetBId !== null) parOrigine[origineCorridorDe(r, atteste)] += 1;
+  const origineGlobale: OrigineCorridor = parOrigine.BAREME_NON_ATTESTE > 0 ? "BAREME_NON_ATTESTE" : parOrigine.BAREME_APPROUVE > 0 ? "BAREME_APPROUVE" : parOrigine.PRECISIONS_METRES > 0 ? "PRECISIONS_METRES" : "INCERTAIN";
   const origineBareme = bareme === null ? null : { regleId: regle.regleId, code: regle.code, version: regle.version, approuveParId: regle.approuveParId ?? null };
   const resume: ResumeComparaison = {
     statut: "TERMINEE", versionAlgorithme: VERSION_ALGORITHME_COMPARAISON,
@@ -341,19 +343,31 @@ export const decoderCurseurResultats = decoderCurseurAnalyse;
 
 export interface FiltresResultats { statuts?: StatutResultatComparaison[]; limite: number; apresOrdre?: number }
 
-export type OrigineCorridor = "PRECISIONS_METRES" | "BAREME_APPROUVE" | "INCERTAIN";
+/** `BAREME_NON_ATTESTE` : une classe a ete convertie en metres sans que la comparaison enregistree atteste un bareme approuve par une personne
+ * (comparaisons anterieures aux correctifs M6, faites avec le bareme provisoire de la regle systeme S1-CORRIDOR-0.1). */
+export type OrigineCorridor = "PRECISIONS_METRES" | "BAREME_APPROUVE" | "BAREME_NON_ATTESTE" | "INCERTAIN";
 
-/** Provenance du corridor d'un couple : aucun corridor (INCERTAIN), une classe convertie par le bareme approuve d'un cote au moins, sinon deux precisions en metres. */
-export function origineCorridorDe(r: { corridorM: unknown; origineA: string; origineB: string }): OrigineCorridor {
+/**
+ * Provenance du corridor d'un couple : aucun corridor (INCERTAIN), deux precisions en metres, ou une classe convertie en metres. Une conversion
+ * n'est dite BAREME_APPROUVE que si `baremeAtteste` (bareme approuve par une personne, consigne dans la comparaison) ; sinon BAREME_NON_ATTESTE.
+ */
+export function origineCorridorDe(r: { corridorM: unknown; origineA: string; origineB: string }, baremeAtteste: boolean): OrigineCorridor {
   if (r.corridorM === null) return "INCERTAIN";
-  return r.origineA === "CLASSE" || r.origineB === "CLASSE" ? "BAREME_APPROUVE" : "PRECISIONS_METRES";
+  if (r.origineA !== "CLASSE" && r.origineB !== "CLASSE") return "PRECISIONS_METRES";
+  return baremeAtteste ? "BAREME_APPROUVE" : "BAREME_NON_ATTESTE";
 }
 
-export function vueResultat(r: Prisma.ComparaisonSourcesResultatGetPayload<Record<string, never>>) {
+/** Vrai si la comparaison enregistree atteste un bareme approuve par une personne (champ ecrit depuis les correctifs M6). */
+export function baremeAtteste(resume: unknown): boolean {
+  const b = (resume as { bareme?: { regle?: { approuveParId?: unknown } | null } } | null)?.bareme;
+  return typeof b?.regle?.approuveParId === "string" && b.regle.approuveParId.length > 0;
+}
+
+export function vueResultat(r: Prisma.ComparaisonSourcesResultatGetPayload<Record<string, never>>, atteste = false) {
   return {
     id: r.id, ordre: r.ordre, cle: r.cle, statut: r.statut,
     // Provenance explicite du corridor du couple (nulle sans couple : objet sans correspondance).
-    origineCorridor: r.objetAId === null || r.objetBId === null ? null : origineCorridorDe(r),
+    origineCorridor: r.objetAId === null || r.objetBId === null ? null : origineCorridorDe(r, atteste),
     objetA: r.objetAId === null ? null : { id: String(r.objetAId), nom: r.nomA, precisionM: r.precisionAM === null ? null : Number(r.precisionAM), originePrecision: r.origineA },
     objetB: r.objetBId === null ? null : { id: String(r.objetBId), nom: r.nomB, precisionM: r.precisionBM === null ? null : Number(r.precisionBM), originePrecision: r.origineB },
     corridorM: r.corridorM === null ? null : Number(r.corridorM), mesure: r.mesure, conflitId: r.conflitId,
@@ -373,7 +387,7 @@ export async function listerResultats(acteur: Acteur, projetId: string, cmpId: s
   // Les resultats rendent les noms d objets des deux sources : lecture tracee pour les jeux sensibles, AVANT la remise (revue vague 1, m4).
   await tracerConsultation(acteur, [c.jeuAId, c.jeuBId].map((id) => ({ id, confidentialite: jeux.get(id)?.confidentialite ?? "", nbObjets: page.length })), { route: "sources", bbox: null, zoom: null });
   return {
-    resultats: page.map(vueResultat), masque: false,
+    resultats: page.map((r) => vueResultat(r, baremeAtteste(c.resume))), masque: false,
     curseurSuivant: l.length > f.limite ? encoderCurseurAnalyse(page[page.length - 1].ordre) : null,
     filtres: { statuts: f.statuts ?? [...STATUTS_RESULTAT_COMPARAISON] },
   };

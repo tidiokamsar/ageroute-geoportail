@@ -129,7 +129,7 @@ function lireResume(v: unknown): ResumeComparaison | null {
     totaux: totaux(v.totaux) ?? {},
     corridor: c ? {
       minM: nombre(c.minM), maxM: nombre(c.maxM), couplesSansCorridor: nombre(c.couplesSansCorridor), margeM: nombre(c.margeM), rayonAppariementM: nombre(c.rayonAppariementM),
-      origine: c.origine === "PRECISIONS_METRES" || c.origine === "BAREME_APPROUVE" || c.origine === "INCERTAIN" ? c.origine : null,
+      origine: c.origine === "PRECISIONS_METRES" || c.origine === "BAREME_APPROUVE" || c.origine === "BAREME_NON_ATTESTE" || c.origine === "INCERTAIN" ? c.origine : null,
     } : null,
     bareme: estObjet(v.bareme) ? {
       applique: v.bareme.applique === true, couples: nombre(v.bareme.couples),

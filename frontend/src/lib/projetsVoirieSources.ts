@@ -69,7 +69,7 @@ export interface RegleDeComparaison {
    */
   bareme: { applicable: boolean | null; applique: boolean | null; source: string | null; approuveParId: string | null } | null;
 }
-export type OrigineCorridor = "PRECISIONS_METRES" | "BAREME_APPROUVE" | "INCERTAIN";
+export type OrigineCorridor = "PRECISIONS_METRES" | "BAREME_APPROUVE" | "BAREME_NON_ATTESTE" | "INCERTAIN";
 export interface ResumeComparaison {
   totaux: Record<string, number>;
   corridor: {
@@ -166,7 +166,7 @@ export function provenanceBareme(c: Pick<Comparaison, "regle" | "resume">, regle
   const version = rb?.version ?? c.regle?.version ?? null;
   const couples = c.resume?.bareme?.couples ?? null;
   const base = { code, version, couples };
-  const unBareme = !!c.regle?.precisionParClasseM || c.resume?.bareme?.applique === true || c.resume?.corridor?.origine === "BAREME_APPROUVE";
+  const unBareme = !!c.regle?.precisionParClasseM || c.resume?.bareme?.applique === true || c.resume?.corridor?.origine === "BAREME_APPROUVE" || c.resume?.corridor?.origine === "BAREME_NON_ATTESTE";
   if (!unBareme) return { ...base, etat: "AUCUN" };
   if (regleSysteme) return { ...base, etat: "SYSTEME" };
   const parRegle = c.regle?.bareme?.source === "REGLE_APPROUVEE" && !!c.regle.bareme.approuveParId;
