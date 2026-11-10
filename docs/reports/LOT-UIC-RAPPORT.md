@@ -78,3 +78,42 @@ Non exécuté : lint (`eslint`), tests de bout en bout Playwright, vérification
 ## H. Commits
 
 Au-dessus de `c8049df`, dans l'ordre : `046f082` (client T1), `ab28df7` (client S1), `dc3bba1` (création et filtre par territoire), `08bf8f4` (fiche, onglet Sources), `9b5a6bb` (paramètres du module), `2b65f9c` (connectivité déclarative), `0027895` (assistant d'import), puis la correction des tests et de `FicheObjet`, puis ce rapport. Aucun push.
+
+## I. Corrections après revue
+
+Revue indépendante du 10/11/2026 : `C:\ageroute-secours\REVUE-LOT-UIC.md`. Verdict : fusionnable après corrections, aucun bloquant. Un commit par constat ou groupe, chacun avec un test qui échouait avant la correction (sauf m10, voir plus bas). Le backend n'est pas modifié. La branche des correctifs serveur `fix/vague3-revue-t1s1` (worktree `w-v3fix`) a été **lue seulement**.
+
+| Constat | Correction | Commit |
+|---|---|---|
+| **M1** « barème approuvé » déduit de `originePrecision = CLASSE` | La provenance du corridor lit les champs explicites des correctifs serveur : `regle.bareme.source = "REGLE_APPROUVEE"` avec `approuveParId`, ou `resume.bareme.regle.approuveParId`. Les champs `resume.corridor.origine` et `resume.bareme` sont lus aussi. Trois cas : serveur ancien, la précision est « attribuée à la classe par le barème de la règle X vN (provenance du corridor non attestée) » ; règle système (repérée par `systeme` dans la liste des règles, ou portée `DEFAUT`), c'est un « barème provisoire du système, jamais approuvé », quels que soient les champs ; « barème approuvé » seulement si le serveur l'atteste. Le test qui exigeait le mauvais libellé est corrigé ; les cas système, non attesté et attesté sont ajoutés (5 tests de lib, 3 de composant). | `86d3f90` |
+| **M2** tests de rôle vides | Chaque test attend les articles de configuration issus de `GET /configuration` avant de vérifier l'absence de bouton (LECTEUR et GESTIONNAIRE). Une contre-épreuve ADMIN exige un bouton « Modifier » par clé et les onglets d'administration. Deux mutations ont été faites puis le fichier restauré : garde `estAdmin` de `OngletConfiguration` retirée, puis onglets d'administration ouverts à tous. Dans les deux cas, **2 tests sur 3 échouent**. | `efb8035` |
+| m1 repli silencieux du type | Revenir à « Non précisé » redonne la famille du concessionnaire. Changer de concessionnaire reprend son code et sa famille, jamais ceux du précédent. | `26dddc2` |
+| m2 largeurs codées et arrondies | Sans saisie, aucune largeur n'est envoyée : le serveur applique son défaut. Les largeurs d'une catégorie sont proposées sans arrondi (7,125 m reste 7,125) et comparées aux valeurs lues. Une seule largeur saisie est refusée. | `cda0af5` |
+| m3 aide du brouillon de règle | Le texte n'affirme plus de comportement que le serveur n'a pas. Le barème est celui que le serveur enregistre, relu dans la liste après création. Un barème de brouillon ne s'applique qu'après approbation par un autre administrateur ; celui de la règle système est dit provisoire. Test sur la règle créée. | `39f6f6b` |
+| m4 filtre de statuts | La dernière case cochée ne se décoche plus, et l'écran le dit : un filtre vide valait « tous ». | `47ea72e` |
+| m12 incertain au niveau du composant | La fixture d'incertain porte une mesure et un corridor ; l'assertion vérifie leur absence à l'écran. Le lecteur met aussi `corridorM` à nul pour un incertain. | `47ea72e` |
+| m5 volume de l'arbre | Pages de 200 (taille par défaut du serveur), cinq au plus (1 000 territoires). Au-delà, l'arbre est dit tronqué et la recherche passe par le serveur. Le retrait de l'arborescence passe par des classes d'espacement, plus par un style en ligne. | `7418986` |
+| m7 message hors zone codé | Message générique, sans bornes ni pays. Il est précisé par l'emprise nationale que le serveur renvoie dans les options d'import (`crs.zoneNationale`, lu désormais). Les libellés des éléments écartés et de l'alerte hors zone sont alignés (zone attendue du serveur). | `3af28dd` |
+| m6 retrait d'une valeur | Le dialogue reste celui de la désactivation (`codesVus`), même si elle échoue. | `fd6ef8a` |
+| m8 déplacement d'un projet | Seuls les territoires de la région du projet sont proposés (sans région : nationaux). Si le serveur ne rend pas la région, rien n'est filtré. Le serveur reste la garde. | `fd6ef8a` |
+| m9 changement de région | L'administrateur est prévenu que les projets du sous-arbre gardent leur région. | `fd6ef8a` |
+| m10 recadrage de la carte | L'emprise nationale est mémorisée (`useMemo`). **Pas de test dédié** : le recadrage intempestif suppose un nouveau rendu de l'onglet pendant un dessin, que le double de `react-leaflet` ne reproduit pas de façon fiable (constat PLAUSIBLE de la revue). | `fd6ef8a` |
+| m11 annulation | `listerProjets` transmet le signal de React Query. Les assertions exactes de la liste ont été assouplies à `expect.objectContaining({ params })`, avec les mêmes paramètres. | `fd6ef8a` |
+
+Points de la revue non faits, avec la raison :
+- **m5, deuxième volet** : l'arbre n'est pas paresseux par `parentId` et la liste d'administration n'est pas virtualisée. Le volume est borné à 1 000 territoires et la recherche serveur prend le relais ; un arbre paresseux demande une autre ergonomie du sélecteur (dépliage par niveau), qui relève d'un lot suivant.
+- **Trois boutons tabulables par territoire** : conservés, chacun nommé avec le territoire ; c'est l'ergonomie de liste du module.
+- **Condition de fusion côté serveur** (revue, en tête) : ne pas fusionner ni déployer UI-C avant les correctifs `fix/vague3-revue-t1s1`. C'est hors de l'interface ; je la reprends ici. Sans ces correctifs, les méthodes `GNSS`, `LEVE_TOPOGRAPHIQUE` et `RELEVE_TERRAIN` sont refusées au dépôt ; un brouillon sans barème reçoit encore le barème provisoire ; la liste des territoires porte les emprises complètes.
+
+Écart serveur noté à la lecture de `fix/vague3-revue-t1s1` : `origineCorridorDe` (`comparaison.service.ts`) range en `BAREME_APPROUVE` tout couple dont une précision est d'origine `CLASSE`. C'est le cas aussi pour une comparaison ancienne calculée avec la règle système. Le champ `origineCorridor` d'un résultat n'est donc pas une attestation. L'interface ne s'y fie pas : elle lit `regle.bareme` et `resume.bareme`, et tient compte de la règle système.
+
+Rapport du lot : la phrase de la section B « Un lecteur ne voit aucun bouton d'écriture (vérifié par test sur chaque écran) » n'était pas vraie pour la page Paramètres avant M2. Elle l'est désormais, avec une preuve par mutation.
+
+Résultats mesurés après les corrections :
+
+| Contrôle | Résultat |
+|---|---|
+| `npx tsc --noEmit -p .` (depuis `frontend`) | **0 erreur** (3 min 10 s) |
+| Suite frontend complète `npx vitest run` | **262 fichiers verts, 5 852 réussis, 1 ignoré, 0 échec** (23 min 28 s) |
+| Tests ajoutés ou modifiés par les corrections | provenance (lib) 5, onglet Sources 21 (dont M1 3, m3 1, m4 1, m12), Paramètres 23 (rôles 3, m6, m9), dépôt 13 (m1 2), liste et création 28 (m2), fiche territoire 6 (m8), client 1 (m11), arbre 2 (m5), hors zone 2 (m7) |
+| `npm run build` | **réussi** (`tsc --noEmit` puis `vite build` en 2 min 24 s ; avertissement préexistant sur la taille de trois morceaux) |
