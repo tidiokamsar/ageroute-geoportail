@@ -143,7 +143,7 @@ export function lireConfiguration(data: unknown): { configuration: EntreeConfigu
 export interface FiltresTerritoires { q?: string; niveau?: NiveauTerritoire | ""; parentId?: string; actifs?: boolean; limite?: number; curseur?: string | null }
 
 export async function listerTerritoires(f: FiltresTerritoires = {}, signal?: AbortSignal): Promise<PageTerritoires & { ignores: number }> {
-  const params: Record<string, string | number> = { limite: f.limite ?? 500 };
+  const params: Record<string, string | number> = { limite: f.limite ?? ARBRE_LIMITE_PAGE };
   if (f.q?.trim()) params.q = f.q.trim();
   if (f.niveau) params.niveau = f.niveau;
   if (f.parentId) params.parentId = f.parentId;
@@ -153,13 +153,20 @@ export async function listerTerritoires(f: FiltresTerritoires = {}, signal?: Abo
   return lirePageTerritoires(data);
 }
 
+/**
+ * Revue UI-C m5 : pages de la taille par defaut du serveur (200), cinq au plus (1 000 territoires) ; au-dela, `tronque` le dit et la recherche
+ * passe par le serveur (`?q=`). Un arbre paresseux par `parentId` reste a faire (rapport du lot).
+ */
+export const ARBRE_LIMITE_PAGE = 200;
+export const ARBRE_PAGES_MAX = 5;
+
 /** Pages successives de la liste (ordre de l'arbre), bornees : au-dela, `tronque` le dit et la recherche passe par le serveur. */
-export async function chargerArbreTerritoires(signal?: AbortSignal, pagesMax = 4): Promise<{ territoires: Territoire[]; tronque: boolean; ignores: number }> {
+export async function chargerArbreTerritoires(signal?: AbortSignal, pagesMax = ARBRE_PAGES_MAX): Promise<{ territoires: Territoire[]; tronque: boolean; ignores: number }> {
   const territoires: Territoire[] = [];
   let curseur: string | null = null;
   let ignores = 0;
   for (let i = 0; i < pagesMax; i += 1) {
-    const p = await listerTerritoires({ curseur, limite: 500 }, signal);
+    const p = await listerTerritoires({ curseur }, signal);
     territoires.push(...p.territoires);
     ignores += p.ignores;
     curseur = p.suivant;

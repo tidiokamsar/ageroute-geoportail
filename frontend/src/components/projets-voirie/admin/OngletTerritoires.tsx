@@ -21,6 +21,9 @@ import type { Bbox } from "../../../lib/projetsVoirie";
  * et code sont immuables apres creation ; un territoire qui porte des enfants ou des projets ne se retire pas (409 TERRITOIRE_UTILISE, explique) ;
  * les avertissements d'emprise (hors du parent, hors de l'emprise nationale) sont affiches sans bloquer. Aucun nom de lieu n'est code.
  */
+/** Retrait par profondeur : classes de l'echelle d'espacement (revue m5 : plus de style en ligne). */
+const RETRAIT = ["ml-0", "ml-4", "ml-8", "ml-12", "ml-16", "ml-20", "ml-24"] as const;
+
 export function OngletTerritoires({ enLigne }: { enLigne: boolean }) {
   const arbre = useArbreTerritoires(true);
   const config = useConfiguration(true);
@@ -69,7 +72,7 @@ export function OngletTerritoires({ enLigne }: { enLigne: boolean }) {
       {liste.length > 0 && (
         <ul aria-label="Arborescence des territoires" className="space-y-1">
           {liste.map((t) => (
-            <li key={t.id} data-profondeur={t.profondeur} className="rounded border border-gray-200 p-2 text-sm" style={{ marginLeft: `${Math.min(t.profondeur, 6)}rem` }}>
+            <li key={t.id} data-profondeur={t.profondeur} className={`rounded border border-gray-200 p-2 text-sm ${RETRAIT[Math.min(t.profondeur, RETRAIT.length - 1)]}`}>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-semibold text-gray-900">{t.nom}</span>
                 <span className="sr-only">, profondeur {t.profondeur}</span>
