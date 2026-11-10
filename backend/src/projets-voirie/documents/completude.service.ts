@@ -13,6 +13,10 @@ import { estDecideur } from "../conflits/types.noyau";
 import { ErreurMetier, introuvable } from "../erreurs";
 import type { Acteur } from "../projets.service";
 import { calculerCompletude, reseauxDepuisJeux, type TypeDocumentEntree } from "./completude.noyau";
+import { bornerDecroissant } from "./vues";
+
+/** Documents lus au plus pour la completude (revue D1, m7). */
+export const DOCUMENTS_COMPLETUDE_MAX = 5_000;
 
 function typeDepuisLigne(l: { code: string; libelle: string; actif: boolean; parametres: unknown }): TypeDocumentEntree {
   const p = (l.parametres ?? {}) as { obligatoire?: unknown; fonctionsDebloquees?: unknown; roleJeu?: unknown };
@@ -49,11 +53,15 @@ export async function completudeProjet(acteur: Acteur, projetId: string) {
       const types = await tx.referentielVoirie.findMany({
         where: { domaine: "TYPE_DOCUMENT", deletedAt: null }, select: { code: true, libelle: true, actif: true, parametres: true }, orderBy: [{ ordre: "asc" }, { code: "asc" }],
       });
-      const documents = await tx.documentProjetVoirie.findMany({
+      // Revue D1, m7 : les plus RECENTS sont gardes (ordre decroissant), la troncature est dite.
+      const lus = bornerDecroissant(await tx.documentProjetVoirie.findMany({
         where: { projetId, deletedAt: null, ...(decideur ? {} : { statut: "VALIDE" as const }) },
-        select: { id: true, ligneeId: true, version: true, typeCode: true, titre: true, statut: true, format: true, concessionnaireId: true },
-        orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 5_000,
-      });
+        select: { id: true, ligneeId: true, version: true, typeCode: true, titre: true, statut: true, format: true, concessionnaireId: true, jeuId: true },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: DOCUMENTS_COMPLETUDE_MAX + 1,
+      }), DOCUMENTS_COMPLETUDE_MAX);
+      const jeuxLies = [...new Set(lus.lignes.map((d) => d.jeuId).filter((x): x is string => !!x))];
+      const retires = new Set(jeuxLies.length ? (await tx.jeuDonneesProjet.findMany({ where: { id: { in: jeuxLies }, statut: "RETIRE" }, select: { id: true } })).map((j) => j.id) : []);
+      const documents = lus.lignes.map(({ jeuId, ...d }) => ({ ...d, jeuRetire: jeuId !== null && retires.has(jeuId) }));
       const parRole: Record<string, number> = {};
       for (const j of jeux) parRole[j.role] = (parRole[j.role] ?? 0) + 1;
       const c = calculerCompletude({
@@ -66,7 +74,7 @@ export async function completudeProjet(acteur: Acteur, projetId: string) {
         types: types.map(typeDepuisLigne), documents, jeuxAutorisesParRole: parRole, decideur,
       });
       return {
-        projetId, calculeLe: new Date(), ...c,
+        projetId, calculeLe: new Date(), ...c, documents: { ...c.documents, tronque: lus.tronque },
         regle: "Une fonction est disponible des que SES conditions sont remplies par des jeux AUTORISE (ou une decision approuvee) ; aucune piece manquante ne bloque une fonction qui n'en depend pas.",
       };
     }, { timeout: delaiCarteMs() + 5_000, maxWait: 10_000 });

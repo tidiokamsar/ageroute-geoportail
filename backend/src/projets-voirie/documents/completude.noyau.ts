@@ -89,6 +89,8 @@ const disponibles = (e: EtatProjet): Set<Fonction> => new Set(FONCTIONS.filter((
 export interface TypeDocumentEntree { code: string; libelle: string; actif: boolean; obligatoire: boolean; fonctionsDebloquees: readonly string[]; roleJeu: string | null }
 export interface DocumentEntree {
   id: string; ligneeId: string; version: number; typeCode: string; titre: string; statut: StatutDocument; format: string | null; concessionnaireId: string | null;
+  /** Revue D1, m5 : la piece est liee a un jeu RETIRE (elle ne fournit plus son type). */
+  jeuRetire?: boolean;
 }
 
 export type CodePiece = "PLAN_AXES_AUTORISE" | "RESEAU_AUTORISE" | "SECONDE_SOURCE" | "DECISION_DEPLACEMENT";
@@ -127,7 +129,7 @@ export interface Completude {
   fonctions: { code: Fonction; libelle: string; etat: EtatFonction; conditions: { code: Condition; libelle: string; remplie: boolean; nb: number }[] }[];
   reseaux: { concessionnaireId: string | null; concessionnaire: string | null; typeReseau: string | null; typeReseauCode: string | null; nbSources: number; comparable: boolean }[];
   piecesManquantes: PieceManquante[];
-  documents: { total: number; parStatut: Partial<Record<StatutDocument, number>> };
+  documents: { total: number; parStatut: Partial<Record<StatutDocument, number>>; tronque?: boolean };
 }
 
 /** Dernieres versions de chaque lignee parmi les documents visibles. */
@@ -185,7 +187,7 @@ export function calculerCompletude(x: EntreeCompletude): Completude {
   // Types obligatoires non fournis : fourni = un jeu AUTORISE de son role, ou un document VALIDE de ce type.
   for (const t of typesActifs.filter((y) => y.obligatoire)) {
     const parJeu = t.roleJeu !== null && (x.jeuxAutorisesParRole[t.roleJeu] ?? 0) > 0;
-    const parDocument = x.documents.some((d) => d.typeCode === t.code && d.statut === "VALIDE");
+    const parDocument = x.documents.some((d) => d.typeCode === t.code && d.statut === "VALIDE" && !d.jeuRetire);
     if (parJeu || parDocument) continue;
     const fonctions = t.fonctionsDebloquees.filter(estFonction).filter((f) => etats[f] === "INDISPONIBLE");
     // Si le type est fourni par un jeu de son role, les conditions de ce role deviennent remplies (ce qu'une piece de ce seul type debloquerait).

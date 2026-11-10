@@ -389,6 +389,29 @@ async function main() {
   const numeroDirect = await essaiAnnule(async (tx) => { await tx.$executeRawUnsafe(`INSERT INTO documents_projet_voirie (id, "projetId", "ligneeId", version, "remplaceId", "typeCode", titre, statut, reference, "deposeParId", "deposeLe", "creeParId", "derniereActionParId") VALUES ('dx5', $1, $2, 2, $2, 'AUTRE', 'Retrait cas 2', 'RECU', 'r', $3, now(), $3, $3)`, PID, RT2, admin.id); });
   verifier("12 bis. M1 : la base refuse un numero deja pris par une version retiree ou une version qui ne suit pas le plus grand numero (23505 ou 23514)", ["23505", "23514"].includes(numeroDirect), numeroDirect);
 
+  // ================================================================ 12 ter. Revue D1, m4, m5, m9 : jeu retire, erreurs de la base
+  const JRET = await deposerJeu(PID, await geojson([{ nom: "Trace a retirer", pts: [[0, 60], [50, 60]] }]), { role: "AUTRE" }, "a-retirer.geojson");
+  const DRET = (await envoyer("post", `/${PID}/documents`, { typeCode: "AUTRE", titre: "Piece liee a un jeu retire", jeuId: JRET })).body.document?.id as string;
+  await envoyer("delete", `/${PID}/jeux/${JRET}`);
+  const ficheRet = await get(`/${PID}/documents/${DRET}`, T.admin);
+  verifier("12 ter. m4 et m5 : jeu lie RETIRE : la vue ne le designe plus (jeu, nom, format, exploitabilite nuls) et l'historique de la fiche ne porte plus son identifiant ni son nom (ADMIN compris)",
+    ficheRet.status === 200 && ficheRet.body.document.jeu === null && ficheRet.body.document.exploitable === null && ficheRet.body.document.piece.nomFichier === null
+    && ficheRet.body.historique.every((h: { details: Record<string, unknown> }) => h.details.jeuId === undefined && h.details.nomFichier === undefined)
+    && ficheRet.body.historique.some((h: { details: Record<string, unknown> }) => h.details.jeuMasque === true) && ficheRet.body.historiqueTronque === false,
+    ficheRet.body);
+  const { traduireErreurBase } = await banc.imp("projets-voirie/documents/documents.service");
+  let brute: unknown = null;
+  try { await prisma.documentProjetVoirie.create({ data: { id: "dx-m9", projetId: PID, ligneeId: "dx-m9", typeCode: "RETIRE_ENTRE_TEMPS", titre: "t", statut: "ATTENDU", creeParId: admin.id, derniereActionParId: admin.id } }); } catch (e) { brute = e; }
+  let traduite = "";
+  try { traduireErreurBase(brute); } catch (e) { traduite = `${(e as { status?: number }).status}:${(e as { code?: string }).code}`; }
+  let bruteCheck: unknown = null;
+  try { await prisma.documentProjetVoirie.create({ data: { id: "dx-m9b", projetId: PID, ligneeId: "dx-m9b", typeCode: "AUTRE", titre: "t", statut: "VALIDE", reference: "r", creeParId: admin.id, derniereActionParId: admin.id } }); } catch (e) { bruteCheck = e; }
+  let traduiteCheck = "";
+  try { traduireErreurBase(bruteCheck); } catch (e) { traduiteCheck = `${(e as { status?: number }).status}:${(e as { code?: string }).code}`; }
+  verifier("12 ter. m9 (avere) : un code de referentiel ou une regle refuses par la base remontent de Prisma en erreur brute (500 autrefois) ; traduits en 409 REFERENCE_INVALIDE et CONTRAINTE_DOCUMENT",
+    brute !== null && traduite === "409:REFERENCE_INVALIDE" && bruteCheck !== null && traduiteCheck === "409:CONTRAINTE_DOCUMENT",
+    [String(brute).slice(-120), traduite, (bruteCheck as { code?: string })?.code, String(bruteCheck).slice(-200), traduiteCheck]);
+
   // ================================================================ 13. Isolation et audit
   const apresTout = await etat();
   const MODULE = new Set(["projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau", "audit_logs", "documents_projet_voirie", "documents_projet_voirie_historique",

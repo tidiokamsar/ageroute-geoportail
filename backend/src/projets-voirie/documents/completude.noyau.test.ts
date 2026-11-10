@@ -186,3 +186,13 @@ describe("reseaux depuis les jeux autorises : identite decidee par l'eligibilite
     expect(r.map((x) => x.typeReseauCode)).toEqual(accepte ? ["FIBRE_SYNTH"] : ["FIBRE_SYNTH", "CUIVRE_SYNTH"]);
   });
 });
+
+describe("revue D1, m5 : piece VALIDE liee a un jeu retire", () => {
+  it("ne fournit plus son type obligatoire (le type redevient une piece manquante)", () => {
+    const etat = { nbAxesAutorises: 0, reseaux: [], nbDecisionsDeplacement: 0 };
+    const fournie = calculerCompletude(entree(etat, [doc("NOTE_SYNTHETIQUE", "VALIDE", "PDF")]));
+    const retire = calculerCompletude(entree(etat, [doc("NOTE_SYNTHETIQUE", "VALIDE", "LANDXML", { jeuRetire: true })]));
+    const manque = (c: ReturnType<typeof calculerCompletude>) => c.piecesManquantes.some((p) => p.nature === "TYPE_OBLIGATOIRE" && p.typeDocument.code === "NOTE_SYNTHETIQUE");
+    expect([manque(fournie), manque(retire)]).toEqual([false, true]);
+  });
+});
