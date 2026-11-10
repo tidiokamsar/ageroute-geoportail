@@ -316,6 +316,16 @@ export const MESSAGE_CODE_EXPORTS: Record<string, string> = {
 
 const secondes = (n: number) => `${n} seconde${n > 1 ? "s" : ""}`;
 
+/** Erreurs des tableaux de bord : memes codes, sans les mentions propres a l'archive. */
+export function classerErreurTableau(e: unknown): ErreurPv {
+  const x = classerErreurExports(e);
+  const attente = x.retryAfterS ? ` Réessayez dans ${secondes(x.retryAfterS)}.` : " Réessayez dans quelques instants.";
+  if (x.code === "SERVICE_OCCUPE") return { ...x, message: `Le serveur calcule déjà d'autres tableaux de bord.${attente}` };
+  if (x.status === 504 && x.code !== "TABLEAU_DE_BORD_TROP_LONG") return { ...x, message: "Le serveur a mis trop de temps à répondre : réessayez dans un instant." };
+  if (x.code === "PARAMETRES_INVALIDES") return { ...x, message: "Les paramètres de la demande sont refusés par le serveur." };
+  return x;
+}
+
 export function classerErreurExports(e: unknown): ErreurPv {
   const base = classerErreur(e);
   const corps = (() => { const r = estObjet(e) ? (e as Obj).response : null; return estObjet(r) && estObjet(r.data) ? r.data : {}; })();

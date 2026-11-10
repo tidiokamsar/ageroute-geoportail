@@ -1,7 +1,7 @@
 /* eslint-disable jsx-a11y/no-noninteractive-tabindex -- zone de defilement focusable au clavier (WCAG 2.1.1, regle axe scrollable-region-focusable) */
 import { useId, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
-import { Filter, FolderPlus, Search, Settings2, X } from "lucide-react";
+import { Filter, FolderPlus, LayoutDashboard, Search, Settings2, X } from "lucide-react";
 import { Button } from "../components/ui/Button";
 import { Input } from "../components/ui/Input";
 import { BandeauHorsLigne, EtatChargement, EtatErreur, EtatVide } from "../components/projets-voirie/EtatsPv";
@@ -44,6 +44,9 @@ export function ProjetsVoirieListePage() {
           <p className="mt-1 text-xs text-gray-600">L&apos;analyse est une aide à la décision, jamais un verdict : ses largeurs sont théoriques tant qu&apos;elles ne sont pas validées.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline" className="min-h-[44px] xl:min-h-9">
+            <Link to="/projets-voirie/tableau-de-bord"><LayoutDashboard aria-hidden="true" /> Tableau de bord</Link>
+          </Button>
           <Button asChild variant="outline" className="min-h-[44px] xl:min-h-9">
             <Link to="/projets-voirie/parametres"><Settings2 aria-hidden="true" /> Paramètres du module</Link>
           </Button>
