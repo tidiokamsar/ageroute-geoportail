@@ -1,6 +1,8 @@
 # Lot C1 : tests de bout en bout (Playwright) du module « Projets de voirie et réseaux »
 
-Date : 08/11/2026. Worktree `C:\ageroute-secours\w-e2e`, branche `test/e2e-module-voirie`, issue de `main` à `3c40dd1`. Agent : Claude (Sonnet 5.5, puis Fable 5.1 après une coupure). Périmètre : **tests et outillage de test seulement** ; aucun fichier de `backend/src` ni de `frontend/src` n'a été modifié. Les défauts trouvés sont consignés ici (section 6), jamais corrigés.
+Date : 08/11/2026, complété le 10/11/2026. Worktree `C:\ageroute-secours\w-e2e`, branche `test/e2e-module-voirie`, issue de `main` à `3c40dd1`. Agent : Claude (Sonnet 5.5, puis Fable 5.1 après une coupure, puis Opus 5.5 pour la mise à niveau et la clôture). Périmètre : **tests et outillage de test seulement** ; aucun fichier de `backend/src` ni de `frontend/src` n'a été modifié. Les défauts trouvés sont consignés ici (section 6), jamais corrigés.
+
+**Mise à niveau du 10/11/2026 (section 10).** La branche a reçu la vague 3 (`feat/vague3-integration`, tête `207b79c`) par une fusion sans conflit (`b45bd0e`) ; la base `replay` du conteneur jetable a été refaite (105 migrations) ; les spécifications ont été adaptées (territoire obligatoire à la création d'un projet, libellés changés) ; les deux défauts C1-01 et C1-02, corrigés par la vague 3, ne sont plus des `test.fixme` mais des tests ordinaires. Les chiffres des sections 2.2 et 3 sont ceux de cette version (vague 3 fusionnée). La suite C1 bis (scénarios multi-territoires) a son propre rapport : `docs/reports/LOT-C1BIS-RAPPORT.md`.
 
 ## 1. Ce qui a été fait
 
@@ -23,12 +25,12 @@ Date : 08/11/2026. Worktree `C:\ageroute-secours\w-e2e`, branche `test/e2e-modul
 
 | Fichier | Scénarios du cahier | Tests | Mode |
 |---|---|---|---|
-| `specs/10-voirie-import.spec.ts` | KIS-IMP-01, KIS-LOG-01, AT-01, AT-04 | 6 (1 `fixme`) | navigateur |
+| `specs/10-voirie-import.spec.ts` | KIS-IMP-01, KIS-LOG-01, AT-01, AT-04 | 6 (le `fixme` C1-01 est devenu un test ordinaire le 10/11) | navigateur |
 | `specs/11-voirie-crs.spec.ts` | KIS-CRS-01, AT-02 | 5 | navigateur + API |
 | `specs/12-voirie-securite.spec.ts` | KIS-SEC-01, AT-11 | 8 | navigateur + API |
 | `specs/13-voirie-conflits.spec.ts` | KIS-CLASH-01, AT-05 à AT-09, AT-12, AT-13, AT-14 | 5 | navigateur + API |
 | `specs/14-voirie-reseaux.spec.ts` | KIS-LOGIC-01 | 2 | API (pas d'interface) |
-| `specs/15-voirie-versions.spec.ts` | KIS-REV-01, AT-10 (version conservée) | 6 (1 `fixme`) | navigateur + API |
+| `specs/15-voirie-versions.spec.ts` | KIS-REV-01, AT-10 (version conservée) | 6 (le `fixme` C1-02 est devenu un test ordinaire le 10/11) | navigateur + API |
 | `specs/16-voirie-workflow.spec.ts` | workflow (CONTRAT-WORKFLOW.md) | 5 | API (pas d'interface) |
 
 Détail de ce que chaque test prouve, en se fiant à la **base** et pas seulement à l'écran :
@@ -63,7 +65,16 @@ Poste partagé avec d'autres agents (plusieurs suites Vitest, un second harnais 
 
 ### 2.2 Deux passages consécutifs de la suite entière (mode normal : base recréée, API et Vite relancés par Playwright)
 
-PASSAGES_COMPLETS
+Le 10/11/2026, vague 3 fusionnée, base `replay` refaite (105 migrations, 1 min 13 s), base `essai_e2e` recréée et API et Vite relancés par Playwright à chaque passage (`npx playwright test --project=dev`, `E2E_SANS_BUILD=1`, un worker, `E2E_FACTEUR_DELAI` non défini, Chromium `chrome-headless-shell` 1248 par `E2E_CHROMIUM`). La « suite entière » est celle de la branche à ce moment : les 54 tests du terrain et des imports (`01` à `08`, `session-hors-ligne`), les 37 tests du module du lot C1 (`10` à `16`) et les 21 tests du lot C1 bis (`17` à `21`, rapport `LOT-C1BIS-RAPPORT.md`) ; ces deux mêmes passages valent pour les deux lots.
+
+| | Passage 1 | Passage 2 |
+|---|---|---|
+| Résultat | **112 réussis, 0 échec, 0 ignoré, 0 instable** (aucune reprise : `retries: 0`) | **112 réussis, 0 échec, 0 ignoré, 0 instable** |
+| dont module, lot C1 (`10` à `16`) | 37 réussis | 37 réussis |
+| Durée des tests (Playwright) | 37,9 min | 35,8 min |
+| Durée murale (démarrage de l'API, préchauffage de Vite 72 s / 93 s, tests, arrêt) | 2 285 s (38,1 min) | 2 169 s (36,2 min) |
+
+Avant ces deux passages, un premier lancement des seules spécifications `10` à `16` sur la vague 3 (mode normal) avait donné 35 réussis et 2 échecs, deux erreurs de test corrigées (commit `13c8a82`) : le message hors zone de l'assistant est devenu générique (revue UI-C, m7 : « hors de l'emprise nationale de plausibilité configurée sur ce serveur », au lieu de « en dehors de la Guinée ») ; et l'échantillon de l'assistant contient désormais la carte, dont Leaflet crée ses propres `<img>` de tuiles : le contrôle « aucune balise `<img>` créée depuis le fichier » ne compte plus que les balises hors de la carte, et cherche en plus partout une balise portant la source ou le gestionnaire du piège (aucune trouvée ; `window.__pwn` reste indéfini).
 
 ### 2.3 Instabilités rencontrées et leur explication
 
@@ -79,12 +90,12 @@ Chaque mutation est appliquée au code de l'application (fichier sauvegardé, AP
 |---|---|---|
 | `backend/src/projets-voirie/formats/versions.depot.ts:98` : `if (delta.retires === 0) return;` devient `return;` (la revue des suppressions n'est plus exigée) | 15 « l'autorisation est bloquée tant que les suppressions ne sont pas revues » | **échec détecté** (le test attendait 409 `SUPPRESSIONS_A_REVOIR`) |
 | `backend/src/projets-voirie/formats/zip.noyau.ts:96` : le refus de `..` devient `..x` (zip-slip non détecté) | 12 « fichiers hostiles » | **échec détecté** : le KMZ zip-slip répond alors 500 au lieu de 422 ; la garde est bien ce qui tient |
-| `backend/src/projets-voirie/separation.noyau.ts:35` : `if (true \|\| ...)` (plus de séparation des tâches) | 13 (décision approuvée par son auteur) | MUT2 |
-| `backend/src/projets-voirie/formats/crs.service.ts:50` : `ST_MakePoint(t."x" + 0.2, t."y")` (transformation décalée de 20 cm) | 11 (superposition à 5 cm) | MUT4 |
-| `frontend/src/lib/projetsVoirieImport.ts:378` : `epsgSource: "32629"` par défaut (un CRS deviné) | 11 (choix obligatoire, liste vide au départ) | MUT5 |
+| `backend/src/projets-voirie/separation.noyau.ts:35` : `if (true \|\| ...)` (plus de séparation des tâches) | 13 (décision approuvée par son auteur) | **échec détecté** : `approuver` par l'auteur répond **500** au lieu de 409 `SEPARATION_DES_TACHES` ; la décision n'est pas approuvée pour autant, la contrainte de la base `cpd_separation` (migration `20261031100000`) refuse l'écriture, mais son refus n'est pas traduit (500 sous mutation seulement, voir O-5) ; 2 réussis, 2 non exécutés (série) |
+| `backend/src/projets-voirie/formats/crs.service.ts:50` : `ST_MakePoint(t."x" + 0.2, t."y")` (transformation décalée de 20 cm) | 11 (superposition à 5 cm, les deux tests) | **échec détecté** dans les deux tests : écart maximal mesuré 20,486 cm (sommets stockés contre la référence Krüger) et 20,913 cm (plan contre KML de référence), pour un seuil de 5 cm |
+| `frontend/src/lib/projetsVoirieImport.ts:401` (`LECTURE_VIDE`, ligne déplacée par la vague 3) : `epsgSource: "32629"` par défaut (un CRS deviné) | 11 (choix obligatoire, liste vide au départ) | **échec détecté** : la liste « Système de coordonnées source » vaut `32629` au lieu d'être vide |
 | Contrôles négatifs **intégrés aux tests** : référence décalée de 1 m (11), champ sans étiquette injecté (10) | | détectés à chaque passage |
 
-Une première tentative de ces mutations a produit des résultats inexploitables (500 à la création de projet) : mon script relançait l'API avant que la précédente ait fini de recréer la base, et deux API se disputaient `essai_e2e`. Le script a été corrigé (arrêt de tous les processus `lancer-api`, attente de la libération du port, attente de `/api/health`) et les trois mutations relancées ; seul le résultat de la seconde tentative est rapporté.
+Les trois mutations MUT2, MUT4 et MUT5 ont été faites le 10/11/2026, vague 3 fusionnée, en **mode normal** (base recréée, API et Vite relancés par Playwright à chaque mutation, ce qui supprime le risque de deux API concurrentes) : motif présent une seule fois exigé, fichier remis par `git checkout`, `git status` vide sur le fichier vérifié après chaque mutation (consigné dans le journal), aucune mutation commitée. Les deux premières lignes du tableau sont celles du 08/11. Le 08/11, une première tentative de ces mutations a produit des résultats inexploitables (500 à la création de projet) : mon script relançait l'API avant que la précédente ait fini de recréer la base, et deux API se disputaient `essai_e2e`. Le script a été corrigé (arrêt de tous les processus `lancer-api`, attente de la libération du port, attente de `/api/health`) et les trois mutations relancées, mais leur résultat n'avait pas été consigné avant la coupure de la session : seuls les résultats du 10/11 sont rapportés ci-dessus.
 
 ## 4. Accessibilité
 
@@ -93,8 +104,8 @@ axe-core 4.14.0 (celui du `frontend/node_modules`, le même que les tests unitai
 ## 5. Ce qui n'a pas été exécuté, et pourquoi
 
 - Le projet Playwright `build` (service worker, scénarios `@froid`) : `E2E_SANS_BUILD=1` à tous les lancements ; il ne concerne pas le module.
-- L'interface des **réseaux** (lot B1) et du **workflow** (lot B3) : elle n'existe pas dans cette branche ; ces deux domaines sont couverts par l'API seulement (14 et 16), comme demandé.
-- Les deux tests `fixme` (C1-01, C1-02) : ils décrivent le comportement attendu et seront exécutables dès la correction.
+- L'interface des **réseaux** (lot B1) et du **workflow** (lot B3) : absente de la branche au moment du lot ; elle est arrivée avec la vague 3 (lot UI-B) mais n'est pas parcourue par ces spécifications : ces deux domaines restent couverts par l'API seulement (14 et 16).
+- Les deux anciens tests `fixme` (C1-01, C1-02) sont exécutés depuis le 10/11 (défauts corrigés par la vague 3) : voir la section 6.
 - Le téléchargement du CSV d'export des conflits et de l'analyse (le contenu est couvert par les bancs backend) ; la pagination par curseur ; les règles de conflit créées et approuvées (l'approbation par l'auteur est couverte par le banc).
 - Aucun accès réseau sortant, aucun serveur distant, aucune connexion à la production, aucune donnée réelle : la seule base touchée est `essai_e2e` dans le conteneur jetable `e2e-c1-db` (port 5479), supprimé en fin de lot.
 
@@ -102,10 +113,10 @@ axe-core 4.14.0 (celui du `frontend/node_modules`, le même que les tests unitai
 
 | Réf. | Gravité | Constat | Reproduction | Où |
 |---|---|---|---|---|
-| **C1-01** | bloquant pour l'usage par défaut | L'assistant d'import envoie la classe de précision par défaut « Inconnue » comme `classePrecision=INCONNUE` ; le serveur n'admet que A à E (inconnue = champ absent) et répond **400 `CHAMPS_INVALIDES`** à « Simuler l'enregistrement ». Tout dépôt fait avec les valeurs par défaut de l'assistant échoue ; l'utilisateur doit choisir une classe réelle, ce que le texte d'aide (« laissez Inconnue ») lui déconseille. | Projet, « Ajouter des données », GeoJSON quelconque, laisser « Inconnue », avancer jusqu'à « Simuler l'enregistrement ». Trace Playwright : `POST /jeux?simuler=true` → 400 `{"details":{"classePrecision":["Invalid enum value. Expected 'A' \| 'B' \| 'C' \| 'D' \| 'E', received 'INCONNUE'"]}}`. | `frontend/src/lib/projetsVoirieApi.ts:630` (`if (d.classePrecision) corps.append(...)`, « INCONNUE » est vrai), `frontend/src/lib/projetsVoirieImport.ts:356` (valeur initiale), `backend/src/api-v2/projets-voirie.routes.ts:254` (énumération). Test : `10-voirie-import.spec.ts`, `test.fixme` « DEFAUT C1-01 ». |
-| **C1-02** | mineur (message d'erreur au lieu d'un geste absent) | Après un **refus** de revue des suppressions, l'assistant affiche « Une nouvelle revue remplace celle-ci » et propose encore « Accepter les suppressions », alors que le serveur refuse toute acceptation après un refus (règle O1, 409 `SUPPRESSIONS_REFUSEES`). | Déposer V2 sans deux objets, refuser la revue par l'API, ouvrir « Versions » sur V2, cliquer « Accepter les suppressions » : erreur 409. | `frontend/src/components/projets-voirie/assistant/EtapeDelta.tsx:127-134` ; règle serveur `backend/src/projets-voirie/formats/revue-versions.service.ts:127-130`. Test : `15-voirie-versions.spec.ts`, `test.fixme` « DEFAUT C1-02 ». |
-| C1-03 | documentation | `CONTRAT-IMPORT.md` 5.1 nomme la liste blanche `crs.sourcesAutorisees` ; la route `GET /:id/import/options` répond `crs.sourcesAutorises` (`backend/src/api-v2/projets-voirie.import.routes.ts:145`). | `GET /import/options`. | Doc à aligner. |
-| C1-04 | documentation | `API.md` (fiche d'objet réseau) présente `tracePartagee` comme un nombre ; la réponse est un objet `{ libelle, nbAutresObjets }`. | `GET /reseau/objets/:objetId`. | Doc à aligner. |
+| **C1-01** (**corrigé** par la vague 3, test ordinaire depuis le 10/11) | bloquant pour l'usage par défaut | L'assistant d'import envoie la classe de précision par défaut « Inconnue » comme `classePrecision=INCONNUE` ; le serveur n'admet que A à E (inconnue = champ absent) et répond **400 `CHAMPS_INVALIDES`** à « Simuler l'enregistrement ». Tout dépôt fait avec les valeurs par défaut de l'assistant échoue ; l'utilisateur doit choisir une classe réelle, ce que le texte d'aide (« laissez Inconnue ») lui déconseille. | Projet, « Ajouter des données », GeoJSON quelconque, laisser « Inconnue », avancer jusqu'à « Simuler l'enregistrement ». Trace Playwright : `POST /jeux?simuler=true` → 400 `{"details":{"classePrecision":["Invalid enum value. Expected 'A' \| 'B' \| 'C' \| 'D' \| 'E', received 'INCONNUE'"]}}`. | `frontend/src/lib/projetsVoirieApi.ts:630` (`if (d.classePrecision) corps.append(...)`, « INCONNUE » est vrai), `frontend/src/lib/projetsVoirieImport.ts:356` (valeur initiale), `backend/src/api-v2/projets-voirie.routes.ts:254` (énumération). Test : `10-voirie-import.spec.ts`, `test.fixme` « DEFAUT C1-01 ». |
+| **C1-02** (**corrigé** par la vague 3, commit `68685b6`, test ordinaire depuis le 10/11) | mineur (message d'erreur au lieu d'un geste absent) | Après un **refus** de revue des suppressions, l'assistant affiche « Une nouvelle revue remplace celle-ci » et propose encore « Accepter les suppressions », alors que le serveur refuse toute acceptation après un refus (règle O1, 409 `SUPPRESSIONS_REFUSEES`). | Déposer V2 sans deux objets, refuser la revue par l'API, ouvrir « Versions » sur V2, cliquer « Accepter les suppressions » : erreur 409. | `frontend/src/components/projets-voirie/assistant/EtapeDelta.tsx:127-134` ; règle serveur `backend/src/projets-voirie/formats/revue-versions.service.ts:127-130`. Test : `15-voirie-versions.spec.ts`, `test.fixme` « DEFAUT C1-02 ». |
+| C1-03 (doc corrigée par `68685b6`) | documentation | `CONTRAT-IMPORT.md` 5.1 nomme la liste blanche `crs.sourcesAutorisees` ; la route `GET /:id/import/options` répond `crs.sourcesAutorises` (`backend/src/api-v2/projets-voirie.import.routes.ts:145`). | `GET /import/options`. | Doc à aligner. |
+| C1-04 (doc corrigée par `68685b6`) | documentation | `API.md` (fiche d'objet réseau) présente `tracePartagee` comme un nombre ; la réponse est un objet `{ libelle, nbAutresObjets }`. | `GET /reseau/objets/:objetId`. | Doc à aligner. |
 
 Observations (pas des défauts au sens du contrat, à connaître) :
 
@@ -113,14 +124,16 @@ Observations (pas des défauts au sens du contrat, à connaître) :
 - **O-2.** Après une nouvelle version du plan d'axes, **tous** les dossiers (axe modifié et axe inchangé) sont marqués `aReexaminer` / `NOUVELLE_VERSION_DONNEES` : conforme à la règle écrite dans `API.md` (« si le plan d'axes ... a changé »), mais plus large que le cahier (« conflits dépendants ») ; l'ingénieur doit acquitter aussi les dossiers d'un axe qui n'a pas bougé.
 - **O-3. Performance.** Une analyse persistée de 11 objets a dépassé 20 s (504 `ANALYSE_TROP_LONGUE` après 26,1 s) sur un poste chargé, et des analyses de 13 à 21 s ont été mesurées dans le journal de l'API. Le défaut de `PROJETS_VOIRIE_DELAI_ANALYSE_MS` (20 s) peut être court pour le serveur de production s'il est partagé ; à mesurer sur la machine cible avant de régler.
 - **O-4.** Le harnais e2e supposait une base `replay` fabriquée hors de lui dans `bdri-dev-db` : c'est maintenant scriptable (`fabriquer-replay.sh`), mais la fabrication reste manuelle et hors du `webServer` de Playwright.
+- **O-5.** (10/11, sous mutation seulement) Quand la garde de service de la séparation des tâches d'une décision de conflit est retirée (MUT2), la contrainte de la base `cpd_separation` refuse bien l'approbation par l'auteur, mais le refus remonte en **500** au lieu d'un 409 typé : la défense en profondeur tient, le message ne suit pas. Sans la mutation, rien n'est observable (409 `SEPARATION_DES_TACHES`). À traduire comme les autres refus de la base du module si l'on veut un message propre en cas de régression du service.
+- **O-6.** (10/11) Un serveur Vite du harnais lancé à la main le 08/11 (mode `E2E_REUTILISER`) occupait encore le port 5201 ; il a été arrêté (processus de ce worktree, vérifié par sa ligne de commande) avant les lancements en mode normal, qui échoueraient sinon au démarrage du `webServer`.
 
 ## 7. Sécurité, données, périmètre
 
 - Aucune donnée réelle : fixtures générées, origine UTM arbitraire, noms « Synth ». Aucun fichier des dossiers `Downloads` lu.
-- Aucun secret dans le dépôt : mots de passe tirés au hasard à chaque lancement et écrits dans `%TEMP%\bdri-e2e\run.json` ; le mot de passe du conteneur jetable a vécu dans `%TEMP%` seulement.
+- Aucun secret dans le dépôt : mots de passe tirés au hasard à chaque lancement et écrits dans `%TEMP%\bdri-e2e\run.json`. Le mot de passe du conteneur jetable avait été écrit dans un fichier de `%TEMP%` pendant la première partie du lot ; ce fichier a été supprimé le 10/11 et, depuis, le harnais le lit par `docker inspect` (`E2E_PG_CONTENEUR=e2e-c1-db`, `E2E_PG_PORT=5479`), sans l'afficher ni l'écrire.
 - Sorties Playwright (traces, captures) dans `%TEMP%\bdri-e2e\sorties`, hors dépôt (`.gitignore` du harnais respecté).
 - Aucun octet NUL dans les fichiers créés (scan `tr -cd '\000'` sur chaque fichier avant commit), fins de ligne LF.
-- `npx prisma generate` non exécuté (schéma inchangé).
+- `npx prisma generate` : non exécuté pendant la première partie (schéma inchangé) ; exécuté le 10/11 après la fusion de la vague 3, dans le `backend/node_modules` PRIVÉ de ce worktree (`DATABASE_URL` factice, aucune connexion). Le `frontend/node_modules` (jonction partagée) n'a pas été touché, aucun `npm install`.
 
 ## 8. Décisions à prendre (DSI, coordinateur)
 
@@ -133,4 +146,17 @@ Observations (pas des défauts au sens du contrat, à connaître) :
 
 ## 9. Commits
 
-COMMITS
+Au-dessus de `3c40dd1`, dans l'ordre : `0bfce53` (harnais), `ad210f5` (10), `275a3c0` (11), `fbdf80d` (12), `2ac395c` (13), `3c81b78` (14), `0a8accc` (15), `4644e46` (16, README) ; le 10/11 : `ed4e642` (ce rapport, version de travail), `b45bd0e` (fusion de la vague 3), `082ae8f` (harnais à niveau de la vague 3), `13c8a82` (spécifications adaptées, C1-01 et C1-02 en tests ordinaires), puis le commit de ce rapport complété. Aucun push.
+
+## 10. Mise à niveau sur la vague 3 (10/11/2026)
+
+| Changement de la vague 3 | Adaptation des tests (aucun code applicatif touché) |
+|---|---|
+| Territoire obligatoire à la création d'un projet (lot T1 ; 400 `TERRITOIRE_REQUIS`) | `ApiVoirie.creerProjet` rattache le projet à la nation (projet national, comme un projet sans région avant T1), ou, si seul `regionId` est donné, à un territoire REGION de cette région, créé une fois par un ADMIN dédié par `POST /territoires` ; le préchauffage aussi. Dans `10`, le gestionnaire choisit une commune synthétique (créée par l'API ADMIN) dans le sélecteur de l'interface, après avoir constaté le refus local sans territoire (aucun projet créé) ; la commune du projet est **dérivée** du territoire (vérifié en base). |
+| Garde de création par territoire (correctifs T1+S1, m3) | `12` vérifie en plus qu'un compte régional reçoit, pour un territoire d'une autre région, exactement la même réponse que pour un territoire inexistant (404 `TERRITOIRE_INTROUVABLE`) et que rien n'est créé. |
+| C1-01 corrigé (« Inconnue » n'est plus envoyée) | `10` : test ordinaire, dépôt avec la classe par défaut jusqu'à la quarantaine, classe **nulle** en base. |
+| C1-02 corrigé (`68685b6`) | `15` : test ordinaire ; le texte dit le refus définitif, « Accepter les suppressions » n'est plus proposé, « Refuser » l'est encore, l'autorisation reste bloquée. |
+| Message hors zone générique (UI-C, m7) ; carte dans l'échantillon | `11` et `12` : voir la section 2.2. |
+| Cadence des comparaisons de sources (lot S1, 60 s) | `lancer-api.ts` : 3 s (pour le lot C1 bis), même logique que la cadence des analyses. |
+
+Base : `replay` refaite dans `e2e-c1-db` par `fabriquer-replay.sh` (105 migrations appliquées, une transaction chacune, pont de dérive intercalé) ; `bdri-dev-db` et `v3-postgis` non touchés.
