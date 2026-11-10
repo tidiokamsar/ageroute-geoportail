@@ -5,7 +5,7 @@ import { Input, Select } from "../ui/Input";
 import { useCreerProjet } from "../../lib/projetsVoirieHooks";
 import { useReferentiel } from "../../lib/projetsVoirieTerritoiresHooks";
 import type { ProjetFiche } from "../../lib/projetsVoirieApi";
-import { MOTIF_CODE_PROJET, erreurLargeurs, formaterNombre, lireSaisieNombre, type ErreurPv } from "../../lib/projetsVoirie";
+import { MOTIF_CODE_PROJET, erreurLargeurs, lireSaisieNombre, type ErreurPv } from "../../lib/projetsVoirie";
 import { classerErreurTerritoires, detailsParChamp, largeursDeCategorie, optionsDeChoix, type Territoire } from "../../lib/projetsVoirieTerritoires";
 import { SelecteurTerritoire } from "./territoires/SelecteurTerritoire";
 
@@ -13,18 +13,20 @@ import { SelecteurTerritoire } from "./territoires/SelecteurTerritoire";
  * Creation d'un projet (lot T1) : code, nom, TERRITOIRE (obligatoire, choisi dans le perimetre du compte), categorie facultative (referentiel
  * CATEGORIE_PROJET, chargee depuis l'API) et largeurs. La commune et la prefecture sont deduites du territoire par le serveur.
  *
- * Largeurs : sans categorie, les valeurs par defaut du module (15 m d'emprise, 7 m de chaussee, THEORIQUES) ; avec une categorie, ses largeurs.
- * Si l'utilisateur ne les change pas, elles ne sont PAS envoyees avec une categorie : le serveur applique celles de la categorie (source unique).
+ * Largeurs (revue UI-C m2) : aucune valeur par defaut n'est codee ici. Sans saisie, rien n'est envoye et le SERVEUR applique son defaut
+ * (theorique) ; avec une categorie, ses largeurs sont proposees telles quelles (sans arrondi) et, inchangees, laissees au serveur (source unique).
+ * Une largeur saisie seule est refusee : les deux, ou aucune.
  */
 
-const DEFAUT = { emprise: "15", chaussee: "7" };
-const versTexte = (n: number) => formaterNombre(n, 2).replace(/\s/g, "");
+const VIDE = { emprise: "", chaussee: "" };
+/** Nombre en saisie francaise, SANS arrondi (une categorie a 7,125 m reste 7,125 m). */
+const versTexte = (n: number) => String(n).replace(".", ",");
 
 export function DialogueProjet({ onFermer, onCree, enLigne }: { onFermer: () => void; onCree: (p: ProjetFiche) => void; enLigne: boolean }) {
   const id = useId();
   const creer = useCreerProjet();
   const categories = useReferentiel("CATEGORIE_PROJET");
-  const [v, setV] = useState({ code: "", nom: "", categorie: "", emprise: DEFAUT.emprise, chaussee: DEFAUT.chaussee });
+  const [v, setV] = useState({ code: "", nom: "", categorie: "", emprise: VIDE.emprise, chaussee: VIDE.chaussee });
   const [territoire, setTerritoire] = useState<Territoire | null>(null);
   const [erreurs, setErreurs] = useState<Record<string, string>>({});
   const [erreurServeur, setErreurServeur] = useState<ErreurPv | null>(null);
@@ -35,7 +37,7 @@ export function DialogueProjet({ onFermer, onCree, enLigne }: { onFermer: () => 
 
   function choisirCategorie(code: string) {
     const l = code ? largeursDeCategorie(valeursCategorie?.find((c) => c.code === code)) : null;
-    maj({ categorie: code, ...(l ? { emprise: versTexte(l.largeurEmpriseM), chaussee: versTexte(l.largeurChausseeM) } : code ? {} : DEFAUT) });
+    maj({ categorie: code, ...(l ? { emprise: versTexte(l.largeurEmpriseM), chaussee: versTexte(l.largeurChausseeM) } : code ? {} : VIDE) });
   }
 
   async function soumettre() {
@@ -46,17 +48,20 @@ export function DialogueProjet({ onFermer, onCree, enLigne }: { onFermer: () => 
     if (!territoire) e.territoireId = "Choisissez le territoire du projet : il est obligatoire.";
     const emprise = lireSaisieNombre(v.emprise);
     const chaussee = lireSaisieNombre(v.chaussee);
-    const el = erreurLargeurs(emprise, chaussee);
-    if (el) e.largeurs = el;
+    const aucune = v.emprise.trim() === "" && v.chaussee.trim() === "";
+    if (!aucune) {
+      const el = v.emprise.trim() === "" || v.chaussee.trim() === "" ? "Saisissez les deux largeurs, ou aucune (le serveur applique alors ses largeurs par défaut)." : erreurLargeurs(emprise, chaussee);
+      if (el) e.largeurs = el;
+    }
     setErreurs(e);
-    if (Object.keys(e).length > 0 || emprise === null || chaussee === null || !territoire) return;
-    // Avec une categorie dont les largeurs sont gardees telles quelles : on laisse le serveur les appliquer.
-    const largeursDeLaCategorie = !!largeursCat && largeursCat.largeurEmpriseM === emprise && largeursCat.largeurChausseeM === chaussee;
+    if (Object.keys(e).length > 0 || !territoire) return;
+    // Aucune saisie, ou largeurs de la categorie gardees telles quelles (comparees aux VALEURS lues, pas a un texte arrondi) : rien n'est envoye.
+    const largeursDeLaCategorie = aucune || (!!largeursCat && largeursCat.largeurEmpriseM === emprise && largeursCat.largeurChausseeM === chaussee);
     try {
       const p = await creer.mutateAsync({
         code, nom: v.nom.trim(), territoireId: territoire.id,
         ...(v.categorie ? { categorieCode: v.categorie } : {}),
-        ...(largeursDeLaCategorie ? {} : { largeurEmpriseM: emprise, largeurChausseeM: chaussee }),
+        ...(largeursDeLaCategorie || emprise === null || chaussee === null ? {} : { largeurEmpriseM: emprise, largeurChausseeM: chaussee }),
       });
       onCree(p);
     } catch (err) {
@@ -106,7 +111,7 @@ export function DialogueProjet({ onFermer, onCree, enLigne }: { onFermer: () => 
           <fieldset className="space-y-2 rounded-md border border-gray-200 p-3">
             <legend className="px-1 text-sm font-semibold text-navy">Largeurs de calcul (théoriques)</legend>
             <p className="text-xs text-gray-700">
-              {largeursCat ? "Largeurs de la catégorie choisie, " : "Valeurs par défaut du module, "}<strong>théoriques</strong> tant qu&apos;un administrateur ne les a pas validées. Modifiables ensuite.
+              {largeursCat ? "Largeurs de la catégorie choisie, " : "Laissez vide : le serveur applique ses largeurs par défaut, "}<strong>théoriques</strong> tant qu&apos;un administrateur ne les a pas validées. Modifiables ensuite.
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
               {champ("chaussee", "Chaussée (m)", v.chaussee, (s) => maj({ chaussee: s }), { max: 8, mode: "decimal" })}
