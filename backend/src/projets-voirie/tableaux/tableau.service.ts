@@ -12,7 +12,7 @@
 
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
-import { Budget, estDelaiDepasse } from "../bd";
+import { Budget, estDelaiDepasse, poserDelais } from "../bd";
 import { delaiCarteMs, delaiVerrouMs } from "../config";
 import { estDecideur } from "../conflits/types.noyau";
 import { STATUTS_PIECE_MANQUANTE } from "../documents/completude.noyau";
@@ -137,29 +137,47 @@ export async function tableauNational(acteur: Acteur, portee: Portee) {
   });
 }
 
+/** Territoire (404 s'il est inexistant, retire ou hors perimetre), enfants visibles (ENFANTS_MAX + 1 au plus) et ancetres, avec leurs delais cote base. */
+async function lireTerritoire(portee: Portee, territoireId: string) {
+  const regions = portee === null ? [] : [...portee];
+  const delai = delaiCarteMs();
+  try {
+    return await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SET TRANSACTION READ ONLY`;
+      await poserDelais(tx, delai, delaiVerrouMs());
+      const t = await tx.territoireVoirie.findFirst({
+        where: { id: territoireId, deletedAt: null, ...(portee === null ? {} : { regionEffectiveId: { in: regions } }) },
+        select: { id: true, code: true, nom: true, niveau: true, chemin: true },
+      });
+      // Inexistant, retire ou hors perimetre : la meme reponse (la garde de la route l'a deja dit pour un compte regional ; ici pour un national).
+      if (!t) throw introuvable("Territoire", "TERRITOIRE_INTROUVABLE");
+      const enfants = await tx.territoireVoirie.findMany({
+        where: { parentId: t.id, deletedAt: null, ...(portee === null ? {} : { regionEffectiveId: { in: regions } }) },
+        select: { id: true, code: true, nom: true, niveau: true }, orderBy: [{ code: "asc" }], take: ENFANTS_MAX + 1,
+      });
+      const ancetres = await ancetresDe(tx, t.chemin);
+      // Les ancetres hors perimetre (la nation pour un compte regional) ne sont pas nommes.
+      const idsVisibles = portee === null ? null
+        : new Set((await tx.territoireVoirie.findMany({ where: { id: { in: ancetres.map((a) => a.id) }, regionEffectiveId: { in: regions } }, select: { id: true } })).map((x) => x.id));
+      return { t, enfants, ancetres, idsVisibles };
+    }, { timeout: delai + 5_000, maxWait: 10_000 });
+  } catch (e) {
+    if (e instanceof ErreurMetier) throw e;
+    if (estDelaiDepasse(e)) throw tropLong();
+    throw e;
+  }
+}
+
 export async function tableauTerritoire(acteur: Acteur, portee: Portee, territoireId: string) {
   return proteger(acteur, async () => {
     const decideur = estDecideur(acteur.role);
     const regions = portee === null ? [] : [...portee];
-    const t = await prisma.territoireVoirie.findFirst({
-      where: { id: territoireId, deletedAt: null, ...(portee === null ? {} : { regionEffectiveId: { in: regions } }) },
-      select: { id: true, code: true, nom: true, niveau: true, chemin: true },
-    });
-    // Inexistant, retire ou hors perimetre : la meme reponse (la garde de la route l'a deja dit pour un compte regional ; ici pour un national).
-    if (!t) throw introuvable("Territoire", "TERRITOIRE_INTROUVABLE");
-    const enfantsLus = await prisma.territoireVoirie.findMany({
-      where: { parentId: t.id, deletedAt: null, ...(portee === null ? {} : { regionEffectiveId: { in: regions } }) },
-      select: { id: true, code: true, nom: true, niveau: true }, orderBy: [{ code: "asc" }], take: ENFANTS_MAX + 1,
-    });
-    const tronque = enfantsLus.length > ENFANTS_MAX;
-    const enfants = enfantsLus.slice(0, ENFANTS_MAX);
-    const [m, ancetres] = await Promise.all([
-      agreger({ national: portee === null, regions, prefixe: t.chemin, enfants: enfants.map((e) => e.id) }, decideur),
-      ancetresDe(prisma, t.chemin),
-    ]);
-    // Les ancetres hors perimetre (la nation pour un compte regional) ne sont pas nommes.
-    const idsVisibles = portee === null ? null
-      : new Set((await prisma.territoireVoirie.findMany({ where: { id: { in: ancetres.map((a) => a.id) }, regionEffectiveId: { in: regions } }, select: { id: true } })).map((x) => x.id));
+    // Revue du lot X1, m7 : territoire, enfants et ancetres lus dans une transaction READ ONLY a delais cote base, comme les agregats.
+    const lu = await lireTerritoire(portee, territoireId);
+    const { t, ancetres, idsVisibles } = lu;
+    const tronque = lu.enfants.length > ENFANTS_MAX;
+    const enfants = lu.enfants.slice(0, ENFANTS_MAX);
+    const m = await agreger({ national: portee === null, regions, prefixe: t.chemin, enfants: enfants.map((e) => e.id) }, decideur);
     const vide = agregatVide(decideur);
     return {
       portee: "TERRITOIRE" as const,
