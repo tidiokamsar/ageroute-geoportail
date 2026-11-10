@@ -5,7 +5,7 @@ import {
 } from "./projetsVoirieApi";
 import {
   JUSTIFICATION_MIN, TAILLE_MAX_FICHIER, controlerFichier, formaterNombre, lireBbox, lireSaisieNombre, natureParDefaut, confidentialiteParDefaut, versNombre,
-  type Bbox, type ClassePrecision, type Confidentialite, type NatureObjet, type RoleJeu, type TypeGeom, type TypeReseau,
+  type Bbox, type ClassePrecision, type Confidentialite, type ErreurPv, type NatureObjet, type RoleJeu, type TypeGeom, type TypeReseau,
 } from "./projetsVoirie";
 
 /**
@@ -62,7 +62,11 @@ export interface OptionsImportApi {
     tailleMaxOctets: number; objetsMax: number | null; echantillonMax: number | null; delaiApercuMs: number | null;
     archiveEntreesMax: number | null; archiveTailleMaxOctets: number | null; csvLignesMax: number | null;
   };
-  crs: { cible: { epsg: number; nom: string; unite: string } | null; sources: CrsSource[]; zoneAttendue: { nom: string; bbox: Bbox } | null };
+  crs: {
+    cible: { epsg: number; nom: string; unite: string } | null; sources: CrsSource[]; zoneAttendue: { nom: string; bbox: Bbox } | null;
+    /** Lot T1 : emprise nationale de plausibilite configuree (au-dela, un element est ecarte) ; nulle pour un serveur ancien. */
+    zoneNationale: { nom: string; bbox: Bbox } | null;
+  };
   champsCibles: ChampCible[];
   csv: { delimiteurs: string[]; encodages: string[]; separateursDecimaux: string[]; modes: string[] };
   conservationOriginal: string;
@@ -105,7 +109,10 @@ export function lireOptionsImport(data: unknown): OptionsImportApi {
       delaiApercuMs: versNombre(lim.delaiApercuMs), archiveEntreesMax: versNombre(arch.entreesMax),
       archiveTailleMaxOctets: versNombre(arch.tailleDecompresseeMaxOctets), csvLignesMax: versNombre(csvLim.lignesMax),
     },
-    crs: { cible, sources, zoneAttendue: z && zbbox ? { nom: texte(z.nom) ?? "Zone attendue", bbox: zbbox } : null },
+    crs: {
+      cible, sources, zoneAttendue: z && zbbox ? { nom: texte(z.nom) ?? "Zone attendue", bbox: zbbox } : null,
+      zoneNationale: (() => { const n = estObjet(data.crs.zoneNationale) ? data.crs.zoneNationale : null; const b = n ? lireBbox(n.bbox) : null; return n && b ? { nom: texte(n.nom) ?? "Emprise nationale", bbox: b } : null; })(),
+    },
     champsCibles: tableau(data.champsCibles).flatMap((c): ChampCible[] =>
       estObjet(c) && texte(c.champ) ? [{ champ: String(c.champ), portee: c.portee === "objet" ? "objet" : "jeu", description: texte(c.description) ?? "" }] : []),
     csv: { delimiteurs: chaines(csv.delimiteurs), encodages: chaines(csv.encodages), separateursDecimaux: chaines(csv.separateursDecimaux), modes: chaines(csv.modes) },
@@ -431,6 +438,17 @@ function lirePrecision(t: string, cle: string, erreurs: Record<string, string>):
   return p;
 }
 
+/**
+ * Revue UI-C m7 : precise un refus HORS_GUINEE par l'emprise nationale RENVOYEE par le serveur (options d'import, lot T1). Sans elle, le message
+ * generique reste seul. Toute autre erreur est rendue telle quelle.
+ */
+export function precisionHorsZone(e: ErreurPv, options: Pick<OptionsImportApi, "crs"> | null | undefined): ErreurPv {
+  const z = options?.crs.zoneNationale;
+  if (e.code !== "HORS_GUINEE" || !z) return e;
+  const f = (x: number) => x.toFixed(4).replace(".", ",");
+  return { ...e, message: `${e.message} Emprise nationale configurée sur ce serveur : « ${z.nom} » (ouest ${f(z.bbox[0])}, sud ${f(z.bbox[1])}, est ${f(z.bbox[2])}, nord ${f(z.bbox[3])}).` };
+}
+
 /** Format GDAL annonce par l'extension d'un fichier, ou `null`. Le serveur decide par le contenu ; ceci n'est qu'un indice. */
 export function formatGdalDuFichier(nom: string | null | undefined, gdal: FormatsGdalApi | null | undefined): FormatGdalApi | null {
   if (!nom || !gdal) return null;
@@ -592,7 +610,7 @@ const LIBELLE_AVERTISSEMENT: Record<string, string> = {
   ELEMENTS_GPX_IGNORES: "Des éléments du fichier GPX ne sont pas lus.",
   CONCESSIONNAIRE_INCONNU: "Le concessionnaire désigné par la colonne n'est pas connu : un import ne crée jamais de concessionnaire. Choisissez-le dans la liste.",
   ALTITUDE_IGNOREE: "L'altitude des points est ignorée : aucune conclusion en trois dimensions n'est tirée.",
-  ELEMENTS_HORS_GUINEE: "Des éléments hors de la Guinée sont écartés et jamais stockés.",
+  ELEMENTS_HORS_GUINEE: "Des éléments hors de l'emprise nationale configurée sont écartés et jamais stockés.",
   GEOMETRIES_INVALIDES_IGNOREES: "Des géométries inexploitables sont écartées.",
   GEOMETRIES_REPAREES: "Des géométries invalides ont été réparées par la base.",
   GEOMETRIES_VIDES_IGNOREES: "Des géométries devenues vides après réparation sont ignorées.",
@@ -607,7 +625,7 @@ export function libelleAvertissement(a: Avertissement): string {
 }
 
 export const LIBELLE_ELEMENT_ECARTE: Record<string, string> = {
-  COORDONNEES_HORS_ZONE: "Hors de la zone attendue (la Guinée), ou hors de la plage des degrés : écarté, jamais stocké.",
+  COORDONNEES_HORS_ZONE: "Hors de l'emprise nationale configurée, ou hors de la plage des degrés : écarté, jamais stocké.",
   GEOMETRIE_INVALIDE: "Géométrie inexploitable (ligne de moins de deux points, anneau dégénéré, coordonnée illisible) : écarté.",
 };
 export const LIBELLE_PROBLEME_GEOMETRIE: Record<string, string> = {
