@@ -168,7 +168,8 @@ async function main() {
   await prisma.$transaction(async (tx: typeof prisma) => {
     await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`);
     await tx.$executeRawUnsafe(`INSERT INTO comparaisons_sources_projet (id, "projetId", numero, statut, "jeuAId", "jeuBId", "versionAlgorithme", "declencheParId") VALUES ('cmp-x1-ret', $1, 998, 'TERMINEE', $2, $3, 'banc-x1', $4)`, PID, JR, JRET, chef.id);
-    await tx.$executeRawUnsafe(`INSERT INTO conflits_projet (id, "projetId", cle, type, axe, "jeuReseauId", geom, statut, "comparaisonId", mesure) VALUES ('cf-x1-ret', $1, $3, 'DIVERGENCE_SOURCES', 'Axe A X1', $2, ST_SetSRID(ST_MakePoint(-9.5, 9.21), 4326), 'A_INVESTIGUER', 'cmp-x1-ret', '{"distanceMinM": 4.2, "hausdorffM": 6.5}'::jsonb)`, PID, JR, sha(Buffer.from("cle-banc-x1-divergence-retire")));
+    // Correctifs T1+S1 (B1) : un dossier DIVERGENCE_SOURCES porte son jeu B (contrainte cp_jeu_source_b), ici le jeu retire de la comparaison.
+    await tx.$executeRawUnsafe(`INSERT INTO conflits_projet (id, "projetId", cle, type, axe, "jeuReseauId", geom, statut, "comparaisonId", "jeuSourceBId", mesure) VALUES ('cf-x1-ret', $1, $3, 'DIVERGENCE_SOURCES', 'Axe A X1', $2, ST_SetSRID(ST_MakePoint(-9.5, 9.21), 4326), 'A_INVESTIGUER', 'cmp-x1-ret', $4, '{"distanceMinM": 4.2, "hausdorffM": 6.5}'::jsonb)`, PID, JR, sha(Buffer.from("cle-banc-x1-divergence-retire")), JRET);
   });
   const avantTout = await compter(`SELECT count(*) n FROM audit_logs`);
   const empreinteTroncons = async () => (await sql<{ h: string | null }>(`SELECT md5(string_agg(t::text, '|' ORDER BY id)) h FROM troncons t`))[0].h;
@@ -362,7 +363,7 @@ async function main() {
   await prisma.$transaction(async (tx: typeof prisma) => {
     await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`);
     await tx.$executeRawUnsafe(`INSERT INTO comparaisons_sources_projet (id, "projetId", numero, statut, mode, "jeuAId", "jeuBId", "versionAlgorithme", "declencheParId") VALUES ('cmp-x1', $1, 999, 'TERMINEE', 'VERSION_CANDIDATE', $2, $3, 'banc-x1', $4)`, PID, JR, JQ, chef.id);
-    await tx.$executeRawUnsafe(`INSERT INTO conflits_projet (id, "projetId", cle, type, axe, "jeuReseauId", geom, statut, "comparaisonId") VALUES ('cf-x1', $1, $3, 'DIVERGENCE_SOURCES', 'Axe A X1', $2, ST_SetSRID(ST_MakePoint(-9.5, 9.2), 4326), 'A_INVESTIGUER', 'cmp-x1')`, PID, JR, sha(Buffer.from("cle-banc-x1-divergence")));
+    await tx.$executeRawUnsafe(`INSERT INTO conflits_projet (id, "projetId", cle, type, axe, "jeuReseauId", geom, statut, "comparaisonId", "jeuSourceBId") VALUES ('cf-x1', $1, $3, 'DIVERGENCE_SOURCES', 'Axe A X1', $2, ST_SetSRID(ST_MakePoint(-9.5, 9.2), 4326), 'A_INVESTIGUER', 'cmp-x1', $4)`, PID, JR, sha(Buffer.from("cle-banc-x1-divergence")), JQ);
   });
   // Un dossier dont le jeu de reseau passe REMPLACE (nouvelle version autorisee apres l'analyse) : invisible d'un lecteur.
   const JS2 = await deposer(PID, await geojson([{ nom: "Conduite sensible X1 v2", pts: [[121, -15], [121, 15]] }]), { role: "RESEAU_TIERS", concessionnaireId: CE, confidentialite: "INFRASTRUCTURE_SENSIBLE", methodeAcquisition: "NUMERISATION_PLAN" }, "eau-x1-v2.geojson");
@@ -387,8 +388,8 @@ async function main() {
     conflitsLect += (await get(`/${p}/conflits`, T.lecteur)).body.total;
   }
   const totalLect = Object.values(tl.body.total.conflits as Record<string, number>).reduce((s, x) => s + x, 0);
-  verifier("7. national, lecteur : AUCUN comptage de quarantaine (jeux AUTORISE seulement, egaux a la liste des jeux), dossiers visibles seulement (la liste moins les deux dossiers dont le jeu B est en quarantaine ou retire)",
-    tl.status === 200 && Object.keys(tl.body.total.jeux).join() === "AUTORISE" && tl.body.total.jeux.AUTORISE === jeuxLect && totalLect === conflitsLect - 2
+  verifier("7. national, lecteur : AUCUN comptage de quarantaine (jeux AUTORISE seulement, egaux a la liste des jeux), dossiers visibles seulement : egaux a la liste des dossiers du lecteur, qui exclut deja (correctif B1 de la revue T1+S1) les deux dossiers dont le jeu B est en quarantaine ou retire, et strictement moins que le decideur",
+    tl.status === 200 && Object.keys(tl.body.total.jeux).join() === "AUTORISE" && tl.body.total.jeux.AUTORISE === jeuxLect && totalLect === conflitsLect
     && totalLect < Object.values(tn.body.total.conflits as Record<string, number>).reduce((s, x) => s + x, 0), { lecteur: tl.body.total, jeuxLect, conflitsLect });
   verifier("7. lecteur : pieces en attente et referents nuls ; decideur : pieces en attente (documents attendus et recus) et referent actif comptes",
     tl.body.total.documentsManquants.piecesEnAttente === null && tl.body.total.referentsActifs === null && tl.body.lisibilite.jeux === "AUTORISE_SEULEMENT"
