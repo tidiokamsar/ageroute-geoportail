@@ -28,6 +28,8 @@ import {
 } from "../projets-voirie/projets.service";
 import { monterRoutesTerritoires } from "./projets-voirie.territoires.routes";
 import { monterRoutesDocuments } from "./projets-voirie.documents.routes";
+import { monterRoutesExports } from "./projets-voirie.dossier-technique.routes";
+import { monterRoutesTableaux } from "./projets-voirie.tableaux.routes";
 
 /**
  * `/api/v2/projets-voirie` -- Projets de voirie et reseaux (contrat : docs/projets-voirie/CONTRAT.md, v2 ; reference :
@@ -39,7 +41,8 @@ import { monterRoutesDocuments } from "./projets-voirie.documents.routes";
  *   - lecture : toute personne qui a la cle de module ;
  *   - ecritures : ADMIN et GESTIONNAIRE (depot, autorisation, rejet, retrait, creation, modification) ; DELETE d'un projet : ADMIN ;
  *   - export CSV de l'analyse : ADMIN et GESTIONNAIRE, audite ; agregats seulement, AUCUNE geometrie ;
- *   - aucune route n'exporte les geometries d'un jeu (ni fichier GeoJSON, ni KML) ; la carte est une couche d'affichage bornee ;
+ *   - aucune route n'exporte les geometries d'un jeu (ni fichier GeoJSON, ni KML), SAUF le dossier technique du lot X1 (`/:id/export/dossier`, decideurs,
+ *     audite, jeux AUTORISE d'un niveau exportable ou sous derogation ADMIN a usage unique) ; la carte est une couche d'affichage bornee ;
  *   - un projet sans region n'est visible que des comptes nationaux ; un projet d'une region visible des seuls comptes de cette region.
  *
  * Donnees sensibles (traces d'infrastructure de tiers) : `Cache-Control: no-store`, `nosniff`, et JAMAIS dans l'API publique.
@@ -197,6 +200,8 @@ projetsVoirieV2Router.post(
 
 // Lot T1 : territoires, referentiels et configuration. Routes LITTERALES, montees AVANT `/:id` (sinon `:id` les avalerait).
 monterRoutesTerritoires(projetsVoirieV2Router, { administrateur, acteurDe, porteeDe, enveloppe, refuser, UUID });
+// Lot X1 : tableaux de bord national et par territoire (agregats), routes LITTERALES aussi montees AVANT `/:id`.
+monterRoutesTableaux(projetsVoirieV2Router, { acteurDe, porteeDe, enveloppe, refuser });
 
 // `/concessionnaires` AVANT `/:id`, sinon `:id` l'avalerait.
 projetsVoirieV2Router.get("/concessionnaires", enveloppe(async (_req, res) => { res.json(await listerConcessionnaires()); }));
@@ -436,3 +441,7 @@ monterRoutesSources(projetsVoirieV2Router, { ecriture, administrateur, gardeProj
 // ------------------------------------------------------------------------------------------------
 
 monterRoutesDocuments(projetsVoirieV2Router, { ecriture, gardeProjet, acteurDe, enveloppe, refuser, UUID, placeDeReception, recevoir, refuserNul });
+// Export du dossier technique et derogations de confidentialite (lot X1) : memes gardes, meme ordre (voir projets-voirie.dossier-technique.routes.ts).
+// ------------------------------------------------------------------------------------------------
+
+monterRoutesExports(projetsVoirieV2Router, { ecriture, administrateur, gardeProjet, acteurDe, enveloppe, refuser, UUID });

@@ -252,6 +252,8 @@ const SANS_GARDE_TERRITORIALE: Exception[] = [
   { motif: /^POST \/api\/v2\/projets-voirie\/territoires$/, raison: "creation reservee a l'ADMIN, qui est toujours national ; lot T1" },
   { motif: /^\w+ \/api\/v2\/projets-voirie\/referentiels(\/|$)/, raison: "referentiels configurables nationaux (types de reseau, categories, types de document, methodes, statuts de qualite) : aucune donnee regionale ; ecriture ADMIN" },
   { motif: /^\w+ \/api\/v2\/projets-voirie\/configuration(\/|$)/, raison: "configuration nationale du module (emprise, CRS, protections) : aucune donnee regionale ; ecriture ADMIN" },
+  // Lot X1 : tableau de bord NATIONAL, filtre dans le service par les regions du compte (meme regle que la liste des projets).
+  { motif: /^GET \/api\/v2\/projets-voirie\/tableau-de-bord$/, raison: "agregats filtres dans le service par les regions du compte (projets de ses regions seulement ; national : tout) ; banc exports-tableaux" },
   { motif: /^GET \/api\/v2\/projets-voirie\/workflow\/mon-profil$/, raison: "profil de workflow du compte connecte (role, rattachements, droits) : la liste des projets est filtree dans le service par les regions du compte ; lot B3" },
   { motif: /^GET \/api\/ordres-travaux$/, raison: "liste filtree dans le handler (regions du compte) ; banc F1" },
   { motif: /^GET \/api\/ordres-travaux\/stats$/, raison: "statistiques filtrees dans le service (regions du compte) ; banc F1" },
@@ -386,9 +388,15 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
     "POST /api/v2/projets-voirie/:id/documents/:docId/versions": ["ADMIN", "GESTIONNAIRE"],
     "POST /api/v2/projets-voirie/:id/documents/:docId/statut": ["ADMIN", "GESTIONNAIRE"],
     "DELETE /api/v2/projets-voirie/:id/documents/:docId": ["ADMIN", "GESTIONNAIRE"],
+    // Export du dossier technique (lot X1) : archive et journal reserves aux comptes qui decident (lectures, mais elles remettent des geometries et des
+    // noms) ; derogation de confidentialite ADMIN seul. Prouve par api-v2/projets-voirie.dossier-technique.routes.test.ts et le banc exports-tableaux.
+    "GET /api/v2/projets-voirie/:id/export/dossier": ["ADMIN", "GESTIONNAIRE"],
+    "GET /api/v2/projets-voirie/:id/export/journal": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/export/derogations": ["ADMIN"],
+    "GET /api/v2/projets-voirie/:id/export/derogations": ["ADMIN"],
   };
 
-  it("expose exactement les 15 routes du socle, les 16 des dossiers de conflit, les 6 de l'import (lot A1), les 10 des reseaux (lot B1), les 4 des jobs de conversion GDAL (lot B2), les 15 des territoires, referentiels et configuration (lot T1), les 9 des sources (lot S1) et les 8 des documents (lot D1), ni plus (aucun export de geometrie, aucune route d'ordre ou de deplacement), ni moins", () => {
+  it("expose exactement les 15 routes du socle, les 16 des dossiers de conflit, les 6 de l'import (lot A1), les 10 des reseaux (lot B1), les 4 des jobs de conversion GDAL (lot B2), les 15 des territoires, referentiels et configuration (lot T1), les 9 des sources (lot S1), les 8 des documents (lot D1) et les 6 de l export et des tableaux de bord (lot X1), ni plus (aucun export de geometrie, aucune route d'ordre ou de deplacement), ni moins", () => {
     expect(pv.map(cle).sort()).toEqual([
       "DELETE /api/v2/projets-voirie/:id", "DELETE /api/v2/projets-voirie/:id/jeux/:jeuId",
       "GET /api/v2/projets-voirie", "GET /api/v2/projets-voirie/:id", "GET /api/v2/projets-voirie/:id/analyse",
@@ -431,6 +439,9 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
       "GET /api/v2/projets-voirie/:id/completude", "GET /api/v2/projets-voirie/:id/documents", "POST /api/v2/projets-voirie/:id/documents",
       "GET /api/v2/projets-voirie/:id/documents/:docId", "POST /api/v2/projets-voirie/:id/documents/:docId/depot", "POST /api/v2/projets-voirie/:id/documents/:docId/versions",
       "POST /api/v2/projets-voirie/:id/documents/:docId/statut", "DELETE /api/v2/projets-voirie/:id/documents/:docId",
+      // Export du dossier technique et tableaux de bord (lot X1, CONTRAT-EXPORTS.md, sections 4.1 et 6.1)
+      "GET /api/v2/projets-voirie/:id/export/dossier", "GET /api/v2/projets-voirie/:id/export/journal", "POST /api/v2/projets-voirie/:id/export/derogations",
+      "GET /api/v2/projets-voirie/:id/export/derogations", "GET /api/v2/projets-voirie/tableau-de-bord", "GET /api/v2/projets-voirie/tableau-de-bord/territoires/:tid",
     ].sort());
     // Lot S1 : aucune route de fusion, de connexion calculee ni de proposition automatique de connexion.
     expect(pv.filter((l) => /fusion|fusionn|connect|connexion|continuite/i.test(l.chemin))).toEqual([]);
