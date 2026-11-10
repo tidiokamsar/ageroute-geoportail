@@ -23,6 +23,7 @@ const { inspecterZip, extraireEntree } = await banc.imp("projets-voirie/formats/
 const { verifierEmpreintes } = await banc.imp("projets-voirie/exports/manifeste.noyau");
 const { ENTETE_CSV_CONFLITS } = await banc.imp("projets-voirie/conflits/dossiers.service");
 const { _viderCadenceTableaux } = await banc.imp("projets-voirie/tableaux/tableau.service");
+const { _ouvrirTentativePourBanc } = await banc.imp("projets-voirie/exports/dossier.service");
 const request = (await import("supertest")).default;
 const { Client } = (await import("pg")).default;
 
@@ -63,6 +64,19 @@ function relire(zip: Buffer): Map<string, Buffer> {
 }
 
 const exemples: Record<string, unknown> = {};
+async function issueDe(exportId: string | undefined, delaiMs = 8_000): Promise<string | null> {
+  const fin = Date.now() + delaiMs;
+  for (;;) {
+    const l = exportId ? (await sql<{ s: string }>(`SELECT statut s FROM exports_dossier_projet_voirie WHERE id = $1`, exportId))[0] : undefined;
+    if (l && l.s !== "EN_COURS") return l.s;
+    if (Date.now() > fin) return l?.s ?? null;
+    await new Promise((ok) => setTimeout(ok, 100));
+  }
+}
+const attendreSansEnCours = async () => {
+  const fin = Date.now() + 8_000;
+  while (Date.now() < fin && Number((await sql<{ n: bigint }>(`SELECT count(*) n FROM exports_dossier_projet_voirie WHERE statut = 'EN_COURS' AND "createdAt" > (now() AT TIME ZONE 'UTC') - interval '2 minutes'`))[0].n) > 0) await new Promise((ok) => setTimeout(ok, 100));
+};
 const JUSTIF = "Controle effectue avec le chef de projet";
 
 async function main() {
@@ -91,6 +105,11 @@ async function main() {
     return corps === undefined ? r : r.send(corps as object);
   };
   const exporter = (pid: string, q = "", t = T.chef) => binaire(get(`/${pid}/export/dossier${q}`, t));
+  const depot = (pid: string, contenu: Buffer, champs: Record<string, string | undefined>, nom: string, t = T.chef) => {
+    const q = request(app).post(`${BASE}/${pid}/jeux`).set("Authorization", `Bearer ${t}`);
+    for (const [k, v] of Object.entries(champs)) if (v !== undefined) q.field(k, v);
+    return q.attach("fichier", contenu, { filename: nom });
+  };
   async function deposer(pid: string, contenu: Buffer, champs: Record<string, string | undefined>, nom: string): Promise<string> {
     const r = request(app).post(`${BASE}/${pid}/jeux`).set("Authorization", `Bearer ${T.chef}`);
     for (const [k, v] of Object.entries(champs)) if (v !== undefined) r.field(k, v);
@@ -146,6 +165,11 @@ async function main() {
     anP.status === 201 && docRet.status === 201 && ret.status === 200 && ref.status === 201 && (await compter(`SELECT count(*) n FROM conflits_projet WHERE "projetId" = $1`, PID)) > 0,
     { analyse: anP.status, doc: docRet.body, ret: ret.body, ref: ref.body });
 
+  await prisma.$transaction(async (tx: typeof prisma) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`);
+    await tx.$executeRawUnsafe(`INSERT INTO comparaisons_sources_projet (id, "projetId", numero, statut, "jeuAId", "jeuBId", "versionAlgorithme", "declencheParId") VALUES ('cmp-x1-ret', $1, 998, 'TERMINEE', $2, $3, 'banc-x1', $4)`, PID, JR, JRET, chef.id);
+    await tx.$executeRawUnsafe(`INSERT INTO conflits_projet (id, "projetId", cle, type, axe, "jeuReseauId", geom, statut, "comparaisonId", mesure) VALUES ('cf-x1-ret', $1, $3, 'DIVERGENCE_SOURCES', 'Axe A X1', $2, ST_SetSRID(ST_MakePoint(-9.5, 9.21), 4326), 'A_INVESTIGUER', 'cmp-x1-ret', '{"distanceMinM": 4.2, "hausdorffM": 6.5}'::jsonb)`, PID, JR, sha(Buffer.from("cle-banc-x1-divergence-retire")));
+  });
   const avantTout = await compter(`SELECT count(*) n FROM audit_logs`);
   const empreinteTroncons = async () => (await sql<{ h: string | null }>(`SELECT md5(string_agg(t::text, '|' ORDER BY id)) h FROM troncons t`))[0].h;
   const troncons0 = await empreinteTroncons();
@@ -163,6 +187,7 @@ async function main() {
   const e1 = await exporter(PID);
   const zip1 = e1.body as Buffer;
   exemples["entetes_export"] = { status: e1.status, "content-type": e1.headers["content-type"], "content-disposition": e1.headers["content-disposition"], "x-export-id": e1.headers["x-export-id"], "x-empreinte-sha256": e1.headers["x-empreinte-sha256"], "x-fichiers": e1.headers["x-fichiers"], "x-jeux-geojson": e1.headers["x-jeux-geojson"] };
+  const issue1 = await issueDe(e1.headers["x-export-id"]);
   const lus = relire(zip1);
   const R = "dossier-x1-dossier/";
   const lire = (c: string) => lus.get(R + c);
@@ -179,8 +204,8 @@ async function main() {
     && manifeste.fichiers.length === lus.size - 2 && manifeste.fichiers.every((f: { chemin: string; octets: number; sha256: string }) => lire(f.chemin)?.length === f.octets && sha(lire(f.chemin)!) === f.sha256),
     manifeste.fichiers);
   const journal1 = (await sql<{ id: string; sha256: string; nbFichiers: number; acteurId: string }>(`SELECT id, sha256, "nbFichiers", "acteurId" FROM exports_dossier_projet_voirie`))[0];
-  verifier("2. journal : une ligne, identifiant = en-tete = manifeste, empreinte de l'archive remise, acteur = le compte",
-    journal1?.id === e1.headers["x-export-id"] && journal1.id === manifeste.exportId && journal1.sha256 === sha(zip1) && journal1.acteurId === chef.id && journal1.nbFichiers === lus.size, journal1);
+  verifier("2. journal : une ligne, REMIS apres l'ecriture complete de la reponse, identifiant = en-tete = manifeste, empreinte de l'archive remise, acteur = le compte",
+    issue1 === "REMIS" && journal1?.id === e1.headers["x-export-id"] && journal1.id === manifeste.exportId && journal1.sha256 === sha(zip1) && journal1.acteurId === chef.id && journal1.nbFichiers === lus.size, journal1);
 
   // ================================================================ 3. Confidentialite : GeoJSON des seuls jeux autorises d'un niveau exportable
   const geo = [...lus.keys()].filter((k) => k.startsWith(`${R}geojson/`));
@@ -208,6 +233,9 @@ async function main() {
   const csv = lire("conflits/dossiers.csv")!.toString("utf8").replace(/^﻿/, "");
   const lignesCsv = csv.split("\r\n").filter(Boolean);
   const nbConflits = await compter(`SELECT count(*) n FROM conflits_projet WHERE "projetId" = $1`, PID);
+  const colDistance = (ENTETE_CSV_CONFLITS as readonly string[]).indexOf("distanceMinM");
+  const ligneRet = lignesCsv.find((l) => l.endsWith(sha(Buffer.from("cle-banc-x1-divergence-retire"))))?.split(";");
+  verifier("3. revue m1 : la mesure d'un dossier DIVERGENCE_SOURCES dont le jeu B est RETIRE n'est pas dans le CSV (distanceMinM vide)", !!ligneRet && ligneRet[colDistance] === "" && !csv.includes("4,2"), ligneRet);
   verifier("3. CSV des dossiers : l'en-tete existant, une ligne par dossier ; le nom de concessionnaire hostile est neutralise (apostrophe)",
     lignesCsv[0] === ENTETE_CSV_CONFLITS.join(";") && lignesCsv.length === 1 + nbConflits && csv.includes("'+Operateur Eau Synthetique X1") && !/;\+Operateur/.test(csv), lignesCsv.slice(0, 3));
   const jcsv = lire("documents/journal.csv")!.toString("utf8");
@@ -217,8 +245,9 @@ async function main() {
   verifier("3. fiche PDF : PDF 1.4 texte simple, titre du projet, fin de fichier", pdf.subarray(0, 8).toString() === "%PDF-1.4" && pdf.toString("latin1").includes("(Dossier technique du projet X1-DOSSIER)") && pdf.toString("latin1").trimEnd().endsWith("%%EOF"));
 
   // ================================================================ 4. Audit (avant la remise, sans geometrie) et journal
-  const audits = await sql<{ after: string }>(`SELECT after::text AS after FROM audit_logs WHERE "entityType" = 'ExportDossierProjetVoirie' AND "entityId" = $1`, PID);
-  verifier("4. audit ExportDossierProjetVoirie : une ligne par archive remise, empreinte et jeux exportes, aucune coordonnee", audits.length === 1
+  const audits = await sql<{ after: string }>(`SELECT after::text AS after FROM audit_logs WHERE "entityType" = 'ExportDossierProjetVoirie' AND "entityId" = $1 AND after->>'statut' = 'REMIS'`, PID);
+  const auditsTentative = await compter(`SELECT count(*) n FROM audit_logs WHERE "entityType" = 'ExportDossierProjetVoirie' AND "entityId" = $1 AND after->>'statut' = 'EN_COURS'`, PID);
+  verifier("4. audit ExportDossierProjetVoirie : la tentative (EN_COURS) puis la remise (REMIS, empreinte et jeux exportes), aucune coordonnee", audits.length === 1 && auditsTentative === 1
     && audits[0].after.includes(sha(zip1)) && !/coordinates|LineString/.test(audits[0].after), audits);
   const jr = await get(`/${PID}/export/journal`);
   exemples["journal"] = jr.body;
@@ -226,9 +255,12 @@ async function main() {
 
   // ================================================================ 5. Derogation de confidentialite : accordee, refusee, a usage unique
   const D = (corps: Record<string, unknown>) => envoyer("post", `/${PID}/export/derogations`, { justification: "Transmission au bureau de controle pour etudes d'execution", ...corps }, T.admin);
-  const refus = await Promise.all([D({ jeuxIds: [JAX] }), D({ jeuxIds: [JQ] }), D({ jeuxIds: [JRET] }), D({ jeuxIds: [JR], beneficiaireId: lecteur.id }), D({ jeuxIds: [JR], beneficiaireId: reg2.id })]);
-  verifier("5. creation refusee : jeu exportable sans derogation 409 DEROGATION_INUTILE ; quarantaine 409 JEU_NON_AUTORISE ; jeu retire 404 ; beneficiaire lecteur 422 ; beneficiaire hors perimetre 422",
-    refus.map((r) => `${r.status}:${r.body.code}`).join() === "409:DEROGATION_INUTILE,409:JEU_NON_AUTORISE,404:JEU_INTROUVABLE,422:BENEFICIAIRE_NON_HABILITE,422:BENEFICIAIRE_HORS_PERIMETRE", refus.map((r) => r.body));
+  const refus = await Promise.all([D({ jeuxIds: [JAX], beneficiaireId: chef.id }), D({ jeuxIds: [JQ], beneficiaireId: chef.id }), D({ jeuxIds: [JRET], beneficiaireId: chef.id }), D({ jeuxIds: [JR], beneficiaireId: lecteur.id }), D({ jeuxIds: [JR], beneficiaireId: reg2.id }),
+    D({ jeuxIds: [JR], beneficiaireId: admin.id }), D({ jeuxIds: [JR] })]);
+  verifier("5. creation refusee : jeu exportable sans derogation 409 DEROGATION_INUTILE ; quarantaine 409 JEU_NON_AUTORISE ; jeu retire 404 ; beneficiaire lecteur 422 ; hors perimetre 422 ; l'ADMIN lui-meme 409 SEPARATION_DES_TACHES (revue M2) ; sans beneficiaire 400",
+    refus.map((r) => `${r.status}:${r.body.code}`).join() === "409:DEROGATION_INUTILE,409:JEU_NON_AUTORISE,404:JEU_INTROUVABLE,422:BENEFICIAIRE_NON_HABILITE,422:BENEFICIAIRE_HORS_PERIMETRE,409:SEPARATION_DES_TACHES,400:CHAMPS_INVALIDES", refus.map((r) => r.body));
+  const separationBase = await essaiAnnule(async (tx) => { await tx.$executeRawUnsafe(`INSERT INTO derogations_export_projet_voirie (id, "projetId", "jeuxIds", "beneficiaireId", "accordeeParId", justification, "createdAt", "expireLe") VALUES ('dx-sep', $1, ARRAY[$2], $3, $3, 'Auto-derogation refusee par la base', (now() AT TIME ZONE 'UTC'), (now() AT TIME ZONE 'UTC') + interval '1 hour')`, PID, JR, admin.id); });
+  verifier("5. revue M2 : la base refuse aussi une derogation dont l'auteur est le beneficiaire, en SQL direct (contrainte dxpv_separation, 23514)", separationBase === "23514", separationBase);
   const dok = await D({ jeuxIds: [JR, JS], beneficiaireId: chef.id, dureeHeures: 2 });
   exemples["derogation"] = dok.body;
   const DID = dok.body.derogation?.id;
@@ -242,6 +274,7 @@ async function main() {
   // Deux exports simultanes du beneficiaire avec la meme derogation : une seule archive (l'autre est refusee : un export par compte a la fois).
   const [c1, c2] = await Promise.all([exporter(PID, `?derogation=${DID}`), exporter(PID, `?derogation=${DID}`)]);
   const reussi = [c1, c2].find((r) => r.status === 200)!;
+  await issueDe(reussi.headers["x-export-id"]);
   const lus2 = relire(reussi.body as Buffer);
   const man2 = JSON.parse(lus2.get(`${R}manifeste.json`)!.toString("utf8"));
   verifier("5. deux exports simultanes avec la derogation : un seul 200 (l'autre 503 SERVICE_OCCUPE), la derogation consommee une seule fois",
@@ -250,7 +283,8 @@ async function main() {
   verifier("5. avec la derogation : les GeoJSON du telecom et de l'eau sont dans l'archive, marques derogation dans le manifeste et le fichier ; manifeste et audit nomment la derogation",
     man2.derogationId === DID && man2.geojson.inclus.length === 4 && man2.geojson.inclus.filter((i: { derogation: boolean }) => i.derogation).map((i: { jeuId: string }) => i.jeuId).sort().join() === [JR, JS].sort().join()
     && [...lus2.keys()].some((k) => k.includes(JS.toLowerCase())) && JSON.parse(lus2.get([...lus2.keys()].find((k) => k.includes(JS.toLowerCase()))!)!.toString()).bdri.derogation === true
-    && (await compter(`SELECT count(*) n FROM audit_logs WHERE "entityType" = 'DerogationExportProjetVoirie' AND "entityId" = $1 AND action = 'UPDATE'`, DID)) === 1, man2.geojson);
+    && (await compter(`SELECT count(*) n FROM audit_logs WHERE "entityType" = 'DerogationExportProjetVoirie' AND "entityId" = $1 AND action = 'UPDATE' AND after->>'consommee' = 'true'`, DID)) === 1
+    && (await compter(`SELECT count(*) n FROM derogations_export_projet_voirie WHERE id = $1 AND "utiliseeLe" IS NOT NULL`, DID)) === 1, man2.geojson);
   const reuse = await exporter(PID, `?derogation=${DID}`);
   verifier("5. usage unique : la reutiliser repond 409 DEROGATION_INDISPONIBLE (UTILISEE) ; aucune archive", reuse.status === 409 && JSON.parse(reuse.body.toString()).extra === undefined
     && JSON.parse(reuse.body.toString()).etat === "UTILISEE", reuse.body.toString());
@@ -261,22 +295,29 @@ async function main() {
     journalModifie: await essaiAnnule(async (tx) => { await tx.$executeRawUnsafe(`UPDATE exports_dossier_projet_voirie SET sha256 = $2 WHERE id = $1`, journal1.id, "0".repeat(64)); }),
     journalSupprime: await essaiAnnule(async (tx) => { await tx.$executeRawUnsafe(`DELETE FROM exports_dossier_projet_voirie WHERE id = $1`, journal1.id); }),
     tronquer: await essaiAnnule(async (tx) => { await tx.$executeRawUnsafe(`TRUNCATE derogations_export_projet_voirie`); }),
-    dureeExcessive: await essaiAnnule(async (tx) => { await tx.$executeRawUnsafe(`INSERT INTO derogations_export_projet_voirie (id, "projetId", "jeuxIds", "beneficiaireId", "accordeeParId", justification, "createdAt", "expireLe") VALUES ('dx-1', $1, ARRAY[$2], $3, $4, 'Duree excessive pour le banc X1', now(), now() + interval '8 days')`, PID, JR, chef.id, admin.id); }),
-    naitUtilisee: await essaiAnnule(async (tx) => { await tx.$executeRawUnsafe(`INSERT INTO derogations_export_projet_voirie (id, "projetId", "jeuxIds", "beneficiaireId", "accordeeParId", justification, "createdAt", "expireLe", "utiliseeLe", "exportId") VALUES ('dx-2', $1, ARRAY[$2], $3, $4, 'Nee deja utilisee pour le banc X1', now(), now() + interval '1 day', now(), $5)`, PID, JR, chef.id, admin.id, journal1.id); }),
+    dureeExcessive: await essaiAnnule(async (tx) => { await tx.$executeRawUnsafe(`INSERT INTO derogations_export_projet_voirie (id, "projetId", "jeuxIds", "beneficiaireId", "accordeeParId", justification, "createdAt", "expireLe") VALUES ('dx-1', $1, ARRAY[$2], $3, $4, 'Duree excessive pour le banc X1', (now() AT TIME ZONE 'UTC'), (now() AT TIME ZONE 'UTC') + interval '8 days')`, PID, JR, chef.id, admin.id); }),
+    dateCreationChoisie: await essaiAnnule(async (tx) => { await tx.$executeRawUnsafe(`INSERT INTO derogations_export_projet_voirie (id, "projetId", "jeuxIds", "beneficiaireId", "accordeeParId", justification, "createdAt", "expireLe") VALUES ('dx-3', $1, ARRAY[$2], $3, $4, 'Creation datee dans le futur par le banc', (now() AT TIME ZONE 'UTC') + interval '3 years', (now() AT TIME ZONE 'UTC') + interval '3 years 6 days')`, PID, JR, chef.id, admin.id); }),
+    journalRemisRouvert: await essaiAnnule(async (tx) => { await tx.$executeRawUnsafe(`UPDATE exports_dossier_projet_voirie SET statut = 'ECHEC', "codeEchec" = 'REECRIT' WHERE id = $1`, journal1.id); }),
+    naitUtilisee: await essaiAnnule(async (tx) => { await tx.$executeRawUnsafe(`INSERT INTO derogations_export_projet_voirie (id, "projetId", "jeuxIds", "beneficiaireId", "accordeeParId", justification, "createdAt", "expireLe", "utiliseeLe", "exportId") VALUES ('dx-2', $1, ARRAY[$2], $3, $4, 'Nee deja utilisee pour le banc X1', (now() AT TIME ZONE 'UTC'), (now() AT TIME ZONE 'UTC') + interval '1 day', now(), $5)`, PID, JR, chef.id, admin.id, journal1.id); }),
   };
-  verifier("5. base : reconsommer, modifier, supprimer, tronquer une derogation refuses (23001) ; journal en ajout seul (23001) ; duree de plus de 7 jours (23514) ; naissance utilisee (23514)",
+  verifier("5. base : reconsommer, modifier, supprimer, tronquer une derogation refuses (23001) ; journal fige apres son issue (23001) ; duree de plus de 7 jours (23514) ; naissance utilisee (23514) ; date de creation choisie (revue m3, 23514)",
     directs.reconsommer === "23001" && directs.modifier === "23001" && directs.supprimer === "23001" && directs.journalModifie === "23001" && directs.journalSupprime === "23001"
-    && directs.tronquer === "23001" && directs.dureeExcessive === "23514" && directs.naitUtilisee === "23514", directs);
-  await sql(`INSERT INTO derogations_export_projet_voirie (id, "projetId", "jeuxIds", "beneficiaireId", "accordeeParId", justification, "createdAt", "expireLe") VALUES ('11111111-1111-4111-8111-111111111111', $1, ARRAY[$2], $3, $4, 'Derogation deja expiree pour le banc X1', (now() AT TIME ZONE 'UTC') - interval '3 hours', (now() AT TIME ZONE 'UTC') - interval '1 hour')`, PID, JS, chef.id, admin.id);
-  const consommerExpiree = await essaiAnnule(async (tx) => { await tx.$executeRawUnsafe(`UPDATE derogations_export_projet_voirie SET "utiliseeLe" = now(), "exportId" = $1 WHERE id = '11111111-1111-4111-8111-111111111111'`, journal1.id); });
+    && directs.tronquer === "23001" && directs.dureeExcessive === "23514" && directs.naitUtilisee === "23514"
+    && directs.dateCreationChoisie === "23514" && directs.journalRemisRouvert === "23001", directs);
+  await prisma.$transaction(async (tx: typeof prisma) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = replica`);
+    await tx.$executeRawUnsafe(`INSERT INTO derogations_export_projet_voirie (id, "projetId", "jeuxIds", "beneficiaireId", "accordeeParId", justification, "createdAt", "expireLe") VALUES ('11111111-1111-4111-8111-111111111111', $1, ARRAY[$2], $3, $4, 'Derogation deja expiree pour le banc X1', (now() AT TIME ZONE 'UTC') - interval '3 hours', (now() AT TIME ZONE 'UTC') - interval '1 hour')`, PID, JS, chef.id, admin.id);
+  });
+  const consommerExpiree = await essaiAnnule(async (tx) => { await tx.$executeRawUnsafe(`UPDATE derogations_export_projet_voirie SET "exportId" = $1 WHERE id = '11111111-1111-4111-8111-111111111111'`, journal1.id); });
   const exp = await exporter(PID, "?derogation=11111111-1111-4111-8111-111111111111");
   const nonUuid = await exporter(PID, "?derogation=dx-expiree");
   const expUuid = await exporter(PID, `?derogation=${"9".repeat(8)}-0000-4000-8000-000000000000`);
-  verifier("5. derogation expiree : 409 DEROGATION_INDISPONIBLE (EXPIREE) ; identifiant non UUID : 400 ; UUID inconnu : 404 ; une expiree ne se consomme pas en base (declencheur)",
+  verifier("5. derogation expiree : 409 DEROGATION_INDISPONIBLE (EXPIREE) ; identifiant non UUID : 400 ; UUID inconnu : 404 ; une expiree ne se reserve pas en base, horloge de la base (declencheur)",
     exp.status === 409 && JSON.parse(exp.body.toString()).etat === "EXPIREE" && nonUuid.status === 400 && expUuid.status === 404
     && consommerExpiree === "23514", [exp.status, exp.body.toString(), nonUuid.status, expUuid.status, consommerExpiree]);
 
   // ================================================================ 6. Cadence, geojson=false, volume, delai cote base
+  await attendreSansEnCours();
   const n = await compter(`SELECT count(*) n FROM exports_dossier_projet_voirie WHERE "acteurId" = $1`, chef.id);
   process.env.PROJETS_VOIRIE_EXPORT_CADENCE_MAX = String(n);
   const trop = await exporter(PID);
@@ -293,11 +334,13 @@ async function main() {
   await autoriser(PID_B, JV);
   process.env.PROJETS_VOIRIE_EXPORT_SOMMETS_MAX = "10000";
   const vol = await exporter(PID_B, "", T.chef2);
+  const tentativeVol = (await sql<{ s: string; c: string | null }>(`SELECT statut s, "codeEchec" c FROM exports_dossier_projet_voirie WHERE "acteurId" = $1 ORDER BY "createdAt" DESC LIMIT 1`, chef2.id))[0];
   const volSans = await exporter(PID_B, "?geojson=false", T.chef2);
   delete process.env.PROJETS_VOIRIE_EXPORT_SOMMETS_MAX;
   const corpsVol = JSON.parse(vol.body.toString());
-  verifier("6. volume compte AVANT de lire la geometrie : 422 EXPORT_TROP_VOLUMINEUX (sommets et plafond) ; sans GeoJSON : 200", vol.status === 422 && corpsVol.code === "EXPORT_TROP_VOLUMINEUX"
-    && corpsVol.sommets === 12_000 && corpsVol.sommetsMax === 10_000 && volSans.status === 200, corpsVol);
+  await issueDe(volSans.headers["x-export-id"]);
+  verifier("6. volume compte AVANT de lire la geometrie : 422 EXPORT_TROP_VOLUMINEUX (sommets et plafond), tentative consignee ECHEC (comptee dans la cadence, revue M3) ; sans GeoJSON : 200", vol.status === 422 && corpsVol.code === "EXPORT_TROP_VOLUMINEUX"
+    && corpsVol.sommets === 12_000 && corpsVol.sommetsMax === 10_000 && tentativeVol?.s === "ECHEC" && tentativeVol.c === "EXPORT_TROP_VOLUMINEUX" && volSans.status === 200, { corpsVol, tentativeVol });
   // Delai cote base : la table des objets verrouillee par une autre transaction ; la lecture du volume attend, puis lock_timeout l'annule.
   const verrou = new Client({ connectionString: banc.urlClone });
   verrou.on("error", () => undefined);
@@ -309,8 +352,9 @@ async function main() {
   const bloque = await exporter(PID, "", T.chef2);
   const duree = Date.now() - t0;
   await verrou.query("ROLLBACK");
-  verifier("6. delai cote base : table verrouillee, l'export s'arrete (504 EXPORT_TROP_LONG) en quelques secondes au lieu d'attendre ; aucune ligne de journal", bloque.status === 504
-    && JSON.parse(bloque.body.toString()).code === "EXPORT_TROP_LONG" && duree < 8_000 && (await compter(`SELECT count(*) n FROM exports_dossier_projet_voirie WHERE "acteurId" = $1`, chef2.id)) === 1,
+  verifier("6. delai cote base : table verrouillee, l'export s'arrete (504 EXPORT_TROP_LONG) en quelques secondes au lieu d'attendre ; tentative ECHEC, aucune remise", bloque.status === 504
+    && JSON.parse(bloque.body.toString()).code === "EXPORT_TROP_LONG" && duree < 8_000 && (await compter(`SELECT count(*) n FROM exports_dossier_projet_voirie WHERE "acteurId" = $1 AND statut = 'REMIS'`, chef2.id)) === 1
+    && (await compter(`SELECT count(*) n FROM exports_dossier_projet_voirie WHERE "acteurId" = $1 AND statut = 'ECHEC' AND "codeEchec" = 'EXPORT_TROP_LONG'`, chef2.id)) === 1,
     { status: bloque.status, duree });
 
   // ================================================================ 7. Tableaux de bord
@@ -343,8 +387,8 @@ async function main() {
     conflitsLect += (await get(`/${p}/conflits`, T.lecteur)).body.total;
   }
   const totalLect = Object.values(tl.body.total.conflits as Record<string, number>).reduce((s, x) => s + x, 0);
-  verifier("7. national, lecteur : AUCUN comptage de quarantaine (jeux AUTORISE seulement, egaux a la liste des jeux), dossiers visibles seulement (la liste moins le dossier dont le jeu B est en quarantaine)",
-    tl.status === 200 && Object.keys(tl.body.total.jeux).join() === "AUTORISE" && tl.body.total.jeux.AUTORISE === jeuxLect && totalLect === conflitsLect - 1
+  verifier("7. national, lecteur : AUCUN comptage de quarantaine (jeux AUTORISE seulement, egaux a la liste des jeux), dossiers visibles seulement (la liste moins les deux dossiers dont le jeu B est en quarantaine ou retire)",
+    tl.status === 200 && Object.keys(tl.body.total.jeux).join() === "AUTORISE" && tl.body.total.jeux.AUTORISE === jeuxLect && totalLect === conflitsLect - 2
     && totalLect < Object.values(tn.body.total.conflits as Record<string, number>).reduce((s, x) => s + x, 0), { lecteur: tl.body.total, jeuxLect, conflitsLect });
   verifier("7. lecteur : pieces en attente et referents nuls ; decideur : pieces en attente (documents attendus et recus) et referent actif comptes",
     tl.body.total.documentsManquants.piecesEnAttente === null && tl.body.total.referentsActifs === null && tl.body.lisibilite.jeux === "AUTORISE_SEULEMENT"
@@ -391,16 +435,92 @@ async function main() {
   delete process.env.PROJETS_VOIRIE_VERROU_MS;
   verifier("7. delai cote base : table des dossiers verrouillee, 504 TABLEAU_DE_BORD_TROP_LONG en quelques secondes", tbloque.status === 504 && tbloque.body.code === "TABLEAU_DE_BORD_TROP_LONG" && duree2 < 8_000, { s: tbloque.status, duree2 });
 
+  // ================================================================ 9. Corrections apres revue : confidentialite heritee (M1), remise apres l'envoi (M4), concurrence (m5), orientation (m6)
+  const CT2: string = (await envoyer("post", "/concessionnaires", { nom: "Operateur Electricite Synthetique X1", typeReseau: "ELECTRICITE" })).body.concessionnaire.id;
+  const ligneE = (dx: number, nom: string) => geojson([{ nom, pts: [[80 + dx, -10], [80 + dx, 10]] }]);
+  const premierInterne = await depot(PID_D, await ligneE(0, "Ligne electrique X1"), { role: "RESEAU_TIERS", concessionnaireId: CT2, confidentialite: "INTERNE" }, "elec-x1.geojson");
+  verifier("9. revue M1 : un gestionnaire ne depose pas un reseau de concessionnaire sous CONFIDENTIEL_CONCESSIONNAIRE (403 CONFIDENTIALITE_ABAISSEMENT_RESERVE), rien n'est cree",
+    premierInterne.status === 403 && premierInterne.body.code === "CONFIDENTIALITE_ABAISSEMENT_RESERVE" && (await compter(`SELECT count(*) n FROM projets_voirie_jeux WHERE "concessionnaireId" = $1`, CT2)) === 0, premierInterne.body);
+  const JE = await deposer(PID_D, await ligneE(0, "Ligne electrique X1"), { role: "RESEAU_TIERS", concessionnaireId: CT2 }, "elec-x1.geojson");
+  await autoriser(PID_D, JE);
+  const v2Gest = await depot(PID_D, await ligneE(1, "Ligne electrique X1 b"), { role: "RESEAU_TIERS", concessionnaireId: CT2, confidentialite: "INTERNE", justificationConfidentialite: "Le gestionnaire tente d'abaisser le niveau" }, "elec-x1-b.geojson");
+  const v2Herite = await depot(PID_D, await ligneE(2, "Ligne electrique X1 c"), { role: "RESEAU_TIERS", concessionnaireId: CT2 }, "elec-x1-c.geojson");
+  verifier("9. revue M1 : redepot en INTERNE d'un reseau autorise CONFIDENTIEL par un gestionnaire : 403 ; redepot sans niveau : herite CONFIDENTIEL_CONCESSIONNAIRE (avertissement CONFIDENTIALITE_HERITEE)",
+    v2Gest.status === 403 && v2Gest.body.code === "CONFIDENTIALITE_ABAISSEMENT_RESERVE" && v2Herite.status === 201 && v2Herite.body.jeu.confidentialite === "CONFIDENTIEL_CONCESSIONNAIRE"
+    && v2Herite.body.jeu.version === 2, { v2Gest: v2Gest.body, v2Herite: v2Herite.body.jeu?.confidentialite });
+  await envoyer("post", `/${PID_D}/jeux/${v2Herite.body.jeu.id}/rejeter`, { justification: JUSTIF });
+  const v2AdminSans = await depot(PID_D, await ligneE(3, "Ligne electrique X1 d"), { role: "RESEAU_TIERS", concessionnaireId: CT2, confidentialite: "INTERNE" }, "elec-x1-d.geojson", T.admin);
+  const e9a = await exporter(PID_D, "", T.chef2);
+  await issueDe(e9a.headers["x-export-id"]);
+  const man9a = JSON.parse(relire(e9a.body as Buffer).get("dossier-x1-direct/manifeste.json")!.toString("utf8"));
+  verifier("9. revue M1 : l'ADMIN sans justification : 400 JUSTIFICATION_INVALIDE ; le reseau CONFIDENTIEL reste ecarte de l'export sans derogation (CONFIDENTIALITE)",
+    v2AdminSans.status === 400 && v2AdminSans.body.code === "JUSTIFICATION_INVALIDE" && man9a.geojson.ecartes.some((x: { jeuId: string; raison: string }) => x.jeuId === JE && x.raison === "CONFIDENTIALITE"), { b: v2AdminSans.body, e: man9a.geojson });
+  const v2Admin = await depot(PID_D, await ligneE(4, "Ligne electrique X1 e"), { role: "RESEAU_TIERS", concessionnaireId: CT2, confidentialite: "INTERNE", justificationConfidentialite: "Trace public publie par le concessionnaire lui-meme" }, "elec-x1-e.geojson", T.admin);
+  const auditAbaisse = (await sql<{ a: string }>(`SELECT after->'abaissementConfidentialite'->>'de' a FROM audit_logs WHERE "entityType" = 'JeuDonneesProjet' AND "entityId" = $1 AND action = 'CREATE'`, v2Admin.body.jeu?.id))[0]?.a;
+  verifier("9. revue M1 : l'ADMIN abaisse avec une justification : 201 INTERNE, avertissement CONFIDENTIALITE_ABAISSEE, audit (de CONFIDENTIEL_CONCESSIONNAIRE)",
+    v2Admin.status === 201 && v2Admin.body.jeu.confidentialite === "INTERNE" && v2Admin.body.avertissements.some((a: { code: string }) => a.code === "CONFIDENTIALITE_ABAISSEE")
+    && auditAbaisse === "CONFIDENTIEL_CONCESSIONNAIRE", { b: v2Admin.body.avertissements, auditAbaisse });
+
+  // m6 : un polygone saisi dans le sens horaire sort dans le sens trigonometrique (RFC 7946).
+  const anneauHoraire: [number, number][] = [[0, 50], [0, 60], [10, 60], [10, 50], [0, 50]];
+  const polyWgs = await sql<{ g: string }>(`SELECT ST_AsGeoJSON(ST_Transform(ST_SetSRID(ST_GeomFromText($1), 32629), 4326), 9) AS g`, `POLYGON((${anneauHoraire.map(([x, y]) => `${E0 + x} ${N0 + y}`).join(",")}))`);
+  const JPOLY = await deposer(PID_D, Buffer.from(JSON.stringify({ type: "FeatureCollection", features: [{ type: "Feature", properties: { name: "Emprise horaire X1" }, geometry: JSON.parse(polyWgs[0].g) }] })), { role: "LIMITES_ROUTE", confidentialite: "PUBLIC" }, "emprise-x1.geojson");
+  await autoriser(PID_D, JPOLY);
+  const stockeHoraire = (await sql<{ cw: boolean }>(`SELECT ST_IsPolygonCW(geom) cw FROM projets_voirie_objets WHERE "jeuId" = $1`, JPOLY))[0]?.cw;
+  const e9b = await exporter(PID_D, "", T.admin);
+  await issueDe(e9b.headers["x-export-id"]);
+  const lus9 = relire(e9b.body as Buffer);
+  const poly = JSON.parse(lus9.get([...lus9.keys()].find((k) => k.includes(JPOLY.toLowerCase()))!)!.toString("utf8"));
+  const anneau: [number, number][] = poly.features[0].geometry.coordinates[0];
+  const aire = anneau.slice(0, -1).reduce((s2, [x1, y1], i) => { const [x2, y2] = anneau[i + 1]; return s2 + (x1 * y2 - x2 * y1); }, 0) / 2;
+  verifier("9. revue m6 : un polygone stocke dans le sens horaire sort dans le sens trigonometrique dans le GeoJSON (aire signee positive, RFC 7946)", stockeHoraire === true && aire > 0, { stockeHoraire, aire });
+
+  // M4 : le client part avant la fin ; la derogation n'est pas consommee, la tentative est ECHEC_ENVOI ; un nouvel export la consomme.
+  const d4 = await D({ jeuxIds: [JR], beneficiaireId: chef.id, dureeHeures: 1 });
+  const D4 = d4.body.derogation?.id;
+  const debutAbandon = new Date(Date.now() - 1000).toISOString();
+  const abandon = await get(`/${PID}/export/dossier?derogation=${D4}`).timeout(80).then(() => "recu", (e: { timeout?: number }) => (e.timeout ? "abandon" : "autre"));
+  let ligneAbandon: { id: string; s: string; c: string | null } | undefined;
+  for (let i = 0; i < 80 && (!ligneAbandon || ligneAbandon.s === "EN_COURS"); i++) {
+    await new Promise((ok) => setTimeout(ok, 100));
+    ligneAbandon = (await sql<{ id: string; s: string; c: string | null }>(`SELECT id, statut s, "codeEchec" c FROM exports_dossier_projet_voirie WHERE "acteurId" = $1 AND "derogationId" = $2 AND "createdAt" > $3::timestamp ORDER BY "createdAt" DESC LIMIT 1`, chef.id, D4, debutAbandon))[0];
+  }
+  const derogApres = (await sql<{ u: Date | null; e: string | null }>(`SELECT "utiliseeLe" u, "exportId" e FROM derogations_export_projet_voirie WHERE id = $1`, D4))[0];
+  verifier("9. revue M4 : client parti pendant la fabrication : tentative ECHEC_ENVOI (CLIENT_DECONNECTE), derogation NON consommee et liberee, aucune remise consignee",
+    abandon === "abandon" && ligneAbandon?.s === "ECHEC_ENVOI" && ligneAbandon.c === "CLIENT_DECONNECTE" && derogApres.u === null && derogApres.e === null
+    && (await compter(`SELECT count(*) n FROM audit_logs WHERE "entityType" = 'ExportDossierProjetVoirie' AND after->>'exportId' = $1 AND after->>'statut' = 'REMIS'`, ligneAbandon.id)) === 0,
+    { abandon, ligneAbandon, derogApres });
+  await attendreSansEnCours();
+  const reprise = await exporter(PID, `?derogation=${D4}`);
+  const issueReprise = await issueDe(reprise.headers["x-export-id"]);
+  verifier("9. revue M4 : la meme derogation sert ensuite a un export complet : REMIS apres l'envoi, derogation consommee par cette tentative",
+    reprise.status === 200 && issueReprise === "REMIS" && (await compter(`SELECT count(*) n FROM derogations_export_projet_voirie WHERE id = $1 AND "exportId" = $2 AND "utiliseeLe" IS NOT NULL`, D4, reprise.headers["x-export-id"])) === 1,
+    { s: reprise.status, issueReprise });
+
+  // m5 : deux ouvertures de tentative EN PARALLELE (deux connexions, sans la place unique du compte) avec la meme derogation : une seule la reserve.
+  const d5 = await D({ jeuxIds: [JS2], beneficiaireId: chef2.id, dureeHeures: 1 });
+  const D5 = d5.body.derogation?.id;
+  const acteur2 = { id: chef2.id, role: "GESTIONNAIRE" };
+  const paralleles = await Promise.allSettled([_ouvrirTentativePourBanc(acteur2, PID, { geojson: true, derogationId: D5 }), _ouvrirTentativePourBanc(acteur2, PID, { geojson: true, derogationId: D5 })]);
+  const resolus = paralleles.filter((x) => x.status === "fulfilled").length;
+  const rejet = paralleles.find((x) => x.status === "rejected") as PromiseRejectedResult | undefined;
+  const apresParalleles = await exporter(PID, `?derogation=${D5}`, T.chef2);
+  verifier("9. revue m5 : deux tentatives paralleles avec la meme derogation (deux connexions) : une reservation, l'autre 409 DEROGATION_INDISPONIBLE ; un export pendant la reservation : 409 RESERVEE",
+    resolus === 1 && rejet?.reason?.code === "DEROGATION_INDISPONIBLE" && apresParalleles.status === 409 && JSON.parse(apresParalleles.body.toString()).etat === "RESERVEE"
+    && (await compter(`SELECT count(*) n FROM derogations_export_projet_voirie WHERE id = $1 AND "exportId" IS NOT NULL AND "utiliseeLe" IS NULL`, D5)) === 1,
+    { resolus, rejet: rejet?.reason?.code, s: apresParalleles.status });
+
   // ================================================================ 8. Projet supprime, isolation, audit
   await envoyer("delete", `/${PID_B}`, undefined, T.admin);
-  const supp = await Promise.all([exporter(PID_B, "", T.admin), get(`/${PID_B}/export/journal`, T.admin), get(`/${PID_B}/export/derogations`, T.admin), envoyer("post", `/${PID_B}/export/derogations`, { jeuxIds: [JV], justification: "Apres suppression du projet de banc" }, T.admin)]);
+  const supp = await Promise.all([exporter(PID_B, "", T.admin), get(`/${PID_B}/export/journal`, T.admin), get(`/${PID_B}/export/derogations`, T.admin), envoyer("post", `/${PID_B}/export/derogations`, { jeuxIds: [JV], justification: "Apres suppression du projet de banc", beneficiaireId: chef.id }, T.admin)]);
   verifier("8. projet supprime : 404 PROJET_INTROUVABLE sur l'export, le journal et les derogations, ADMIN compris", supp.every((r) => r.status === 404), supp.map((r) => r.status));
   const tApres = await get(`/tableau-de-bord/territoires/${TREG1}`, T.admin);
   verifier("8. tableau apres suppression : le projet supprime n'est plus compte (2 projets sous la region)", tApres.body.total.projets === 2, tApres.body.total);
-  const nbExports = await compter(`SELECT count(*) n FROM exports_dossier_projet_voirie`);
-  const nbAudits = await compter(`SELECT count(*) n FROM audit_logs WHERE "entityType" = 'ExportDossierProjetVoirie'`);
+  await attendreSansEnCours();
+  const nbExports = await compter(`SELECT count(*) n FROM exports_dossier_projet_voirie WHERE statut = 'REMIS'`);
+  const nbAudits = await compter(`SELECT count(*) n FROM audit_logs WHERE "entityType" = 'ExportDossierProjetVoirie' AND after->>'statut' = 'REMIS'`);
   const auditsTous = await sql<{ after: string }>(`SELECT after::text AS after FROM audit_logs WHERE "entityType" IN ('ExportDossierProjetVoirie', 'DerogationExportProjetVoirie')`);
-  verifier("8. une ligne d'audit par archive remise (aucune pour un refus) ; aucun audit ne porte de coordonnee", nbExports === nbAudits && nbExports >= 4
+  verifier("8. une ligne d'audit de remise par archive REMIS ; aucun audit ne porte de coordonnee", nbExports === nbAudits && nbExports >= 4
     && auditsTous.every((a) => !/coordinates|LineString|Point/.test(a.after)), { nbExports, nbAudits });
   verifier("8. isolation : troncons du referentiel identiques (md5) ; les tableaux de bord n'ont rien ecrit", (await empreinteTroncons()) === troncons0);
 
