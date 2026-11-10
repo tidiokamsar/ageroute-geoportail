@@ -1290,3 +1290,11 @@ Archive (racine `dossier-<code>/`) : `LISEZMOI.txt`, `fiche-projet.json`, `fiche
 ### Réglages serveur (bornés : une valeur illisible ou hors bornes redonne le défaut ; valeurs de protection à valider par le DSI)
 
 `PROJETS_VOIRIE_EXPORT_GEOJSON_NIVEAUX` (défaut `PUBLIC,INTERNE,RESTREINT_PROJET`, ne peut que restreindre), `PROJETS_VOIRIE_EXPORT_OBJETS_MAX` (50 000), `PROJETS_VOIRIE_EXPORT_SOMMETS_MAX` (1 000 000), `PROJETS_VOIRIE_EXPORT_TAILLE_MAX_OCTETS` (64 Mo), `PROJETS_VOIRIE_EXPORT_DELAI_MS` (120 000), `PROJETS_VOIRIE_EXPORT_CADENCE_MAX` (10) par `PROJETS_VOIRIE_EXPORT_CADENCE_FENETRE_S` (3 600), `PROJETS_VOIRIE_EXPORT_DEROGATION_DUREE_H` (24, 168 au plus), `PROJETS_VOIRIE_TABLEAU_CADENCE_MAX` (30) par `PROJETS_VOIRIE_TABLEAU_CADENCE_FENETRE_S` (60). Concurrence (processus) : 2 exports, 1 par compte ; 4 tableaux. Délais côté base : `PROJETS_VOIRIE_DELAI_ANALYSE_MS` (lectures de l'export), `PROJETS_VOIRIE_DELAI_CARTE_MS` (tableaux), `PROJETS_VOIRIE_VERROU_MS`.
+
+### Corrections après revue du lot X1 (10/11/2026)
+
+- `POST /:id/export/derogations` : `beneficiaireId` **obligatoire**, autre personne que l'ADMIN (409 `SEPARATION_DES_TACHES`).
+- `GET /:id/export/dossier` : la réponse est la même ; la remise (journal `REMIS`, consommation de la dérogation, audit) est consignée après l'écriture complète de la réponse ; client parti : `ECHEC_ENVOI`, dérogation libérée. Dérogation tenue par une autre tentative en cours : 409 `DEROGATION_INDISPONIBLE` (`etat: RESERVEE`). 422 `EXPORT_TROP_VOLUMINEUX` porte aussi `octetsEstimes` (estimation préalable) ou `octets` (comptage pendant la fabrication), sur les octets non compressés.
+- `GET /:id/export/journal` : une ligne par **tentative** : `{ id, acteur, statut: EN_COURS|REMIS|ECHEC|ECHEC_ENVOI, codeEchec, createdAt, termineLe, sha256, tailleOctets, nbFichiers, nbJeuxGeojson, derogationId }`.
+- `POST /:id/jeux` : champ `justificationConfidentialite` (ADMIN, abaissement) ; 403 `CONFIDENTIALITE_ABAISSEMENT_RESERVE` ; avertissements `CONFIDENTIALITE_HERITEE`, `CONFIDENTIALITE_ABAISSEE` (`CONTRAT-IMPORT.md`, section 16).
+- Réglages : `PROJETS_VOIRIE_EXPORT_DELAI_MS` 45 000 (50 000 au plus) ; `PROJETS_VOIRIE_EXPORT_TAILLE_MAX_OCTETS` sur les octets non compressés (256 Mo au plus) ; `PROJETS_VOIRIE_EXPORT_OBJETS_MAX` (200 000 au plus) ; `PROJETS_VOIRIE_EXPORT_SOMMETS_MAX` (5 000 000 au plus).

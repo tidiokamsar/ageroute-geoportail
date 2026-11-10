@@ -714,3 +714,5 @@ INVENTAIRE_SORTIE=/chemin/inventaire.json npx vitest run src/securite/inventaire
 ```
 
 Fichiers du chantier : `backend/src/territoire/territoire.lecture.ts` (fragments `where`, résolveurs de région), `backend/src/middleware/territoire.middleware.ts` (`requireTerritoireMasque`), `backend/src/securite/controle-acces.test.ts`, `backend/src/securite/inventaire-acces.test.ts`, `backend/tests-integration/controle-acces.integration.mts`.
+
+Mise à jour après la revue du lot X1 (10/11/2026), aucune route ni garde ne change : la dérogation exige un bénéficiaire autre que l'ADMIN qui l'accorde (409 `SEPARATION_DES_TACHES`, contrainte `dxpv_separation`) ; l'export enregistre chaque tentative (cadence sur les tentatives), réserve la dérogation citée et ne la consomme qu'après l'écriture complète de la réponse (`ECHEC_ENVOI` sinon, dérogation libérée) ; le dépôt d'un jeu n'abaisse plus le niveau de confidentialité de sa lignée sans ADMIN (403 `CONFIDENTIALITE_ABAISSEMENT_RESERVE`, `CONTRAT-IMPORT.md` section 16).
