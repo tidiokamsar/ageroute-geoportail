@@ -279,14 +279,13 @@ describe("depot : les options d'import sont transmises, jamais l'acteur", () => 
     expect(a.options).toMatchObject({ epsgSource: 32629, confirmerHorsZone: true, mapping: { nom: "n" }, csv: { colonneX: "x", colonneY: "y" } });
     expect(a.champs.role).toBe("AUTRE");
   });
-  it("M2 : methodeAcquisition est un code du referentiel (forme verifiee par la route, valeur par le depot) : GNSS et LIDAR arrivent au service, une forme invalide est refusee", async () => {
+  it("M2 : methodeAcquisition est un code du referentiel, verifie par le DEPOT (jamais une liste de la route) : GNSS, LIDAR et meme une forme invalide arrivent au service, qui rend 422", async () => {
     const base = () => avec(request(app).post(`${BASE}/${P_R1}/jeux?simuler=true`), "GEST").field("role", "AUTRE").attach("fichier", CSV, { filename: "p.csv" });
     expect((await base().field("methodeAcquisition", "gnss")).status).toBe(200);
     expect((await base().field("methodeAcquisition", "LIDAR")).status).toBe(200);
-    expect(appelsDe("deposerJeu").map((a) => (a.args[0] as { champs: { methodeAcquisition?: string } }).champs.methodeAcquisition)).toEqual(["GNSS", "LIDAR"]);
-    const mauvais = await base().field("methodeAcquisition", "gnss-rtk");
-    expect(mauvais.status).toBe(400);
-    expect(mauvais.body.code).toBe("CHAMPS_INVALIDES");
+    expect((await base().field("methodeAcquisition", "gnss-rtk")).status).toBe(200);
+    expect(appelsDe("deposerJeu").map((a) => (a.args[0] as { champs: { methodeAcquisition?: string } }).champs.methodeAcquisition)).toEqual(["GNSS", "LIDAR", "GNSS-RTK"]);
+    expect((await base().field("methodeAcquisition", "x".repeat(65))).body.code).toBe("CHAMPS_INVALIDES");
   });
   it("sha256Attendu malforme : 400 ; mapping invalide au depot : 400 MAPPING_INVALIDE ; aucun service appele", async () => {
     const base = () => avec(request(app).post(`${BASE}/${P_R1}/jeux`), "GEST").field("role", "AUTRE").attach("fichier", CSV, { filename: "p.csv" });

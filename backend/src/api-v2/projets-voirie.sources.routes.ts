@@ -73,7 +73,8 @@ export function monterRoutesSources(router: Router, o: OutilsRoutesSources): voi
     res.status(201).json(await creerRegleRapprochement(acteurDe(req), req.params.id, { ...p.data, precisionParClasseM: table, justification: p.data.justification ?? "" }));
   }));
 
-  const corpsApprobation = z.object({ justification: z.string().trim().max(2000).optional(), derogation: z.string().trim().max(2000).optional() }).strict();
+  // Decision de l'architecte (10/11/2026) : aucune derogation a la separation des taches pour une regle de rapprochement (champ refuse : 400 CHAMPS_INVALIDES).
+  const corpsApprobation = z.object({ justification: z.string().trim().max(2000).optional() }).strict();
   router.post("/:id/regles-rapprochement/:regleRapId/approuver", administrateur, gardeProjet, enveloppe(async (req, res) => {
     const p = corpsApprobation.safeParse(req.body ?? {});
     if (!p.success) return refuser(res, p.error, "CHAMPS_INVALIDES");

@@ -20,7 +20,7 @@ import { prisma } from "../lib/prisma";
 import { Limiteur } from "../import/limiteur";
 import { logAuditTransactionnelle } from "../utils/audit";
 import { avecErreurDelai } from "./bd";
-import { delaiDepotMs } from "./config";
+import { delaiDepotMs, estFormeMethodeAcquisition } from "./config";
 import { ErreurMetier, introuvable } from "./erreurs";
 import { META_WGS84 } from "./formats/crs.noyau";
 import { resoudreCrs, transformerSommets, versionProj } from "./formats/crs.service";
@@ -251,7 +251,7 @@ export async function deposerJeu(d: DemandeDepot): Promise<ResultatDepot> {
 
 /** 422 METHODE_ACQUISITION_INCONNUE si le code n'est pas une valeur active et non retiree du referentiel (une valeur desactivee reste lisible sur les jeux existants). */
 export async function exigerMethodeAcquisition(tx: Pick<Tx, "referentielVoirie">, code: string): Promise<void> {
-  const v = await tx.referentielVoirie.findFirst({ where: { domaine: "METHODE_ACQUISITION", code, deletedAt: null, actif: true }, select: { id: true } });
+  const v = !estFormeMethodeAcquisition(code) ? null : await tx.referentielVoirie.findFirst({ where: { domaine: "METHODE_ACQUISITION", code, deletedAt: null, actif: true }, select: { id: true } });
   if (!v) {
     throw new ErreurMetier(422, "METHODE_ACQUISITION_INCONNUE", `La méthode d'acquisition « ${code.slice(0, 40)} » n'est pas une valeur active du référentiel METHODE_ACQUISITION (voir GET /referentiels/METHODE_ACQUISITION).`, { methodeAcquisition: code.slice(0, 40) });
   }

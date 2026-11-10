@@ -20,7 +20,6 @@ import { monterRoutesWorkflow } from "./projets-voirie.workflow.routes";
 import { gardeReferent } from "../projets-voirie/workflow/garde";
 import { monterRoutesReseaux } from "./projets-voirie.reseaux.routes";
 import { monterRoutesSources } from "./projets-voirie.sources.routes";
-import { FORME_METHODE_ACQUISITION } from "../projets-voirie/config";
 import { deposerJeu } from "../projets-voirie/import.service";
 import {
   creerConcessionnaire, creerProjet, decider, decoderCurseur, ficheProjet, listerConcessionnaires, listerJeux, listerProjets,
@@ -304,7 +303,8 @@ const champsDepot = z.object({
   dateConstat: optionnel(jourIso),
   // Lot S1 : methode d'acquisition (deux methodes = deux sources d'un reseau de concessionnaire). Correctifs T1+S1 (M2) : code du referentiel
   // METHODE_ACQUISITION ; la route ne verifie que la forme, le depot verifie la valeur (422 METHODE_ACQUISITION_INCONNUE si inconnue, retiree ou inactive).
-  methodeAcquisition: optionnel(z.string().trim().transform((s) => s.toUpperCase()).pipe(z.string().regex(FORME_METHODE_ACQUISITION, "code de methode d'acquisition : majuscules, chiffres et soulignes"))),
+  // Toute valeur absente, inactive ou mal formee du referentiel rend 422 METHODE_ACQUISITION_INCONNUE (decision de l'architecte du 10/11/2026), jamais 400.
+  methodeAcquisition: optionnel(z.string().trim().min(1).max(64).transform((s) => s.toUpperCase())),
 }).merge(champsImport).strict();
 
 const requeteDepot = z.object({ simuler: booleenRequete }).strict();

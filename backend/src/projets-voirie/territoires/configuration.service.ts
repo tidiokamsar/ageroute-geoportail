@@ -118,8 +118,15 @@ async function exigerCrsConnus(epsg: readonly number[]): Promise<void> {
   if (absents.length) throw new ErreurMetier(422, "CRS_NON_DISPONIBLE", `CRS inconnu(s) de la base PostGIS : ${absents.map((e) => `EPSG:${e}`).join(", ")}.`, { epsg: absents });
 }
 
+/** Longueur minimale d'une justification (meme valeur que JUSTIFICATION_MIN des conflits et des regles). */
+export const JUSTIFICATION_MIN_CONFIGURATION = 10;
+
 export async function ecrireConfiguration(acteur: Acteur, cle: string, brut: unknown, justification: string | undefined): Promise<{ configuration: VueConfiguration }> {
   if (!estCle(cle)) throw new ErreurMetier(404, "CLE_INCONNUE", `Clé de configuration inconnue : ${CLES.join(", ")} attendues.`);
+  // Decision de l'architecte (10/11/2026) : une ecriture de configuration est justifiee, comme les autres decisions du module (10 caracteres au moins).
+  if ((justification ?? "").trim().length < JUSTIFICATION_MIN_CONFIGURATION) {
+    throw new ErreurMetier(422, "JUSTIFICATION_REQUISE", `Une justification de ${JUSTIFICATION_MIN_CONFIGURATION} caractères au moins est requise pour modifier la configuration.`);
+  }
   const v = validerValeur(cle, brut);
   if (!v.ok) throw new ErreurMetier(400, "VALEUR_INVALIDE", "La valeur ne respecte pas le schéma de cette clé.", { details: v.erreurs });
   const courante = await configurationCourante();

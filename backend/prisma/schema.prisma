@@ -5316,7 +5316,8 @@ model RegleRapprochementSources {
   margeM                Decimal            @default(1) @db.Decimal(6, 2)
   rayonAppariementM     Decimal            @default(10) @db.Decimal(8, 2)
   partHorsCorridorMax   Decimal            @default(0) @db.Decimal(5, 4)
-  precisionParClasseM   Json               @default("{\"A\": 0.5, \"B\": 1, \"C\": 2, \"D\": 5}")
+  /// Correctifs T1+S1 (M6) : {} = aucun bareme par classe (une classe n est pas une precision en metres) ; un bareme ne s applique qu approuve par un autre ADMIN.
+  precisionParClasseM   Json               @default("{}")
   statut                StatutRegleConflit @default(BROUILLON)
   justification         String
   creeParId             String?

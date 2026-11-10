@@ -44,6 +44,11 @@ export async function vueSources(acteur: Acteur, projetId: string) {
       select: { id: true, numero: true, jeuAId: true, jeuBId: true, createdAt: true, resume: true }, orderBy: { numero: "desc" },
     })
     : [];
+  // Libelles des types de reseau (referentiel TYPE_RESEAU, valeur desactivee ou retiree comprise : le code reste lisible sur les jeux qui le portent).
+  // Sans code configurable, le libelle est celui de la valeur du referentiel qui porte le nom de la famille (creee par la migration du lot T1).
+  const codes = [...new Set(jeux.map((j) => identiteTypeReseau(j)).filter((c) => c !== ""))];
+  const libelles = new Map((codes.length ? await prisma.referentielVoirie.findMany({ where: { domaine: "TYPE_RESEAU", code: { in: codes } }, select: { code: true, libelle: true } }) : [])
+    .map((v) => [v.code, v.libelle] as const));
   const groupes = new Map<string, LigneJeu[]>();
   for (const j of jeux) {
     // Correctifs T1+S1 (M3) : un reseau = (concessionnaire, type configurable, sinon famille) ; deux types de la meme famille font deux groupes.
@@ -59,7 +64,8 @@ export async function vueSources(acteur: Acteur, projetId: string) {
     return {
       role: sources[0].role,
       concessionnaire: sources[0].concessionnaire ? { id: sources[0].concessionnaire.id, nom: sources[0].concessionnaire.nom } : null,
-      typeReseau: sources[0].typeReseau, typeReseauCode: sources[0].typeReseauCode, statut, nbSources: sources.length,
+      typeReseau: sources[0].typeReseau, typeReseauCode: sources[0].typeReseauCode,
+      typeReseauLibelle: identiteTypeReseau(sources[0]) ? libelles.get(identiteTypeReseau(sources[0])) ?? null : null, statut, nbSources: sources.length,
       sources: sources.map(vueSource),
       derniereComparaison: derniere ? { id: derniere.id, numero: derniere.numero, createdAt: derniere.createdAt, totaux } : null,
       // Absent pour un compte qui ne decide pas (la quarantaine ne lui est pas montree, ni son existence).

@@ -1,8 +1,9 @@
 /**
  * REGLES DE RAPPROCHEMENT ENTRE SOURCES (versionnees, approuvees) : lecture, creation, approbation (lot S1 ; contrat CONTRAT-SOURCES.md, 3.2).
  *
- * Meme mecanisme que les regles de conflit (RC-3) : un brouillon n est jamais applique ; l approbation est reservee a l ADMIN ; l auteur n approuve
- * pas sa propre regle sans derogation motivee (tracee dans l audit) ; une regle approuvee est IMMUABLE (declencheur de la base) : on cree une
+ * Meme mecanisme que les regles de conflit (RC-3) : un brouillon n est jamais applique ; l approbation est reservee a l ADMIN ; decision de
+ * l architecte (10/11/2026, separation des taches de la decision 2) : l auteur n approuve JAMAIS sa propre regle, derogation ou non (409
+ * SEPARATION_DES_TACHES ; la route refuse le champ `derogation`) ; une regle approuvee est IMMUABLE (declencheur de la base) : on cree une
  * nouvelle version. Creer ou approuver une regle ne modifie aucune comparaison passee : elle s applique a la PROCHAINE comparaison, qui enregistre
  * la version utilisee.
  */
@@ -113,27 +114,28 @@ export async function creerRegleRapprochement(acteur: Acteur, projetId: string, 
   }
 }
 
-export async function approuverRegleRapprochement(acteur: Acteur, projetId: string, regleId: string, d: { justification?: string; derogation?: string }) {
+export async function approuverRegleRapprochement(acteur: Acteur, projetId: string, regleId: string, d: { justification?: string }) {
   try {
     return await prisma.$transaction(async (tx) => {
       await verrouillerProjet(tx, projetId);
       const r = await tx.regleRapprochementSources.findFirst({ where: { id: regleId, OR: [{ projetId }, { projetId: null }] } });
       if (!r) throw introuvable("Règle", "REGLE_INTROUVABLE");
-      const v = verifierApprobationRegle({ statut: r.statut, creeParId: r.creeParId, acteurId: acteur.id, justification: d.justification, derogation: d.derogation });
-      if (!v.ok) throw new ErreurMetier(v.status, v.code, v.message);
-      // M6 (decision de l'architecte) : un bareme classe vers metres n'est admis que s'il est approuve par un ADMIN AUTRE que l'auteur, sans derogation.
-      if (lirePrecisionParClasse(r.precisionParClasseM) !== null && r.creeParId === acteur.id) {
-        throw new ErreurMetier(409, "SEPARATION_DES_TACHES", "Une règle qui porte un barème par classe de précision ne s'approuve que par un administrateur autre que son auteur (aucune dérogation possible).", { bareme: true });
+      // Decision de l'architecte (10/11/2026) : l'auteur n'approuve jamais sa propre regle (aucune derogation) ; M6 : a fortiori une regle a bareme.
+      if (r.statut === "BROUILLON" && r.creeParId !== null && r.creeParId === acteur.id) {
+        throw new ErreurMetier(409, "SEPARATION_DES_TACHES", "L'auteur d'une règle de rapprochement ne peut pas l'approuver : un autre administrateur doit le faire (aucune dérogation possible).",
+          { bareme: lirePrecisionParClasse(r.precisionParClasseM) !== null });
       }
+      const v = verifierApprobationRegle({ statut: r.statut, creeParId: r.creeParId, acteurId: acteur.id, justification: d.justification, derogation: undefined });
+      if (!v.ok) throw new ErreurMetier(v.status, v.code, v.message);
       const n = await tx.regleRapprochementSources.updateMany({
         where: { id: regleId, statut: "BROUILLON" },
-        data: { statut: "APPROUVEE", approuveParId: acteur.id, approuveLe: new Date(), motifApprobation: (d.justification ?? "").trim(), derogationApprobation: v.derogation },
+        data: { statut: "APPROUVEE", approuveParId: acteur.id, approuveLe: new Date(), motifApprobation: (d.justification ?? "").trim(), derogationApprobation: null },
       });
       if (n.count !== 1) throw new ErreurMetier(409, "REGLE_IMMUABLE", "Cette règle vient d'être approuvée : elle ne change plus.");
       await logAuditTransactionnelle(tx, {
         userId: acteur.id, action: "VALIDATE", entityType: "RegleRapprochementSources", entityId: regleId,
         before: { statut: "BROUILLON" },
-        after: { statut: "APPROUVEE", code: r.code, version: r.version, justification: (d.justification ?? "").trim(), derogationSeparation: v.derogation, memePersonne: r.creeParId === acteur.id },
+        after: { statut: "APPROUVEE", code: r.code, version: r.version, justification: (d.justification ?? "").trim(), memePersonne: false },
         ipAddress: acteur.ip,
       });
       const apres = await tx.regleRapprochementSources.findUniqueOrThrow({ where: { id: regleId } });

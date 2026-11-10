@@ -136,4 +136,8 @@ DO $$ BEGIN
     ALTER TABLE "regles_rapprochement_sources" ADD CONSTRAINT "rrs_bareme_separation" CHECK ("statut" <> 'APPROUVEE' OR "precisionParClasseM" = '{}'::jsonb OR "creeParId" IS NULL
       OR ("approuveParId" IS NOT NULL AND "approuveParId" <> "creeParId")) NOT VALID;
   END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'rrs_auteur_approbateur') THEN
+    -- Decision de l'architecte (10/11/2026) : l'auteur d'une regle de rapprochement ne l'approuve jamais, derogation ou non. NOT VALID pour la meme raison.
+    ALTER TABLE "regles_rapprochement_sources" ADD CONSTRAINT "rrs_auteur_approbateur" CHECK ("statut" <> 'APPROUVEE' OR "creeParId" IS NULL OR "approuveParId" IS DISTINCT FROM "creeParId") NOT VALID;
+  END IF;
 END $$;

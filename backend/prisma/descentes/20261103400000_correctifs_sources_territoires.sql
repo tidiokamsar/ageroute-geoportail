@@ -41,6 +41,7 @@ END
 $garde$;
 
 -- ===== M6 =====
+ALTER TABLE "regles_rapprochement_sources" DROP CONSTRAINT IF EXISTS "rrs_auteur_approbateur";
 ALTER TABLE "regles_rapprochement_sources" DROP CONSTRAINT IF EXISTS "rrs_bareme_separation";
 ALTER TABLE "regles_rapprochement_sources" DROP CONSTRAINT IF EXISTS "rrs_bareme_personne";
 ALTER TABLE "regles_rapprochement_sources" ALTER COLUMN "precisionParClasseM" SET DEFAULT '{"A": 0.5, "B": 1, "C": 2, "D": 5}'::jsonb;

@@ -203,7 +203,8 @@ async function main() {
   const cmpFibre = await envoyer("post", `/${PID}/comparaisons`, { jeuAId: JA, jeuBId: JF });
   verifier("3 ter. M3 : un second type de la MEME famille (FIBRE_BANC, famille TELECOM), meme concessionnaire et meme methode que JA : version 1, ne remplace pas JA, les deux restent AUTORISE (index de la base), deux reseaux distincts dans la vue des sources, et jamais compares (409 RESEAU_DIFFERENT)",
     typeFibre.status === 201 && (dFibre.corps.jeu as { version: number }).version === 1 && dFibre.corps.remplace === null && (await statut(JA)) === "AUTORISE" && (await statut(JF)) === "AUTORISE"
-    && grpTelecom.length === 2 && grpTelecom.some((r) => r.typeReseauCode === "FIBRE_BANC" && r.nbSources === 1) && cmpFibre.status === 409 && cmpFibre.body.motif === "RESEAU_DIFFERENT",
+    && grpTelecom.length === 2 && grpTelecom.some((r) => r.typeReseauCode === "FIBRE_BANC" && (r as { typeReseauLibelle?: string }).typeReseauLibelle === "Fibre optique (banc)" && r.nbSources === 1)
+    && grpTelecom.some((r) => r.typeReseauCode !== "FIBRE_BANC" && (r as { typeReseauLibelle?: string }).typeReseauLibelle === "Télécommunications") && cmpFibre.status === 409 && cmpFibre.body.motif === "RESEAU_DIFFERENT",
     [typeFibre.body, dFibre.corps.remplace, grpTelecom, cmpFibre.body]);
 
   // ================================================================ 3 quater. Correctifs T1+S1 (M5) : objets de meme nom
@@ -306,19 +307,26 @@ async function main() {
   // Un bareme n'est admis que dans une regle creee par une personne et approuvee par un ADMIN AUTRE que l'auteur : l'auteur ne l'approuve pas, meme avec derogation.
   const BAREME_BANC = { A: 0.5, B: 1, C: 2, D: 5 };
   const rgAdminBareme = await envoyer("post", `/${PID}/regles-rapprochement`, { code: "S1-AXES-ADMIN", precisionParClasseM: BAREME_BANC, justification: "Bareme propose par l'administrateur" }, T.admin);
-  const autoBareme = await envoyer("post", `/${PID}/regles-rapprochement/${rgAdminBareme.body.regle?.id}/approuver`, { justification: "Relue et approuvee", derogation: "Seul administrateur disponible ce jour" }, T.admin);
+  // Decision de l'architecte (10/11/2026) : aucune derogation n'existe plus (champ refuse, 400) ; sans elle, l'auteur est refuse (409).
+  const avecDerogation = await envoyer("post", `/${PID}/regles-rapprochement/${rgAdminBareme.body.regle?.id}/approuver`, { justification: "Relue et approuvee", derogation: "Seul administrateur disponible ce jour" }, T.admin);
+  const autoBareme = await envoyer("post", `/${PID}/regles-rapprochement/${rgAdminBareme.body.regle?.id}/approuver`, { justification: "Relue et approuvee" }, T.admin);
   const rgBareme = await envoyer("post", `/${PID}/regles-rapprochement`, { code: "S1-AXES-BAREME", precisionParClasseM: BAREME_BANC, justification: "Bareme des classes valide par le bureau d'etudes" });
   const apBareme = await envoyer("post", `/${PID}/regles-rapprochement/${rgBareme.body.regle?.id}/approuver`, { justification: "Bareme relu et approuve" }, T.admin);
   const autoBase = await essaiAnnule((tx) => tx.$executeRawUnsafe(`UPDATE regles_rapprochement_sources SET statut = 'APPROUVEE', "approuveParId" = "creeParId", "approuveLe" = now() WHERE id = $1`, rgAdminBareme.body.regle?.id));
-  verifier("7. M6 : une regle a bareme ne s'approuve pas par son auteur, meme avec derogation (409 SEPARATION_DES_TACHES ; la base le refuse aussi, 23514) ; creee par le gestionnaire, approuvee par l'ADMIN : bareme applicable",
-    rgAdminBareme.status === 201 && autoBareme.status === 409 && autoBareme.body.code === "SEPARATION_DES_TACHES" && autoBareme.body.bareme === true && autoBase === "23514"
+  verifier("7. M6 et decision de l'architecte : le champ derogation est refuse (400) ; l'auteur n'approuve pas sa regle (409 SEPARATION_DES_TACHES ; la base le refuse aussi, 23514) ; creee par le gestionnaire, approuvee par l'ADMIN : bareme applicable",
+    rgAdminBareme.status === 201 && avecDerogation.status === 400 && avecDerogation.body.code === "CHAMPS_INVALIDES"
+    && autoBareme.status === 409 && autoBareme.body.code === "SEPARATION_DES_TACHES" && autoBareme.body.bareme === true && autoBase === "23514"
     && rgBareme.status === 201 && apBareme.status === 200 && apBareme.body.regle.baremeApplicable === true, [autoBareme.body, autoBase, apBareme.body]);
   const cAx = await envoyer("post", `/${PID}/comparaisons`, { jeuAId: AX2, jeuBId: AX1 });
   verifier("7. M6 : la reponse et la comparaison persistee disent que le corridor provient d'un bareme approuve, avec la regle et sa version",
     cAx.status === 201 && cAx.body.comparaison.regle.code === "S1-AXES-BAREME" && cAx.body.comparaison.regle.bareme?.source === "REGLE_APPROUVEE" && cAx.body.comparaison.regle.bareme?.applique === true
     && cAx.body.resume.bareme?.applique === true && cAx.body.resume.bareme.regle?.code === "S1-AXES-BAREME" && cAx.body.resume.bareme.regle?.version === 1 && cAx.body.resume.bareme.regle?.approuveParId === admin.id
     && (cAx.body.resume.limites as string[]).some((l) => /barème approuvé de la règle S1-AXES-BAREME version 1/.test(l))
-    && (await sql<{ s: string }>(`SELECT resume->'bareme'->'regle'->>'code' s FROM comparaisons_sources_projet WHERE id = $1`, cAx.body.comparaison.id))[0].s === "S1-AXES-BAREME",
+    && (await sql<{ s: string }>(`SELECT resume->'bareme'->'regle'->>'code' s FROM comparaisons_sources_projet WHERE id = $1`, cAx.body.comparaison.id))[0].s === "S1-AXES-BAREME"
+    // Provenance explicite du corridor (demande de l'architecte) : dans le resume persiste et par resultat.
+    && cAx.body.resume.corridor?.origine === "BAREME_APPROUVE" && cAx.body.resume.corridor.regleBareme?.code === "S1-AXES-BAREME" && cAx.body.resume.corridor.regleBareme?.version === 1
+    && cAx0.body.resume.corridor?.origine === "INCERTAIN" && c1.body.resume.corridor?.origine === "PRECISIONS_METRES"
+    && (await sql<{ o: string }>(`SELECT resume->'corridor'->>'origine' o FROM comparaisons_sources_projet WHERE id = $1`, cAx.body.comparaison.id))[0].o === "BAREME_APPROUVE",
     [cAx.body.comparaison?.regle, cAx.body.resume?.bareme]);
   exemples["comparaison_version_candidate_axes"] = cAx.body;
   const oAx = await get(`/${PID}/comparaisons/${cAx.body.comparaison?.id}/objets`);
@@ -326,6 +334,8 @@ async function main() {
   verifier("7. comparaison VERSION_CANDIDATE d'un plan d'axes : A = la version autorisee, B = la candidate ; precision de la classe C attribuee par la regle (2 m, origine CLASSE), corridor 3 m",
     cAx.status === 201 && cAx.body.comparaison.mode === "VERSION_CANDIDATE" && cAx.body.comparaison.role === "AXES_TRAVAUX" && cAx.body.comparaison.jeuAId === AX1 && cAx.body.comparaison.jeuBId === AX2
     && ax("Axe Route 1")?.objetA.originePrecision === "CLASSE" && ax("Axe Route 1")?.objetA.precisionM === 2 && ax("Axe Route 1")?.objetB.originePrecision === "JEU" && ax("Axe Route 1")?.corridorM === 3, [cAx.body, oAx.body]);
+  verifier("7. provenance du corridor par resultat : BAREME_APPROUVE pour les axes du plan PDF (classe C), PRECISIONS_METRES pour deux precisions en metres, nulle sans couple",
+    ax("Axe Route 1")?.origineCorridor === "BAREME_APPROUVE" && concord?.origineCorridor === "PRECISIONS_METRES" && par("Cable Seul A")?.origineCorridor === null, [ax("Axe Route 1")?.origineCorridor, concord?.origineCorridor]);
   verifier("7. Axe Route 1 decale de 1,5 m : CONCORDANCE ; Axe Route 2 decale de 5 m : DIVERGENCE (Hausdorff 5 m, 200 m hors corridor)",
     ax("Axe Route 1")?.statut === "CONCORDANCE" && ax("Axe Route 2")?.statut === "DIVERGENCE" && proche(ax("Axe Route 2").mesure.hausdorffM, 5, 0.02) && proche(ax("Axe Route 2").mesure.longueurHorsCorridorM, 200, 0.2), oAx.body.resultats);
   const axLect = await get(`/${PID}/comparaisons/${cAx.body.comparaison.id}`, T.lecteur);

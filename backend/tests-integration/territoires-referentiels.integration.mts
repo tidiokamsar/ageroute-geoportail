@@ -61,9 +61,12 @@ async function main() {
   const jeton = (u: { id: string; role: string; email: string }) => signAccessToken({ sub: u.id, role: u.role, email: u.email });
   const T = { admin: jeton(admin), chef: jeton(chef), lecteur: jeton(lecteur), regK: jeton(regK), regA: jeton(regA), lectK: jeton(lectK) };
   const get = (chemin: string, t = T.admin) => request(app).get(`${BASE}${chemin}`).set("Authorization", `Bearer ${t}`);
+  // Decision de l'architecte (10/11/2026) : PUT /configuration/:cle exige une justification ; le banc en ajoute une aux reglages qui n'en portent pas
+  // (le refus sans justification est prouve a part, section 12).
   const envoyer = (m: "post" | "patch" | "delete" | "put", chemin: string, corps?: unknown, t = T.admin) => {
     const r = request(app)[m](`${BASE}${chemin}`).set("Authorization", `Bearer ${t}`);
-    return corps === undefined ? r : r.send(corps as object);
+    const c = m === "put" && chemin.startsWith("/configuration/") && corps && typeof corps === "object" && !("justification" in corps) ? { ...corps, justification: "Reglage du banc d'integration" } : corps;
+    return c === undefined ? r : r.send(c as object);
   };
   const depot = (pid: string, fichier: Buffer, champs: Record<string, string | undefined>, nom: string, t = T.chef) => {
     const r = request(app).post(`${BASE}/${pid}/jeux`).set("Authorization", `Bearer ${t}`);
@@ -267,6 +270,10 @@ async function main() {
   const hors = await depot(PW, await fW.geojson([{ nom: "A l'ouest", coords: [[10, 300], [60, 300]] }]), { role: "AUTRE" }, "ouest.geojson");
   verifier("12. emprise nationale reduite par l'ADMIN : un depot a l'ouest est refuse (422 HORS_GUINEE, message avec le nom configure)", em.status === 200 && hors.status === 422 && hors.body.code === "HORS_GUINEE" && /Emprise de banc/.test(hors.body.error), hors.body);
   await envoyer("put", "/configuration/EMPRISE_PLAUSIBILITE", { valeur: { nom: "Guinee", bbox: [-15.2, 7.1, -7.5, 12.8] } });
+  const sansJustif = await request(app).put(`${BASE}/configuration/EMPRISE_PLAUSIBILITE`).set("Authorization", `Bearer ${T.admin}`).send({ valeur: { nom: "Guinee", bbox: [-15.2, 7.1, -7.5, 12.8] } });
+  const justifCourte = await envoyer("put", "/configuration/EMPRISE_PLAUSIBILITE", { valeur: { nom: "Guinee", bbox: [-15.2, 7.1, -7.5, 12.8] }, justification: "court" });
+  verifier("12. decision de l'architecte : PUT /configuration sans justification, ou de moins de 10 caracteres : 422 JUSTIFICATION_REQUISE, rien n'est ecrit",
+    sansJustif.status === 422 && sansJustif.body.code === "JUSTIFICATION_REQUISE" && justifCourte.status === 422 && justifCourte.body.code === "JUSTIFICATION_REQUISE", [sansJustif.body, justifCourte.body]);
   verifier("12. valeur invalide : 400 VALEUR_INVALIDE avec details ; cle inconnue : 404", (await envoyer("put", "/configuration/EMPRISE_PLAUSIBILITE", { valeur: { nom: "x", bbox: [1, 1, 0, 0] } })).body.code === "VALEUR_INVALIDE"
     && (await envoyer("put", "/configuration/VILLES", { valeur: {} })).status === 404);
   verifier("12. liste blanche : un code inconnu de PostGIS est refuse (422 CRS_NON_DISPONIBLE) ; retirer un CRS des bandes est refuse (409)",

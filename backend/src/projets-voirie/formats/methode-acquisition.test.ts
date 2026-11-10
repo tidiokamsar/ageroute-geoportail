@@ -28,5 +28,9 @@ describe("M2 : methode d'acquisition validee contre le referentiel, pas contre u
     await expect(exigerMethodeAcquisition(tx as never, "GNSS")).resolves.toBeUndefined();
     await expect(exigerMethodeAcquisition(tx as never, "GEORADAR")).rejects.toMatchObject({ status: 422, code: "METHODE_ACQUISITION_INCONNUE" });
     expect(requetes[0]).toEqual({ domaine: "METHODE_ACQUISITION", code: "GNSS", deletedAt: null, actif: true });
+    // Decision de l'architecte (10/11/2026) : un code mal forme est aussi un code absent du referentiel : 422, sans requete.
+    const avant = requetes.length;
+    await expect(exigerMethodeAcquisition(tx as never, "GNSS-RTK")).rejects.toMatchObject({ status: 422, code: "METHODE_ACQUISITION_INCONNUE" });
+    expect(requetes.length).toBe(avant);
   });
 });
