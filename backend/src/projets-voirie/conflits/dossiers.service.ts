@@ -549,6 +549,21 @@ export const ENTETE_CSV_CONFLITS = [
 const EXPORT_MAX = 100_000;
 
 export async function exporterConflitsCsv(acteur: Acteur, projetId: string, f: FiltresConflits) {
+  const { csv, nbLignes, projet } = await produireCsvConflits(acteur, projetId, f);
+  await prisma.$transaction(async (tx) => {
+    await logAuditTransactionnelle(tx, {
+      userId: acteur.id, action: "CREATE", entityType: "ExportConflitsProjetVoirie", entityId: projet.id,
+      after: { format: "csv", projet: projet.code, nbLignes, filtres: f, geometries: false }, ipAddress: acteur.ip,
+    });
+  });
+  return { csv, nbLignes, nomFichier: `conflits-${projet.code.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.csv` };
+}
+
+/**
+ * Contenu du CSV des dossiers (memes colonnes, meme lisibilite, meme neutralisation des formules), SANS audit : l'appelant audite la remise (route
+ * `export.csv` ci-dessus, ou dossier technique du lot X1, qui l'embarque dans son archive et audite l'archive entiere).
+ */
+export async function produireCsvConflits(acteur: Acteur, projetId: string, f: FiltresConflits) {
   const projet = await prisma.projetVoirie.findFirst({ where: { id: projetId, deletedAt: null }, select: { id: true, code: true } });
   if (!projet) throw introuvable("Projet", "PROJET_INTROUVABLE");
   // Jusqu'a 100 000 lignes jointes : meme limiteur que les analyses (3 simultanes) et meme delai cote base (revue RC-3, m8).
@@ -581,13 +596,7 @@ export async function exporterConflitsCsv(acteur: Acteur, projetId: string, f: F
     ];
   });
   const csv = "﻿" + [ENTETE_CSV_CONFLITS.join(";"), ...rows.map((r) => r.map((v) => celluleCsv(v as string | number)).join(";"))].join("\r\n") + "\r\n";
-  await prisma.$transaction(async (tx) => {
-    await logAuditTransactionnelle(tx, {
-      userId: acteur.id, action: "CREATE", entityType: "ExportConflitsProjetVoirie", entityId: projet.id,
-      after: { format: "csv", projet: projet.code, nbLignes: rows.length, filtres: f, geometries: false }, ipAddress: acteur.ip,
-    });
-  });
-  return { csv, nbLignes: rows.length, nomFichier: `conflits-${projet.code.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.csv` };
+  return { csv, nbLignes: rows.length, projet };
 }
 
 /** Garde de coherence (tests) : les enumerations du noyau sont celles utilisees ici. */
