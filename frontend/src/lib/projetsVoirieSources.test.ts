@@ -36,6 +36,8 @@ describe("lecteurs S1", () => {
   it("resultat : un rapprochement incertain n'a JAMAIS de mesure, meme si le serveur en rendait une ; un objet B absent (masque) est nul", () => {
     const r = lireResultat({ id: "r1", ordre: 1, statut: "RAPPROCHEMENT_INCERTAIN", objetA: { id: 7, nom: "Cable 1", precisionM: null, originePrecision: "INCONNUE" }, mesure: { hausdorffM: 3 } });
     expect(r).toMatchObject({ mesure: null, objetB: null, objetA: { id: "7" } });
+    // Revue m12 : ni mesure ni corridor pour un incertain, meme rendus par le serveur.
+    expect(lireResultat({ id: "r9", statut: "RAPPROCHEMENT_INCERTAIN", corridorM: 7.77, mesure: { hausdorffM: 9 } })).toMatchObject({ mesure: null, corridorM: null });
     const d = lireResultat({ id: "r2", statut: "DIVERGENCE", objetA: { id: "1", originePrecision: "OBJET", precisionM: "1" }, mesure: { hausdorffM: 3, longueurHorsCorridorM: 100, longueurAM: 100, partHorsCorridor: 1 }, corridorM: 2 });
     expect(d).toMatchObject({ objetB: null, mesure: { hausdorffM: 3 }, corridorM: 2 });
     const p = lirePageResultats({ resultats: [{ id: "a", statut: "CONCORDANCE" }, { id: "b", statut: "FUSION" }], masque: false, curseurSuivant: "c2" });
@@ -53,7 +55,7 @@ describe("affichage des resultats", () => {
   it("provenance de la precision : objet, jeu, classe par un bareme approuve (regle et version citees), inconnue, non communiquee", () => {
     expect(provenancePrecision({ precisionM: 1, originePrecision: "OBJET" }, null)).toBe("1 m, déclarée pour l'objet");
     expect(provenancePrecision({ precisionM: 0.5, originePrecision: "JEU" }, null)).toBe("0,5 m, déclarée pour le jeu");
-    expect(provenancePrecision({ precisionM: 2, originePrecision: "CLASSE" }, { code: "R-B", version: 3 })).toBe("2 m, attribuée à la classe par un barème approuvé (règle R-B v3)");
+    expect(provenancePrecision({ precisionM: 2, originePrecision: "CLASSE" }, { etat: "NON_ATTESTE", code: "R-B", version: 3, couples: null })).toBe("2 m, attribuée à la classe par le barème de la règle R-B v3 (provenance du corridor non attestée)");
     expect(provenancePrecision({ precisionM: null, originePrecision: "INCONNUE" }, null)).toBe("inconnue");
     expect(provenancePrecision(null, null)).toBe("non communiquée");
   });

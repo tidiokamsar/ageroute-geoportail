@@ -100,6 +100,8 @@ export interface ProjetResume {
   territoire: (TerritoireResume & { ancetres: TerritoireResume[] }) | null;
   /** Lot T1 : categorie (referentiel CATEGORIE_PROJET), nulle si non renseignee. */
   categorieCode: string | null;
+  /** Region du projet (perimetre) ; `undefined` si le serveur ne la rend pas, `null` pour un projet national. */
+  regionId?: number | null;
 }
 
 export interface ProjetFiche extends ProjetResume {
@@ -362,6 +364,7 @@ export function lireProjetResume(v: unknown): ProjetResume | null {
       return { ...t, ancetres: a.flatMap((x) => { const r = lireResumeTerritoire(x); return r ? [r] : []; }) };
     })(),
     categorieCode: texte(v.categorieCode),
+    ...("regionId" in v ? { regionId: versNombre(v.regionId) } : {}),
   };
 }
 
@@ -597,14 +600,15 @@ export function lireAnalyse(data: unknown): Analyse {
 
 const id = encodeURIComponent;
 
-export async function listerProjets(p: { q?: string; curseur?: string | null; limite?: number; territoireId?: string | null } = {}): Promise<PageProjets> {
+export async function listerProjets(p: { q?: string; curseur?: string | null; limite?: number; territoireId?: string | null } = {}, signal?: AbortSignal): Promise<PageProjets> {
   const params: Record<string, string | number> = {};
   if (p.q?.trim()) params.q = p.q.trim();
   // Lot T1 : le territoire ET ses descendants (filtre du serveur).
   if (p.territoireId) params.territoireId = p.territoireId;
   if (p.curseur) params.curseur = p.curseur;
   if (p.limite) params.limite = p.limite;
-  const { data } = await api.get(BASE, { params });
+  // Revue m11 : une requete abandonnee (changement de filtre) est interrompue.
+  const { data } = await api.get(BASE, signal ? { params, signal } : { params });
   return lirePageProjets(data);
 }
 

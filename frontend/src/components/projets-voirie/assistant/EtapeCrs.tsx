@@ -94,7 +94,7 @@ export function EtapeCrs({ inventaire, mode, lecture, options, apercu, horsZone,
         <div role="alert" data-testid="alerte-hors-zone" className="space-y-2 rounded border-2 border-red-300 bg-red-50 p-3 text-sm text-red-900">
           <p className="flex items-start gap-2 font-semibold"><AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />Résultat hors de la zone attendue : avancement bloqué</p>
           <p>
-            Avec ce système, {formaterNombre(horsZone.nbElements, 0)} élément(s){horsZone.nbObjets !== null ? ` sur ${formaterNombre(horsZone.nbObjets, 0)}` : ""} tombent hors de la Guinée.
+            Avec ce système, {formaterNombre(horsZone.nbElements, 0)} élément(s){horsZone.nbObjets !== null ? ` sur ${formaterNombre(horsZone.nbObjets, 0)}` : ""} tombent hors de la zone attendue{options.crs.zoneAttendue ? ` « ${options.crs.zoneAttendue.nom} »` : ""}.
             Vérifiez d&apos;abord le système choisi : une mauvaise zone UTM ou une inversion de colonnes produit ce symptôme.
             Si vous êtes sûr du système, vous pouvez confirmer : les éléments hors zone seront écartés et jamais stockés ; les autres seront importés.
           </p>

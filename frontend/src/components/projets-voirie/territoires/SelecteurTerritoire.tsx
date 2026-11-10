@@ -33,9 +33,11 @@ export interface PropsSelecteurTerritoire {
   optionAucun?: string;
   erreur?: string;
   desactive?: boolean;
+  /** Restriction de confort (le serveur reste la garde), par exemple la region d'un projet deplace. */
+  filtre?: (t: Territoire) => boolean;
 }
 
-export function SelecteurTerritoire({ libelle, aide, valeur, courant, onChange, actifsSeulement = false, optionAucun, erreur, desactive }: PropsSelecteurTerritoire) {
+export function SelecteurTerritoire({ libelle, aide, valeur, courant, onChange, actifsSeulement = false, optionAucun, erreur, desactive, filtre }: PropsSelecteurTerritoire) {
   const id = useId();
   const arbre = useArbreTerritoires(true);
   const [saisie, setSaisie] = useState("");
@@ -48,8 +50,9 @@ export function SelecteurTerritoire({ libelle, aide, valeur, courant, onChange, 
     const charges = arbre.data?.territoires ?? [];
     // Arbre tronque (perimetre tres vaste) : la recherche passe aussi par le serveur ; les resultats s'ajoutent sans doublon.
     const enPlus = tronque ? (recherche.data?.territoires ?? []).filter((t) => !arbre.parId.has(t.id)) : [];
-    return filtrerTerritoires([...charges, ...enPlus], { q, niveau, actifsSeulement });
-  }, [arbre.data, arbre.parId, recherche.data, tronque, q, niveau, actifsSeulement]);
+    const l = filtrerTerritoires([...charges, ...enPlus], { q, niveau, actifsSeulement });
+    return filtre ? l.filter(filtre) : l;
+  }, [arbre.data, arbre.parId, recherche.data, tronque, q, niveau, actifsSeulement, filtre]);
 
   const choisi = valeur ? arbre.parId.get(valeur) ?? null : null;
   const resumeChoisi = choisi ?? (courant && courant.id === valeur ? courant : null);

@@ -69,21 +69,33 @@ beforeEach(() => {
 });
 
 describe("roles", () => {
-  it("un non-administrateur ne voit que la configuration, en lecture, sans aucun bouton d'ecriture", async () => {
-    h.role = "LECTEUR";
+  // Revue UI-C, M2 : chaque verification d'absence attend un contenu REELLEMENT charge (articles de configuration issus de GET /configuration),
+  // et une contre-epreuve ADMIN prouve que le bouton existe quand le role l'autorise. Sans cela, l'assertion porterait sur une page vide.
+  const CLES = ["Emprise nationale de plausibilité", "Systèmes de coordonnées admis à l'import", "Protections du serveur (délais, plafonds, cadences)"];
+  async function articlesCharges() {
+    const articles = await Promise.all(CLES.map((n) => screen.findByRole("article", { name: n })));
+    expect(articles.every((a) => within(a).getByText(/Valeur en vigueur/))).toBe(true);
+    return articles;
+  }
+  it.each(["LECTEUR", "GESTIONNAIRE"])("%s : configuration chargee, en lecture ; aucun bouton d'ecriture, aucun onglet d'administration", async (role) => {
+    h.role = role;
     rendre();
-    expect(await screen.findByRole("heading", { name: "Configuration nationale" })).toBeInTheDocument();
-    expect(screen.queryByRole("tab")).toBeNull();
+    const articles = await articlesCharges();
+    for (const a of articles) expect(within(a).queryByRole("button")).toBeNull();
     expect(screen.queryByRole("button", { name: /Modifier/ })).toBeNull();
+    expect(screen.queryByRole("tab")).toBeNull();
     expect(screen.getByText(/Seul un administrateur peut modifier/)).toBeInTheDocument();
     expect(h.get.mock.calls.map((c) => c[0])).not.toContain(`${B}/territoires`);
   });
-  it("un gestionnaire non plus n'administre ni territoires ni referentiels", async () => {
-    h.role = "GESTIONNAIRE";
+  it("contre-epreuve ADMIN : un bouton « Modifier » par cle chargee, et les onglets d'administration", async () => {
+    h.role = "ADMIN";
+    const u = userEvent.setup();
     rendre();
-    await screen.findByRole("heading", { name: "Configuration nationale" });
-    expect(screen.queryByRole("tab", { name: "Territoires" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Modifier/ })).toBeNull();
+    await screen.findByRole("list", { name: "Arborescence des territoires" });
+    expect(screen.getByRole("tab", { name: "Territoires" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Référentiels" })).toBeInTheDocument();
+    await u.click(screen.getByRole("tab", { name: "Configuration nationale" }));
+    for (const a of await articlesCharges()) expect(within(a).getByRole("button", { name: /^Modifier/ })).toBeInTheDocument();
   });
 });
 
@@ -262,6 +274,35 @@ describe("referentiels (ADMIN)", () => {
     expect(await within(d).findByRole("alert")).toHaveTextContent(/portée par 2 jeux/);
     await u.click(within(d).getByRole("button", { name: "Désactiver la valeur" }));
     await waitFor(() => expect(h.patch).toHaveBeenCalledWith(`${B}/referentiels/TYPE_RESEAU/FIBRE`, { actif: false }));
+  });
+});
+
+describe("revue m6 et m9", () => {
+  it("m6 : apres un 409 VALEUR_UTILISEE, un echec de la desactivation (reseau) ne repropose pas « Retirer la valeur »", async () => {
+    h.delete.mockRejectedValue({ response: { status: 409, data: { code: "VALEUR_UTILISEE", usages: { jeux: 2 } } } });
+    h.patch.mockRejectedValue(new Error("Network Error"));
+    const u = userEvent.setup();
+    rendre();
+    await u.click(await screen.findByRole("tab", { name: "Référentiels" }));
+    await screen.findByRole("table", { name: "Types de réseau" });
+    await u.click(screen.getByRole("button", { name: "Retirer Type FIBRE" }));
+    const d = await screen.findByRole("dialog");
+    await u.click(within(d).getByRole("button", { name: "Retirer la valeur" }));
+    await u.click(await within(d).findByRole("button", { name: "Désactiver la valeur" }));
+    expect(await within(d).findByText(/injoignable/)).toBeInTheDocument();
+    expect(within(d).getByRole("button", { name: "Désactiver la valeur" })).toBeInTheDocument();
+    expect(within(d).queryByRole("button", { name: "Retirer la valeur" })).toBeNull();
+    expect(h.delete).toHaveBeenCalledTimes(1);
+  });
+  it("m9 : changer la region d'un territoire previent que ses projets gardent leur region", async () => {
+    const u = userEvent.setup();
+    rendre();
+    await u.click(await screen.findByRole("button", { name: /Modifier Region synthetique/ }));
+    const d = await screen.findByRole("dialog");
+    expect(within(d).queryByTestId("avertissement-region")).toBeNull();
+    await within(within(d).getByLabelText(/Région administrative/)).findByRole("option", { name: "Region administrative 1" });
+    await u.selectOptions(within(d).getByLabelText(/Région administrative/), "1");
+    expect(within(d).getByTestId("avertissement-region")).toHaveTextContent(/projets déjà rattachés à ce territoire et à ses subdivisions gardent leur région/);
   });
 });
 

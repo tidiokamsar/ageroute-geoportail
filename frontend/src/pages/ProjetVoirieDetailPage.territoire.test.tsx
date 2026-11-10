@@ -29,7 +29,7 @@ const TERR = (id: string, chemin: string, over: Record<string, unknown> = {}) =>
 
 function installer(over: { fiche?: unknown } = {}) {
   h.get.mockImplementation(async (url: string) => {
-    if (url === BASE) return { data: over.fiche ?? { ...projetFiche({ jeux: [] }), territoireId: "com", territoire: TERRITOIRE, categorieCode: "ANCIENNE" } };
+    if (url === BASE) return { data: over.fiche ?? { ...projetFiche({ jeux: [] }), regionId: 1, territoireId: "com", territoire: TERRITOIRE, categorieCode: "ANCIENNE" } };
     if (url === `${BASE}/analyse`) return { data: JSON.parse(JSON.stringify(analyse())) };
     if (url === `${BASE}/carte`) return { data: [] };
     if (url === "/v2/projets-voirie/referentiels/CATEGORIE_PROJET") {
@@ -38,7 +38,7 @@ function installer(over: { fiche?: unknown } = {}) {
         { id: "k2", domaine: "CATEGORIE_PROJET", code: "ANCIENNE", libelle: "Categorie ancienne", actif: false, parametres: { largeurEmpriseM: 10, largeurChausseeM: 5 } },
       ] } };
     }
-    if (url === "/v2/projets-voirie/territoires") return { data: { territoires: [TERR("reg", "/reg/", { niveau: "REGION", nom: "Region synthetique" }), TERR("com", "/reg/com/", { nom: "Commune synthetique" }), TERR("q", "/reg/q/", { nom: "Quartier voisin", niveau: "QUARTIER" })], curseurSuivant: null } };
+    if (url === "/v2/projets-voirie/territoires") return { data: { territoires: [TERR("reg", "/reg/", { niveau: "REGION", nom: "Region synthetique" }), TERR("com", "/reg/com/", { nom: "Commune synthetique" }), TERR("q", "/reg/q/", { nom: "Quartier voisin", niveau: "QUARTIER" }), TERR("ail", "/ail/", { nom: "Commune d'une autre region", regionEffectiveId: 2 })], curseurSuivant: null } };
     if (url === `${BASE}/sources`) return { data: { reseaux: [{ role: "AXES_TRAVAUX", statut: "SOURCE_UNIQUE_COMPARAISON_INDISPONIBLE", sources: [{ jeuId: "ja", version: 1, nomFichier: "axes.geojson" }] }] } };
     if (url === `${BASE}/comparaisons`) return { data: { comparaisons: [], curseurSuivant: null } };
     if (url === `${BASE}/regles-rapprochement`) return { data: { regles: [], effectives: [], avertissements: [] } };
@@ -83,6 +83,16 @@ describe("territoire et categorie du projet", () => {
     await u.selectOptions(within(d).getByLabelText("Catégorie de projet"), "VOIRIE_URBAINE");
     await u.click(within(d).getByRole("button", { name: "Enregistrer" }));
     await waitFor(() => expect(h.patch).toHaveBeenLastCalledWith(BASE, { territoireId: "q", categorieCode: "VOIRIE_URBAINE" }));
+  });
+  it("revue m8 : seuls les territoires de la region du projet sont proposes (le serveur reste la garde)", async () => {
+    installer();
+    const u = userEvent.setup();
+    rendre();
+    await u.click(await screen.findByRole("button", { name: "Modifier le territoire ou la catégorie" }));
+    const d = await screen.findByRole("dialog", { name: "Territoire et catégorie du projet" });
+    await within(d).findByRole("radio", { name: /Quartier voisin/ });
+    expect(within(d).queryByRole("radio", { name: /autre region/ })).toBeNull();
+    expect(d).toHaveTextContent(/Seuls les territoires de la région du projet sont proposés/);
   });
   it("un lecteur ne voit pas le bouton de modification", async () => {
     h.role = "LECTEUR";

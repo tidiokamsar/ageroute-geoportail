@@ -21,6 +21,9 @@ import type { Bbox } from "../../../lib/projetsVoirie";
  * et code sont immuables apres creation ; un territoire qui porte des enfants ou des projets ne se retire pas (409 TERRITOIRE_UTILISE, explique) ;
  * les avertissements d'emprise (hors du parent, hors de l'emprise nationale) sont affiches sans bloquer. Aucun nom de lieu n'est code.
  */
+/** Retrait par profondeur : classes de l'echelle d'espacement (revue m5 : plus de style en ligne). */
+const RETRAIT = ["ml-0", "ml-4", "ml-8", "ml-12", "ml-16", "ml-20", "ml-24"] as const;
+
 export function OngletTerritoires({ enLigne }: { enLigne: boolean }) {
   const arbre = useArbreTerritoires(true);
   const config = useConfiguration(true);
@@ -32,10 +35,11 @@ export function OngletTerritoires({ enLigne }: { enLigne: boolean }) {
   const liste = useMemo(() => filtrerTerritoires(arbre.data?.territoires ?? [], { q: saisie }), [arbre.data, saisie]);
   const aUneNation = (arbre.data?.territoires ?? []).some((t) => t.niveau === "NATION");
   const crsAdmis = (listeBlancheEffective(config.data?.configuration) ?? []).filter((e) => e !== 4326);
-  const empriseNationale = (() => {
+  // Revue m10 : reference stable (la carte d'emprise recadre quand la reference change ; un nouveau rendu ne doit pas annuler le zoom).
+  const empriseNationale = useMemo(() => {
     const e = config.data?.configuration.find((c) => c.cle === "EMPRISE_PLAUSIBILITE")?.valeur as { bbox?: unknown } | undefined;
     return Array.isArray(e?.bbox) && e.bbox.length === 4 && e.bbox.every((x) => typeof x === "number") ? (e.bbox as Bbox) : null;
-  })();
+  }, [config.data]);
 
   return (
     <section aria-labelledby="pv-titre-territoires" className="space-y-3">
@@ -69,7 +73,7 @@ export function OngletTerritoires({ enLigne }: { enLigne: boolean }) {
       {liste.length > 0 && (
         <ul aria-label="Arborescence des territoires" className="space-y-1">
           {liste.map((t) => (
-            <li key={t.id} data-profondeur={t.profondeur} className="rounded border border-gray-200 p-2 text-sm" style={{ marginLeft: `${Math.min(t.profondeur, 6)}rem` }}>
+            <li key={t.id} data-profondeur={t.profondeur} className={`rounded border border-gray-200 p-2 text-sm ${RETRAIT[Math.min(t.profondeur, RETRAIT.length - 1)]}`}>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-semibold text-gray-900">{t.nom}</span>
                 <span className="sr-only">, profondeur {t.profondeur}</span>
@@ -225,6 +229,11 @@ function DialogueModification({ territoire: t, parent, crsAdmis, empriseNational
       onFermer={onFermer} onValider={() => void envoyer(async () => { const r = await modifier.mutateAsync({ tid: t.id, corps }); onModifie(r.territoire.nom, r.avertissements); })} enLigne={enLigne} large
     >
       <ChampsCommuns id={id} v={v} maj={maj} crsAdmis={crsAdmis} desactive={enCours} />
+      {(v.region ? Number(v.region) : null) !== t.regionId && (
+        <p role="note" data-testid="avertissement-region" className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950">
+          Changer la région administrative modifie le périmètre de ce territoire et de ses subdivisions, mais les projets déjà rattachés à ce territoire et à ses subdivisions gardent leur région actuelle : vérifiez-les avec la liste des projets filtrée par ce territoire.
+        </p>
+      )}
       <label className="flex min-h-[44px] items-center gap-2 text-sm text-gray-900 xl:min-h-0">
         <input type="checkbox" className="h-4 w-4" checked={v.actif} disabled={enCours} onChange={(ev) => maj({ actif: ev.target.checked })} />Territoire actif (proposé à la création d&apos;un projet)
       </label>

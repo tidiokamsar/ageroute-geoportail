@@ -44,6 +44,7 @@ const METHODES = [
 const CONCESSIONNAIRES = [
   { id: "c1", nom: "Operateur synthetique A", typeReseau: "TELECOM", typeReseauCode: "FIBRE_OPTIQUE" },
   { id: "c2", nom: "Operateur synthetique B", typeReseau: "TELECOM" },
+  { id: "c3", nom: "Societe des eaux synthetique", typeReseau: "EAU_POTABLE" },
 ];
 
 function installer() {
@@ -120,6 +121,32 @@ describe("type de reseau et methode d'acquisition depuis les referentiels", () =
     await u.selectOptions(screen.getByLabelText("Concessionnaire propriétaire du réseau"), "c1");
     expect(type).toHaveValue("FIBRE_OPTIQUE");
     expect(r.derniere()).toMatchObject({ typeReseauCode: "FIBRE_OPTIQUE", typeReseau: "TELECOM" });
+  });
+  it("revue m1 : revenir a « Non precise » ne garde pas la famille du type abandonne ; elle redevient celle du concessionnaire", async () => {
+    const u = userEvent.setup();
+    const r = rendre();
+    const type = await screen.findByLabelText("Type de réseau");
+    await within(type).findByRole("option", { name: "Fibre optique" });
+    await u.selectOptions(type, "FIBRE_OPTIQUE");
+    expect(r.derniere()).toMatchObject({ typeReseauCode: "FIBRE_OPTIQUE", typeReseau: "TELECOM" });
+    await u.selectOptions(type, "");
+    expect(r.derniere()).toMatchObject({ typeReseauCode: "", typeReseau: "" });
+    await within(screen.getByLabelText("Concessionnaire propriétaire du réseau")).findByRole("option", { name: /Societe des eaux/ });
+    await u.selectOptions(screen.getByLabelText("Concessionnaire propriétaire du réseau"), "c3");
+    await u.selectOptions(type, "FIBRE_OPTIQUE");
+    await u.selectOptions(type, "");
+    expect(r.derniere()).toMatchObject({ typeReseauCode: "", typeReseau: "EAU_POTABLE" });
+  });
+  it("revue m1 : changer de concessionnaire reprend SON type (code et famille), jamais celui du precedent", async () => {
+    const u = userEvent.setup();
+    const r = rendre();
+    const conc = screen.getByLabelText("Concessionnaire propriétaire du réseau");
+    await within(conc).findByRole("option", { name: /Societe des eaux/ });
+    await within(await screen.findByLabelText("Type de réseau")).findByRole("option", { name: "Fibre optique" });
+    await u.selectOptions(conc, "c1");
+    expect(r.derniere()).toMatchObject({ concessionnaireId: "c1", typeReseauCode: "FIBRE_OPTIQUE", typeReseau: "TELECOM" });
+    await u.selectOptions(conc, "c3");
+    expect(r.derniere()).toMatchObject({ concessionnaireId: "c3", typeReseauCode: "", typeReseau: "EAU_POTABLE" });
   });
   it("concessionnaire sans code : la famille est reprise et dite ; le depot envoie alors la famille seule", async () => {
     const u = userEvent.setup();

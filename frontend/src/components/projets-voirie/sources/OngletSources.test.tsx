@@ -31,7 +31,8 @@ const COMPARABLE = {
 };
 const COMPARAISON = {
   id: "cmp1", numero: 4, statut: "TERMINEE", mode: "SOURCES", role: "RESEAU_TIERS", jeuAId: "j2", jeuBId: "j3",
-  regle: { regleId: "r0", code: "S1-CORRIDOR-0.1", version: 0, margeM: 1, rayonAppariementM: 10, partHorsCorridorMax: 0, precisionParClasseM: null },
+  // Comparaison calculee AVANT les correctifs serveur avec la regle SYSTEME S1-CORRIDOR-0.1 (bareme provisoire, jamais approuve) : aucun champ d'attestation.
+  regle: { regleId: "r0", code: "S1-CORRIDOR-0.1", version: 0, margeM: 1, rayonAppariementM: 10, partHorsCorridorMax: 0, precisionParClasseM: { A: 0.5, B: 1, C: 2, D: 5 } },
   versionAlgorithme: "S1-CORRIDOR-UTM-1", epsg: 32629,
   jeux: [{ role: "A", jeuId: "j2", nomFichier: "j2.geojson", version: 1, methodeAcquisition: "NUMERISATION_PLAN", dateDonnees: "2026-10-01" }, { role: "B", jeuId: "j3", nomFichier: "j3.geojson", version: 1, methodeAcquisition: "ANCIENNE" }],
   donneesMasquees: false, declenchePar: { id: "u2", nomComplet: "Gestionnaire Test" }, duree: 120, createdAt: "2026-11-09T09:00:00Z", limites: [],
@@ -43,12 +44,13 @@ const RESULTATS_P1 = [
   { id: "res2", ordre: 2, statut: "DIVERGENCE", objetA: o("2", "Conduite 2", 1, "OBJET"), objetB: o("12", "Conduite 2 bis", 2, "CLASSE"), corridorM: 3, mesure: { hausdorffM: 3.2, longueurHorsCorridorM: 40, longueurAM: 100, partHorsCorridor: 0.4 }, conflitId: null },
 ];
 const RESULTATS_P2 = [
-  { id: "res3", ordre: 3, statut: "RAPPROCHEMENT_INCERTAIN", objetA: o("3", "Conduite 3", null, "INCONNUE"), objetB: o("13", "Conduite 3 bis", 1, "JEU"), corridorM: null, mesure: null, conflitId: null },
+  // Revue m12 : un incertain dont le serveur rendrait (a tort) une mesure et un corridor : ni l'une ni l'autre ne doivent s'afficher.
+  { id: "res3", ordre: 3, statut: "RAPPROCHEMENT_INCERTAIN", objetA: o("3", "Conduite 3", null, "INCONNUE"), objetB: o("13", "Conduite 3 bis", 1, "JEU"), corridorM: 7.77, mesure: { hausdorffM: 9.87, longueurHorsCorridorM: 55.5, longueurAM: 100, partHorsCorridor: 0.555 }, conflitId: null },
   { id: "res4", ordre: 4, statut: "DIVERGENCE", objetA: o("4", "Conduite 4", 1, "OBJET"), objetB: null, corridorM: 2, mesure: null, conflitId: null },
   { id: "res5", ordre: 5, statut: "SANS_CORRESPONDANCE_B", objetA: null, objetB: o("15", "Conduite isolee", 1, "JEU"), corridorM: null, mesure: null, conflitId: null },
 ];
 
-interface Etat { sources: unknown; regles: unknown; comparaisons: unknown[]; erreurs: Record<string, unknown> }
+interface Etat { sources: unknown; regles: unknown; comparaisons: unknown[]; erreurs: Record<string, unknown>; comparaison?: unknown }
 let e: Etat;
 const REGLES = {
   regles: [
@@ -66,7 +68,7 @@ function installer() {
     if (url === `${B}/sources`) return { data: e.sources };
     if (url === `${B}/regles-rapprochement`) return { data: e.regles };
     if (url === `${B}/comparaisons`) return { data: { comparaisons: e.comparaisons, curseurSuivant: null } };
-    if (url === `${B}/comparaisons/cmp1`) return { data: { comparaison: COMPARAISON } };
+    if (url === `${B}/comparaisons/cmp1`) return { data: { comparaison: e.comparaison ?? COMPARAISON } };
     if (url === `${B}/comparaisons/cmp1/objets`) return { data: { resultats: cfg.params?.curseur ? RESULTATS_P2 : RESULTATS_P1, masque: false, curseurSuivant: cfg.params?.curseur ? null : "c-2" } };
     if (url.startsWith("/v2/projets-voirie/referentiels/")) {
       return { data: { valeurs: url.endsWith("METHODE_ACQUISITION")
@@ -180,27 +182,58 @@ describe("resultats d'une comparaison", () => {
     expect(sec).toHaveTextContent("j2.geojson, v1, Numérisation d'un plan");
     expect(sec).toHaveTextContent("S1-CORRIDOR-0.1 v0, marge 1 m");
     expect(sec).toHaveTextContent("De 2 à 2 m sur cette comparaison. 1 couple(s) sans corridor");
-    expect(sec).toHaveTextContent("Aucune classe n'est convertie en mètres sans barème approuvé.");
+    expect(within(sec).getByTestId("provenance-bareme")).toHaveTextContent("Le barème par classe de cette règle est le barème provisoire du système, jamais approuvé : A 0,5 m, B 1 m, C 2 m, D 5 m.");
+    expect(sec).not.toHaveTextContent(/barème approuvé/);
     expect(within(sec).getByRole("list", { name: "Totaux par statut" })).toHaveTextContent("Divergence mesurée1");
   });
-  it("divergence : Hausdorff et longueur hors corridor ; precision d'une classe : bareme approuve cite", async () => {
+  it("divergence : Hausdorff et longueur hors corridor ; regle systeme : bareme provisoire, JAMAIS « approuve » (revue M1)", async () => {
     await ouvrir();
     const li = screen.getByText(/Conduite 2 ;/).closest("li")!;
     expect(within(li).getByTestId("mesure-divergence")).toHaveTextContent("distance de Hausdorff 3,2 m, 40 m hors corridor sur 100 m, soit 40 %, corridor 3 m");
-    expect(li).toHaveTextContent("Conduite 2 bis ; précision 2 m, attribuée à la classe par un barème approuvé (règle S1-CORRIDOR-0.1 v0)");
+    expect(li).toHaveTextContent("Conduite 2 bis ; précision 2 m, attribuée à la classe par le barème provisoire du système (règle S1-CORRIDOR-0.1 v0), jamais approuvé");
+    expect(li).not.toHaveTextContent(/barème approuvé/);
+  });
+  it("serveur ancien, regle d'une personne sans attestation : « provenance du corridor non attestee »", async () => {
+    e.comparaison = { ...COMPARAISON, regle: { ...COMPARAISON.regle, regleId: "r1", code: "R-PROJET", version: 1 } };
+    await ouvrir();
+    expect(screen.getByTestId("provenance-bareme")).toHaveAttribute("data-etat", "NON_ATTESTE");
+    expect(screen.getByTestId("provenance-bareme")).toHaveTextContent(/Provenance du corridor non attestée/);
+    expect(screen.getByText(/Conduite 2 ;/).closest("li")).toHaveTextContent("précision 2 m, attribuée à la classe par le barème de la règle R-PROJET v1 (provenance du corridor non attestée)");
+  });
+  it("serveur corrige : bareme atteste (source REGLE_APPROUVEE, approbateur) : « bareme approuve » avec la regle et la version", async () => {
+    e.comparaison = {
+      ...COMPARAISON,
+      regle: { ...COMPARAISON.regle, regleId: "r5", code: "R-BAREME", version: 2, bareme: { applicable: true, applique: true, source: "REGLE_APPROUVEE", approuveParId: "u-autre" } },
+      resume: { ...COMPARAISON.resume, corridor: { ...COMPARAISON.resume.corridor, origine: "BAREME_APPROUVE" }, bareme: { applique: true, couples: 1, regle: { regleId: "r5", code: "R-BAREME", version: 2, approuveParId: "u-autre" } } },
+    };
+    await ouvrir();
+    expect(screen.getByTestId("provenance-bareme")).toHaveTextContent("vient du barème approuvé de la règle R-BAREME v2 (1 couple(s))");
+    expect(screen.getByText(/Conduite 2 ;/).closest("li")).toHaveTextContent("précision 2 m, attribuée à la classe par le barème approuvé de la règle R-BAREME v2");
   });
   it("pagination par curseur ; rapprochement incertain : la raison, AUCUNE distance ; objet B masque ; sans correspondance", async () => {
     const u = await ouvrir();
     await u.click(screen.getByRole("button", { name: "Charger plus de résultats" }));
     const inc = (await screen.findByText(/Conduite 3 ;/)).closest("li")!;
     expect(within(inc).getByTestId("raison-incertain")).toHaveTextContent("La précision de l'objet de A est inconnue en mètres");
-    expect(inc).not.toHaveTextContent(/Hausdorff|hors corridor sur/);
+    expect(inc).not.toHaveTextContent(/Hausdorff|hors corridor sur|corridor [0-9]/);
+    expect(inc).not.toHaveTextContent(/9,87|7,77|55,5|55,5 %/);
     const masque = screen.getByText(/Conduite 4 ;/).closest("li")!;
     expect(masque).toHaveTextContent("Source B : objet non communiqué (source non lisible pour votre compte)");
     expect(within(masque).getByTestId("mesure-divergence")).toHaveTextContent("non communiquée (mesure masquée pour votre compte)");
     expect(screen.getByText(/Conduite isolee/).closest("li")).toHaveTextContent("Source A : aucun objet apparié.");
     expect(h.get).toHaveBeenCalledWith(`${B}/comparaisons/cmp1/objets`, expect.objectContaining({ params: { limite: 50, curseur: "c-2" } }));
     expect(screen.queryByRole("button", { name: "Charger plus de résultats" })).toBeNull();
+  });
+  it("revue m4 : la derniere case cochee ne se decoche pas (aucun statut ne vaut jamais « tous ») ; le refus est dit", async () => {
+    const u = await ouvrir();
+    for (const nom of ["Concordance", "Divergence mesurée", "Rapprochement incertain", "Objet de A sans correspondance dans B"]) await u.click(screen.getByRole("checkbox", { name: nom }));
+    await waitFor(() => expect(h.get).toHaveBeenLastCalledWith(`${B}/comparaisons/cmp1/objets`, expect.objectContaining({ params: { limite: 50, statut: "SANS_CORRESPONDANCE_B" } })));
+    const derniere = screen.getByRole("checkbox", { name: "Objet de B sans correspondance dans A" });
+    await u.click(derniere);
+    expect(derniere).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Concordance" })).not.toBeChecked();
+    expect(screen.getByTestId("filtre-statut-message")).toHaveTextContent("Au moins un statut doit rester coché.");
+    expect(h.get).toHaveBeenLastCalledWith(`${B}/comparaisons/cmp1/objets`, expect.objectContaining({ params: { limite: 50, statut: "SANS_CORRESPONDANCE_B" } }));
   });
   it("filtre par statut : n'envoie que les statuts coches", async () => {
     const u = await ouvrir();
@@ -265,6 +298,26 @@ describe("regles de rapprochement", () => {
     await u.type(within(d).getByLabelText(/Justification/), "Marge convenue avec le concessionnaire");
     await u.click(within(d).getByRole("button", { name: "Créer le brouillon" }));
     await waitFor(() => expect(h.post).toHaveBeenCalledWith(`${B}/regles-rapprochement`, { code: "R-NOUVELLE", justification: "Marge convenue avec le concessionnaire", margeM: 0.5 }));
+  });
+});
+
+describe("regles : bareme laisse vide (revue m3)", () => {
+  it("l'aide ne promet rien que le serveur ne fasse : le bareme est celui que le serveur enregistre, relu dans la liste apres creation", async () => {
+    // Serveur de cette branche : un brouillon sans bareme recoit le bareme provisoire ; l'ecran montre ce que le serveur a enregistre.
+    const CREEE = { id: "r9", code: "R-SANS-BAREME", version: 1, statut: "BROUILLON", portee: "PROJET", margeM: 1, rayonAppariementM: 10, partHorsCorridorMax: 0, precisionParClasseM: { A: 0.5, B: 1, C: 2, D: 5 }, creePar: { id: "u2", nomComplet: "Gestionnaire Test" } };
+    h.post.mockImplementation(async () => { e.regles = { ...REGLES, regles: [...REGLES.regles, CREEE] }; return { data: { regle: CREEE } }; });
+    const u = userEvent.setup();
+    rendre();
+    await u.click(await screen.findByRole("button", { name: /Créer un brouillon de règle/ }));
+    const d = await screen.findByRole("dialog");
+    expect(d).toHaveTextContent(/Laissé vide, le barème est celui que le serveur enregistre : il est affiché dans la liste après la création/);
+    expect(d).not.toHaveTextContent(/sans lui, un tel objet donne un rapprochement incertain/);
+    await u.type(within(d).getByLabelText("Code de la règle"), "R-SANS-BAREME");
+    await u.type(within(d).getByLabelText(/Justification/), "Regle sans bareme saisi");
+    await u.click(within(d).getByRole("button", { name: "Créer le brouillon" }));
+    const li = (await screen.findByText("R-SANS-BAREME v1")).closest("li")!;
+    expect(li).toHaveTextContent("Barème par classe : A 0,5 m, B 1 m, C 2 m, D 5 m.");
+    expect(li).toHaveTextContent(/ne s'applique qu'après approbation par un administrateur autre que l'auteur/);
   });
 });
 

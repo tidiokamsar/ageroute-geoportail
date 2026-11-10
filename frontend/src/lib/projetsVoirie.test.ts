@@ -178,7 +178,9 @@ describe("classement des erreurs {error, code}", () => {
     }
     expect(MESSAGE_CODE.FORMAT_NON_SUPPORTE).toMatch(/KML, KMZ, GeoJSON, GPX/);
     expect(MESSAGE_CODE.FORMAT_NON_SUPPORTE).toMatch(/GeoPackage, Shapefile ZIP et DXF passent par une chaîne de conversion isolée, qui peut être désactivée sur ce serveur ; DWG n'est pas lu/);
-    expect(MESSAGE_CODE.HORS_GUINEE).toMatch(/Guinée/);
+    // Revue UI-C m7 : l'emprise nationale est configurable (T1) ; le message n'en code plus les bornes.
+    expect(MESSAGE_CODE.HORS_GUINEE).toMatch(/emprise nationale de plausibilité configurée/);
+    expect(MESSAGE_CODE.HORS_GUINEE).not.toMatch(/-15,2|12,8|Guinée/);
     expect(MESSAGE_CODE.CRS_NON_SUPPORTE).toMatch(/code EPSG/);
   });
   it("403 : permission ; 404 : introuvable ; 413 : trop gros ; 5xx : serveur", () => {
@@ -238,7 +240,7 @@ describe("erreurs typees de l'assistant d'import (lot A1) : message en clair, te
     [422, "CRS_INCOMPATIBLE_FORMAT", "validation", /WGS 84 par la norme/],
     [422, "CRS_CONFLIT", "validation", /ne se remplace pas/],
     [422, "TRANSFORMATION_ECHEC", "validation", /transformation de coordonnées a échoué/],
-    [422, "HORS_GUINEE", "validation", /Guinée/],
+    [422, "HORS_GUINEE", "validation", /emprise nationale/],
     [422, "ARCHIVE_CHEMIN_DANGEREUX", "validation", /chemin dangereux/],
     [422, "ARCHIVE_TAUX_COMPRESSION", "validation", /bombe de décompression/],
     [422, "KMZ_PLUSIEURS_KML", "validation", /plusieurs fichiers KML/],

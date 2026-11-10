@@ -106,6 +106,10 @@ function lireRegleDeComparaison(v: unknown): RegleDeComparaison | null {
   return {
     regleId: texte(v.regleId) ?? texte(v.id), code: texte(v.code), version: nombre(v.version), famille: texte(v.famille), portee: texte(v.portee),
     margeM: nombre(v.margeM), rayonAppariementM: nombre(v.rayonAppariementM), partHorsCorridorMax: nombre(v.partHorsCorridorMax), precisionParClasseM: tableClasse(v.precisionParClasseM),
+    bareme: estObjet(v.bareme) ? {
+      applicable: typeof v.bareme.applicable === "boolean" ? v.bareme.applicable : null, applique: typeof v.bareme.applique === "boolean" ? v.bareme.applique : null,
+      source: texte(v.bareme.source), approuveParId: texte(v.bareme.approuveParId),
+    } : null,
   };
 }
 
@@ -123,7 +127,14 @@ function lireResume(v: unknown): ResumeComparaison | null {
   const err = estObjet(v.erreur) ? v.erreur : null;
   return {
     totaux: totaux(v.totaux) ?? {},
-    corridor: c ? { minM: nombre(c.minM), maxM: nombre(c.maxM), couplesSansCorridor: nombre(c.couplesSansCorridor), margeM: nombre(c.margeM), rayonAppariementM: nombre(c.rayonAppariementM) } : null,
+    corridor: c ? {
+      minM: nombre(c.minM), maxM: nombre(c.maxM), couplesSansCorridor: nombre(c.couplesSansCorridor), margeM: nombre(c.margeM), rayonAppariementM: nombre(c.rayonAppariementM),
+      origine: c.origine === "PRECISIONS_METRES" || c.origine === "BAREME_APPROUVE" || c.origine === "INCERTAIN" ? c.origine : null,
+    } : null,
+    bareme: estObjet(v.bareme) ? {
+      applique: v.bareme.applique === true, couples: nombre(v.bareme.couples),
+      regle: estObjet(v.bareme.regle) ? { regleId: texte(v.bareme.regle.regleId), code: texte(v.bareme.regle.code), version: nombre(v.bareme.regle.version), approuveParId: texte(v.bareme.regle.approuveParId) } : null,
+    } : null,
     limites: chaines(v.limites),
     erreur: err ? { code: texte(err.code), message: texte(err.message) } : texte(v.code) ? { code: texte(v.code), message: texte(v.message) } : null,
   };
@@ -161,7 +172,8 @@ export function lireResultat(v: unknown): ResultatComparaison | null {
   const statut = v.statut as StatutResultat;
   return {
     id: String(v.id), ordre: nombre(v.ordre) ?? 0, cle: texte(v.cle), statut,
-    objetA: lireObjetResultat(v.objetA), objetB: lireObjetResultat(v.objetB), corridorM: nombre(v.corridorM),
+    // Revue m12 : un rapprochement incertain n'a ni corridor ni mesure (precision en metres manquante), meme si le serveur en rendait.
+    objetA: lireObjetResultat(v.objetA), objetB: lireObjetResultat(v.objetB), corridorM: statut === "RAPPROCHEMENT_INCERTAIN" ? null : nombre(v.corridorM),
     // Un rapprochement incertain n'a JAMAIS de mesure, meme si le serveur en rendait une : rien n'est affiche qui ressemblerait a une distance.
     mesure: statut === "RAPPROCHEMENT_INCERTAIN" ? null : lireMesure(v.mesure),
     conflitId: texte(v.conflitId),

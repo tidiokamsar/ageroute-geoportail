@@ -112,8 +112,9 @@ function DialogueSimple({ titre, texte, libelle, enLigne, onFermer, action }: { 
 function DialogueRetraitValeur({ domaine, valeur, enLigne, onFermer, onFait }: { domaine: DomaineReferentiel; valeur: ValeurReferentiel; enLigne: boolean; onFermer: () => void; onFait: (l: string) => void }) {
   const retirer = useRetirerValeur(domaine);
   const modifier = useModifierValeur(domaine);
-  const { enCours, erreur, envoyer } = useEnvoiDialogue(onFermer, classerErreurTerritoires);
-  const utilisee = erreur?.code === "VALEUR_UTILISEE";
+  const { enCours, erreur, envoyer, codesVus } = useEnvoiDialogue(onFermer, classerErreurTerritoires);
+  // Revue m6 : une fois le 409 VALEUR_UTILISEE vu, le dialogue reste celui de la desactivation, meme si celle-ci echoue ensuite (reseau).
+  const utilisee = codesVus.has("VALEUR_UTILISEE");
   return (
     <CadreDialogue
       titre={utilisee ? `Désactiver « ${valeur.libelle} » plutôt ?` : `Retirer « ${valeur.libelle} » ?`}

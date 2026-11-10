@@ -368,7 +368,7 @@ describe("etape 3 : systeme de coordonnees et unites", () => {
     piege("apercu", ERREUR(409, "CONFIRMATION_HORS_ZONE_REQUISE", { nbElementsHorsZone: 4, nbObjets: 10 }));
     await u.click(bouton("Vérifier la transformation"));
     const alerte = await screen.findByTestId("alerte-hors-zone");
-    expect(alerte).toHaveTextContent("4 élément(s) sur 10 tombent hors de la Guinée");
+    expect(alerte).toHaveTextContent("4 élément(s) sur 10 tombent hors de la zone attendue « Guinee »");
     expect(alerte).toHaveTextContent("avancement bloqué");
     expect(bouton("Continuer")).toBeDisabled();
     const confirmer = within(alerte).getByRole("button", { name: "Confirmer et recalculer l'aperçu" });
@@ -491,7 +491,7 @@ describe("etape 5 : controles, echantillon sur tableau ET carte", () => {
     const v = screen.getByTestId("validation-geometrique");
     expect(v).toHaveTextContent("1 géométrie(s) invalide(s) : la base les répare au dépôt");
     expect(within(v).getByRole("region", { name: "Géométries invalides" })).toHaveTextContent("Auto-intersection (sera réparée par la base au dépôt)");
-    expect(within(v).getByRole("region", { name: "Éléments écartés du fichier" })).toHaveTextContent("Hors de la zone attendue (la Guinée)");
+    expect(within(v).getByRole("region", { name: "Éléments écartés du fichier" })).toHaveTextContent("Hors de l'emprise nationale configurée");
     expect(dialogue()).toHaveTextContent(/Altitude|altitude des points est ignorée/);
     expect(screen.getByTestId("bloc-crs")).toBeInTheDocument();
   });

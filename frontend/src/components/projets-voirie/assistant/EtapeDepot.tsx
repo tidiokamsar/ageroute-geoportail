@@ -46,6 +46,8 @@ export function EtapeDepot({ saisie: s, erreurs, options, occupe, enLigne, onSai
   const gdalIndisponibles = options.formatsGdal?.formats.filter((f) => f.etat === "INDISPONIBLE") ?? [];
   const gdalSupportes = options.formatsGdal?.formats.filter((f) => f.etat === "SUPPORTE") ?? [];
   const typesV = types.data?.valeurs;
+  // Revue UI-C m1 : sans type precise, la famille envoyee est celle du CONCESSIONNAIRE, jamais celle d'un type choisi puis abandonne.
+  const familleConcessionnaire = concessionnaires.data?.find((x) => x.id === s.concessionnaireId)?.typeReseau ?? "";
   const libelleFamille = (f: string | null | undefined) => (f && f in STYLE_RESEAU ? STYLE_RESEAU[f as keyof typeof STYLE_RESEAU].libelle : null);
   const tiers = s.role === "RESEAU_TIERS";
   const err = (k: string) => erreurs[k];
@@ -57,8 +59,9 @@ export function EtapeDepot({ saisie: s, erreurs, options, occupe, enLigne, onSai
   }
   function choisirConcessionnaire(cid: string) {
     const c = concessionnaires.data?.find((x) => x.id === cid);
-    // Le type repris du concessionnaire : son code s'il en porte un, sinon sa famille (repli du contrat T1). Un choix deja fait n'est pas ecrase.
-    onSaisie({ concessionnaireId: cid, typeReseauCode: s.typeReseauCode || c?.typeReseauCode || "", typeReseau: s.typeReseau || c?.typeReseau || "" });
+    // Le type est celui du concessionnaire choisi : son code s'il en porte un, sinon sa famille (repli du contrat T1). Revue UI-C m1 : rien n'est
+    // garde du concessionnaire precedent (le jeu partirait avec le type d'un autre reseau) ; l'utilisateur peut ensuite le preciser.
+    onSaisie({ concessionnaireId: cid, typeReseauCode: c?.typeReseauCode ?? "", typeReseau: c?.typeReseau ?? "" });
   }
   function surDepot(e: DragEvent<HTMLLabelElement>) {
     e.preventDefault();
@@ -140,7 +143,7 @@ export function EtapeDepot({ saisie: s, erreurs, options, occupe, enLigne, onSai
         </Champ>
         {tiers && (
           <Champ id={`${id}-type`} libelle="Type de réseau" aide={types.isError ? `Liste indisponible : ${classerErreurTerritoires(types.error).message}` : "Repris du concessionnaire s'il est connu. La famille technique en est déduite par le serveur."}>
-            <Select id={`${id}-type`} value={s.typeReseauCode} onChange={(e) => onSaisie({ typeReseauCode: e.target.value, typeReseau: e.target.value ? familleDuType(typesV?.find((t) => t.code === e.target.value)) ?? "" : s.typeReseau })} disabled={occupe || types.isPending} className="mt-1 border-gray-300">
+            <Select id={`${id}-type`} value={s.typeReseauCode} onChange={(e) => onSaisie({ typeReseauCode: e.target.value, typeReseau: (e.target.value ? familleDuType(typesV?.find((t) => t.code === e.target.value)) : null) ?? familleConcessionnaire })} disabled={occupe || types.isPending} className="mt-1 border-gray-300">
               <option value="">{types.isPending ? "Chargement des types…" : s.typeReseau && libelleFamille(s.typeReseau) ? `Non précisé (famille du concessionnaire : ${libelleFamille(s.typeReseau)})` : "Non précisé"}</option>
               {optionsDeChoix(typesV, s.typeReseauCode || null).map((o) => <option key={o.code} value={o.code} disabled={o.desactivee}>{o.libelle}</option>)}
             </Select>
