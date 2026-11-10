@@ -29,6 +29,10 @@ export function jeuDeFiche(j: JeuVu) {
   };
 }
 
+/** Revue du lot X1 (M3, mesure de la memoire) : axes listes au plus, et longueur de leur nom, dans les agregats de l'archive. */
+export const AXES_AGREGATS_MAX = 1_000;
+export const NOM_AXE_MAX = 500;
+
 const CLES_ANALYSE = ["projet", "statut", "versionAlgorithme", "regle", "inclureNonAutorises", "parametres", "libelles", "natures", "axes", "jeux", "reseaux", "hypotheses", "limites"] as const;
 
 /**
@@ -43,11 +47,14 @@ export function agregatsAnalyse(reponse: Record<string, unknown>): Record<string
   sortie.conflits = {
     total: conflits.total ?? null,
     parConcessionnaire: conflits.parConcessionnaire ?? [],
-    parAxe: parAxe.map((a) => {
+    parAxe: parAxe.slice(0, AXES_AGREGATS_MAX).map((a) => {
       const { objets: _o, objetsTronques: _t, ...reste } = a;
       void _o; void _t;
-      return { ...reste, nbObjetsListes: Array.isArray(a.objets) ? a.objets.length : 0 };
+      const axe = typeof reste.axe === "string" && reste.axe.length > NOM_AXE_MAX ? reste.axe.slice(0, NOM_AXE_MAX) : reste.axe;
+      return { ...reste, axe, nbObjetsListes: Array.isArray(a.objets) ? a.objets.length : 0 };
     }),
+    parAxeTronque: parAxe.length > AXES_AGREGATS_MAX,
+    nbAxes: parAxe.length,
     croisements: { nbTotal: (conflits.croisements as { nbTotal?: unknown } | undefined)?.nbTotal ?? null, geometries: "non exportees" },
   };
   return sortie;

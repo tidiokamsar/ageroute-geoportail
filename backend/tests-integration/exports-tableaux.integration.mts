@@ -441,6 +441,9 @@ async function main() {
   const premierInterne = await depot(PID_D, await ligneE(0, "Ligne electrique X1"), { role: "RESEAU_TIERS", concessionnaireId: CT2, confidentialite: "INTERNE" }, "elec-x1.geojson");
   verifier("9. revue M1 : un gestionnaire ne depose pas un reseau de concessionnaire sous CONFIDENTIEL_CONCESSIONNAIRE (403 CONFIDENTIALITE_ABAISSEMENT_RESERVE), rien n'est cree",
     premierInterne.status === 403 && premierInterne.body.code === "CONFIDENTIALITE_ABAISSEMENT_RESERVE" && (await compter(`SELECT count(*) n FROM projets_voirie_jeux WHERE "concessionnaireId" = $1`, CT2)) === 0, premierInterne.body);
+  const limitesInternes = await depot(PID, await geojson([{ nom: "Limite nord X1 v2", pts: [[0, 9], [200, 9]] }]), { role: "LIMITES_ROUTE", confidentialite: "INTERNE" }, "limites-x1-v2.geojson");
+  verifier("9. revue M1 : une nouvelle version de limites de route (lignee RESTREINT_PROJET) deposee en INTERNE par un gestionnaire : 403 (abaissement sous la version precedente)",
+    limitesInternes.status === 403 && limitesInternes.body.code === "CONFIDENTIALITE_ABAISSEMENT_RESERVE" && limitesInternes.body.plancher === "RESTREINT_PROJET", limitesInternes.body);
   const JE = await deposer(PID_D, await ligneE(0, "Ligne electrique X1"), { role: "RESEAU_TIERS", concessionnaireId: CT2 }, "elec-x1.geojson");
   await autoriser(PID_D, JE);
   const v2Gest = await depot(PID_D, await ligneE(1, "Ligne electrique X1 b"), { role: "RESEAU_TIERS", concessionnaireId: CT2, confidentialite: "INTERNE", justificationConfidentialite: "Le gestionnaire tente d'abaisser le niveau" }, "elec-x1-b.geojson");

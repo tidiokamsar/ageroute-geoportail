@@ -193,6 +193,10 @@ describe("agregats d'analyse : jamais de geometrie ni de liste d'objets", () => 
     expect(texte).not.toMatch(/coordinates|objet secret|Polygon|Feature/);
     expect(a).not.toHaveProperty("cleFuture");
     expect((a.conflits as { parAxe: unknown[] }).parAxe).toEqual([{ axe: "Axe 1", empriseM: 3, nbObjetsListes: 1 }]);
+    // Revue M3 : axes listes bornes (1 000) et noms tronques (500 caracteres), le nombre total reste dit.
+    const beaucoup = agregatsAnalyse({ conflits: { parAxe: Array.from({ length: 1_500 }, (_, i) => ({ axe: `${i}`.padEnd(2_000, "a"), objets: [] })) } });
+    const c = beaucoup.conflits as { parAxe: { axe: string }[]; parAxeTronque: boolean; nbAxes: number };
+    expect([c.parAxe.length, c.parAxe[0].axe.length, c.parAxeTronque, c.nbAxes]).toEqual([1_000, 500, true, 1_500]);
     expect((a.conflits as { croisements: unknown }).croisements).toEqual({ nbTotal: 1, geometries: "non exportees" });
   });
 });
