@@ -22,7 +22,8 @@ import { avecTerritoireParDefaut } from "./lib/territoire-par-defaut.mts";
 import { verifier, conclure, proche } from "./lib/verdict.ts";
 
 const banc = await ouvrirBancClone("essai_sources_s1", {
-  migrations: ["20261031100000_conflits_projets_voirie", "20261101200000_reseaux_physiques_logiques", "20261101300000_workflow_roles_recolement", "20261102200000_import_jobs_gdal", "20261103300000_multi_sources_comparaison"],
+  migrations: ["20261031100000_conflits_projets_voirie", "20261101200000_reseaux_physiques_logiques", "20261101300000_workflow_roles_recolement", "20261102200000_import_jobs_gdal", "20261103300000_multi_sources_comparaison",
+    "20261103400000_correctifs_sources_territoires"],
 });
 const { prisma } = await banc.imp("lib/prisma");
 const { createApp } = await banc.imp("app");
@@ -152,7 +153,7 @@ async function main() {
   exemples["comparaison_creee"] = c1.body;
   verifier("2. comparaison 201, mode SOURCES, A = la source deposee la premiere quel que soit l'ordre de la demande, version d'algorithme et regle par defaut enregistrees",
     c1.status === 201 && c1.body.comparaison.mode === "SOURCES" && c1.body.comparaison.jeuAId === JA && c1.body.comparaison.jeuBId === JB
-    && c1.body.comparaison.versionAlgorithme === "S1-CORRIDOR-UTM-1" && c1.body.comparaison.regle.code === "S1-CORRIDOR-0.1" && c1.body.comparaison.regle.margeM === 1, c1.body);
+    && c1.body.comparaison.versionAlgorithme === "S1-CORRIDOR-UTM-1" && c1.body.comparaison.regle.code === "S1-CORRIDOR-0.2" && c1.body.comparaison.regle.margeM === 1, c1.body);
   verifier("2. resume : 1 concordance, 1 divergence, 1 sans correspondance A, 1 sans correspondance B, aucun incertain ; corridor 2 m (max 1, 1 + 1)",
     c1.body.resume.totaux.CONCORDANCE === 1 && c1.body.resume.totaux.DIVERGENCE === 1 && c1.body.resume.totaux.SANS_CORRESPONDANCE_A === 1 && c1.body.resume.totaux.SANS_CORRESPONDANCE_B === 1
     && c1.body.resume.totaux.RAPPROCHEMENT_INCERTAIN === 0 && c1.body.resume.corridor.minM === 2 && c1.body.resume.corridor.maxM === 2, c1.body.resume);
@@ -179,6 +180,47 @@ async function main() {
     c2.status === 201 && inst.length === 2 && JSON.stringify(inst[0].i) === JSON.stringify(inst[1].i) && (await cles(CMP1)) === (await cles(c2.body.comparaison.id)), inst.map((x) => x.numero));
   verifier("3. les geometries d'origine ne sont ni modifiees ni fusionnees (empreinte de tous les objets identique)",
     (await sql<{ h: string }>(`SELECT md5(string_agg(encode(ST_AsEWKB(geom), 'hex'), '|' ORDER BY id)) h FROM projets_voirie_objets`))[0].h === geomAvant[0].h);
+
+  // ================================================================ 3 bis. Correctifs T1+S1 (M1) : CRS du territoire, comme l'analyse 2D
+  const TID = (await sql<{ t: string }>(`SELECT "territoireId" t FROM projets_voirie WHERE id = $1`, PID))[0].t;
+  const crsImpose = await envoyer("patch", `/territoires/${TID}`, { crsMetriqueEpsg: 32628 }, T.admin);
+  const cT = await envoyer("post", `/${PID}/comparaisons`, { jeuAId: JA, jeuBId: JB });
+  await envoyer("patch", `/territoires/${TID}`, { crsMetriqueEpsg: null }, T.admin);
+  verifier("3 bis. M1 : sans CRS impose, la regle par bandes (32629 a cette longitude) est enregistree avec son origine ; un territoire qui impose 32628 : la comparaison calcule et persiste 32628 (origine TERRITOIRE), comme l'analyse 2D",
+    c1.body.comparaison.epsg === 32629 && c1.body.resume.crs?.source === "BANDES" && crsImpose.status === 200 && cT.status === 201 && cT.body.comparaison.epsg === 32628
+    && cT.body.resume.crs?.source === "TERRITOIRE" && cT.body.resume.crs?.crsImpose === 32628 && cT.body.resume.crs?.territoireId === TID
+    && (await sql<{ e: number; s: string }>(`SELECT epsg e, resume->'crs'->>'source' s FROM comparaisons_sources_projet WHERE id = $1`, cT.body.comparaison.id))[0].s === "TERRITOIRE",
+    [c1.body.resume.crs, crsImpose.body, cT.body.comparaison?.epsg, cT.body.resume?.crs]);
+
+  // ================================================================ 3 ter. Correctifs T1+S1 (M3) : le type configurable fait l'identite du reseau
+  const typeFibre = await envoyer("post", "/referentiels/TYPE_RESEAU", { code: "FIBRE_BANC", libelle: "Fibre optique (banc)", parametres: { famille: "TELECOM" } }, T.admin);
+  const dFibre = await deposer(PID, await geojson([ligne("Cable Concord", 0.2), ligne("Fourreau F", 600)]),
+    { role: "RESEAU_TIERS", concessionnaireId: CT, typeReseauCode: "FIBRE_BANC", methodeAcquisition: "NUMERISATION_PLAN", precisionHorizontaleM: "1" }, "telecom-fibre.geojson");
+  const JF = dFibre.id;
+  await autoriser(PID, JF);
+  const sF = await get(`/${PID}/sources`);
+  const grpTelecom = (sF.body.reseaux as { typeReseauCode: string | null; nbSources: number; concessionnaire: { id: string } | null }[]).filter((r) => r.concessionnaire?.id === CT);
+  const cmpFibre = await envoyer("post", `/${PID}/comparaisons`, { jeuAId: JA, jeuBId: JF });
+  verifier("3 ter. M3 : un second type de la MEME famille (FIBRE_BANC, famille TELECOM), meme concessionnaire et meme methode que JA : version 1, ne remplace pas JA, les deux restent AUTORISE (index de la base), deux reseaux distincts dans la vue des sources, et jamais compares (409 RESEAU_DIFFERENT)",
+    typeFibre.status === 201 && (dFibre.corps.jeu as { version: number }).version === 1 && dFibre.corps.remplace === null && (await statut(JA)) === "AUTORISE" && (await statut(JF)) === "AUTORISE"
+    && grpTelecom.length === 2 && grpTelecom.some((r) => r.typeReseauCode === "FIBRE_BANC" && (r as { typeReseauLibelle?: string }).typeReseauLibelle === "Fibre optique (banc)" && r.nbSources === 1)
+    && grpTelecom.some((r) => r.typeReseauCode !== "FIBRE_BANC" && (r as { typeReseauLibelle?: string }).typeReseauLibelle === "Télécommunications") && cmpFibre.status === 409 && cmpFibre.body.motif === "RESEAU_DIFFERENT",
+    [typeFibre.body, dFibre.corps.remplace, grpTelecom, cmpFibre.body]);
+
+  // ================================================================ 3 quater. Correctifs T1+S1 (M5) : objets de meme nom
+  const CD = await conc("Operateur Doublons Synthetique", "TELECOM");
+  const JD1 = (await deposer(PID, await geojson([ligne("Fourreau", 3000), ligne("Fourreau", 3100)]), { role: "RESEAU_TIERS", concessionnaireId: CD, methodeAcquisition: "NUMERISATION_PLAN", precisionHorizontaleM: "1" }, "doublons-plan.geojson")).id;
+  await autoriser(PID, JD1);
+  const JD2 = (await deposer(PID, await geojson([ligne("Fourreau", 3000.5), ligne("Fourreau", 3106)]), { role: "RESEAU_TIERS", concessionnaireId: CD, methodeAcquisition: "GNSS_RTK", precisionHorizontaleM: "1" }, "doublons-gnss.geojson")).id;
+  await autoriser(PID, JD2);
+  const cD = await envoyer("post", `/${PID}/comparaisons`, { jeuAId: JD1, jeuBId: JD2 });
+  const cD2 = await envoyer("post", `/${PID}/comparaisons`, { jeuAId: JD1, jeuBId: JD2 });
+  const oD = await get(`/${PID}/comparaisons/${cD.body.comparaison?.id}/objets`);
+  const statutsD = (oD.body.resultats as { statut: string; objetA: { id: string } | null; objetB: { id: string } | null }[] ?? []).map((r) => r.statut).sort();
+  verifier("3 quater. M5 : deux objets « Fourreau » dans chaque source (l'un concordant, l'autre divergent de 6 m) : deux resultats, une CONCORDANCE et une DIVERGENCE (Hausdorff 6 m), aucun objet hors des totaux, cles uniques et identiques au rejeu",
+    cD.status === 201 && JSON.stringify(statutsD) === JSON.stringify(["CONCORDANCE", "DIVERGENCE"]) && cD.body.resume.totaux.resultats === 2 && cD.body.resume.totaux.SANS_CORRESPONDANCE_B === 0
+    && proche((oD.body.resultats as { statut: string; mesure: { hausdorffM: number } }[]).find((r) => r.statut === "DIVERGENCE")!.mesure.hausdorffM, 6, 0.02)
+    && (await cles(cD.body.comparaison.id)) === (await cles(cD2.body.comparaison.id)) && new Set((oD.body.resultats as { cle: string }[]).map((r) => r.cle)).size === 2, [cD.body.resume?.totaux, oD.body.resultats]);
 
   // ================================================================ 4. Precision inconnue : rapprochement incertain, aucune mesure
   const JE1 = (await deposer(PID, await geojson([ligne("Conduite X", 100)]), { role: "RESEAU_TIERS", concessionnaireId: CE, methodeAcquisition: "TOPOGRAPHIE" }, "eau-topo.geojson")).id;
@@ -210,7 +252,7 @@ async function main() {
   verifier("5. BASE : une regle approuvee est immuable (23001)", imm === "23001", imm);
   const lr = await get(`/${PID}/regles-rapprochement`, T.lecteur);
   verifier("5. la regle effective TELECOM est la nouvelle (portee PROJET_FAMILLE), les autres familles gardent la regle par defaut",
-    lr.status === 200 && lr.body.effectives.find((e: { famille: string }) => e.famille === "TELECOM").code === "S1-TELECOM" && lr.body.effectives.find((e: { famille: string }) => e.famille === "EAU_POTABLE").code === "S1-CORRIDOR-0.1", lr.body.effectives);
+    lr.status === 200 && lr.body.effectives.find((e: { famille: string }) => e.famille === "TELECOM").code === "S1-TELECOM" && lr.body.effectives.find((e: { famille: string }) => e.famille === "EAU_POTABLE").code === "S1-CORRIDOR-0.2", lr.body.effectives);
   const c3 = await envoyer("post", `/${PID}/comparaisons`, { jeuAId: JA, jeuBId: JB });
   verifier("5. la comparaison suivante applique et enregistre la regle approuvee : corridor 3,5 m, le cable decale de 3 m devient CONCORDANCE (2 concordances)",
     c3.body.comparaison.regle.code === "S1-TELECOM" && c3.body.comparaison.regle.version === 1 && c3.body.resume.corridor.maxM === 3.5 && c3.body.resume.totaux.CONCORDANCE === 2 && c3.body.resume.totaux.DIVERGENCE === 0, c3.body.resume);
@@ -249,13 +291,51 @@ async function main() {
   const grpAx = sAx.body.reseaux.find((r: { role: string }) => r.role === "AXES_TRAVAUX"), grpAxL = sAxL.body.reseaux.find((r: { role: string }) => r.role === "AXES_TRAVAUX");
   verifier("7. la vue des sources montre au gestionnaire la version candidate du plan d'axes ; au lecteur, ni le jeu en controle ni sa presence (aucune cle versionsCandidates)",
     grpAx?.statut === "SOURCE_UNIQUE_COMPARAISON_INDISPONIBLE" && grpAx.versionsCandidates?.[0]?.jeuId === AX2 && grpAxL && !("versionsCandidates" in grpAxL) && !JSON.stringify(sAxL.body).includes(AX2), [grpAx, grpAxL]);
+  // Correctifs T1+S1 (M6, decision de l'architecte) : la regle systeme n'a AUCUN bareme : le plan PDF qui ne declare qu'une classe (C) laisse le
+  // rapprochement incertain, sans distance.
+  const cAx0 = await envoyer("post", `/${PID}/comparaisons`, { jeuAId: AX2, jeuBId: AX1 });
+  const oAx0 = await get(`/${PID}/comparaisons/${cAx0.body.comparaison?.id}/objets`);
+  verifier("7. M6 : regle systeme S1-CORRIDOR-0.2 sans bareme : une classe seule n'est pas une precision en metres : RAPPROCHEMENT_INCERTAIN pour les deux axes, aucune distance, origine INCONNUE, aucun bareme applique",
+    cAx0.status === 201 && cAx0.body.comparaison.regle.code === "S1-CORRIDOR-0.2" && cAx0.body.comparaison.regle.precisionParClasseM === null && cAx0.body.comparaison.regle.bareme?.applicable === false
+    && cAx0.body.resume.totaux.RAPPROCHEMENT_INCERTAIN === 2 && cAx0.body.resume.totaux.DIVERGENCE === 0 && cAx0.body.resume.bareme?.applique === false
+    && (oAx0.body.resultats as { statut: string; mesure: unknown; corridorM: unknown; objetA: { originePrecision: string } }[]).every((r) => r.statut === "RAPPROCHEMENT_INCERTAIN" && r.mesure === null && r.corridorM === null && r.objetA.originePrecision === "INCONNUE"),
+    [cAx0.body.comparaison?.regle, cAx0.body.resume, oAx0.body.resultats]);
+  const systemes = await sql<{ code: string; statut: string; p: unknown }>(`SELECT code, statut::text, "precisionParClasseM" p FROM regles_rapprochement_sources WHERE "creeParId" IS NULL ORDER BY code`);
+  verifier("7. M6 : la regle systeme S1-CORRIDOR-0.1 (bareme provisoire) est RETIREE, sans modification de son contenu ; S1-CORRIDOR-0.2 n'a aucun bareme",
+    systemes.length === 2 && systemes[0].code === "S1-CORRIDOR-0.1" && systemes[0].statut === "RETIREE" && JSON.stringify(systemes[0].p) === JSON.stringify({ A: 0.5, B: 1, C: 2, D: 5 })
+    && systemes[1].code === "S1-CORRIDOR-0.2" && systemes[1].statut === "APPROUVEE" && JSON.stringify(systemes[1].p) === "{}", systemes);
+  // Un bareme n'est admis que dans une regle creee par une personne et approuvee par un ADMIN AUTRE que l'auteur : l'auteur ne l'approuve pas, meme avec derogation.
+  const BAREME_BANC = { A: 0.5, B: 1, C: 2, D: 5 };
+  const rgAdminBareme = await envoyer("post", `/${PID}/regles-rapprochement`, { code: "S1-AXES-ADMIN", precisionParClasseM: BAREME_BANC, justification: "Bareme propose par l'administrateur" }, T.admin);
+  // Decision de l'architecte (10/11/2026) : aucune derogation n'existe plus (champ refuse, 400) ; sans elle, l'auteur est refuse (409).
+  const avecDerogation = await envoyer("post", `/${PID}/regles-rapprochement/${rgAdminBareme.body.regle?.id}/approuver`, { justification: "Relue et approuvee", derogation: "Seul administrateur disponible ce jour" }, T.admin);
+  const autoBareme = await envoyer("post", `/${PID}/regles-rapprochement/${rgAdminBareme.body.regle?.id}/approuver`, { justification: "Relue et approuvee" }, T.admin);
+  const rgBareme = await envoyer("post", `/${PID}/regles-rapprochement`, { code: "S1-AXES-BAREME", precisionParClasseM: BAREME_BANC, justification: "Bareme des classes valide par le bureau d'etudes" });
+  const apBareme = await envoyer("post", `/${PID}/regles-rapprochement/${rgBareme.body.regle?.id}/approuver`, { justification: "Bareme relu et approuve" }, T.admin);
+  const autoBase = await essaiAnnule((tx) => tx.$executeRawUnsafe(`UPDATE regles_rapprochement_sources SET statut = 'APPROUVEE', "approuveParId" = "creeParId", "approuveLe" = now() WHERE id = $1`, rgAdminBareme.body.regle?.id));
+  verifier("7. M6 et decision de l'architecte : le champ derogation est refuse (400) ; l'auteur n'approuve pas sa regle (409 SEPARATION_DES_TACHES ; la base le refuse aussi, 23514) ; creee par le gestionnaire, approuvee par l'ADMIN : bareme applicable",
+    rgAdminBareme.status === 201 && avecDerogation.status === 400 && avecDerogation.body.code === "CHAMPS_INVALIDES"
+    && autoBareme.status === 409 && autoBareme.body.code === "SEPARATION_DES_TACHES" && autoBareme.body.bareme === true && autoBase === "23514"
+    && rgBareme.status === 201 && apBareme.status === 200 && apBareme.body.regle.baremeApplicable === true, [autoBareme.body, autoBase, apBareme.body]);
   const cAx = await envoyer("post", `/${PID}/comparaisons`, { jeuAId: AX2, jeuBId: AX1 });
+  verifier("7. M6 : la reponse et la comparaison persistee disent que le corridor provient d'un bareme approuve, avec la regle et sa version",
+    cAx.status === 201 && cAx.body.comparaison.regle.code === "S1-AXES-BAREME" && cAx.body.comparaison.regle.bareme?.source === "REGLE_APPROUVEE" && cAx.body.comparaison.regle.bareme?.applique === true
+    && cAx.body.resume.bareme?.applique === true && cAx.body.resume.bareme.regle?.code === "S1-AXES-BAREME" && cAx.body.resume.bareme.regle?.version === 1 && cAx.body.resume.bareme.regle?.approuveParId === admin.id
+    && (cAx.body.resume.limites as string[]).some((l) => /barème approuvé de la règle S1-AXES-BAREME version 1/.test(l))
+    && (await sql<{ s: string }>(`SELECT resume->'bareme'->'regle'->>'code' s FROM comparaisons_sources_projet WHERE id = $1`, cAx.body.comparaison.id))[0].s === "S1-AXES-BAREME"
+    // Provenance explicite du corridor (demande de l'architecte) : dans le resume persiste et par resultat.
+    && cAx.body.resume.corridor?.origine === "BAREME_APPROUVE" && cAx.body.resume.corridor.regleBareme?.code === "S1-AXES-BAREME" && cAx.body.resume.corridor.regleBareme?.version === 1
+    && cAx0.body.resume.corridor?.origine === "INCERTAIN" && c1.body.resume.corridor?.origine === "PRECISIONS_METRES"
+    && (await sql<{ o: string }>(`SELECT resume->'corridor'->>'origine' o FROM comparaisons_sources_projet WHERE id = $1`, cAx.body.comparaison.id))[0].o === "BAREME_APPROUVE",
+    [cAx.body.comparaison?.regle, cAx.body.resume?.bareme]);
   exemples["comparaison_version_candidate_axes"] = cAx.body;
   const oAx = await get(`/${PID}/comparaisons/${cAx.body.comparaison?.id}/objets`);
   const ax = (n: string) => oAx.body.resultats?.find((r: { objetA: { nom: string } | null }) => r.objetA?.nom === n);
   verifier("7. comparaison VERSION_CANDIDATE d'un plan d'axes : A = la version autorisee, B = la candidate ; precision de la classe C attribuee par la regle (2 m, origine CLASSE), corridor 3 m",
     cAx.status === 201 && cAx.body.comparaison.mode === "VERSION_CANDIDATE" && cAx.body.comparaison.role === "AXES_TRAVAUX" && cAx.body.comparaison.jeuAId === AX1 && cAx.body.comparaison.jeuBId === AX2
     && ax("Axe Route 1")?.objetA.originePrecision === "CLASSE" && ax("Axe Route 1")?.objetA.precisionM === 2 && ax("Axe Route 1")?.objetB.originePrecision === "JEU" && ax("Axe Route 1")?.corridorM === 3, [cAx.body, oAx.body]);
+  verifier("7. provenance du corridor par resultat : BAREME_APPROUVE pour les axes du plan PDF (classe C), PRECISIONS_METRES pour deux precisions en metres, nulle sans couple",
+    ax("Axe Route 1")?.origineCorridor === "BAREME_APPROUVE" && concord?.origineCorridor === "PRECISIONS_METRES" && par("Cable Seul A")?.origineCorridor === null, [ax("Axe Route 1")?.origineCorridor, concord?.origineCorridor]);
   verifier("7. Axe Route 1 decale de 1,5 m : CONCORDANCE ; Axe Route 2 decale de 5 m : DIVERGENCE (Hausdorff 5 m, 200 m hors corridor)",
     ax("Axe Route 1")?.statut === "CONCORDANCE" && ax("Axe Route 2")?.statut === "DIVERGENCE" && proche(ax("Axe Route 2").mesure.hausdorffM, 5, 0.02) && proche(ax("Axe Route 2").mesure.longueurHorsCorridorM, 200, 0.2), oAx.body.resultats);
   const axLect = await get(`/${PID}/comparaisons/${cAx.body.comparaison.id}`, T.lecteur);
@@ -283,6 +363,15 @@ async function main() {
     dossier.status === 201 && ligneK?.type === "DIVERGENCE_SOURCES" && ligneK.statut === "A_INVESTIGUER" && ligneK.cmp === cAx.body.comparaison.id && ligneK.pa === null && ligneK.ja === AX1 && ligneK.jr === null, [dossier.body, ligneK]);
   const deux = await envoyer("post", `/${PID}/comparaisons/${cAx.body.comparaison.id}/dossiers-conflit`, { resultatId: resAx2.id, justification: "Verification demandee sur le terrain" });
   verifier("8. un second dossier pour le meme resultat : 409 DOSSIER_DEJA_OUVERT avec l'identifiant du premier", deux.status === 409 && deux.body.code === "DOSSIER_DEJA_OUVERT" && deux.body.conflitId === kid, deux.body);
+  // Correctifs T1+S1, B1 : le jeu B (version candidate, en CONTROLE) entre dans la lisibilite du dossier.
+  const kB = (await sql<{ b: string | null }>(`SELECT "jeuSourceBId" b FROM conflits_projet WHERE id = $1`, kid))[0].b;
+  const [kLectCand, kListeLect, kChefCand] = await Promise.all([get(`/${PID}/conflits/${kid}`, T.lecteur), get(`/${PID}/conflits`, T.lecteur), get(`/${PID}/conflits/${kid}`)]);
+  verifier("8. B1 : le dossier porte le jeu B de sa comparaison (jeuSourceBId) ; B en CONTROLE : le LECTEUR recoit 404 sur la fiche et ne le voit pas dans sa liste ni ses compteurs ; le gestionnaire lit la mesure",
+    kB === AX2 && kLectCand.status === 404 && kLectCand.body.code === "CONFLIT_INTROUVABLE" && !JSON.stringify(kListeLect.body).includes(kid) && !JSON.stringify(kListeLect.body).includes(AX2)
+    && Object.values(kListeLect.body.compteurs as Record<string, number>).every((n) => n === 0) && kChefCand.status === 200 && kChefCand.body.conflit.mesure?.jeuBId === AX2,
+    [kB, kLectCand.status, kListeLect.body.total, kChefCand.body.conflit?.mesure]);
+  const fauxB = await essaiAnnule((tx) => tx.$executeRawUnsafe(`UPDATE conflits_projet SET "jeuSourceBId" = $2 WHERE id = $1`, kid, AX1));
+  verifier("8. B1, BASE : le jeu B d'un dossier est fige (23001)", fauxB === "23001", fauxB);
   const fiche = await get(`/${PID}/conflits/${kid}`);
   const hist = await sql<{ action: string; acteur: string | null; j: string | null }>(`SELECT action::text, "acteurId" acteur, justification j FROM conflits_projet_historique WHERE "conflitId" = $1`, kid);
   verifier("8. la fiche RC-3 du dossier se lit (200), sans analyse ; historique : une creation par la personne, avec sa justification",
@@ -293,6 +382,17 @@ async function main() {
   verifier("8. le resultat porte le lien vers le dossier, ecrit une seule fois (le changer : 23001)", lienRes === kid && lienFige === "23001", lienFige);
   // Une analyse RC-3 (plan d'axes AX1 autorise, reseaux autorises) ne touche pas le dossier de divergence.
   const analyse = await envoyer("post", `/${PID}/analyses`, {});
+  // Correctifs T1+S1 (M4) : l'analyse 2D, le comptage et l'analyse persistee RC-3 portent sur les MEMES jeux de reseau (toutes les sources autorisees).
+  const [a2d, cpt] = await Promise.all([get(`/${PID}/analyse`), get(`/${PID}/reseau/comptage`)]);
+  const reseau2d = (a2d.body.jeux as { jeuId: string; role: string }[] ?? []).filter((j) => j.role === "RESEAU_TIERS").map((j) => j.jeuId).sort();
+  const reseauCpt = (cpt.body.jeux as { jeuId: string; role: string }[] ?? []).filter((j) => j.role === "RESEAU_TIERS").map((j) => j.jeuId).sort();
+  const reseauRc3 = ((await sql<{ j: { jeuId: string; role: string }[] }>(`SELECT jeux j FROM analyses_conflit_projet WHERE id = $1`, analyse.body.analyse?.id))[0]?.j ?? [])
+    .filter((j) => j.role === "RESEAU_TIERS").map((j) => j.jeuId).sort();
+  const multi = (a2d.body.reseaux?.sourcesMultiples as { concessionnaireId: string; nbSources: number; jeuxIds: string[] }[] | undefined)?.find((m) => m.concessionnaireId === CT);
+  verifier("8. M4 : analyse 2D, comptage et RC-3 retiennent les memes jeux de reseau, dont les DEUX sources autorisees du reseau telecom (JA et JB) ; la double source est dite (sourcesMultiples et une limite) dans l'analyse et le comptage",
+    a2d.status === 200 && cpt.status === 200 && reseau2d.includes(JA) && reseau2d.includes(JB) && JSON.stringify(reseau2d) === JSON.stringify(reseauRc3) && JSON.stringify(reseauCpt) === JSON.stringify(reseauRc3)
+    && multi?.nbSources === 2 && multi.jeuxIds.includes(JA) && multi.jeuxIds.includes(JB) && (a2d.body.limites as string[]).some((l) => /double compte/.test(l))
+    && (cpt.body.sourcesMultiples as unknown[]).length >= 1 && (cpt.body.limites as string[]).some((l) => /double compte/.test(l)), [reseau2d, reseauCpt, reseauRc3, a2d.body.reseaux?.sourcesMultiples]);
   const apresAnalyse = (await sql<{ are: boolean; da: string | null; statut: string }>(`SELECT "aReexaminer" are, "derniereAnalyseId" da, statut::text FROM conflits_projet WHERE id = $1`, kid))[0];
   verifier("8. une analyse RC-3 ignore le dossier de divergence : ni NON_RETROUVE, ni analyse, ni statut change", analyse.status === 201 && apresAnalyse.are === false && apresAnalyse.da === null && apresAnalyse.statut === "A_INVESTIGUER", [analyse.status, analyse.body.code, apresAnalyse]);
   await autoriser(PID, AX2);
@@ -301,6 +401,11 @@ async function main() {
     (await statut(AX1)) === "REMPLACE" && kLect.status === 404, kLect.body);
 
   // ================================================================ 9. Jeu retire : donnees masquees a tous
+  // B1 : un dossier ouvert depuis la comparaison SOURCES (A = JA, B = JB) avant le retrait de B.
+  const dSrc = await envoyer("post", `/${PID}/comparaisons/${CMP1}/dossiers-conflit`, { resultatId: diverg.id, justification: "Ecart de 3 m entre le plan et le releve GNSS" });
+  const kSrc: string = dSrc.body.conflit?.id;
+  const kSrcLectAvant = await get(`/${PID}/conflits/${kSrc}`, T.lecteur);
+  verifier("9. B1 : dossier ouvert depuis deux sources AUTORISE : le lecteur le lit, mesure comprise (nom de l'objet B)", dSrc.status === 201 && kSrcLectAvant.status === 200 && kSrcLectAvant.body.conflit.mesure?.nomB === "Cable Divergent B", [dSrc.body, kSrcLectAvant.body.conflit?.mesure]);
   const ret = await envoyer("delete", `/${PID}/jeux/${JB}`);
   const detChef = await get(`/${PID}/comparaisons/${CMP1}`);
   const objChef = await get(`/${PID}/comparaisons/${CMP1}/objets`, T.admin);
@@ -308,6 +413,16 @@ async function main() {
   verifier("9. jeu RETIRE : le lecteur ne voit plus la comparaison (404) ; un gestionnaire ou un ADMIN la voit, donnees des jeux masquees (empreinte, fichier) et resultats masques (liste vide)",
     ret.status === 200 && detLect.status === 404 && detChef.status === 200 && detChef.body.comparaison.donneesMasquees === true && !JSON.stringify(detChef.body).includes("telecom-gnss")
     && objChef.status === 200 && objChef.body.masque === true && objChef.body.resultats.length === 0, [detChef.body.comparaison?.jeux, objChef.body]);
+  const [kSrcLect, kSrcAdmin, kSrcListeAdmin, kSrcCsv, kSrcListeLect] = await Promise.all([get(`/${PID}/conflits/${kSrc}`, T.lecteur), get(`/${PID}/conflits/${kSrc}`, T.admin),
+    get(`/${PID}/conflits?limite=100`, T.admin), get(`/${PID}/conflits/export.csv`, T.admin), get(`/${PID}/conflits?limite=100`, T.lecteur)]);
+  const cleSrc = (await sql<{ c: string }>(`SELECT cle c FROM conflits_projet WHERE id = $1`, kSrc))[0]?.c;
+  const ligneCsv = (kSrcCsv.text ?? "").split(/\r?\n/).find((l: string) => cleSrc !== undefined && l.endsWith(cleSrc));
+  const vueAdmin = (kSrcListeAdmin.body.conflits as { id: string }[]).find((c) => c.id === kSrc);
+  verifier("9. B1 : jeu B RETIRE (A toujours AUTORISE) : 404 au lecteur et absent de sa liste ; l'ADMIN voit le dossier (archive) sans mesure, objet, geometrie ni nom de l'objet B, dans la fiche, la liste et l'export CSV",
+    kSrcLect.status === 404 && !JSON.stringify(kSrcListeLect.body).includes(kSrc) && kSrcAdmin.status === 200 && kSrcAdmin.body.conflit.mesure === null && kSrcAdmin.body.conflit.geometrie === null
+    && kSrcAdmin.body.conflit.objet === null && !JSON.stringify(kSrcAdmin.body).includes("Cable Divergent B") && !JSON.stringify(kSrcAdmin.body).includes(JB)
+    && vueAdmin !== undefined && (vueAdmin as { mesure: unknown }).mesure === null && !JSON.stringify(kSrcListeAdmin.body).includes("Cable Divergent B")
+    && kSrcCsv.status === 200 && ligneCsv !== undefined && !ligneCsv.includes("Operateur Telecom Synthetique") && ligneCsv.split(";")[12] === "", [kSrcLect.status, kSrcAdmin.body.conflit, vueAdmin, ligneCsv]);
   const relance = await envoyer("post", `/${PID}/comparaisons`, { jeuAId: JA, jeuBId: JB });
   verifier("9. un jeu retire ne se compare plus : 404 JEU_INTROUVABLE (meme reponse qu'un jeu inconnu)", relance.status === 404 && relance.body.code === "JEU_INTROUVABLE", relance.body);
   const listeLect = await get(`/${PID}/comparaisons`, T.lecteur);
@@ -339,6 +454,20 @@ async function main() {
   const fC2b = await get(`/${PID}/reseau/objets/${C2o}`);
   verifier("10. saisie humaine justifiee : CONNECTE_A creee VALIDEE, preuve INCONNUE ; le cable C2 passe a l'etat INCONNUE (pas CONFIRMEE)",
     man.status === 201 && man.body.relation.typeRelation === "CONNECTE_A" && man.body.relation.preuve === "INCONNUE" && fC2b.body.connexions.etat === "INCONNUE", [man.body, fC2b.body.connexions]);
+  // Correctifs T1+S1 (m8) : une connexion vers un objet d'un jeu en CONTROLE n'est pas comptee dans l'etat de connexion d'un lecteur.
+  const JL2 = (await deposer(PID, await geojson([{ nom: "Cable C3", coords: [[150, 300], [220, 300]] }]), { role: "RESEAU_TIERS", concessionnaireId: CL, natureObjets: "ACTIF_PHYSIQUE", methodeAcquisition: "GNSS_RTK" }, "elec-controle.geojson")).id;
+  const C3o = (await sql<{ id: string }>(`SELECT id::text FROM projets_voirie_objets WHERE "jeuId" = $1`, JL2))[0].id;
+  const versControle = await envoyer("post", `/${PID}/reseau/relations`, { type: "CONNECTE_A", sourceObjetId: C2o, cibleObjetId: C3o, preuve: "CONFIRMEE_PAR_FOURNISSEUR", justification: "Connexion declaree par le fournisseur" });
+  const [cxLect, cxChef] = await Promise.all([get(`/${PID}/reseau/objets/${C2o}`, T.lecteur), get(`/${PID}/reseau/objets/${C2o}`)]);
+  verifier("10. m8 : un lien CONFIRMEE vers un objet d'un jeu en CONTROLE : le LECTEUR n'en voit rien (etat INCONNUE, 0 confirmee) ; le gestionnaire, qui lit ce jeu, voit CONFIRMEE",
+    (await statut(JL2)) === "CONTROLE" && versControle.status === 201 && cxLect.body.connexions?.etat === "INCONNUE" && cxLect.body.connexions.nbConfirmees === 0
+    && cxChef.body.connexions?.etat === "CONFIRMEE" && cxChef.body.connexions.nbConfirmees === 1, [versControle.body, cxLect.body.connexions, cxChef.body.connexions]);
+  // Correctifs T1+S1 (m6) : une famille demandee sans code, autre que celle du concessionnaire, est une surcharge admise (le code n'est pas herite).
+  const surcharge = await request(app).post(`${BASE}/${PID}/jeux?simuler=true`).set("Authorization", `Bearer ${T.chef}`)
+    .field("role", "RESEAU_TIERS").field("concessionnaireId", CT).field("typeReseau", "EAU_POTABLE").field("methodeAcquisition", "GEORADAR")
+    .attach("fichier", await geojson([ligne("Conduite surchargee", 5000)]), { filename: "surcharge.geojson" });
+  verifier("10. m6 : surcharge de famille au depot (EAU_POTABLE pour un concessionnaire TELECOM, sans code) : acceptee, famille EAU_POTABLE, aucun code herite (plus de 400 TYPE_RESEAU_INCOHERENT)",
+    surcharge.status === 200 && surcharge.body.jeu?.typeReseau === "EAU_POTABLE" && surcharge.body.jeu?.typeReseauCode === null, surcharge.body);
   const sansPreuve = await envoyer("post", `/${PID}/reseau/relations`, { type: "CONNECTE_A", sourceObjetId: C1o, cibleObjetId: C2o, justification: "Connexion visible sur la photo du releve" });
   const oJA = (await sql<{ id: string }>(`SELECT id::text FROM projets_voirie_objets WHERE "jeuId" = $1 ORDER BY id LIMIT 1`, JA))[0].id;
   const natureLogique = await envoyer("post", `/${PID}/reseau/relations`, { type: "CONNECTE_A", sourceObjetId: oJA, cibleObjetId: C1o, preuve: "INCONNUE", justification: "Connexion visible sur la photo du releve" });
@@ -365,18 +494,40 @@ async function main() {
     && (await essaiAnnule((tx) => tx.$executeRawUnsafe(`UPDATE comparaisons_sources_resultats SET statut = 'CONCORDANCE'`))) === "23001"
     && (await essaiAnnule((tx) => tx.$executeRawUnsafe(`TRUNCATE comparaisons_sources_resultats`))) === "23001");
 
+  // ================================================================ 11 bis. Correctifs T1+S1 (M2) : la methode d'acquisition vient du referentiel METHODE_ACQUISITION
+  const fichierAutre = await geojson([ligne("Objet libre", 2000)]);
+  const simule = (methode: string) => request(app).post(`${BASE}/${PID}/jeux?simuler=true`).set("Authorization", `Bearer ${T.chef}`)
+    .field("role", "AUTRE").field("methodeAcquisition", methode).attach("fichier", fichierAutre, { filename: `libre-${methode}.geojson` });
+  const gnss = await simule("GNSS"), lidarAvant = await simule("LIDAR");
+  const ajout = await envoyer("post", "/referentiels/METHODE_ACQUISITION", { code: "LIDAR", libelle: "Lidar mobile (banc)", parametres: {} }, T.admin);
+  const lidarApres = await simule("LIDAR");
+  await envoyer("patch", "/referentiels/METHODE_ACQUISITION/LIDAR", { actif: false }, T.admin);
+  const lidarInactif = await simule("LIDAR");
+  verifier("11 bis. M2 : un code du referentiel T1 (GNSS) est accepte au depot ; LIDAR est refuse (422 METHODE_ACQUISITION_INCONNUE) tant qu'un ADMIN ne l'a pas ajoute, accepte ensuite, refuse une fois desactive",
+    gnss.status === 200 && lidarAvant.status === 422 && lidarAvant.body.code === "METHODE_ACQUISITION_INCONNUE" && ajout.status === 201 && lidarApres.status === 200
+    && lidarInactif.status === 422 && lidarInactif.body.code === "METHODE_ACQUISITION_INCONNUE", [gnss.status, lidarAvant.body, ajout.body, lidarApres.status, lidarInactif.body]);
+  await envoyer("patch", "/referentiels/METHODE_ACQUISITION/GEORADAR", { actif: false }, T.admin);
+  const jeuxApres = await get(`/${PID}/jeux`);
+  const radar = (jeuxApres.body.jeux as { id: string; methodeAcquisition: string | null }[]).find((j) => j.id === JE2);
+  const retraitUtilise = await envoyer("delete", "/referentiels/METHODE_ACQUISITION/GNSS_RTK", undefined, T.admin);
+  await envoyer("patch", "/referentiels/METHODE_ACQUISITION/GEORADAR", { actif: true }, T.admin);
+  verifier("11 bis. M2 : une valeur desactivee reste lisible sur le jeu qui la porte ; retirer une valeur portee par un jeu : 409 VALEUR_UTILISEE (jeux comptes)",
+    radar?.methodeAcquisition === "GEORADAR" && retraitUtilise.status === 409 && retraitUtilise.body.code === "VALEUR_UTILISEE" && retraitUtilise.body.usages?.jeux >= 1, [radar, retraitUtilise.body]);
+  const baseInconnue = await essaiAnnule((tx) => tx.$executeRawUnsafe(`UPDATE projets_voirie_jeux SET "methodeAcquisition" = 'METHODE_INEXISTANTE' WHERE id = $1`, JE1));
+  verifier("11 bis. M2, BASE : un code absent du referentiel est refuse par la base (23503)", baseInconnue === "23503", baseInconnue);
+
   // ================================================================ 12. Isolation et audit
   const apresTout = await etat();
   const diff = Object.keys(apresTout).filter((t) => apresTout[t] !== avantTout[t]);
-  const permis = new Set(["audit_logs", "territoires_voirie", "projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau", "reseau_relations", "regles_rapprochement_sources",
+  const permis = new Set(["audit_logs", "territoires_voirie", "territoires_voirie_historique", "referentiels_voirie", "referentiels_voirie_historique", "projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau", "reseau_relations", "regles_rapprochement_sources",
     "comparaisons_sources_projet", "comparaisons_sources_resultats", "conflits_projet", "conflits_projet_historique", "analyses_conflit_projet"]);
   verifier("12. ISOLATION : seules les tables du module et l'audit changent ; le referentiel est intact", diff.every((t) => permis.has(t)) && (await empreinteTroncons()) === empreinteAvant, diff.filter((t) => !permis.has(t)));
   const audits = await sql<{ t: string; n: bigint }>(`SELECT "entityType" t, count(*) n FROM audit_logs WHERE "entityType" IN ('ComparaisonSources','RegleRapprochementSources') GROUP BY 1 ORDER BY 1`);
   const geomAudit = await compter(`SELECT count(*) n FROM audit_logs WHERE "entityType" IN ('ComparaisonSources','RegleRapprochementSources','ConflitProjet','ReseauRelation','JeuDonneesProjet') AND (after::text ~* '(coordinates|LINESTRING|POINT\\()' OR before::text ~* '(coordinates|LINESTRING|POINT\\()')`);
   const nbCmp = await compter(`SELECT count(*) n FROM comparaisons_sources_projet`);
-  // Regles : deux creations (gestionnaire, administrateur) et une approbation ; l'auto-approbation refusee n'ecrit rien.
+  // Regles : quatre creations (gestionnaire, administrateur, deux regles a bareme) et deux approbations ; les auto-approbations refusees n'ecrivent rien.
   verifier("12. AUDIT : une ligne par comparaison (terminee ou en echec) et par acte reussi sur une regle (2 creations, 1 approbation) ; aucune geometrie dans l'audit",
-    Number(audits.find((a) => a.t === "ComparaisonSources")?.n) === nbCmp && Number(audits.find((a) => a.t === "RegleRapprochementSources")?.n) === 3 && geomAudit === 0,
+    Number(audits.find((a) => a.t === "ComparaisonSources")?.n) === nbCmp && Number(audits.find((a) => a.t === "RegleRapprochementSources")?.n) === 6 && geomAudit === 0,
     [audits.map((a) => [a.t, Number(a.n)]), nbCmp, geomAudit]);
 
   // ================================================================ 13. Projet supprime : 404 pour tous

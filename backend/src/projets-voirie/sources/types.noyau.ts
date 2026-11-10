@@ -27,7 +27,11 @@ export type OriginePrecision = "OBJET" | "JEU" | "CLASSE" | "INCONNUE";
  */
 export const VERSION_ALGORITHME_COMPARAISON = "S1-CORRIDOR-UTM-1";
 
-export const CODE_REGLE_RAPPROCHEMENT_DEFAUT = "S1-CORRIDOR-0.1";
+/**
+ * Regle systeme de rapprochement (correctifs T1+S1, M6, decision de l'architecte du 09/11/2026) : S1-CORRIDOR-0.2, SANS bareme par classe. La regle
+ * S1-CORRIDOR-0.1 (bareme provisoire {A: 0.5, B: 1, C: 2, D: 5}) est RETIREE par la migration 20261103400000 ; elle reste lisible dans l'historique.
+ */
+export const CODE_REGLE_RAPPROCHEMENT_DEFAUT = "S1-CORRIDOR-0.2";
 
 /** Tolerance NUMERIQUE (pas metier) sur une longueur hors corridor : en dessous d un centimetre, c est un eclat de decoupe du tampon. */
 export const TOLERANCE_LONGUEUR_M = 0.01;

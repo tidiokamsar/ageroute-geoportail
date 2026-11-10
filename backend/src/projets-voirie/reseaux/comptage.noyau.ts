@@ -21,6 +21,7 @@
 
 import { longueur, longueurPhysique, type Pt } from "../analyse.noyau";
 import type { NatureDeclarable, StatutRelation, TypeGeom, TypeRelation } from "./types.noyau";
+import { cleLignee, identiteTypeReseau } from "../sources/cle-version.noyau";
 
 export type NatureComptee = NatureDeclarable | "INCONNUE";
 
@@ -190,12 +191,18 @@ export function supportsDesCircuits(circuitsIds: readonly string[], liaisons: re
   return { avecSupportValide: valide, avecPropositionSeulement: propose, sansSupportConnu: circuitsIds.length - valide - propose };
 }
 
-export interface JeuARetenir { id: string; role: string; concessionnaireId: string | null; statut: string; createdAt: Date }
+export interface JeuARetenir {
+  id: string; role: string; concessionnaireId: string | null; statut: string; createdAt: Date;
+  methodeAcquisition?: string | null; typeReseauCode?: string | null; typeReseau?: string | null;
+}
 
 /**
- * Jeux a compter. Par defaut les seuls jeux AUTORISE. Avec `inclureNonAutorises` (ADMIN et GESTIONNAIRE), un jeu en attente REMPLACE, pour ce
- * comptage seulement, le jeu autorise de meme role et de meme concessionnaire : on ne compte JAMAIS deux fois le meme reseau (meme regle que
- * l'analyse du socle). Le role AUTRE admet plusieurs fichiers libres : tous sont retenus.
+ * Jeux a compter (comptage par nature) et a analyser (analyse 2D du socle) : UNE seule regle pour les deux (correctifs T1+S1, M4).
+ * Par defaut les seuls jeux AUTORISE, TOUS : une source par LIGNEE de versions (`cleLignee` : role, concessionnaire et, pour un reseau, type et methode
+ * d'acquisition), donc toutes les sources autorisees d'un reseau, comme l'analyse persistee RC-3. Avec `inclureNonAutorises` (ADMIN et
+ * GESTIONNAIRE), un jeu en attente REMPLACE, pour ce calcul seulement, le jeu autorise de SA lignee (jamais celui d'une autre source). Le role AUTRE
+ * admet plusieurs fichiers libres : tous sont retenus. Deux sources d'un meme reseau sont additionnees (double compte possible) : l'appelant le dit
+ * (`sourcesMultiples`).
  */
 export function retenirJeux<T extends JeuARetenir>(jeux: readonly T[], inclureNonAutorises: boolean): T[] {
   const lisibles = jeux.filter((j) => (inclureNonAutorises ? ["AUTORISE", "CONTROLE", "RECU"] : ["AUTORISE"]).includes(j.statut));
@@ -203,13 +210,27 @@ export function retenirJeux<T extends JeuARetenir>(jeux: readonly T[], inclureNo
   const autres: T[] = [];
   for (const j of lisibles) {
     if (j.role === "AUTRE") { autres.push(j); continue; }
-    const cle = `${j.role}|${j.concessionnaireId ?? ""}`;
+    const cle = cleLignee(j);
     const c = parCle.get(cle);
     const enAttente = j.statut !== "AUTORISE";
     if (!c || (enAttente && c.statut === "AUTORISE") || (enAttente === (c.statut !== "AUTORISE") && j.createdAt > c.createdAt)) parCle.set(cle, j);
   }
   return [...parCle.values(), ...autres].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 }
+
+/** Reseaux decrits par plusieurs sources retenues (meme concessionnaire et meme type) : leurs longueurs s'additionnent (double compte possible). */
+export function sourcesMultiples<T extends JeuARetenir>(retenus: readonly T[]): { concessionnaireId: string; typeReseau: string; nbSources: number; jeuxIds: string[] }[] {
+  const parReseau = new Map<string, T[]>();
+  for (const j of retenus) {
+    if (j.role !== "RESEAU_TIERS" || !j.concessionnaireId) continue;
+    const k = `${j.concessionnaireId}|${identiteTypeReseau(j)}`;
+    parReseau.set(k, [...(parReseau.get(k) ?? []), j]);
+  }
+  return [...parReseau.values()].filter((l) => l.length > 1)
+    .map((l) => ({ concessionnaireId: l[0].concessionnaireId!, typeReseau: identiteTypeReseau(l[0]), nbSources: l.length, jeuxIds: l.map((j) => j.id).sort() }));
+}
+
+export const LIMITE_SOURCES_MULTIPLES = "Un réseau décrit par plusieurs sources autorisées (méthodes d'acquisition différentes) est compté pour chacune : leurs longueurs s'additionnent (double compte possible, voir sourcesMultiples). Aucune source n'est privilégiée ; une source de référence par réseau est une décision à prendre (CONTRAT-SOURCES.md, 7.2).";
 
 /** Comptage de reference sur geometrie plane (metres). Une nature absente de la liste donne un bloc a zero. */
 export function comptabiliser(objets: readonly ObjetCompte[], liaisons: readonly LiaisonCompte[] = []): Comptage {

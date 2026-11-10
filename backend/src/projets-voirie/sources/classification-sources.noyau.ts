@@ -68,9 +68,13 @@ export function identiteObjet(nom: string | null, empreinte: string | null): str
   return nom !== null && nom.trim() !== "" ? `n:${normaliserNom(nom)}` : `e:${empreinte ?? ""}`;
 }
 
-/** Cle SHA-256 d un resultat : projet, identite de A (ou vide), identite de B (ou vide). Independante des identifiants et de l ordre de lecture. */
-export function cleResultat(projetId: string, identiteA: string | null, identiteB: string | null): string {
-  return createHash("sha256").update(["s1", projetId, identiteA ?? "", identiteB ?? ""].join("\u001f"), "utf8").digest("hex");
+/**
+ * Cle SHA-256 d un resultat (correctifs T1+S1, M5) : projet, IDENTIFIANT de l objet A (ou vide), identifiant de l objet B (ou vide). Unique par
+ * construction (un resultat par objet de A, plus un par objet de B jamais retenu) et stable au rejeu (memes jeux, memes objets) ; independante de
+ * l ordre de lecture. Le nom n en fait plus partie : deux objets de meme nom (« Fourreau », « Conduite DN100 ») ne se confondent plus.
+ */
+export function cleResultat(projetId: string, objetAId: string | null, objetBId: string | null): string {
+  return createHash("sha256").update(["s1-2", projetId, objetAId ?? "", objetBId ?? ""].join("\u001f"), "utf8").digest("hex");
 }
 
 /** Empreinte (16 hexadecimaux) d une mesure arrondie ; `-` pour un resultat sans mesure. Sert a l instantane et au test d idempotence du rejeu. */
@@ -123,25 +127,24 @@ export interface ResultatCalcule {
 const comparerCles = (a: { cle: string }, b: { cle: string }) => (a.cle < b.cle ? -1 : a.cle > b.cle ? 1 : 0);
 
 /**
- * Assemble les resultats d une comparaison : un par objet de A (apparie ou non), puis un par objet de B jamais retenu. Cles uniques par
- * construction : deux objets de meme identite (copies) sont departages par l identifiant le plus petit, les suivants sont ignores. L ordre est
- * celui des cles : il ne depend pas de l ordre de lecture (rejeu idempotent).
+ * Assemble les resultats d une comparaison : un par objet de A (apparie ou non), puis un par objet de B jamais retenu. AUCUN objet n est ecarte
+ * (correctifs T1+S1, M5 : la cle est faite des identifiants d objets, deux objets de meme nom donnent deux resultats). L ordre est celui des cles :
+ * il ne depend pas de l ordre de lecture (rejeu idempotent). Un objet de A present deux fois dans les appariements est une erreur du calcul.
  */
 export function assemblerResultats(projetId: string, appariements: readonly AppariementBrut[], objetsB: readonly ObjetCompare[], partHorsCorridorMax: number): ResultatCalcule[] {
   const retenus = new Set<string>();
-  const parCle = new Map<string, ResultatCalcule & { idTri: number }>();
-  const garder = (r: ResultatCalcule, idTri: number) => {
-    const deja = parCle.get(r.cle);
-    if (!deja || idTri < deja.idTri) parCle.set(r.cle, { ...r, idTri });
+  const parCle = new Map<string, ResultatCalcule>();
+  const garder = (r: ResultatCalcule) => {
+    if (parCle.has(r.cle)) throw new Error(`comparaison : resultat en double pour la cle ${r.cle} (un objet ne donne qu'un resultat)`);
+    parCle.set(r.cle, r);
   };
   for (const a of appariements) {
-    const idA = identiteObjet(a.objetA.nom, a.objetA.empreinte);
     if (a.objetB === null) {
       garder({
-        ordre: 0, cle: cleResultat(projetId, idA, null), statut: "SANS_CORRESPONDANCE_A", objetAId: a.objetA.id, objetBId: null, nomA: a.objetA.nom, nomB: null,
+        ordre: 0, cle: cleResultat(projetId, a.objetA.id, null), statut: "SANS_CORRESPONDANCE_A", objetAId: a.objetA.id, objetBId: null, nomA: a.objetA.nom, nomB: null,
         precisionAM: a.objetA.precisionM, precisionBM: null, origineA: a.objetA.originePrecision, origineB: "INCONNUE", corridorM: null,
         mesure: null, empreinteMesure: empreinteMesureComparaison(null),
-      }, Number(a.objetA.id));
+      });
       continue;
     }
     retenus.add(a.objetB.id);
@@ -150,20 +153,20 @@ export function assemblerResultats(projetId: string, appariements: readonly Appa
       longueurRecouvrementM: a.longueurRecouvrementM ?? 0, distanceMinM: a.distanceMinM ?? 0,
     }, partHorsCorridorMax);
     garder({
-      ordre: 0, cle: cleResultat(projetId, idA, identiteObjet(a.objetB.nom, a.objetB.empreinte)), statut: classement.statut,
+      ordre: 0, cle: cleResultat(projetId, a.objetA.id, a.objetB.id), statut: classement.statut,
       objetAId: a.objetA.id, objetBId: a.objetB.id, nomA: a.objetA.nom, nomB: a.objetB.nom,
       precisionAM: a.objetA.precisionM, precisionBM: a.objetB.precisionM, origineA: a.objetA.originePrecision, origineB: a.objetB.originePrecision,
       corridorM: classement.statut === "RAPPROCHEMENT_INCERTAIN" ? null : a.corridorM, mesure: classement.mesure, empreinteMesure: empreinteMesureComparaison(classement.mesure),
-    }, Number(a.objetA.id));
+    });
   }
   for (const b of objetsB) {
     if (retenus.has(b.id)) continue;
     garder({
-      ordre: 0, cle: cleResultat(projetId, null, identiteObjet(b.nom, b.empreinte)), statut: "SANS_CORRESPONDANCE_B", objetAId: null, objetBId: b.id, nomA: null, nomB: b.nom,
+      ordre: 0, cle: cleResultat(projetId, null, b.id), statut: "SANS_CORRESPONDANCE_B", objetAId: null, objetBId: b.id, nomA: null, nomB: b.nom,
       precisionAM: null, precisionBM: b.precisionM, origineA: "INCONNUE", origineB: b.originePrecision, corridorM: null, mesure: null, empreinteMesure: empreinteMesureComparaison(null),
-    }, Number(b.id));
+    });
   }
-  return [...parCle.values()].sort(comparerCles).map(({ idTri: _omis, ...r }, i) => { void _omis; return { ...r, ordre: i + 1 }; });
+  return [...parCle.values()].sort(comparerCles).map((r, i) => ({ ...r, ordre: i + 1 }));
 }
 
 /** Instantane { cle : statut|empreinte } : deux comparaisons sur les memes entrees donnent le meme instantane. */

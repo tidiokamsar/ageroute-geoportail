@@ -67,15 +67,14 @@ export { borne as borneEnv };
 export const comparaisonObjetsMax = () => borne("PROJETS_VOIRIE_COMPARAISON_OBJETS_MAX", 20_000, 100, 200_000);
 export const comparaisonIntervalleMinS = () => borne("PROJETS_VOIRIE_COMPARAISON_INTERVALLE_S", 60, 0, 3_600);
 
+// Correctifs T1+S1 (m1) : cadence de GET /territoires/comptes (agregats sur tout le sous-arbre, ouverts aux lecteurs).
+//   PROJETS_VOIRIE_COMPTES_PAR_MINUTE  defaut 30 (bornes 1 a 600) : requetes par compte et par minute (429 COMPTES_TROP_FREQUENTS au-dela).
+export const comptesParMinuteMax = () => borne("PROJETS_VOIRIE_COMPTES_PAR_MINUTE", 30, 1, 600);
+
 /**
- * Methodes d acquisition d un jeu (code court porte par `projets_voirie_jeux.methodeAcquisition`). La base ne verifie que la forme du code ; cette
- * liste est celle que le service accepte. Le lot T1 (referentiels configurables, domaine METHODE_ACQUISITION) pourra la relier a son referentiel
- * sans migration : les codes sont stables. Deux methodes = deux SOURCES d un meme reseau ; meme methode = nouvelle VERSION (CONTRAT-SOURCES.md, 3.1).
+ * Methodes d acquisition d un jeu (`projets_voirie_jeux.methodeAcquisition`) : correctifs T1+S1 (M2), la SEULE source de verite est le referentiel
+ * METHODE_ACQUISITION du lot T1 (administrable, aucune liste dans le code). Le code ne connait que la FORME d un code, celle que la base impose a la
+ * colonne (contrainte `pvj_methode_acquisition_forme`) ; la valeur est verifiee contre le referentiel par le depot (active) et par la base (non retiree).
  */
-export const METHODES_ACQUISITION = [
-  "GNSS_RTK", "GNSS_DIFFERENTIEL", "GNSS_AUTONOME", "TOPOGRAPHIE", "DETECTION_ELECTROMAGNETIQUE", "GEORADAR", "NUMERISATION_PLAN",
-  // PLAN_CAO : dessin de conception livre en DAO/CAO (DXF d'un bureau d'etudes) ; NUMERISATION_PLAN : trace numerise depuis un plan (PDF, papier).
-  "PLAN_CAO", "RECOLEMENT_TRAVAUX", "DECLARATIF_FOURNISSEUR", "INCONNUE",
-] as const;
-export type MethodeAcquisition = (typeof METHODES_ACQUISITION)[number];
-export const estMethodeAcquisition = (v: unknown): v is MethodeAcquisition => typeof v === "string" && (METHODES_ACQUISITION as readonly string[]).includes(v);
+export const FORME_METHODE_ACQUISITION = /^[A-Z][A-Z0-9_]{1,39}$/;
+export const estFormeMethodeAcquisition = (v: unknown): v is string => typeof v === "string" && FORME_METHODE_ACQUISITION.test(v);

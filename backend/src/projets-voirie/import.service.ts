@@ -20,7 +20,7 @@ import { prisma } from "../lib/prisma";
 import { Limiteur } from "../import/limiteur";
 import { logAuditTransactionnelle } from "../utils/audit";
 import { avecErreurDelai } from "./bd";
-import { delaiDepotMs } from "./config";
+import { delaiDepotMs, estFormeMethodeAcquisition } from "./config";
 import { ErreurMetier, introuvable } from "./erreurs";
 import { META_WGS84 } from "./formats/crs.noyau";
 import { resoudreCrs, transformerSommets, versionProj } from "./formats/crs.service";
@@ -59,7 +59,7 @@ export interface ChampsDepot {
   precisionVerticaleM?: number;
   methode?: string;
   dateConstat?: string;
-  /** Lot S1 : code de la methode d'acquisition (liste `METHODES_ACQUISITION` de config.ts) ; composante de la cle de version d'un reseau. */
+  /** Lot S1 : code de la methode d'acquisition (referentiel METHODE_ACQUISITION, valeur active : correctifs T1+S1, M2) ; composante de la cle de version d'un reseau. */
   methodeAcquisition?: string;
 }
 
@@ -249,6 +249,14 @@ export async function deposerJeu(d: DemandeDepot): Promise<ResultatDepot> {
   }
 }
 
+/** 422 METHODE_ACQUISITION_INCONNUE si le code n'est pas une valeur active et non retiree du referentiel (une valeur desactivee reste lisible sur les jeux existants). */
+export async function exigerMethodeAcquisition(tx: Pick<Tx, "referentielVoirie">, code: string): Promise<void> {
+  const v = !estFormeMethodeAcquisition(code) ? null : await tx.referentielVoirie.findFirst({ where: { domaine: "METHODE_ACQUISITION", code, deletedAt: null, actif: true }, select: { id: true } });
+  if (!v) {
+    throw new ErreurMetier(422, "METHODE_ACQUISITION_INCONNUE", `La méthode d'acquisition « ${code.slice(0, 40)} » n'est pas une valeur active du référentiel METHODE_ACQUISITION (voir GET /referentiels/METHODE_ACQUISITION).`, { methodeAcquisition: code.slice(0, 40) });
+  }
+}
+
 interface ChampsAvecMapping {
   champs: ChampsDepot;
   depuisMapping: Record<string, PropositionJeu>;
@@ -323,17 +331,23 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
     const conc = await tx.concessionnaireReseau.findFirst({ where: { id: c.concessionnaireId, deletedAt: null } });
     if (!conc) throw introuvable("Concessionnaire", "CONCESSIONNAIRE_INTROUVABLE");
     // Lot T1 : le code du referentiel (du depot, sinon du concessionnaire) donne la famille ; sans code, la famille declaree (repli).
-    const type = await resoudreTypeReseau(tx, { code: c.typeReseauCode ?? conc.typeReseauCode, famille: c.typeReseau ?? conc.typeReseau });
+    // Correctifs T1+S1 (m6) : une famille demandee SANS code et differente de celle du concessionnaire est une surcharge (admise par le socle et par
+    // l'assistant) : le code du concessionnaire, d'une autre famille, n'est alors pas herite (sinon 400 TYPE_RESEAU_INCOHERENT).
+    const surchargeFamille = !c.typeReseauCode && c.typeReseau !== undefined && c.typeReseau !== conc.typeReseau;
+    const type = await resoudreTypeReseau(tx, { code: c.typeReseauCode ?? (surchargeFamille ? null : conc.typeReseauCode), famille: c.typeReseau ?? conc.typeReseau });
     typeReseau = type.famille as TypeReseau;
     typeReseauCode = type.code;
   }
   const concId = c.role === "RESEAU_TIERS" ? c.concessionnaireId! : null;
+  // Correctifs T1+S1 (M2) : la methode d'acquisition (du formulaire ou du mapping) est une valeur ACTIVE du referentiel METHODE_ACQUISITION.
+  if (c.methodeAcquisition) await exigerMethodeAcquisition(tx, c.methodeAcquisition);
 
   let version = 1;
   let remplace: { id: string; version: number } | null = null;
   if (c.role !== "AUTRE") {
     // Lot S1 : la methode d'acquisition fait partie de la cle d'un reseau de concessionnaire (seconde source), pas des autres roles (CONTRAT-SOURCES.md, 3.1).
-    const cle = filtreCleVersion({ projetId: d.projetId, role: c.role, concessionnaireId: concId, methodeAcquisition: c.methodeAcquisition ?? null });
+    // Correctifs T1+S1 (M3) : et le type de reseau (code configurable, sinon famille) : deux types d'un meme concessionnaire ne sont jamais versions l'un de l'autre.
+    const cle = filtreCleVersion({ projetId: d.projetId, role: c.role, concessionnaireId: concId, methodeAcquisition: c.methodeAcquisition ?? null, typeReseauCode, typeReseau });
     const attente = await tx.jeuDonneesProjet.findFirst({ where: { ...cle, statut: { in: ["RECU", "CONTROLE"] } }, select: { id: true, version: true } });
     if (attente) {
       throw new ErreurMetier(409, "DEPOT_EN_ATTENTE", "Un dépôt de même rôle et de même concessionnaire attend déjà son autorisation : autorisez-le, rejetez-le ou retirez-le d'abord.", { jeuId: attente.id, version: attente.version });

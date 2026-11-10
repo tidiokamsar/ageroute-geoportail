@@ -450,7 +450,11 @@ async function main() {
   const creeReg = await envoyer("post", "", { code: "MA-REGION", nom: "Dans ma region", regionId: R1 }, T.reg1);
   const horsRegion = await envoyer("post", "", { code: "HORS-MA-REGION", nom: "x", regionId: R2id }, T.reg1);
   const sansRegion = await envoyer("post", "", { code: "NI-OUI-NI-NON", nom: "x" }, T.reg1);
-  verifier("12. un compte regional cree dans sa region (201), pas dans une autre (403), pas sans region (403)", creeReg.status === 201 && horsRegion.status === 403 && sansRegion.status === 403, [creeReg.status, horsRegion.status, sansRegion.status]);
+  // Correctifs T1+S1 (m3) : le territoire par defaut de ces creations est celui de la region R2 ou la nation (sans region) : pour un compte regional,
+  // un territoire hors perimetre ou sans region rend la MEME reponse que l'inexistant (404 TERRITOIRE_INTROUVABLE), plus 403.
+  verifier("12. un compte regional cree dans sa region (201), pas dans une autre ni sans region (404 TERRITOIRE_INTROUVABLE, meme corps : correctifs T1+S1, m3)",
+    creeReg.status === 201 && horsRegion.status === 404 && sansRegion.status === 404 && horsRegion.body.code === "TERRITOIRE_INTROUVABLE" && JSON.stringify(horsRegion.body) === JSON.stringify(sansRegion.body),
+    [creeReg.status, horsRegion.status, sansRegion.status]);
   const lecAutre = await get(`/${projR2.body.projet.id}`, T.reg1);
   const lecSans = await get(`/${projSans.body.projet.id}`, T.reg1);
   const lecInconnu = await get(`/00000000-0000-4000-8000-0000000000bb`, T.reg1);

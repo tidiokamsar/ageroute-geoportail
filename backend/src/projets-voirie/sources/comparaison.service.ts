@@ -17,7 +17,6 @@ import { prisma } from "../../lib/prisma";
 import { logAuditTransactionnelle } from "../../utils/audit";
 import { Budget, avecErreurDelai, estDelaiDepasse, poserDelais } from "../bd";
 import { comparaisonIntervalleMinS, comparaisonObjetsMax, delaiAnalyseMs, delaiDepotMs, delaiVerrouMs } from "../config";
-import { epsgPourLongitude } from "../analyse.noyau";
 import * as socle from "../analyse.depot";
 import { SOMMETS_RESEAU_ANALYSE_MAX } from "../analyse.service";
 import { verifierCadence } from "../conflits/cadence.noyau";
@@ -29,6 +28,7 @@ import { donneesReseauLisibles, dossierVisible, jeuLisible } from "../conflits/v
 import { tracerConsultation } from "../consultation";
 import { ErreurMetier, introuvable } from "../erreurs";
 import { limiteurAnalyses } from "../limiteurs";
+import { contexteSpatialDuProjet, type ContexteSpatial } from "../territoires/contexte-spatial";
 import { verrouillerProjet, type Acteur } from "../projets.service";
 import { descripteursDesObjets } from "../reseaux/reseaux.depot";
 import { classeEffective } from "../reseaux/types.noyau";
@@ -36,7 +36,7 @@ import {
   assemblerResultats, identiteObjet, instantaneDe, totauxDe, type AppariementBrut, type ObjetCompare,
 } from "./classification-sources.noyau";
 import * as depot from "./comparaison.depot";
-import { precisionRetenue, resoudreRegleRapprochement, type RegleRapprochementLue } from "./regle-rapprochement.noyau";
+import { baremeApprouve, precisionRetenue, resoudreRegleRapprochement, type RegleRapprochementLue } from "./regle-rapprochement.noyau";
 import { regleLue } from "./regles-rapprochement.service";
 import { evaluerEligibilite, type ModeComparaison, type MotifNonComparable } from "./eligibilite.noyau";
 import { AXE_DIVERGENCE_SOURCES, LIMITES_COMPARAISON, STATUTS_RESULTAT_COMPARAISON, VERSION_ALGORITHME_COMPARAISON, type StatutResultatComparaison } from "./types.noyau";
@@ -56,7 +56,7 @@ export const SELECT_COMPARAISON = {
 type LigneComparaisonVue = Prisma.ComparaisonSourcesGetPayload<{ select: typeof SELECT_COMPARAISON }>;
 
 export interface JeuDansComparaison {
-  role: "A" | "B"; jeuId: string; sha256: string; version: number; methodeAcquisition: string | null; dateDonnees: string | null; classePrecision: string | null;
+  role: "A" | "B"; jeuId: string; sha256: string; version: number; methodeAcquisition: string | null; typeReseauCode?: string | null; dateDonnees: string | null; classePrecision: string | null;
   precisionHorizontaleM: number | null; nbObjets: number; nomFichier: string; confidentialite: string;
 }
 
@@ -115,7 +115,17 @@ export interface ResumeComparaison {
   statut: "TERMINEE";
   versionAlgorithme: string;
   totaux: Record<StatutResultatComparaison, number> & { resultats: number; objetsA: number; objetsB: number; nonEvaluesA: number; nonEvaluesB: number };
-  corridor: { minM: number | null; maxM: number | null; couplesSansCorridor: number; margeM: number; rayonAppariementM: number };
+  corridor: {
+    minM: number | null; maxM: number | null; couplesSansCorridor: number; margeM: number; rayonAppariementM: number;
+    /** Provenance explicite (demande de l'architecte, 10/11/2026) : BAREME_APPROUVE des qu'un couple repose sur une classe convertie par le bareme approuve
+     * (avec la regle et sa version), sinon PRECISIONS_METRES si un couple a deux precisions en metres, sinon INCERTAIN (aucun corridor). */
+    origine: OrigineCorridor; regleBareme: { regleId: string | null; code: string; version: number } | null;
+    parOrigine: Record<OrigineCorridor, number>;
+  };
+  /** Correctifs T1+S1 (M6) : corridors fondes sur une classe convertie par un bareme approuve (regle, version, approbateur). */
+  bareme: { applique: boolean; couples: number; regle: { regleId: string | null; code: string; version: number; approuveParId: string | null } | null };
+  /** Correctifs T1+S1 (M1) : CRS metrique de calcul et son origine. */
+  crs: { epsg: number; source: "TERRITOIRE" | "BANDES"; crsImpose: number | null; territoireId: string | null };
   limites: string[];
 }
 
@@ -124,12 +134,15 @@ export async function lancerComparaison(acteur: Acteur, projetId: string, d: { j
   if (!projet) throw introuvable("Projet", "PROJET_INTROUVABLE");
   const { a, b, mode } = await jeuxOrdonnes(prisma, acteur, projetId, d.jeuAId, d.jeuBId);
   await exigerCadence(prisma, projetId);
+  // Correctifs T1+S1 (M1) : meme CRS metrique que l'analyse 2D, les conflits et les associations (CRS impose par le territoire du projet ou son ancetre,
+  // sinon regle par bandes de la configuration). Lu AVANT le delai : la lecture rafraichit aussi le cache de la configuration.
+  const spatial = await contexteSpatialDuProjet(projetId);
   const debut = performance.now();
   const delai = delaiAnalyseMs();
   const trop = () => new ErreurMetier(504, "COMPARAISON_TROP_LONGUE", `La comparaison a dépassé ${Math.round(delai / 1000)} s et a été interrompue : les deux sources sont trop volumineuses pour un calcul immédiat.`);
   try {
     return await limiteurAnalyses.executer(() => avecErreurDelai("COMPARAISON_TROP_LONGUE", trop().message, () => prisma.$transaction(
-      (tx) => executer(tx, acteur, projet, a, b, mode, debut, delai, trop),
+      (tx) => executer(tx, acteur, projet, a, b, mode, debut, delai, trop, spatial),
       { timeout: delai + delaiDepotMs() + 15_000, maxWait: 10_000 },
     )));
   } catch (e) {
@@ -141,11 +154,11 @@ export async function lancerComparaison(acteur: Acteur, projetId: string, d: { j
 }
 
 const jeuDansComparaison = (role: "A" | "B", j: LigneJeu): JeuDansComparaison => ({
-  role, jeuId: j.id, sha256: j.sha256, version: j.version, methodeAcquisition: j.methodeAcquisition, dateDonnees: jour(j.dateDonnees), classePrecision: j.classePrecision,
+  role, jeuId: j.id, sha256: j.sha256, version: j.version, methodeAcquisition: j.methodeAcquisition, typeReseauCode: j.typeReseauCode, dateDonnees: jour(j.dateDonnees), classePrecision: j.classePrecision,
   precisionHorizontaleM: j.precisionHorizontaleM === null ? null : Number(j.precisionHorizontaleM), nbObjets: j.nbObjets, nomFichier: j.nomFichier, confidentialite: j.confidentialite,
 });
 
-async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: { id: string; code: string }, a: LigneJeu, b: LigneJeu, mode: ModeComparaison, debut: number, delai: number, trop: () => Error) {
+async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: { id: string; code: string }, a: LigneJeu, b: LigneJeu, mode: ModeComparaison, debut: number, delai: number, trop: () => Error, spatial: ContexteSpatial) {
   const verrou = await tx.$queryRaw<{ ok: boolean }[]>`SELECT pg_try_advisory_xact_lock(hashtextextended(${cleVerrou(projet.id)}, 0)) AS "ok"`;
   if (!verrou[0]?.ok) throw new ErreurMetier(503, "PROJET_OCCUPE", "Une comparaison de sources est déjà en cours sur ce projet : réessayez dans quelques instants.");
   await exigerCadence(tx, projet.id);
@@ -171,11 +184,15 @@ async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: { 
     throw new ErreurMetier(422, "COMPARAISON_TROP_VOLUMINEUSE", `Les deux sources portent ${lignesA.length + lignesB.length} objets linéaires (maximum ${plafond}) : découpez les fichiers.`, { objetsMax: plafond });
   }
   const etendue = await budget.etape(() => socle.etendueLongitude(tx, [a.id, b.id]), "etendue");
-  const epsg = etendue ? epsgPourLongitude((etendue.ouest + etendue.est) / 2) : 32629;
+  const epsg = etendue ? spatial.epsgPour((etendue.ouest + etendue.est) / 2) : spatial.epsgDefaut;
+  // CRS de calcul persiste avec la comparaison (colonne `epsg`) et explique dans le resume : impose par un territoire, ou regle par bandes.
+  const crs = { epsg, source: spatial.crsImpose !== null ? "TERRITOIRE" as const : "BANDES" as const, crsImpose: spatial.crsImpose, territoireId: spatial.territoireId };
 
-  // Precision retenue par objet : descripteur B1, sinon jeu, sinon classe convertie par la regle, sinon inconnue (jamais inventee).
-  const precA = (o: depot.LigneObjetSource) => precisionRetenue({ precisionObjetM: o.precisionObjetM, precisionJeuM: a.precisionHorizontaleM === null ? null : Number(a.precisionHorizontaleM), classeObjet: o.classeObjet, classeJeu: a.classePrecision }, regle.precisionParClasseM);
-  const precB = (o: depot.LigneObjetSource) => precisionRetenue({ precisionObjetM: o.precisionObjetM, precisionJeuM: b.precisionHorizontaleM === null ? null : Number(b.precisionHorizontaleM), classeObjet: o.classeObjet, classeJeu: b.classePrecision }, regle.precisionParClasseM);
+  // Precision retenue par objet : descripteur B1, sinon jeu, sinon classe convertie par le BAREME APPROUVE de la regle (M6 : regle creee par une
+  // personne et approuvee par un autre ADMIN ; la regle systeme n'en a aucun), sinon inconnue (jamais inventee).
+  const bareme = baremeApprouve(regle);
+  const precA = (o: depot.LigneObjetSource) => precisionRetenue({ precisionObjetM: o.precisionObjetM, precisionJeuM: a.precisionHorizontaleM === null ? null : Number(a.precisionHorizontaleM), classeObjet: o.classeObjet, classeJeu: a.classePrecision }, bareme);
+  const precB = (o: depot.LigneObjetSource) => precisionRetenue({ precisionObjetM: o.precisionObjetM, precisionJeuM: b.precisionHorizontaleM === null ? null : Number(b.precisionHorizontaleM), classeObjet: o.classeObjet, classeJeu: b.classePrecision }, bareme);
   const compA = new Map(lignesA.map((o) => { const p = precA(o); return [o.id, { id: o.id, nom: o.nom, empreinte: o.empreinte, longueurM: 0, precisionM: p.precisionM, originePrecision: p.origine } as ObjetCompare] as const; }));
   const compB = new Map(lignesB.map((o) => { const p = precB(o); return [o.id, { id: o.id, nom: o.nom, empreinte: o.empreinte, longueurM: 0, precisionM: p.precisionM, originePrecision: p.origine } as ObjetCompare] as const; }));
 
@@ -194,19 +211,33 @@ async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: { 
   });
   const resultats = assemblerResultats(projet.id, appariements, [...compB.values()], regle.partHorsCorridorMax);
   const totaux = totauxDe(resultats);
+  // M6 : couples dont le corridor repose sur une classe convertie par le bareme approuve (origine CLASSE d'un cote au moins).
+  const couplesBareme = resultats.filter((r) => origineCorridorDe(r) === "BAREME_APPROUVE").length;
+  const parOrigine: Record<OrigineCorridor, number> = { PRECISIONS_METRES: 0, BAREME_APPROUVE: 0, INCERTAIN: 0 };
+  for (const r of resultats) if (r.objetAId !== null && r.objetBId !== null) parOrigine[origineCorridorDe(r)] += 1;
+  const origineGlobale: OrigineCorridor = parOrigine.BAREME_APPROUVE > 0 ? "BAREME_APPROUVE" : parOrigine.PRECISIONS_METRES > 0 ? "PRECISIONS_METRES" : "INCERTAIN";
+  const origineBareme = bareme === null ? null : { regleId: regle.regleId, code: regle.code, version: regle.version, approuveParId: regle.approuveParId ?? null };
   const resume: ResumeComparaison = {
     statut: "TERMINEE", versionAlgorithme: VERSION_ALGORITHME_COMPARAISON,
     totaux: { ...totaux.parStatut, resultats: resultats.length, objetsA: objetsA.length, objetsB: objetsB.length, nonEvaluesA: objetsA.length - lignesA.length, nonEvaluesB: objetsB.length - lignesB.length },
-    corridor: { minM: totaux.corridorMinM, maxM: totaux.corridorMaxM, couplesSansCorridor: totaux.couplesSansCorridor, margeM: regle.margeM, rayonAppariementM: regle.rayonAppariementM },
+    corridor: {
+      minM: totaux.corridorMinM, maxM: totaux.corridorMaxM, couplesSansCorridor: totaux.couplesSansCorridor, margeM: regle.margeM, rayonAppariementM: regle.rayonAppariementM,
+      origine: origineGlobale, regleBareme: origineGlobale === "BAREME_APPROUVE" ? { regleId: regle.regleId, code: regle.code, version: regle.version } : null, parOrigine,
+    },
+    crs,
+    bareme: { applique: couplesBareme > 0, couples: couplesBareme, regle: couplesBareme > 0 ? origineBareme : null },
     limites: [
       ...LIMITES_COMPARAISON,
       ...(totaux.couplesSansCorridor > 0 ? [`${totaux.couplesSansCorridor} couple(s) sans corridor (une précision déclarée manque) : rapprochement incertain, aucune mesure de divergence.`] : []),
-      ...(resolue.portee === "DEFAUT" ? ["Règle de rapprochement par défaut (valeurs provisoires, à valider par le DSI)."] : []),
+      ...(resolue.portee === "DEFAUT" ? ["Règle de rapprochement par défaut (valeurs provisoires, à valider par le DSI) : aucun barème par classe, une classe de précision seule laisse le rapprochement incertain."] : []),
+      ...(couplesBareme > 0 && origineBareme ? [`${couplesBareme} corridor(s) calculé(s) depuis une classe de précision convertie par le barème approuvé de la règle ${origineBareme.code} version ${origineBareme.version} (une classe n'est pas une précision mesurée).`] : []),
     ],
   };
   const regleAppliquee = {
     regleId: regle.regleId, code: regle.code, version: regle.version, famille: a.typeReseau, portee: resolue.portee,
     margeM: regle.margeM, rayonAppariementM: regle.rayonAppariementM, partHorsCorridorMax: regle.partHorsCorridorMax, precisionParClasseM: regle.precisionParClasseM,
+    // M6 : le bareme n'est applicable que s'il est approuve par un ADMIN autre que l'auteur ; la comparaison persistee le dit, avec la version de la regle.
+    bareme: { applicable: bareme !== null, applique: couplesBareme > 0, source: bareme === null ? null : "REGLE_APPROUVEE", approuveParId: bareme === null ? null : regle.approuveParId ?? null },
   };
 
   // ---------------------------------------------------------------- Ecriture : comparaison immuable d abord, puis resultats
@@ -310,9 +341,19 @@ export const decoderCurseurResultats = decoderCurseurAnalyse;
 
 export interface FiltresResultats { statuts?: StatutResultatComparaison[]; limite: number; apresOrdre?: number }
 
+export type OrigineCorridor = "PRECISIONS_METRES" | "BAREME_APPROUVE" | "INCERTAIN";
+
+/** Provenance du corridor d'un couple : aucun corridor (INCERTAIN), une classe convertie par le bareme approuve d'un cote au moins, sinon deux precisions en metres. */
+export function origineCorridorDe(r: { corridorM: unknown; origineA: string; origineB: string }): OrigineCorridor {
+  if (r.corridorM === null) return "INCERTAIN";
+  return r.origineA === "CLASSE" || r.origineB === "CLASSE" ? "BAREME_APPROUVE" : "PRECISIONS_METRES";
+}
+
 export function vueResultat(r: Prisma.ComparaisonSourcesResultatGetPayload<Record<string, never>>) {
   return {
     id: r.id, ordre: r.ordre, cle: r.cle, statut: r.statut,
+    // Provenance explicite du corridor du couple (nulle sans couple : objet sans correspondance).
+    origineCorridor: r.objetAId === null || r.objetBId === null ? null : origineCorridorDe(r),
     objetA: r.objetAId === null ? null : { id: String(r.objetAId), nom: r.nomA, precisionM: r.precisionAM === null ? null : Number(r.precisionAM), originePrecision: r.origineA },
     objetB: r.objetBId === null ? null : { id: String(r.objetBId), nom: r.nomB, precisionM: r.precisionBM === null ? null : Number(r.precisionBM), originePrecision: r.origineB },
     corridorM: r.corridorM === null ? null : Number(r.corridorM), mesure: r.mesure, conflitId: r.conflitId,
@@ -374,7 +415,8 @@ export async function ouvrirDossierDivergence(acteur: Acteur, projetId: string, 
       const estAxe = jeuA.role === "AXES_TRAVAUX";
       const cle = cleConflit({
         projetId, axe: AXE_DIVERGENCE_SOURCES, type: "DIVERGENCE_SOURCES", cellule: cellule(geo.lon, geo.lat),
-        reseau: `${cleReseau(jeuA.concessionnaireId, oa.nom, oa.empreinte)}|b:${identiteObjet(ob.nom, ob.empreinte)}`,
+        // Correctifs T1+S1 (M5) : les identifiants des deux objets entrent dans la cle : deux couples d'objets de meme nom font deux dossiers distincts.
+        reseau: `${cleReseau(jeuA.concessionnaireId, oa.nom, oa.empreinte)}|b:${identiteObjet(ob.nom, ob.empreinte)}|ida:${objetA}|idb:${objetB}`,
       });
       const deja = await tx.conflitProjet.findFirst({ where: { projetId, cle }, select: { id: true } });
       if (deja) throw new ErreurMetier(409, "DOSSIER_DEJA_OUVERT", "Un dossier de conflit existe déjà pour ce couple d'objets (ouvert depuis une autre comparaison).", { conflitId: deja.id });
@@ -389,6 +431,7 @@ export async function ouvrirDossierDivergence(acteur: Acteur, projetId: string, 
       const classe = classeEffective(descripteurs.get(objetA)?.classe, jeuA.classePrecision).classe;
       await depot.insererDossierDivergence(tx, {
         id, projetId, cle, jeuReseauId: estAxe ? null : c.jeuAId, jeuAxesId: estAxe ? c.jeuAId : null, objetId: objetA, concessionnaireId: jeuA.concessionnaireId, mesure: JSON.stringify(mesure), geomHex: geo.geomHex, classePrecision: classe, comparaisonId: c.id,
+        jeuSourceBId: c.jeuBId,
       }, AXE_DIVERGENCE_SOURCES);
       await tx.conflitHistorique.create({
         data: {

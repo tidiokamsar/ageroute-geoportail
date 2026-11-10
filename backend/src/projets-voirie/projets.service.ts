@@ -225,7 +225,9 @@ export async function modifierProjet(acteur: Acteur, id: string, m: ModifProjet)
       if ((t.territoire.regionEffectiveId ?? null) !== avant.regionId) {
         throw new ErreurMetier(400, "TERRITOIRE_REGION_INCOHERENTE", "Le nouveau territoire n'est pas dans la région du projet : la région d'un projet ne change pas par un déplacement de territoire.");
       }
-      rattachement = { commune: t.commune ?? m.commune ?? avant.commune, prefecture: t.prefecture ?? m.prefecture ?? avant.prefecture };
+      // Correctifs T1+S1 (m10) : derivees du nouveau territoire ; sinon la valeur envoyee ; sinon NULLE (l'ancienne commune ne survit pas a un
+      // deplacement vers un corridor ZONE : rien n'est invente).
+      rattachement = { commune: t.commune ?? m.commune ?? null, prefecture: t.prefecture ?? m.prefecture ?? null };
     }
     if (m.categorieCode !== undefined && m.categorieCode !== null) await largeursDeCategorie(tx, m.categorieCode);
     const apres = await tx.projetVoirie.update({

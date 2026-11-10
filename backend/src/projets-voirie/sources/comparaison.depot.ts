@@ -2,8 +2,8 @@
  * ACCES SQL DE LA COMPARAISON ENTRE SOURCES (PostGIS, lot S1). Toutes les requetes sont `$queryRaw` / `$executeRaw` ETIQUETEES : les valeurs
  * (identifiants, SRID, rayons, tableaux) sont LIEES par le pilote, jamais concatenees (lib/sql-parametre.test.ts interdit la forme non etiquetee).
  *
- * GEOMETRIE : les objets sont stockes en WGS 84 ; l appariement se fait en metres dans la projection UTM choisie comme pour l analyse 2D
- * (`epsgPourLongitude`), geometries simplifiees a 0,05 m comme les reseaux du socle. Les longueurs d un couple (A, B, recouvrement) sont toutes
+ * GEOMETRIE : les objets sont stockes en WGS 84 ; l appariement se fait en metres dans le CRS metrique du projet, choisi comme pour l analyse 2D
+ * (`contexteSpatialDuProjet` : CRS impose par le territoire, sinon regle par bandes de la configuration), geometries simplifiees a 0,05 m comme les reseaux du socle. Les longueurs d un couple (A, B, recouvrement) sont toutes
  * mesurees dans le MEME plan, pour que « hors corridor » ne soit jamais un artefact de deux methodes de mesure.
  *
  * AUCUNE geometrie n est rendue a l API ; AUCUNE geometrie n est modifiee ni fusionnee : les objets des deux sources ne sont que LUS.
@@ -166,13 +166,15 @@ export async function geometrieObjet(tx: TxLecture, objetId: string): Promise<Po
 export interface LigneDossierDivergence {
   id: string; projetId: string; cle: string; jeuReseauId: string | null; jeuAxesId: string | null; objetId: string; concessionnaireId: string | null; mesure: string; geomHex: string;
   classePrecision: string | null; comparaisonId: string;
+  /** Correctifs T1+S1 (B1) : jeu B de la comparaison ; son statut entre dans la lisibilite du dossier (la base verifie qu'il est celui de la comparaison). */
+  jeuSourceBId: string;
 }
 
 /** Cree le dossier (statut A_INVESTIGUER, sans analyse, lie a sa comparaison). `tronconsProches` reste vide : le referentiel n est pas lu ici. */
 export async function insererDossierDivergence(tx: TxEcriture, l: LigneDossierDivergence, axe: string): Promise<number> {
   return tx.$executeRaw`
     INSERT INTO "conflits_projet" ("id", "projetId", "cle", "type", "axe", "jeuReseauId", "jeuAxesId", "objetId", "concessionnaireId", "mesure", "geom", "statut", "classePrecision", "verticalEvalue",
-                                   "premiereAnalyseId", "derniereAnalyseId", "comparaisonId", "aReexaminer", "motifReexamen", "tronconsProches")
+                                   "premiereAnalyseId", "derniereAnalyseId", "comparaisonId", "jeuSourceBId", "aReexaminer", "motifReexamen", "tronconsProches")
     VALUES (${l.id}, ${l.projetId}, ${l.cle}, 'DIVERGENCE_SOURCES'::"TypeConflit", ${axe}, ${l.jeuReseauId}, ${l.jeuAxesId}, ${l.objetId}::bigint, ${l.concessionnaireId}, ${l.mesure}::jsonb,
-            ST_GeomFromEWKB(decode(${l.geomHex}, 'hex')), 'A_INVESTIGUER'::"StatutConflit", ${l.classePrecision}::"ClassePrecision", false, NULL, NULL, ${l.comparaisonId}, false, NULL, '[]'::jsonb)`;
+            ST_GeomFromEWKB(decode(${l.geomHex}, 'hex')), 'A_INVESTIGUER'::"StatutConflit", ${l.classePrecision}::"ClassePrecision", false, NULL, NULL, ${l.comparaisonId}, ${l.jeuSourceBId}, false, NULL, '[]'::jsonb)`;
 }

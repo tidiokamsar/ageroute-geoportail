@@ -1255,3 +1255,30 @@ Exemple réel (banc, projet aux axes et au réseau autorisés, réduit) :
 ### Réglages serveur
 
 `PROJETS_VOIRIE_LANDXML_TOLERANCE_ARC_MM` (10, bornes 1 à 1 000) : flèche maximale entre un arc LandXML et ses cordes ; **valeur de protection à valider par le DSI**. Délais côté base : `PROJETS_VOIRIE_DELAI_CARTE_MS` (complétude), `PROJETS_VOIRIE_DELAI_DEPOT_MS` et `PROJETS_VOIRIE_VERROU_MS` (écritures).
+
+## Correctifs après la revue T1+S1 (09/11/2026)
+
+Migration `20261103400000_correctifs_sources_territoires` ; rapport `docs/reports/CORRECTIFS-REVUE-T1S1.md` ; contrats mis à jour : `CONTRAT-SOURCES.md`, `CONTRAT-TERRITOIRES.md`. Aucune route ajoutée ni retirée ; formes de réponse changées :
+
+| Route | Changement |
+|---|---|
+| `GET /:id/conflits`, `GET /:id/conflits/:cid`, `GET /:id/conflits/export.csv` | B1 : un dossier `DIVERGENCE_SOURCES` dépend aussi du jeu B (`jeuSourceBId`) : lecteur, B non `AUTORISE` : absent, 404 ; B `RETIRE` : `mesure: null`, `geometrie: null`, `objet: null`, historique calculé `{ masquees: true }` pour tous |
+| `POST /:id/comparaisons`, `GET /:id/comparaisons[/:cmpId]` | M1 : `epsg` choisi comme l'analyse 2D ; `resume.crs: { epsg, source: "TERRITOIRE" \| "BANDES", crsImpose, territoireId }`. M6 : `regle.code` `S1-CORRIDOR-0.2` par défaut, `regle.precisionParClasseM: null` (aucun barème), `regle.bareme: { applicable, applique, source: "REGLE_APPROUVEE" \| null, approuveParId }`, `resume.bareme: { applique, couples, regle: { regleId, code, version, approuveParId } \| null }`, une limite qui cite la règle et sa version quand un corridor repose sur une classe |
+| `GET /:id/comparaisons/:cmpId/objets` | M5 : `cle` = empreinte du projet et des identifiants des deux objets ; deux objets de même nom donnent deux résultats ; `origineCorridor` (`PRECISIONS_METRES`, `BAREME_APPROUVE`, `INCERTAIN`, nul sans couple) |
+| `POST /:id/comparaisons`, `GET /:id/comparaisons[/:cmpId]` (provenance) | `resume.corridor.origine` (`PRECISIONS_METRES`, `BAREME_APPROUVE`, `INCERTAIN`), `resume.corridor.regleBareme` (`regleId`, `code`, `version`) et `resume.corridor.parOrigine` (demande de l'architecte du 10/11/2026) |
+| `GET /:id/sources` | M3 : un groupe par (concessionnaire, type configurable sinon famille), champs `typeReseau` (famille), `typeReseauCode` et `typeReseauLibelle` |
+| `GET /:id/regles-rapprochement`, `POST .../approuver` | M6 : `baremeApplicable` sur chaque règle et chaque règle effective ; (décision de l'architecte du 10/11/2026) corps `{ justification }` seulement (`derogation` : 400 `CHAMPS_INVALIDES`) ; l'auteur reçoit toujours 409 `SEPARATION_DES_TACHES` (`bareme` : vrai si la règle porte un barème) |
+| `POST /:id/jeux` | M2 : `methodeAcquisition` (64 caractères au plus, mis en majuscules) : tout code absent, inactif, retiré ou mal formé du référentiel `METHODE_ACQUISITION` rend 422 `METHODE_ACQUISITION_INCONNUE` (avec `methodeAcquisition`), jamais 400. M3 : un autre type du même concessionnaire n'est jamais une nouvelle version. m6 : une famille demandée sans code, autre que celle du concessionnaire, est acceptée sans code hérité |
+| `GET /:id/analyse`, `GET /:id/reseau/comptage` | M4 : toutes les sources autorisées d'un réseau ; `reseaux.sourcesMultiples` (analyse) et `sourcesMultiples` (comptage) : `[ { concessionnaireId, typeReseau, nbSources, jeuxIds } ]`, et une limite sur le double compte |
+| `GET /:id/reseau/objets/:objetId` | m8 : `connexions` ne compte que les liens vers des jeux lisibles pour le compte |
+| `GET /territoires` | m2 : vue de liste sans `emprise` ; `aEmprise` et `bbox` |
+| `GET /territoires/comptes` | m1 : 429 `COMPTES_TROP_FREQUENTS` (`retryAfterS`, `Retry-After`), 504 `COMPTES_TROP_LONGS`, 503 `SERVICE_OCCUPE` ; un dossier ne compte pour un lecteur que si chaque jeu lié est autorisé |
+| `POST /` (projet) | m3 : compte régional, territoire inconnu, retiré, d'une autre région ou sans région : 404 `TERRITOIRE_INTROUVABLE` (même corps) |
+| `POST /territoires`, `PATCH /territoires/:tid` | m4 : 400 `TERRITOIRE_REGION_INCOHERENTE` (région autre que celle du parent), 409 `TERRITOIRE_REGION_PROJETS` (`projets`), 409 `TERRITOIRE_REGION_DESCENDANTS` (`descendants`) |
+| `PATCH /:id` (projet) | m10 : déplacé vers un territoire sans commune ni préfecture, le projet a `commune` et `prefecture` nulles (sauf valeurs envoyées) |
+| `PATCH /referentiels/TYPE_RESEAU/:code` | m7 : 409 `FAMILLE_FIGEE` (`usages`) si la famille change alors que le code est porté |
+| `DELETE /referentiels/METHODE_ACQUISITION/:code` | M2 : 409 `VALEUR_UTILISEE` (`usages.jeux`) si un jeu non retiré porte la méthode |
+| `PUT /configuration/CRS_IMPORT_LISTE_BLANCHE` | m9 : 409 `CRS_NON_AUTORISE` (`epsg`, `territoires`) pour un CRS imposé par un territoire |
+| `PUT /configuration/:cle` | décision de l'architecte du 10/11/2026 : `justification` obligatoire (10 caractères au moins) : 422 `JUSTIFICATION_REQUISE` sinon |
+
+Réglage ajouté : `PROJETS_VOIRIE_COMPTES_PAR_MINUTE` (défaut 30, bornes 1 à 600) : requêtes `GET /territoires/comptes` par compte et par minute.

@@ -7,6 +7,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../../lib/prisma";
 import { logAuditTransactionnelle } from "../../utils/audit";
+import { FORME_METHODE_ACQUISITION } from "../config";
 import { ErreurMetier, introuvable } from "../erreurs";
 import type { Acteur } from "../projets.service";
 import { CODE_REFERENTIEL, DOMAINES, estDomaine, familleEffective, prochaineVersion, validerParametres, type Domaine, type FamilleReseau } from "./referentiels.noyau";
@@ -52,6 +53,10 @@ export async function creerValeur(acteur: Acteur, domaineBrut: string, d: Creati
   const domaine = domaineOuErreur(domaineBrut);
   const code = d.code.trim().toUpperCase();
   if (!CODE_REFERENTIEL.test(code)) throw new ErreurMetier(400, "CHAMPS_INVALIDES", "Code : lettres majuscules, chiffres, tirets et soulignés, 2 à 64 caractères.");
+  // Correctifs T1+S1 (M2) : un code de methode d'acquisition doit tenir dans la colonne des jeux (forme imposee par la base : sans tiret, 40 caracteres au plus).
+  if (domaine === "METHODE_ACQUISITION" && !FORME_METHODE_ACQUISITION.test(code)) {
+    throw new ErreurMetier(400, "CHAMPS_INVALIDES", "Code de méthode d'acquisition : une lettre majuscule puis majuscules, chiffres et soulignés, 2 à 40 caractères.");
+  }
   const p = validerParametres(domaine, d.parametres);
   if (!p.ok) throw new ErreurMetier(400, "PARAMETRES_INVALIDES", `Paramètres invalides pour le domaine ${domaine}.`, { details: p.erreurs });
   try {
@@ -83,6 +88,15 @@ export async function modifierValeur(acteur: Acteur, domaineBrut: string, code: 
       const p = validerParametres(domaine, m.parametres);
       if (!p.ok) throw new ErreurMetier(400, "PARAMETRES_INVALIDES", `Paramètres invalides pour le domaine ${domaine}.`, { details: p.erreurs });
       parametres = p.parametres as Prisma.JsonValue;
+      // Correctifs T1+S1 (m7) : la famille d'un type de reseau porte par un jeu ou un concessionnaire ne change plus (les jeux existants garderaient
+      // l'ancienne famille, les nouveaux depots la nouvelle : un meme code porterait deux familles). Creez un nouveau code.
+      const familleAvant = (avant.parametres as { famille?: unknown } | null)?.famille;
+      const familleApres = (parametres as { famille?: unknown } | null)?.famille;
+      if (domaine === "TYPE_RESEAU" && familleAvant !== familleApres) {
+        const usages = await usagesDuCode(tx, domaine, code);
+        const total = Object.values(usages).reduce((s, n) => s + n, 0);
+        if (total > 0) throw new ErreurMetier(409, "FAMILLE_FIGEE", `La famille du type « ${code} » est portée par ${total} objet(s) : elle ne change plus (créez un nouveau code de type).`, { usages });
+      }
     }
     const version = prochaineVersion(avant.version);
     const maintenant = new Date();
@@ -111,6 +125,8 @@ async function usagesDuCode(tx: Tx, domaine: Domaine, code: string): Promise<Rec
   if (domaine === "CATEGORIE_PROJET") return { projets: await tx.projetVoirie.count({ where: { categorieCode: code, deletedAt: null } }) };
   // Lot D1 : un type porte par un document non retire se desactive, il ne se retire pas.
   if (domaine === "TYPE_DOCUMENT") return { documents: await tx.documentProjetVoirie.count({ where: { typeCode: code, deletedAt: null } }) };
+  // Correctifs T1+S1 (M2) : la methode d'acquisition d'un jeu est un code de ce referentiel (et une composante de la cle de version d'un reseau).
+  if (domaine === "METHODE_ACQUISITION") return { jeux: await tx.jeuDonneesProjet.count({ where: { methodeAcquisition: code, statut: { not: "RETIRE" } } }) };
   return {};
 }
 

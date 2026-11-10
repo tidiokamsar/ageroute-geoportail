@@ -11,7 +11,7 @@
  */
 
 import { ErreurMetier } from "../erreurs";
-import { estMethodeAcquisition } from "../config";
+import { estFormeMethodeAcquisition } from "../config";
 import { CHAMPS_JEU, type ChampJeu } from "./puits.noyau";
 import type { Avertissement } from "../lecture.types";
 
@@ -86,7 +86,8 @@ function validerValeur(champ: ChampJeu, brut: string): string | number | null {
     case "dateDonnees":
     case "dateConstat": return jourValide(brut) ? brut : null;
     case "concessionnaire": return brut.length <= 200 ? brut : null;
-    case "methodeAcquisition": { const v = brut.toUpperCase(); return estMethodeAcquisition(v) ? v : null; }
+    // Forme seulement (noyau pur) : la valeur est verifiee contre le referentiel METHODE_ACQUISITION par le depot (correctifs T1+S1, M2).
+    case "methodeAcquisition": { const v = brut.trim().toUpperCase(); return estFormeMethodeAcquisition(v) ? v : null; }
   }
 }
 

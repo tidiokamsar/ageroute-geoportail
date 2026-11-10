@@ -20,7 +20,6 @@ import { monterRoutesWorkflow } from "./projets-voirie.workflow.routes";
 import { gardeReferent } from "../projets-voirie/workflow/garde";
 import { monterRoutesReseaux } from "./projets-voirie.reseaux.routes";
 import { monterRoutesSources } from "./projets-voirie.sources.routes";
-import { METHODES_ACQUISITION } from "../projets-voirie/config";
 import { deposerJeu } from "../projets-voirie/import.service";
 import {
   creerConcessionnaire, creerProjet, decider, decoderCurseur, ficheProjet, listerConcessionnaires, listerJeux, listerProjets,
@@ -28,6 +27,7 @@ import {
 } from "../projets-voirie/projets.service";
 import { monterRoutesTerritoires } from "./projets-voirie.territoires.routes";
 import { monterRoutesDocuments } from "./projets-voirie.documents.routes";
+import { regionsDuTerritoire } from "../projets-voirie/territoires/territoires.service";
 
 /**
  * `/api/v2/projets-voirie` -- Projets de voirie et reseaux (contrat : docs/projets-voirie/CONTRAT.md, v2 ; reference :
@@ -174,9 +174,23 @@ const corpsProjet = z.object({
 
 const UUID_SOUPLE = /^[0-9a-f-]{36}$/i;
 
+/**
+ * Correctifs T1+S1 (m3) : a la creation d'un projet par un compte REGIONAL, un territoire inexistant, retire, hors perimetre ou sans region effective
+ * repond la MEME chose (404 TERRITOIRE_INTROUVABLE, meme corps que la fiche d'un territoire) : aucun oracle d'existence d'un territoire d'une autre
+ * region. Un compte national passe (il voit tout). Sans `territoireId`, la route repond 400 TERRITOIRE_REQUIS.
+ */
+const TERRITOIRE_INTROUVABLE = { error: "Territoire introuvable", code: "TERRITOIRE_INTROUVABLE" } as const;
+const territoireMasque = requireTerritoireMasque(async (req) => regionsDuTerritoire(String(req.body.territoireId)), { corps: TERRITOIRE_INTROUVABLE });
+const gardeTerritoireCreation = (req: Request, res: Response, next: NextFunction): void => {
+  const tid = req.body?.territoireId;
+  if (typeof tid !== "string" || !UUID_SOUPLE.test(tid)) { next(); return; }
+  void territoireMasque(req, res, next);
+};
+
 projetsVoirieV2Router.post(
   "/",
   ecriture,
+  gardeTerritoireCreation,
   // Creation : un compte regional ne cree que dans sa region (403 sinon) ; une region inconnue lui est refusee. Lot T1 : sans `regionId`,
   // la region touchee est la region effective du territoire (un territoire inconnu vaut region inconnue pour un compte regional).
   requireTerritoire(async (req) => {
@@ -288,8 +302,10 @@ const champsDepot = z.object({
   precisionVerticaleM: optionnel(z.coerce.number().positive().max(100_000)),
   methode: optionnel(z.string().trim().min(1).max(200)),
   dateConstat: optionnel(jourIso),
-  // Lot S1 : methode d'acquisition, code de la liste du serveur (deux methodes = deux sources d'un reseau de concessionnaire).
-  methodeAcquisition: optionnel(z.enum(METHODES_ACQUISITION)),
+  // Lot S1 : methode d'acquisition (deux methodes = deux sources d'un reseau de concessionnaire). Correctifs T1+S1 (M2) : code du referentiel
+  // METHODE_ACQUISITION ; la route ne verifie que la forme, le depot verifie la valeur (422 METHODE_ACQUISITION_INCONNUE si inconnue, retiree ou inactive).
+  // Toute valeur absente, inactive ou mal formee du referentiel rend 422 METHODE_ACQUISITION_INCONNUE (decision de l'architecte du 10/11/2026), jamais 400.
+  methodeAcquisition: optionnel(z.string().trim().min(1).max(64).transform((s) => s.toUpperCase())),
 }).merge(champsImport).strict();
 
 const requeteDepot = z.object({ simuler: booleenRequete }).strict();

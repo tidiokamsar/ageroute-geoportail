@@ -155,6 +155,13 @@ describe("validation des entrees : 400 type, jamais 500, le service n'est pas ap
     expect(r.body.code).toBe("IDENTIFIANT_INVALIDE");
     expect(w.appels).toEqual([]);
   });
+  it("approbation d'une regle : le champ derogation n'existe plus (decision de l'architecte, aucune auto-approbation) : 400 CHAMPS_INVALIDES, service non appele", async () => {
+    const r = await request(app).post(`${BASE}/${P1}/regles-rapprochement/${RG}/approuver`).set("Authorization", `Bearer ${jeton("ADMIN")}`)
+      .send({ justification: "Relue et approuvee", derogation: "Seul administrateur disponible" });
+    expect(r.status).toBe(400);
+    expect(r.body.code).toBe("CHAMPS_INVALIDES");
+    expect(w.appels).toEqual([]);
+  });
   it("comparaison : jeux absents, non UUID, champ en trop (aucun parametre de calcul n'est modifiable par la requete)", async () => {
     for (const corps of [{}, { jeuAId: J1 }, { jeuAId: "x", jeuBId: J2 }, { jeuAId: J1, jeuBId: J2, margeM: 50 }, { jeuAId: J1, jeuBId: J2, mode: "SOURCES" }]) {
       const r = await appeler(ROUTES[4], "GEST", ROUTES[4].chemin, corps);

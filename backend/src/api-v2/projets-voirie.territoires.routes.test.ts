@@ -21,6 +21,7 @@ const w = vi.hoisted(() => ({
   regionsTerritoires: {} as Record<string, number | null>,
   appels: [] as { nom: string; args: unknown[] }[],
   echec: null as unknown,
+  cadenceAttente: null as number | null,
 }));
 
 vi.mock("../lib/prisma", () => {
@@ -46,7 +47,13 @@ const espion = (nom: string, valeur: unknown) => async (...args: unknown[]) => {
   return valeur;
 };
 
-vi.mock("../projets-voirie/territoires/territoires.service", () => ({
+vi.mock("../projets-voirie/territoires/territoires.service", async () => {
+  const { ErreurMetier } = await vi.importActual<typeof import("../projets-voirie/erreurs")>("../projets-voirie/erreurs");
+  return {
+  // Correctifs T1+S1 (m1) : cadence simulee (la vraie est testee dans limiteurs.cadence.test.ts).
+  exigerCadenceComptes: () => {
+    if (w.cadenceAttente !== null) throw new ErreurMetier(429, "COMPTES_TROP_FREQUENTS", "trop", { retryAfterS: w.cadenceAttente });
+  },
   listerTerritoires: (...a: unknown[]) => espion("listerTerritoires", { territoires: [], curseurSuivant: null })(...a),
   comptesParTerritoire: (...a: unknown[]) => espion("comptesParTerritoire", { comptes: [], tronque: false })(...a),
   creerTerritoire: (...a: unknown[]) => espion("creerTerritoire", { territoire: { id: "t" }, avertissements: [] })(...a),
@@ -54,7 +61,8 @@ vi.mock("../projets-voirie/territoires/territoires.service", () => ({
   modifierTerritoire: (...a: unknown[]) => espion("modifierTerritoire", { territoire: { id: "t" }, avertissements: [] })(...a),
   retirerTerritoire: (...a: unknown[]) => espion("retirerTerritoire", { id: "t", retire: true })(...a),
   regionsDuTerritoire: async (id: string) => (id in w.regionsTerritoires ? [w.regionsTerritoires[id]] : []),
-}));
+  };
+});
 vi.mock("../projets-voirie/territoires/referentiels.service", () => ({
   listerDomaines: (...a: unknown[]) => espion("listerDomaines", { domaines: [] })(...a),
   listerValeurs: (...a: unknown[]) => espion("listerValeurs", { domaine: "TYPE_RESEAU", valeurs: [] })(...a),
@@ -188,6 +196,17 @@ describe("perimetre : 404 masque sur un territoire designe", () => {
     await avec(request(app).get(`${BASE}/territoires/comptes`), "LECT");
     expect(appelsDe("comptesParTerritoire")[1].args[1]).toBe(false);
   });
+
+  it("m1 : comptes au-dela de la cadence du compte : 429 COMPTES_TROP_FREQUENTS avec Retry-After, service non appele", async () => {
+    w.cadenceAttente = 42;
+    try {
+      const r = await avec(request(app).get(`${BASE}/territoires/comptes`), "LECT");
+      expect(r.status).toBe(429);
+      expect(r.body.code).toBe("COMPTES_TROP_FREQUENTS");
+      expect(r.headers["retry-after"]).toBe("42");
+      expect(appelsDe("comptesParTerritoire")).toEqual([]);
+    } finally { w.cadenceAttente = null; }
+  });
 });
 
 describe("validation des entrees", () => {
@@ -249,14 +268,20 @@ describe("routes du socle modifiees par le lot T1", () => {
     expect(appelsDe("creerProjet")).toEqual([]);
   });
 
-  it("compte regional : la region touchee est celle du territoire ; hors de sa region 403 HORS_PERIMETRE, territoire inconnu 403 REGION_INCONNUE", async () => {
+  it("compte regional : la region touchee est celle du territoire ; m3 : territoire d'une autre region, inconnu ou sans region : la MEME reponse 404 TERRITOIRE_INTROUVABLE", async () => {
     expect((await avec(request(app).post(BASE).send({ code: "P-1", nom: "Projet", territoireId: T_R1 }), "GEST_R1")).status).toBe(201);
     const hors = await avec(request(app).post(BASE).send({ code: "P-2", nom: "Projet", territoireId: T_R2 }), "GEST_R1");
-    expect(hors.status).toBe(403);
-    expect(hors.body.code).toBe("HORS_PERIMETRE");
     const inconnu = await avec(request(app).post(BASE).send({ code: "P-3", nom: "Projet", territoireId: T_INCONNU }), "GEST_R1");
-    expect(inconnu.status).toBe(403);
-    expect(inconnu.body.code).toBe("REGION_INCONNUE");
+    const nation = await avec(request(app).post(BASE).send({ code: "P-4", nom: "Projet", territoireId: T_NATION }), "GEST_R1");
+    for (const r of [hors, inconnu, nation]) {
+      expect(r.status).toBe(404);
+      expect(r.body).toEqual(hors.body);
+    }
+    expect(hors.body.code).toBe("TERRITOIRE_INTROUVABLE");
+    // La region du CORPS reste controlee ensuite (une region n'est pas un secret) : 403 HORS_PERIMETRE.
+    const corps = await avec(request(app).post(BASE).send({ code: "P-5", nom: "Projet", regionId: 2, territoireId: T_R1 }), "GEST_R1");
+    expect(corps.status).toBe(403);
+    expect(corps.body.code).toBe("HORS_PERIMETRE");
     expect(appelsDe("creerProjet")).toHaveLength(1);
   });
 

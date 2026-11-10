@@ -69,17 +69,25 @@ const INCLURE_LISTE = {
   jeuReseau: { select: { id: true, statut: true, typeReseau: true, confidentialite: true, version: true } },
   // Plan d'axes d'un dossier de couverture insuffisante (revue RC-3, m6) : meme masquage et meme trace que le jeu de reseau.
   jeuAxes: { select: { id: true, statut: true, confidentialite: true } },
+  // Correctifs T1+S1 (B1) : jeu B de la comparaison d'un dossier DIVERGENCE_SOURCES. Son statut entre dans la lisibilite du dossier, comme le jeu A :
+  // un dossier ne revele rien (nom, objet, jeu, mesures) d'un jeu B non AUTORISE a un lecteur, ni d'un jeu B RETIRE a personne.
+  jeuSourceB: { select: { id: true, statut: true, confidentialite: true } },
   objet: { select: { id: true, nom: true } },
 } as const;
 
 type LigneConflit = Prisma.ConflitProjetGetPayload<{ include: typeof INCLURE_LISTE }>;
 
-/** Statuts COURANTS des jeux dont depend le dossier (reseau et/ou plan d'axes). */
-export const statutsLies = (c: Pick<LigneConflit, "jeuReseau" | "jeuAxes">): string[] =>
-  [c.jeuReseau?.statut, c.jeuAxes?.statut].filter((s): s is NonNullable<typeof s> => typeof s === "string");
+/** Statuts COURANTS des jeux dont depend le dossier : reseau et/ou plan d'axes, et, pour un dossier DIVERGENCE_SOURCES, le jeu B compare (B1). */
+export const statutsLies = (c: Pick<LigneConflit, "jeuReseau" | "jeuAxes"> & { jeuSourceB?: { statut: string } | null }): string[] =>
+  [c.jeuReseau?.statut, c.jeuAxes?.statut, c.jeuSourceB?.statut].filter((s): s is NonNullable<typeof s> => typeof s === "string");
 
-/** Jeu dont la consultation est tracee quand les donnees du dossier sont rendues (le reseau, sinon le plan d'axes). */
-const jeuTrace = (c: Pick<LigneConflit, "jeuReseau" | "jeuAxes">) => c.jeuReseau ?? c.jeuAxes ?? null;
+type JeuTrace = { id: string; confidentialite: string };
+/**
+ * Jeux dont la consultation est tracee quand les donnees du dossier sont rendues : le reseau, sinon le plan d'axes ; et le jeu B d'un dossier
+ * DIVERGENCE_SOURCES (son nom d'objet et ses mesures sont dans la mesure du dossier : B1).
+ */
+const jeuxTraces = (c: Pick<LigneConflit, "jeuReseau" | "jeuAxes"> & { jeuSourceB?: JeuTrace | null }): JeuTrace[] =>
+  [c.jeuReseau ?? c.jeuAxes ?? null, c.jeuSourceB ?? null].filter((j): j is JeuTrace => j !== null);
 
 /** Vrai si `role` peut lire la geometrie d'un conflit dont le jeu lie a ce statut (nul : aucun jeu lie). Voir visibilite.noyau.ts. */
 export function geometrieVisible(role: string, statutJeu: string | null): boolean {
@@ -134,6 +142,7 @@ function ou(...l: Prisma.ConflitProjetWhereInput[]): Prisma.ConflitProjetWhereIn
 const JEUX_AUTORISES: Prisma.ConflitProjetWhereInput[] = [
   ou({ jeuReseauId: null }, { jeuReseau: { is: { statut: "AUTORISE" } } }),
   ou({ jeuAxesId: null }, { jeuAxes: { is: { statut: "AUTORISE" } } }),
+  ou({ jeuSourceBId: null }, { jeuSourceB: { is: { statut: "AUTORISE" } } }),
 ];
 /** Dossiers qu'un compte qui ne decide pas NE VOIT PAS (un jeu lie n'est pas AUTORISE) : sert a retirer leurs cles d'une comparaison. */
 export const dossiersNonVisibles = (projetId: string): Prisma.ConflitProjetWhereInput => ({ projetId, NOT: { AND: JEUX_AUTORISES } });
@@ -141,6 +150,7 @@ export const dossiersNonVisibles = (projetId: string): Prisma.ConflitProjetWhere
 const JEUX_NON_RETIRES: Prisma.ConflitProjetWhereInput[] = [
   ou({ jeuReseauId: null }, { jeuReseau: { is: { statut: { not: "RETIRE" } } } }),
   ou({ jeuAxesId: null }, { jeuAxes: { is: { statut: { not: "RETIRE" } } } }),
+  ou({ jeuSourceBId: null }, { jeuSourceB: { is: { statut: { not: "RETIRE" } } } }),
 ];
 
 /**
@@ -192,11 +202,12 @@ export async function listerConflits(acteur: Acteur, projetId: string, f: Filtre
   // Un dossier de couverture insuffisante rend l'axe : c'est le plan d'axes qui est consulte (revue RC-3, m6).
   const parJeu = new Map<string, { id: string; confidentialite: string; nbObjets: number }>();
   for (const c of page) {
-    const jeu = jeuTrace(c);
-    if (!jeu || !donneesReseauLisibles(acteur.role, statutsLies(c))) continue;
-    const j = parJeu.get(jeu.id) ?? { id: jeu.id, confidentialite: jeu.confidentialite, nbObjets: 0 };
-    j.nbObjets += 1;
-    parJeu.set(jeu.id, j);
+    if (!donneesReseauLisibles(acteur.role, statutsLies(c))) continue;
+    for (const jeu of jeuxTraces(c)) {
+      const j = parJeu.get(jeu.id) ?? { id: jeu.id, confidentialite: jeu.confidentialite, nbObjets: 0 };
+      j.nbObjets += 1;
+      parJeu.set(jeu.id, j);
+    }
   }
   await tracerConsultation(acteur, [...parJeu.values()], { route: "conflits", bbox: null, zoom: null });
 
@@ -286,9 +297,9 @@ export async function ficheConflit(acteur: Acteur, projetId: string, cid: string
     avertissements: [...AVERTISSEMENTS_DOSSIER],
   };
   // Trace AVANT la remise de la geometrie d'un reseau de tiers, ou de l'axe d'un dossier de couverture (plan d'axes).
-  const jeu = jeuTrace(c);
-  if (visible && jeu) {
-    await tracerConsultation(acteur, [{ id: jeu.id, confidentialite: jeu.confidentialite, nbObjets: 1 }], { route: "conflits", bbox: null, zoom: null });
+  const traces = jeuxTraces(c);
+  if (visible && traces.length > 0) {
+    await tracerConsultation(acteur, traces.map((j) => ({ id: j.id, confidentialite: j.confidentialite, nbObjets: 1 })), { route: "conflits", bbox: null, zoom: null });
   }
   return fiche;
 }

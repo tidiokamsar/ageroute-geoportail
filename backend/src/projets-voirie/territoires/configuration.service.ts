@@ -118,8 +118,15 @@ async function exigerCrsConnus(epsg: readonly number[]): Promise<void> {
   if (absents.length) throw new ErreurMetier(422, "CRS_NON_DISPONIBLE", `CRS inconnu(s) de la base PostGIS : ${absents.map((e) => `EPSG:${e}`).join(", ")}.`, { epsg: absents });
 }
 
+/** Longueur minimale d'une justification (meme valeur que JUSTIFICATION_MIN des conflits et des regles). */
+export const JUSTIFICATION_MIN_CONFIGURATION = 10;
+
 export async function ecrireConfiguration(acteur: Acteur, cle: string, brut: unknown, justification: string | undefined): Promise<{ configuration: VueConfiguration }> {
   if (!estCle(cle)) throw new ErreurMetier(404, "CLE_INCONNUE", `Clé de configuration inconnue : ${CLES.join(", ")} attendues.`);
+  // Decision de l'architecte (10/11/2026) : une ecriture de configuration est justifiee, comme les autres decisions du module (10 caracteres au moins).
+  if ((justification ?? "").trim().length < JUSTIFICATION_MIN_CONFIGURATION) {
+    throw new ErreurMetier(422, "JUSTIFICATION_REQUISE", `Une justification de ${JUSTIFICATION_MIN_CONFIGURATION} caractères au moins est requise pour modifier la configuration.`);
+  }
   const v = validerValeur(cle, brut);
   if (!v.ok) throw new ErreurMetier(400, "VALEUR_INVALIDE", "La valeur ne respecte pas le schéma de cette clé.", { details: v.erreurs });
   const courante = await configurationCourante();
@@ -134,6 +141,16 @@ export async function ecrireConfiguration(acteur: Acteur, cle: string, brut: unk
     // Les bandes en vigueur doivent rester dans la nouvelle liste : sinon l'analyse tomberait sur un CRS non autorise.
     const hors = epsgHorsListe(courante.CRS_METRIQUE_BANDES, (v.valeur as ValeurDe<"CRS_IMPORT_LISTE_BLANCHE">).epsg);
     if (hors.length) throw new ErreurMetier(409, "CRS_NON_AUTORISE", `La règle des bandes de CRS métrique utilise ${hors.map((e) => `EPSG:${e}`).join(", ")} : modifiez-la avant de retirer ce code de la liste blanche.`, { epsg: hors });
+  }
+  if (cle === "CRS_IMPORT_LISTE_BLANCHE") {
+    // Correctifs T1+S1 (m9) : un CRS impose par un territoire non retire reste dans la liste (sinon le contexte spatial l'ignorerait sans le dire).
+    const nouvelle = (v.valeur as ValeurDe<"CRS_IMPORT_LISTE_BLANCHE">).epsg;
+    const imposes = await prisma.territoireVoirie.findMany({ where: { deletedAt: null, crsMetriqueEpsg: { not: null } }, select: { code: true, crsMetriqueEpsg: true } });
+    const orphelins = imposes.filter((t) => !nouvelle.includes(Number(t.crsMetriqueEpsg)));
+    if (orphelins.length) {
+      const codes = [...new Set(orphelins.map((t) => Number(t.crsMetriqueEpsg)))];
+      throw new ErreurMetier(409, "CRS_NON_AUTORISE", `${orphelins.length} territoire(s) imposent ${codes.map((e) => `EPSG:${e}`).join(", ")} : changez leur CRS avant de retirer ce code de la liste blanche.`, { epsg: codes, territoires: orphelins.slice(0, 20).map((t) => t.code) });
+    }
   }
   const texte = justification?.trim() || null;
   const resultat = await prisma.$transaction(async (tx) => {

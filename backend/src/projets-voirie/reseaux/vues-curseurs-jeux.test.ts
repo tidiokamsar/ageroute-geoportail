@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Prisma } from "@prisma/client";
-import { retenirJeux } from "./comptage.noyau";
+import { retenirJeux, sourcesMultiples } from "./comptage.noyau";
 import { avecTraductionBase, statutsLisibles, traduireErreurBase } from "./commun";
 import { decoderCurseurObjet, encoderCurseurObjet } from "./curseurs.noyau";
 import type { LigneObjet, LigneRelation } from "./reseaux.depot";
@@ -93,6 +93,25 @@ describe("jeux a compter", () => {
   it("un jeu en controle d'une autre cle s'ajoute ; le role AUTRE retient tous ses fichiers", () => {
     const r = retenirJeux([jeu("a", "AUTORISE"), jeu("b", "CONTROLE", "RESEAU_TIERS", "c2"), jeu("x", "AUTORISE", "AUTRE", null), jeu("y", "AUTORISE", "AUTRE", null, 1)], true);
     expect(r.map((j) => j.id)).toEqual(["a", "b", "x", "y"]);
+  });
+});
+
+describe("M4 (correctifs T1+S1) : analyse 2D, comptage et RC-3 portent sur les memes jeux : toutes les sources autorisees d'un reseau", () => {
+  const src = (id: string, statut: string, methodeAcquisition: string | null, t = 0, typeReseauCode = "TELECOM") =>
+    ({ id, role: "RESEAU_TIERS", concessionnaireId: "c1", statut, methodeAcquisition, typeReseauCode, typeReseau: "TELECOM", createdAt: new Date(2026, 9, 1 + t) });
+  it("deux sources AUTORISE d'un meme concessionnaire (plan, GNSS) : les deux sont retenues, et signalees comme sources multiples", () => {
+    const r = retenirJeux([src("plan", "AUTORISE", "NUMERISATION_PLAN"), src("gnss", "AUTORISE", "GNSS_RTK", 1)], false);
+    expect(r.map((j) => j.id).sort()).toEqual(["gnss", "plan"]);
+    expect(sourcesMultiples(r)).toEqual([{ concessionnaireId: "c1", typeReseau: "TELECOM", nbSources: 2, jeuxIds: ["gnss", "plan"] }]);
+  });
+  it("quarantaine incluse : une candidate de la lignee GNSS remplace la source GNSS, jamais la source « plan »", () => {
+    const r = retenirJeux([src("plan", "AUTORISE", "NUMERISATION_PLAN"), src("gnss", "AUTORISE", "GNSS_RTK", 1), src("gnss2", "CONTROLE", "GNSS_RTK", 2)], true);
+    expect(r.map((j) => j.id).sort()).toEqual(["gnss2", "plan"]);
+  });
+  it("deux types de la meme famille sont deux reseaux : retenus tous deux, sans etre des sources multiples d'un meme reseau", () => {
+    const r = retenirJeux([src("fibre", "AUTORISE", "GNSS_RTK", 0, "FIBRE"), src("cuivre", "AUTORISE", "GNSS_RTK", 1, "CUIVRE")], false);
+    expect(r).toHaveLength(2);
+    expect(sourcesMultiples(r)).toEqual([]);
   });
 });
 
