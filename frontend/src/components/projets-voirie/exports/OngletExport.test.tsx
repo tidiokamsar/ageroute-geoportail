@@ -34,7 +34,7 @@ const derogation = (id: string, over: Record<string, unknown> = {}) => ({
   justification: "Transmission au bureau d'études pour reprise", createdAt: "2026-11-10T06:00:00Z", expireLe: "2026-11-11T06:00:00Z", utiliseeLe: null, exportId: null, etat: "DISPONIBLE", ...over,
 });
 
-interface Etat { journal: unknown[]; derogations: unknown[]; erreurs: Record<string, unknown> }
+interface Etat { journal: unknown[]; derogations: unknown[]; miennes: unknown[]; erreurs: Record<string, unknown> }
 let e: Etat;
 const blobJson = (o: unknown) => new Blob([JSON.stringify(o)], { type: "application/json" });
 const ZIP_OK = () => ({
@@ -48,6 +48,7 @@ function installer() {
     if (err) { delete e.erreurs[url]; throw err; }
     if (url === `${B}/export/journal`) return { data: { exports: e.journal } };
     if (url === `${B}/export/derogations`) return { data: { derogations: e.derogations } };
+    if (url === `${B}/export/derogations/miennes`) return { data: { derogations: e.miennes } };
     if (url === "/users" && cfg.params?.role === "ADMIN") return { data: { data: [{ id: MOI, nomComplet: "Moi Admin", email: "moi@example.test", modulesAutorises: [] }], total: 1 } };
     if (url === "/users" && cfg.params?.role === "GESTIONNAIRE") return { data: { data: [
       { id: "u-gest", nomComplet: "Gestionnaire Synth", email: "g@example.test", modulesAutorises: ["projets-voirie"] },
@@ -66,7 +67,7 @@ const appelsExport = () => h.get.mock.calls.filter((c) => c[0] === `${B}/export/
 
 beforeEach(() => {
   h.get.mockReset(); h.post.mockReset(); h.enregistrer.mockReset();
-  e = { journal: [{ id: "t1", acteur: { id: "u-gest", nomComplet: "Gestionnaire Synth" }, statut: "ECHEC", codeEchec: "EXPORT_TROP_VOLUMINEUX", createdAt: "2026-11-09T10:00:00Z" }], derogations: [derogation("d-1")], erreurs: {} };
+  e = { journal: [{ id: "t1", acteur: { id: "u-gest", nomComplet: "Gestionnaire Synth" }, statut: "ECHEC", codeEchec: "EXPORT_TROP_VOLUMINEUX", createdAt: "2026-11-09T10:00:00Z" }], derogations: [derogation("d-1")], miennes: [], erreurs: {} };
   installer();
 });
 
@@ -178,6 +179,26 @@ describe("fabrication et telechargement", () => {
 });
 
 describe("derogations", () => {
+  it("GESTIONNAIRE beneficiaire (ecart E1 du lot UI-D) : la derogation qui le designe est listee et utilisable, sans la liste ADMIN", async () => {
+    const u = userEvent.setup();
+    e.miennes = [derogation("0f0e0d0c-0b0a-4908-8706-050403020100", { beneficiaire: { id: MOI, nomComplet: "Moi Gestionnaire" } })];
+    rendre({ estAdmin: false });
+    const choix = await screen.findByLabelText(/Dérogation accordée par Admin Synth/);
+    expect(h.get.mock.calls.some((c) => c[0] === `${B}/export/derogations`)).toBe(false);
+    expect(h.get.mock.calls.some((c) => c[0] === `${B}/export/derogations/miennes`)).toBe(true);
+    await u.click(choix);
+    await u.click(screen.getByRole("button", { name: /Fabriquer et télécharger/ }));
+    await waitFor(() => expect(appelsExport()[0][1]).toMatchObject({ params: { geojson: "true", derogation: "0f0e0d0c-0b0a-4908-8706-050403020100" } }));
+  });
+
+  it("GESTIONNAIRE : une derogation renvoyee pour un AUTRE beneficiaire n'est jamais proposee (filtre client en plus du serveur)", async () => {
+    e.miennes = [derogation("d-autre")];
+    rendre({ estAdmin: false });
+    await screen.findByRole("list", { name: "Tentatives d'export" });
+    await waitFor(() => expect(h.get.mock.calls.some((c) => c[0] === `${B}/export/derogations/miennes`)).toBe(true));
+    expect(screen.queryByLabelText(/Dérogation accordée par/)).toBeNull();
+  });
+
   it("GESTIONNAIRE (sur contenu charge) : aucun bouton d'octroi ni liste ; il saisit l'identifiant communique", async () => {
     const u = userEvent.setup();
     rendre({ estAdmin: false });

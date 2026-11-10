@@ -394,9 +394,11 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
     "GET /api/v2/projets-voirie/:id/export/journal": ["ADMIN", "GESTIONNAIRE"],
     "POST /api/v2/projets-voirie/:id/export/derogations": ["ADMIN"],
     "GET /api/v2/projets-voirie/:id/export/derogations": ["ADMIN"],
+    // Ecart E1 du lot UI-D : derogations qui designent l'appelant (filtrees sur le beneficiaire par le service).
+    "GET /api/v2/projets-voirie/:id/export/derogations/miennes": ["ADMIN", "GESTIONNAIRE"],
   };
 
-  it("expose exactement les 15 routes du socle, les 16 des dossiers de conflit, les 6 de l'import (lot A1), les 10 des reseaux (lot B1), les 4 des jobs de conversion GDAL (lot B2), les 15 des territoires, referentiels et configuration (lot T1), les 9 des sources (lot S1), les 8 des documents (lot D1) et les 6 de l export et des tableaux de bord (lot X1), ni plus (aucun export de geometrie SAUF le dossier technique du lot X1, GET /:id/export/dossier, decideurs, jeux AUTORISE d'un niveau exportable ou sous derogation ADMIN ; aucune route d'ordre ou de deplacement), ni moins", () => {
+  it("expose exactement les 15 routes du socle, les 16 des dossiers de conflit, les 6 de l'import (lot A1), les 10 des reseaux (lot B1), les 4 des jobs de conversion GDAL (lot B2), les 15 des territoires, referentiels et configuration (lot T1), les 9 des sources (lot S1), les 8 des documents (lot D1) et les 7 de l export et des tableaux de bord (lot X1, dont « mes derogations » du lot UI-D), ni plus (aucun export de geometrie SAUF le dossier technique du lot X1, GET /:id/export/dossier, decideurs, jeux AUTORISE d'un niveau exportable ou sous derogation ADMIN ; aucune route d'ordre ou de deplacement), ni moins", () => {
     expect(pv.map(cle).sort()).toEqual([
       "DELETE /api/v2/projets-voirie/:id", "DELETE /api/v2/projets-voirie/:id/jeux/:jeuId",
       "GET /api/v2/projets-voirie", "GET /api/v2/projets-voirie/:id", "GET /api/v2/projets-voirie/:id/analyse",
@@ -441,7 +443,7 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
       "POST /api/v2/projets-voirie/:id/documents/:docId/statut", "DELETE /api/v2/projets-voirie/:id/documents/:docId",
       // Export du dossier technique et tableaux de bord (lot X1, CONTRAT-EXPORTS.md, sections 4.1 et 6.1)
       "GET /api/v2/projets-voirie/:id/export/dossier", "GET /api/v2/projets-voirie/:id/export/journal", "POST /api/v2/projets-voirie/:id/export/derogations",
-      "GET /api/v2/projets-voirie/:id/export/derogations", "GET /api/v2/projets-voirie/tableau-de-bord", "GET /api/v2/projets-voirie/tableau-de-bord/territoires/:tid",
+      "GET /api/v2/projets-voirie/:id/export/derogations", "GET /api/v2/projets-voirie/:id/export/derogations/miennes", "GET /api/v2/projets-voirie/tableau-de-bord", "GET /api/v2/projets-voirie/tableau-de-bord/territoires/:tid",
     ].sort());
     // Lot S1 : aucune route de fusion, de connexion calculee ni de proposition automatique de connexion.
     expect(pv.filter((l) => /fusion|fusionn|connect|connexion|continuite/i.test(l.chemin))).toEqual([]);

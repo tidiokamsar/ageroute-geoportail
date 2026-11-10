@@ -2,7 +2,7 @@ import type { NextFunction, Request, RequestHandler, Response, Router } from "ex
 import { z } from "zod";
 import type { Acteur } from "../projets-voirie/projets.service";
 import { exporterDossier, journalExports } from "../projets-voirie/exports/dossier.service";
-import { creerDerogation, listerDerogations } from "../projets-voirie/exports/derogations.service";
+import { creerDerogation, listerDerogations, listerMesDerogations } from "../projets-voirie/exports/derogations.service";
 import { DEROGATION_DUREE_MAX_H } from "../projets-voirie/exports/config";
 
 /**
@@ -15,6 +15,7 @@ import { DEROGATION_DUREE_MAX_H } from "../projets-voirie/exports/config";
  *
  *   - export et journal : ADMIN et GESTIONNAIRE (les comptes qui decident), chaque tentative auditee et comptee dans la cadence ;
  *   - derogation de confidentialite (creation, liste) : ADMIN seul ; nominative (autre personne que l'ADMIN), justifiee, a usage unique ;
+ *   - derogations qui designent l'appelant (`/derogations/miennes`) : ADMIN et GESTIONNAIRE, filtrees sur le beneficiaire (ecart E1 du lot UI-D) ;
  *   - la remise est consignee APRES l'ecriture complete de la reponse (journal REMIS ou ECHEC_ENVOI, derogation consommee ou liberee) ;
  *   - GeoJSON des seuls jeux AUTORISE d'un niveau exportable, ou couverts par une derogation citee ; jamais un jeu RETIRE, ni rien qui en vienne.
  */
@@ -76,6 +77,12 @@ export function monterRoutesExports(router: Router, o: OutilsRoutesExports): voi
     const p = corpsDerogation.safeParse(req.body ?? {});
     if (!p.success) return refuser(res, p.error, "CHAMPS_INVALIDES");
     res.status(201).json(await creerDerogation(acteurDe(req), req.params.id, p.data));
+  }));
+
+  router.get("/:id/export/derogations/miennes", ecriture, gardeProjet, enveloppe(async (req, res) => {
+    const p = z.object({}).strict().safeParse(req.query);
+    if (!p.success) return refuser(res, p.error);
+    res.json(await listerMesDerogations(acteurDe(req), req.params.id));
   }));
 
   router.get("/:id/export/derogations", administrateur, gardeProjet, enveloppe(async (req, res) => {

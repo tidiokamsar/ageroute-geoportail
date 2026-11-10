@@ -55,6 +55,12 @@ export async function listerDerogations(projetId: string, signal?: AbortSignal):
   return lireDerogations(data);
 }
 
+/** Derogations qui designent le compte appelant sur ce projet (ADMIN et GESTIONNAIRE ; ecart E1 du lot UI-D) : le serveur filtre sur le jeton. */
+export async function listerMesDerogations(projetId: string, signal?: AbortSignal): Promise<Derogation[]> {
+  const { data } = await api.get(`${BASE}/${id(projetId)}/export/derogations/miennes`, { signal });
+  return lireDerogations(data);
+}
+
 export interface CorpsDerogation { jeuxIds: string[]; justification: string; beneficiaireId: string; dureeHeures: number }
 
 export async function accorderDerogation(projetId: string, c: CorpsDerogation): Promise<Derogation> {

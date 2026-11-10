@@ -1304,8 +1304,9 @@ Mêmes gardes, dans le même ordre, que le socle ; projet retiré ou hors périm
 |---|---|---|
 | `GET /:id/export/dossier` | ADMIN, GESTIONNAIRE | `?geojson=true\|false` (défaut `true`) `&derogation=<uuid>` (avec GeoJSON seulement) : 200 `application/zip`, `Content-Disposition: attachment; filename="dossier-<code>-<AAAA-MM-JJ>.zip"`, `X-Export-Id`, `X-Empreinte-Sha256` (SHA-256 de l'archive), `X-Fichiers`, `X-Jeux-Geojson` |
 | `GET /:id/export/journal` | ADMIN, GESTIONNAIRE | `?limite=(1..100, 50)` : `{ exports: [ { id, acteur: { id, nomComplet }, createdAt, sha256, tailleOctets, nbFichiers, nbJeuxGeojson, derogationId } ] }` |
-| `POST /:id/export/derogations` | ADMIN | `{ jeuxIds: uuid[1..20], justification (20..2000), beneficiaireId?, dureeHeures? (1..168) }` : 201 `{ derogation }` |
-| `GET /:id/export/derogations` | ADMIN | `{ derogations: [ { id, projetId, jeuxIds, beneficiaire, accordeePar, justification, createdAt, expireLe, utiliseeLe, exportId, etat: DISPONIBLE\|UTILISEE\|EXPIREE } ] }` |
+| `POST /:id/export/derogations` | ADMIN | `{ jeuxIds: uuid[1..20], justification (20..2000), beneficiaireId (obligatoire, autre personne que l'ADMIN), dureeHeures? (1..168) }` : 201 `{ derogation }` |
+| `GET /:id/export/derogations` | ADMIN | `{ derogations: [ { id, projetId, jeuxIds, beneficiaire, accordeePar, justification, createdAt, expireLe, utiliseeLe, exportId, etat: DISPONIBLE\|RESERVEE\|UTILISEE\|EXPIREE } ] }` |
+| `GET /:id/export/derogations/miennes` | ADMIN, GESTIONNAIRE | même vue, limitée aux dérogations qui désignent le compte appelant sur ce projet (filtre du serveur sur le jeton, aucun paramètre admis : 400) ; ajoutée le 10/11/2026 (écart E1 du lot UI-D) |
 | `GET /tableau-de-bord` | lecture | aucun paramètre : `{ portee: "NATIONAL", perimetre: { national, regions }, lisibilite, total, parRegion: [ { regionId, region, ...agrégat } ], tronque, calculeLe, regle }` |
 | `GET /tableau-de-bord/territoires/:tid` | lecture | aucun paramètre : `{ portee: "TERRITOIRE", territoire: { id, code, nom, niveau, ancetres }, perimetre, lisibilite, total, rattachesDirectement, enfants: [ { territoireId, code, nom, niveau, ...agrégat } ], nonVentiles, tronque, calculeLe, regle }` |
 

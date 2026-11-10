@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CLE } from "./projetsVoirieHooks";
 import {
-  accorderDerogation, journalExports, listerComptesBeneficiaires, listerDerogations, tableauNational, tableauTerritoire, type CorpsDerogation,
+  accorderDerogation, journalExports, listerComptesBeneficiaires, listerDerogations, listerMesDerogations, tableauNational, tableauTerritoire, type CorpsDerogation,
 } from "./projetsVoirieExportsApi";
 
 /**
@@ -18,6 +18,10 @@ export function useJournalExports(projetId: string | undefined, actif = true) {
 
 export function useDerogations(projetId: string | undefined, actif = true) {
   return useQuery({ queryKey: [...CLE, X, "derogations", projetId], queryFn: ({ signal }) => listerDerogations(projetId as string, signal), enabled: !!projetId && actif, ...OPTIONS });
+}
+
+export function useMesDerogations(projetId: string | undefined, actif = true) {
+  return useQuery({ queryKey: [...CLE, X, "mes-derogations", projetId], queryFn: ({ signal }) => listerMesDerogations(projetId as string, signal), enabled: !!projetId && actif, ...OPTIONS });
 }
 
 export function useComptesBeneficiaires(actif: boolean) {

@@ -4,7 +4,7 @@ import { Button } from "../../ui/Button";
 import { Input } from "../../ui/Input";
 import { EtatChargement, EtatErreur } from "../EtatsPv";
 import { DialogueDerogation, type JeuDerogation } from "./DialogueDerogation";
-import { useAccorderDerogation, useDerogations, useInvalidationExports, useJournalExports } from "../../../lib/projetsVoirieExportsHooks";
+import { useAccorderDerogation, useDerogations, useInvalidationExports, useJournalExports, useMesDerogations } from "../../../lib/projetsVoirieExportsHooks";
 import { exporterDossier } from "../../../lib/projetsVoirieExportsApi";
 import { LIBELLE_CONFIDENTIALITE, formaterDate, formaterNombre, formaterTaille, type ErreurPv } from "../../../lib/projetsVoirie";
 import {
@@ -31,6 +31,8 @@ export function OngletExport({ projetId, code, jeux, actif, estAdmin, compteId, 
   const id = useId();
   const journal = useJournalExports(projetId, actif);
   const derogations = useDerogations(projetId, actif && estAdmin);
+  // Un non-ADMIN ne lit pas la liste du projet : seulement les derogations qui le designent (ecart E1 du lot UI-D, filtrees par le serveur).
+  const miennes = useMesDerogations(projetId, actif && !estAdmin);
   const accorder = useAccorderDerogation(projetId);
   const invalider = useInvalidationExports();
   const [geojson, setGeojson] = useState(true);
@@ -53,7 +55,8 @@ export function OngletExport({ projetId, code, jeux, actif, estAdmin, compteId, 
   }, [enCours]);
   useEffect(() => () => controleur.current?.abort(), []);
 
-  const mesDerogations = useMemo(() => derogationsUtilisables(derogations.data ?? [], compteId), [derogations.data, compteId]);
+  const sourceDerogations = estAdmin ? derogations.data : miennes.data;
+  const mesDerogations = useMemo(() => derogationsUtilisables(sourceDerogations ?? [], compteId), [sourceDerogations, compteId]);
   const derogationCitee = choix.genre === "liste" ? mesDerogations.find((d) => d.id === choix.id) ?? null : null;
   const idDerogation = choix.genre === "liste" ? choix.id : choix.genre === "saisie" ? saisieId.trim() : null;
   const saisieInvalide = choix.genre === "saisie" && !MOTIF_UUID.test(saisieId.trim());
@@ -137,7 +140,7 @@ export function OngletExport({ projetId, code, jeux, actif, estAdmin, compteId, 
                 <p id={`${id}-derid-aide`} className="text-xs text-gray-700">Une dérogation ne sert qu&apos;à son bénéficiaire, sur ce projet, une seule fois. Elle n&apos;est consommée que si l&apos;archive vous est entièrement remise.</p>
               </div>
             )}
-            {!estAdmin && <p className="text-xs text-gray-700">La liste des dérogations est réservée aux administrateurs : celui qui vous en accorde une vous communique son identifiant.</p>}
+            {!estAdmin && <p className="text-xs text-gray-700">Les dérogations qui vous désignent sur ce projet apparaissent ci-dessus ; la liste de toutes les dérogations reste réservée aux administrateurs.</p>}
           </fieldset>
         )}
 

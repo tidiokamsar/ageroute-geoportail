@@ -27,7 +27,7 @@ interface LigneDerogation {
 }
 
 /** Derogations lues avec leur etat calcule PAR LA BASE (expiration, reservation par une tentative EN_COURS encore dans son delai). */
-export async function lireDerogations(lecteur: Pick<Tx, "$queryRaw">, filtre: { id?: string; projetId?: string }): Promise<LigneDerogation[]> {
+export async function lireDerogations(lecteur: Pick<Tx, "$queryRaw">, filtre: { id?: string; projetId?: string; beneficiaireId?: string }): Promise<LigneDerogation[]> {
   return lecteur.$queryRaw<LigneDerogation[]>`
     SELECT d."id", d."projetId", d."jeuxIds", d."beneficiaireId", d."accordeeParId", d."justification", d."createdAt", d."expireLe", d."utiliseeLe", d."exportId",
            d."expireLe" <= (now() AT TIME ZONE 'UTC') AS "expiree",
@@ -36,6 +36,7 @@ export async function lireDerogations(lecteur: Pick<Tx, "$queryRaw">, filtre: { 
       FROM "derogations_export_projet_voirie" d LEFT JOIN "exports_dossier_projet_voirie" e ON e."id" = d."exportId"
      WHERE (${filtre.id ?? null}::text IS NULL OR d."id" = ${filtre.id ?? null}::text)
        AND (${filtre.projetId ?? null}::text IS NULL OR d."projetId" = ${filtre.projetId ?? null}::text)
+       AND (${filtre.beneficiaireId ?? null}::text IS NULL OR d."beneficiaireId" = ${filtre.beneficiaireId ?? null}::text)
      ORDER BY d."createdAt" DESC, d."id" DESC LIMIT 100`;
 }
 
@@ -90,6 +91,18 @@ export async function creerDerogation(acteur: Acteur, projetId: string, d: Deman
 export async function listerDerogations(projetId: string) {
   await exigerProjetActif(projetId);
   const lignes = await lireDerogations(prisma, { projetId });
+  const ids = [...new Set(lignes.flatMap((l) => [l.beneficiaireId, l.accordeeParId]))];
+  const us = ids.length ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, nomComplet: true } }) : [];
+  return { derogations: lignes.map((l) => vue(l, new Map(us.map((u) => [u.id, u])))) };
+}
+
+/**
+ * Derogations qui designent le compte appelant comme beneficiaire, sur ce projet (ecart E1 du lot UI-D) : un GESTIONNAIRE beneficiaire voit
+ * enfin ce qui lui est accorde, sans acces a la liste ADMIN des autres derogations. Lecture seule, aucune ecriture ni audit (comme la liste ADMIN).
+ */
+export async function listerMesDerogations(acteur: Acteur, projetId: string) {
+  await exigerProjetActif(projetId);
+  const lignes = await lireDerogations(prisma, { projetId, beneficiaireId: acteur.id });
   const ids = [...new Set(lignes.flatMap((l) => [l.beneficiaireId, l.accordeeParId]))];
   const us = ids.length ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, nomComplet: true } }) : [];
   return { derogations: lignes.map((l) => vue(l, new Map(us.map((u) => [u.id, u])))) };

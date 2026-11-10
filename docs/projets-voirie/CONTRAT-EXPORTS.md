@@ -65,8 +65,9 @@ Déclencheur : toutes les colonnes sont **immuables**, sauf le couple (`utilisee
 |---|---|---|
 | `GET /:id/export/dossier` | ADMIN, GESTIONNAIRE | `?geojson=true\|false` (défaut `true`) `&derogation=<uuid>` : 200 `application/zip`, `Content-Disposition: attachment; filename="dossier-<code>-<AAAA-MM-JJ>.zip"`, en-têtes `X-Export-Id`, `X-Empreinte-Sha256`, `X-Fichiers`, `X-Jeux-Geojson` |
 | `GET /:id/export/journal` | ADMIN, GESTIONNAIRE | `?limite=(1..100, 50)` : `{ exports: [ { id, acteur: { id, nomComplet }, createdAt, sha256, tailleOctets, nbFichiers, nbJeuxGeojson, derogationId } ] }`, plus récents d'abord |
-| `POST /:id/export/derogations` | ADMIN | `{ jeuxIds: uuid[1..20], justification (20..2000), beneficiaireId?: uuid (défaut : l'ADMIN), dureeHeures?: 1..168 (défaut `PROJETS_VOIRIE_EXPORT_DEROGATION_DUREE_H`) }` : 201 `{ derogation }` |
-| `GET /:id/export/derogations` | ADMIN | `{ derogations: [vue] }`, 100 plus récentes |
+| `POST /:id/export/derogations` | ADMIN | `{ jeuxIds: uuid[1..20], justification (20..2000), beneficiaireId: uuid (obligatoire, autre personne que l'ADMIN : revue du lot X1, M2), dureeHeures?: 1..168 (défaut `PROJETS_VOIRIE_EXPORT_DEROGATION_DUREE_H`) }` : 201 `{ derogation }` |
+| `GET /:id/export/derogations` | ADMIN | `{ derogations: [vue] }`, 100 plus récentes ; états `DISPONIBLE`, `RESERVEE`, `UTILISEE`, `EXPIREE` |
+| `GET /:id/export/derogations/miennes` | ADMIN, GESTIONNAIRE | `{ derogations: [vue] }` limitées au bénéficiaire appelant (filtre du serveur, aucun paramètre) : le bénéficiaire voit ce qui lui est accordé sans accès aux autres dérogations (écart E1 du lot UI-D, 10/11/2026) |
 
 Vue d'une dérogation : `{ id, projetId, jeuxIds, beneficiaire: { id, nomComplet }, accordeePar: { id, nomComplet }, justification, createdAt, expireLe, utiliseeLe, exportId, etat: DISPONIBLE|UTILISEE|EXPIREE }`.
 

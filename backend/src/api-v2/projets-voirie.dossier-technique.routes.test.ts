@@ -63,6 +63,7 @@ vi.mock("../projets-voirie/exports/dossier.service", () => ({
 vi.mock("../projets-voirie/exports/derogations.service", () => ({
   creerDerogation: espion("creerDerogation", { derogation: { id: "d-1" } }),
   listerDerogations: espion("listerDerogations", { derogations: [] }),
+  listerMesDerogations: espion("listerMesDerogations", { derogations: [] }),
 }));
 vi.mock("../projets-voirie/tableaux/tableau.service", () => ({
   tableauNational: espion("tableauNational", { portee: "NATIONAL", total: { projets: 0 } }),
@@ -115,6 +116,8 @@ const ROUTES: Route[] = [
   { m: "get", chemin: `/${P1}/export/journal`, service: "journalExports", roles: ["ADMIN", "GEST"], ok: 200, projet: true },
   { m: "post", chemin: `/${P1}/export/derogations`, corps: DEROG, service: "creerDerogation", roles: ["ADMIN"], ok: 201, projet: true },
   { m: "get", chemin: `/${P1}/export/derogations`, service: "listerDerogations", roles: ["ADMIN"], ok: 200, projet: true },
+  // Ecart E1 du lot UI-D : le beneficiaire (ADMIN ou GESTIONNAIRE) lit les derogations qui le designent.
+  { m: "get", chemin: `/${P1}/export/derogations/miennes`, service: "listerMesDerogations", roles: ["ADMIN", "GEST"], ok: 200, projet: true },
   { m: "get", chemin: "/tableau-de-bord", service: "tableauNational", roles: ["ADMIN", "GEST", "LECT", "INSP"], ok: 200, projet: false },
   { m: "get", chemin: `/tableau-de-bord/territoires/${T1}`, service: "tableauTerritoire", roles: ["ADMIN", "GEST", "LECT", "INSP"], ok: 200, projet: false },
 ];
@@ -126,8 +129,8 @@ const appeler = (r: Route, compte: string | null, chemin = r.chemin, corps = r.c
 const appelsDe = (nom: string) => w.appels.filter((a) => a.nom === nom);
 
 describe("gardes : authentification, module, role, perimetre", () => {
-  it("sans jeton 401, sans la cle du module 403, sur les 6 routes ; aucun service appele", async () => {
-    expect(ROUTES).toHaveLength(6);
+  it("sans jeton 401, sans la cle du module 403, sur les 7 routes ; aucun service appele", async () => {
+    expect(ROUTES).toHaveLength(7);
     for (const r of ROUTES) expect((await appeler(r, null)).status, r.chemin).toBe(401);
     for (const r of ROUTES) expect((await appeler(r, "SANS")).status, r.chemin).toBe(403);
     expect(w.appels).toEqual([]);
@@ -140,6 +143,14 @@ describe("gardes : authentification, module, role, perimetre", () => {
     }
     expect(appelsDe("exporterDossier").every((a) => ["ADMIN", "GESTIONNAIRE"].includes((a.args[0] as { role: string }).role))).toBe(true);
     expect(appelsDe("creerDerogation").every((a) => (a.args[0] as { role: string }).role === "ADMIN")).toBe(true);
+    // « Mes derogations » : le service recoit l'acteur du jeton (jamais un beneficiaire passe en parametre).
+    expect(appelsDe("listerMesDerogations").length).toBeGreaterThan(0);
+    expect(appelsDe("listerMesDerogations").every((a) => ["ADMIN", "GESTIONNAIRE"].includes((a.args[0] as { role: string }).role) && a.args[1] === P1)).toBe(true);
+  });
+
+  it("« mes derogations » : aucun parametre de requete admis (un beneficiaire ne se choisit pas) : 400", async () => {
+    const r = ROUTES.find((x) => x.service === "listerMesDerogations")!;
+    expect((await appeler(r, "GEST", `${r.chemin}?beneficiaireId=${uuid(9)}`)).status).toBe(400);
   });
 
   it("projet hors perimetre ou inconnu : le MEME 404 masque, avant toute validation (parametres faux compris) ; aucun service appele", async () => {
