@@ -7,7 +7,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { PAS_CELLULE_DEG, type ClassePrecision, type Mesure, type TypeConflit } from "./types.noyau";
+import { PAS_CELLULE_DEG, type ClassePrecision, type Mesure, type MorceauxCouverture, type TypeConflit } from "./types.noyau";
 
 export type StatutInitial = "A_INVESTIGUER" | "POTENTIEL";
 export type MotifInvestigation = "PRECISION_INCONNUE" | "PRECISION_INSUFFISANTE" | "COUVERTURE_INSUFFISANTE" | "DIVERGENCE_SOURCES" | "VERTICAL_NON_EVALUE";
@@ -91,6 +91,16 @@ export function cleConflit(c: ComposantesCle): string {
   return createHash("sha256").update(texte, "utf8").digest("hex");
 }
 
+/**
+ * Correctif D7 : cle stable d'un dossier de couverture insuffisante REGROUPE par axe (voir couverture.noyau.ts) : projet et identite de l'axe
+ * (`i:` identifiant mappe ou `n:` nom normalise), sans cellule de localisation, dans un espace de cles distinct de `cleConflit` (prefixe propre :
+ * aucune collision possible avec la cle d'un dossier par objet).
+ */
+export function cleCouvertureAxe(projetId: string, identite: string): string {
+  const texte = ["couverture-axe-v1", projetId, identite, "COUVERTURE_INSUFFISANTE"].join("\u001f");
+  return createHash("sha256").update(texte, "utf8").digest("hex");
+}
+
 // ------------------------------------------------------------------------------------------------
 // Mesure : arrondi, empreinte, egalite
 // ------------------------------------------------------------------------------------------------
@@ -105,15 +115,44 @@ export function arrondirMesure(m: Mesure): Mesure {
     distanceMinM: m.distanceMinM === null ? null : r2(m.distanceMinM),
     nbCroisements: Math.max(0, Math.trunc(m.nbCroisements)),
     longueurPieceM: r2(m.longueurPieceM),
+    // Correctif D7 : les morceaux d'un dossier de couverture regroupe restent dans la mesure (aucune perte d'information).
+    ...(m.morceaux ? {
+      morceaux: {
+        nb: Math.max(0, Math.trunc(m.morceaux.nb)), longueurTotaleM: r2(m.morceaux.longueurTotaleM),
+        detail: m.morceaux.detail.map((d) => ({ objetId: d.objetId, ordre: d.ordre, nom: d.nom, longueurM: r2(d.longueurM) })), detailTronque: m.morceaux.detailTronque,
+      },
+    } : {}),
   };
 }
 
-/** Empreinte (16 caracteres hexadecimaux) de la mesure arrondie : sert a l'instantane d'une analyse et a la detection de modification. */
+/**
+ * Empreinte (16 caracteres hexadecimaux) de la mesure arrondie : sert a l'instantane d'une analyse et a la detection de modification.
+ * Une mesure SANS morceaux (tout dossier autre qu'une couverture regroupee, et tout dossier calcule avant le correctif D7) garde exactement
+ * l'empreinte d'avant ; avec des morceaux, leur nombre, leur longueur totale et la longueur de chacun (par ordre) y entrent : redecouper un axe
+ * a longueur egale le fait marquer a reexaminer. Les identifiants d'objet n'y entrent pas (ils changent a chaque version du jeu).
+ */
 export function empreinteMesure(m: Mesure): string {
   const a = arrondirMesure(m);
   const canon = [a.longueurChausseeM, a.longueurEmpriseM, a.distanceMinM === null ? "null" : a.distanceMinM, a.nbCroisements, a.longueurPieceM].join("|");
-  return createHash("sha256").update(canon, "utf8").digest("hex").slice(0, 16);
+  const morceaux = a.morceaux ? `|m:${a.morceaux.nb}:${a.morceaux.longueurTotaleM}:${a.morceaux.detail.map((d) => d.longueurM).join(",")}` : "";
+  return createHash("sha256").update(canon + morceaux, "utf8").digest("hex").slice(0, 16);
 }
+
+/** Mesure enregistree d'un dossier, relue pour son empreinte. Correctif D7 : les morceaux d'un dossier de couverture regroupe en font partie. */
+export const lireMesure = (j: unknown): Mesure => {
+  const m = (j ?? {}) as Partial<Mesure>;
+  const n = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : 0);
+  const base: Mesure = { longueurChausseeM: n(m.longueurChausseeM), longueurEmpriseM: n(m.longueurEmpriseM), distanceMinM: typeof m.distanceMinM === "number" ? m.distanceMinM : null, nbCroisements: n(m.nbCroisements), longueurPieceM: n(m.longueurPieceM) };
+  const mc = m.morceaux as Partial<MorceauxCouverture> | undefined;
+  if (!mc || typeof mc !== "object" || !Array.isArray(mc.detail)) return base;
+  return {
+    ...base,
+    morceaux: {
+      nb: n(mc.nb), longueurTotaleM: n(mc.longueurTotaleM), detailTronque: mc.detailTronque === true,
+      detail: mc.detail.map((d) => ({ objetId: String(d?.objetId ?? ""), ordre: n(d?.ordre), nom: typeof d?.nom === "string" ? d.nom : null, longueurM: n(d?.longueurM) })),
+    },
+  };
+};
 
 // ------------------------------------------------------------------------------------------------
 // Candidats -> conflits calcules (cles uniques)
@@ -126,6 +165,11 @@ export interface CandidatBrut {
   jeuReseauId: string | null;
   /** Plan d axes dont depend un dossier de couverture insuffisante (sa geometrie est l axe) ; nul pour les autres types. */
   jeuAxesId?: string | null;
+  /**
+   * Correctif D7 : identite de l'axe d'un dossier de couverture REGROUPE (`i:` identifiant mappe, `n:` nom normalise) ; la cle est alors
+   * `cleCouvertureAxe` (sans cellule). Absente ou nulle : cle par objet d'avant (objet d'axe sans nom, et tous les autres types).
+   */
+  identiteAxe?: string | null;
   objetId: string | null;
   concessionnaireId: string | null;
   nomObjet: string | null;
@@ -151,10 +195,11 @@ export interface ConflitCalcule extends CandidatBrut {
  * de lecture.
  */
 export function finaliserCandidats(projetId: string, bruts: readonly CandidatBrut[], options: { verticalRequis?: boolean } = {}): ConflitCalcule[] {
-  const cleDe = (b: CandidatBrut, avecEmpreinte: boolean) => cleConflit({
+  // Un dossier de couverture regroupe (D7) est unique par identite d'axe : un seul plan d'axes autorise par projet (index unique de la cle de version).
+  const cleDe = (b: CandidatBrut, avecEmpreinte: boolean) => (b.type === "COUVERTURE_INSUFFISANTE" && b.identiteAxe ? cleCouvertureAxe(projetId, b.identiteAxe) : cleConflit({
     projetId, axe: b.axe, type: b.type, cellule: b.cellule,
     reseau: cleReseau(b.concessionnaireId, b.nomObjet, b.empreinteObjet) + (avecEmpreinte ? `|g:${b.empreinteObjet ?? ""}` : ""),
-  });
+  }));
   const groupes = new Map<string, CandidatBrut[]>();
   for (const b of bruts) groupes.set(cleDe(b, false), [...(groupes.get(cleDe(b, false)) ?? []), b]);
 

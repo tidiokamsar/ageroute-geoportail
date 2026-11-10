@@ -38,7 +38,8 @@ export const estDecideur = (role: string): role is RoleDecideur => role === "ADM
  * morceaux d'axe voisins) : la mesure d'un conflit est la meme que celle de l'analyse indicative pour le meme objet et le meme axe.
  * Toute modification du calcul incremente ce texte : une analyse enregistre la version avec laquelle elle a ete faite.
  */
-export const VERSION_ALGORITHME_CONFLITS = "RC3-2D-UTM-1";
+export const VERSION_ALGORITHME_CONFLITS = "RC3-2D-UTM-2";
+/** Historique : `RC3-2D-UTM-1` (jusqu'au 10/11/2026) faisait un dossier de couverture insuffisante par OBJET du plan d'axes ; `-2` en fait un par AXE (D7). */
 
 /** Justification minimale (caracteres, apres retrait des espaces de bord), comme pour l'autorisation d'un jeu. */
 export const JUSTIFICATION_MIN = 10;
@@ -58,6 +59,19 @@ export interface Mesure {
   nbCroisements: number;
   /** Longueur de la partie de reseau qui porte ce dossier (ou de l'axe pour une couverture insuffisante). */
   longueurPieceM: number;
+  /**
+   * Correctif D7 : morceaux du plan d'axes reunis dans un dossier de couverture insuffisante (un dossier par axe, voir couverture.noyau.ts).
+   * Absent pour tout autre type, et pour un dossier de couverture calcule avant ce correctif.
+   */
+  morceaux?: MorceauxCouverture;
+}
+
+/** Morceaux non couverts d'un axe : nombre exact, longueur totale (somme des morceaux), detail par objet (borne, `detailTronque`). */
+export interface MorceauxCouverture {
+  nb: number;
+  longueurTotaleM: number;
+  detail: { objetId: string; ordre: number; nom: string | null; longueurM: number }[];
+  detailTronque: boolean;
 }
 
 /** Phrases qui accompagnent TOUT dossier : un conflit est un signal de verification, jamais un ordre. */
