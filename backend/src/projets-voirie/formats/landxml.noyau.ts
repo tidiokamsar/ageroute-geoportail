@@ -10,7 +10,7 @@
  *       (polyligne `PntList2D`) ; une discontinuite de plus de `ECART_RACCORD_M` ouvre une nouvelle partie (comptee) ;
  *   - `CgPoints/CgPoint` : un objet POINT par point (couche `cgpoints`) ; `pntRef` resolu dans les CgPoints du fichier.
  * CE QUI EST REFUSE : `Spiral` et `Chain` (`LANDXML_SPIRALE_NON_PRISE_EN_CHARGE` : une clothoide n'est pas approchee en silence), un arc degenere
- *   (`LANDXML_ARC_DEGENERE`), un `pntRef` introuvable, des unites absentes (`UNITES_REQUISES`) ou non metriques (`LANDXML_UNITES_NON_SUPPORTEES`).
+ *   (`LANDXML_ARC_DEGENERE`), une `Line` ou une `IrregularLine` dont une coordonnee est absente ou illisible (`LANDXML_COORDONNEE_ILLISIBLE`, revue D1, M3), un `pntRef` introuvable, des unites absentes (`UNITES_REQUISES`) ou non metriques (`LANDXML_UNITES_NON_SUPPORTEES`).
  * CE QUI EST IGNORE ET COMPTE : `Profile` (profil en long), `Surfaces/Surface`, tout autre element (`Parcels`, `PipeNetworks`, `Roadways`...).
  *
  * COORDONNEES : la norme ecrit « Nord Est [altitude] » ; X = Est, Y = Nord. Le CRS n'est JAMAIS deduit (choisi par l'utilisateur, voir crs.noyau.ts) ;
@@ -239,6 +239,13 @@ export function traverserLandXml(racine: NoeudXml, col: Puits, o: OptionsLandXml
         if (!inventaire && sommetsObjet > budget.objetMax) throw new ErreurLecture("TROP_DE_SOMMETS", `l'axe n°${numero} depasse ${budget.objetMax} sommets apres discretisation : decoupez-le`);
         if (!inventaire && budget.fichier > budget.fichierMax) throw new ErreurLecture("TROP_DE_SOMMETS", `le fichier depasse ${budget.fichierMax} sommets apres discretisation : decoupez-le`);
       };
+      // Revue D1, M3 : un element de ligne dont une coordonnee est absente ou illisible REFUSE l'axe (comme un arc degenere) : jamais un axe tronque.
+      const lisible = (pts: Pos2[], ou: string): Pos2[] => {
+        if (!inventaire && (pts.length < 2 || pts.some((p) => !Number.isFinite(p[0]) || !Number.isFinite(p[1])))) {
+          throw new ErreurLecture("LANDXML_COORDONNEE_ILLISIBLE", `${ou} : coordonnee absente ou illisible (deux points au moins, chacun « Nord Est »). L'axe est refuse plutot que depose tronque`);
+        }
+        return pts;
+      };
       const ajouterPoints = (pts: Pos2[]) => {
         if (pts.length === 0) return;
         if (courante.length === 0) { courante.push(...pts); return; }
@@ -252,7 +259,7 @@ export function traverserLandXml(racine: NoeudXml, col: Puits, o: OptionsLandXml
         if (el.nom === "Line") {
           r.nbLignes++; nbLignesAxe++;
           compterSommets(2);
-          ajouterPoints([pointDe(enfant(el, "Start"), ou), pointDe(enfant(el, "End"), ou)]);
+          ajouterPoints(lisible([pointDe(enfant(el, "Start"), ou), pointDe(enfant(el, "End"), ou)], ou));
         } else if (el.nom === "Curve") {
           r.nbArcs++; nbArcsAxe++;
           const s = pointDe(enfant(el, "Start"), ou), c = pointDe(enfant(el, "Center"), ou), e = pointDe(enfant(el, "End"), ou);
@@ -276,7 +283,7 @@ export function traverserLandXml(racine: NoeudXml, col: Puits, o: OptionsLandXml
           for (let k = 0; k + 1 < nombres.length; k += 2) pts.push([nombres[k + 1], nombres[k]]);
           if (nombres.length % 2 === 1) pts.push([NaN, NaN]);
           compterSommets(pts.length);
-          ajouterPoints(pts);
+          ajouterPoints(lisible(pts, ou));
         } else if (el.nom === "Spiral" || el.nom === "Chain") {
           r.nbSpirales++;
           if (!inventaire) {

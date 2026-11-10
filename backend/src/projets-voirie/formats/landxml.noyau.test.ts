@@ -167,6 +167,29 @@ describe("ce qui est refuse : spirales, arcs degeneres, unites", () => {
   });
 });
 
+describe("revue D1, M3 : un element de ligne illisible refuse l'axe, il ne le tronque jamais", () => {
+  it("axe de quatre Line dont la deuxieme a un depart illisible : 422 LANDXML_COORDONNEE_ILLISIBLE (et non un axe de 100 m sur 400) ; l'inventaire ne refuse pas", () => {
+    const els = ligneXml([0, 0], [100, 0]) + `<Line><Start>abc ${E0 + 100}</Start><End>${ne(200, 0)}</End></Line>` + ligneXml([200, 0], [300, 0]) + ligneXml([300, 0], [400, 0]);
+    const xml = landxml(alignements(axe("Axe T", els)));
+    expect(code(() => traverser(xml))).toBe("LANDXML_COORDONNEE_ILLISIBLE");
+    expect(code(() => lire(xml))).toBe("LANDXML_COORDONNEE_ILLISIBLE");
+    try { traverser(xml); } catch (e) { expect((e as Error).message).toMatch(/axe n°1, element n°2/); expect((e as Error).message).not.toMatch(/\d{5,}/); }
+    expect(traverser(xml, { inventaire: true }).c.objets).toHaveLength(1);
+  });
+  it("Line sans End, PntList2D de longueur impaire, avec un nombre illisible, ou d'un seul point ; pntRef vers un point illisible : meme refus", () => {
+    const pts = `<CgPoints><CgPoint name="P1">${ne(0, 0)}</CgPoint><CgPoint name="PX">x y</CgPoint></CgPoints>`;
+    const cas = [
+      `<Line><Start>${ne(0, 0)}</Start></Line>`,
+      `<IrregularLine><PntList2D>${ne(0, 0)} ${ne(10, 0)} ${N0 + 5}</PntList2D></IrregularLine>`,
+      `<IrregularLine><PntList2D>${ne(0, 0)} ${N0} abc</PntList2D></IrregularLine>`,
+      `<IrregularLine><PntList2D>${ne(0, 0)}</PntList2D></IrregularLine>`,
+      `<IrregularLine></IrregularLine>`,
+    ];
+    for (const el of cas) expect(code(() => traverser(landxml(alignements(axe("Axe I", el))))), el.slice(0, 60)).toBe("LANDXML_COORDONNEE_ILLISIBLE");
+    expect(code(() => traverser(landxml(pts + alignements(axe("Axe R", `<Line><Start pntRef="P1"/><End pntRef="PX"/></Line>`)))))).toBe("LANDXML_COORDONNEE_ILLISIBLE");
+  });
+});
+
 describe("CRS jamais deduit, liste blanche, projete en metres", () => {
   const xml = landxml(alignements(axe("Axe K", ligneXml([0, 0], [100, 0]))), { crs: `<CoordinateSystem name="UTM 29 synthetique" epsgCode="32629"/>` });
 

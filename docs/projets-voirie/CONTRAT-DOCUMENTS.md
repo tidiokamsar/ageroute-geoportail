@@ -165,6 +165,7 @@ Détection par le contenu : document XML dont la racine est `LandXML` (lecteur `
 | `Line` | segment `Start` → `End` |
 | `Curve` (arc de cercle) | **discrétisé** : `Start`, `Center`, `End`, `rot` (`cw` ou `ccw`) ; corde de flèche au plus égale à la **tolérance** (`PROJETS_VOIRIE_LANDXML_TOLERANCE_ARC_MM`, défaut **10 mm**, bornes 1 à 1 000 mm, valeur de protection à valider par le DSI) ; extrémités exactes ; 10 000 segments au plus par arc |
 | `IrregularLine` | polyligne de `PntList2D` |
+| `Line` ou `IrregularLine` dont une coordonnée est absente ou illisible (`Start`, `End`, `pntRef` vers un point illisible, `PntList2D` impaire ou de moins de deux points) | 422 `LANDXML_COORDONNEE_ILLISIBLE` (revue D1, M3 : l'axe est refusé, jamais déposé tronqué) |
 | `Spiral`, `Chain` | **refusés** : 422 `LANDXML_SPIRALE_NON_PRISE_EN_CHARGE` (la clothoïde n'est pas approchée) ; l'inventaire les compte et prévient |
 | arc dégénéré (rayon nul, rayons de départ et d'arrivée incohérents au-delà de la tolérance, départ égal à l'arrivée, sens absent, coordonnée illisible) | 422 `LANDXML_ARC_DEGENERE` (numéro de l'axe et de l'élément, jamais de coordonnée) |
 | `pntRef` | résolu dans les `CgPoints` du fichier ; introuvable : 422 `LANDXML_POINT_INTROUVABLE` |
