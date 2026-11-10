@@ -192,3 +192,7 @@ Noyaux (Vitest) : matrice des transitions, séparation des tâches, DWG non expl
 ## 10. Ce que ce lot ne fait pas (décidé)
 
 Pas d'interface (UI-C) ; pas de stockage de fichier ; pas de convertisseur DWG ; pas de spirale ni de profil en long ; pas de dérogation à la séparation des tâches ; pas de retour d'un document `VALIDE` à un autre statut que `REMPLACE` ; pas d'export du dossier (X1) ; la condition `DECISION_DEPLACEMENT` ne vérifie pas qu'une approbation est « en vigueur » après une reconfirmation du dossier (la création d'un récolement, lot B3, le vérifie).
+
+## Précision du lot X1 (10/11/2026, ajout ; le texte ci-dessus n'est pas modifié)
+
+La fonction `EXPORT_DOSSIER` est livrée par le lot X1 (`docs/projets-voirie/CONTRAT-EXPORTS.md`) : elle ne dépend d'aucune pièce (l'archive rend ce qui existe) et passe donc `DISPONIBLE` sans condition (`CONDITIONS_PAR_FONCTION.EXPORT_DOSSIER = []`). L'export reste réservé aux comptes qui décident (route) ; la complétude, comme pour les autres fonctions, ne dépend pas du rôle.

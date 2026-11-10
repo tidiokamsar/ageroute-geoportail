@@ -1255,3 +1255,38 @@ Exemple réel (banc, projet aux axes et au réseau autorisés, réduit) :
 ### Réglages serveur
 
 `PROJETS_VOIRIE_LANDXML_TOLERANCE_ARC_MM` (10, bornes 1 à 1 000) : flèche maximale entre un arc LandXML et ses cordes ; **valeur de protection à valider par le DSI**. Délais côté base : `PROJETS_VOIRIE_DELAI_CARTE_MS` (complétude), `PROJETS_VOIRIE_DELAI_DEPOT_MS` et `PROJETS_VOIRIE_VERROU_MS` (écritures).
+
+## Export du dossier technique et tableaux de bord (lot X1)
+
+Contrat : `docs/projets-voirie/CONTRAT-EXPORTS.md` (contenu de l'archive, confidentialité, dérogation, bornes, agrégats, lisibilité). Preuves : `backend/src/api-v2/projets-voirie.dossier-technique.routes.test.ts`, noyaux `backend/src/projets-voirie/exports/*.test.ts` et `tableaux/tableau.noyau.test.ts`, banc `backend/tests-integration/exports-tableaux.integration.mts` (données 100 % synthétiques).
+
+**Principe.** Le dossier technique est une archive ZIP produite par le serveur pour un compte qui décide (ADMIN, GESTIONNAIRE du périmètre), auditée avant la remise, bornée. Elle rassemble la fiche (JSON et PDF texte simple), les agrégats de l'analyse 2D (jeux `AUTORISE`, sans géométrie), le CSV existant des dossiers de conflit, le journal des documents, la complétude et, **seulement si la confidentialité le permet**, le GeoJSON des jeux `AUTORISE`. Un jeu `CONFIDENTIEL_CONCESSIONNAIRE` ou `INFRASTRUCTURE_SENSIBLE` ne sort que par une **dérogation ADMIN nominative, justifiée et à usage unique**. Les tableaux de bord ne rendent que des nombres, filtrés par le périmètre du compte et, pour un compte qui ne décide pas, calculés sur ce qu'il peut lire.
+
+Mêmes gardes, dans le même ordre, que le socle ; projet retiré ou hors périmètre : 404 `PROJET_INTROUVABLE` ; territoire hors périmètre : 404 `TERRITOIRE_INTROUVABLE` ; identifiants d'URL en UUID (400 `IDENTIFIANT_INVALIDE`).
+
+### Routes
+
+| Route | Rôle | Réponse |
+|---|---|---|
+| `GET /:id/export/dossier` | ADMIN, GESTIONNAIRE | `?geojson=true\|false` (défaut `true`) `&derogation=<uuid>` (avec GeoJSON seulement) : 200 `application/zip`, `Content-Disposition: attachment; filename="dossier-<code>-<AAAA-MM-JJ>.zip"`, `X-Export-Id`, `X-Empreinte-Sha256` (SHA-256 de l'archive), `X-Fichiers`, `X-Jeux-Geojson` |
+| `GET /:id/export/journal` | ADMIN, GESTIONNAIRE | `?limite=(1..100, 50)` : `{ exports: [ { id, acteur: { id, nomComplet }, createdAt, sha256, tailleOctets, nbFichiers, nbJeuxGeojson, derogationId } ] }` |
+| `POST /:id/export/derogations` | ADMIN | `{ jeuxIds: uuid[1..20], justification (20..2000), beneficiaireId?, dureeHeures? (1..168) }` : 201 `{ derogation }` |
+| `GET /:id/export/derogations` | ADMIN | `{ derogations: [ { id, projetId, jeuxIds, beneficiaire, accordeePar, justification, createdAt, expireLe, utiliseeLe, exportId, etat: DISPONIBLE\|UTILISEE\|EXPIREE } ] }` |
+| `GET /tableau-de-bord` | lecture | aucun paramètre : `{ portee: "NATIONAL", perimetre: { national, regions }, lisibilite, total, parRegion: [ { regionId, region, ...agrégat } ], tronque, calculeLe, regle }` |
+| `GET /tableau-de-bord/territoires/:tid` | lecture | aucun paramètre : `{ portee: "TERRITOIRE", territoire: { id, code, nom, niveau, ancetres }, perimetre, lisibilite, total, rattachesDirectement, enfants: [ { territoireId, code, nom, niveau, ...agrégat } ], nonVentiles, tronque, calculeLe, regle }` |
+
+Agrégat : `{ projets, jeux: { <statut>: n }, conflits: { <statut>: n }, documentsManquants: { typesObligatoiresNonFournis, projetsIncomplets, piecesEnAttente, piecesEnAttenteParStatut }, referentsActifs: { comptes, rattachements } }`. Pour un compte qui ne décide pas : `jeux` ne porte que `AUTORISE`, `conflits` ne compte que les dossiers dont chaque jeu lié est `AUTORISE` (jeu B d'une comparaison compris), `piecesEnAttente`, `piecesEnAttenteParStatut` et `referentsActifs` valent `null` ; `lisibilite` le dit (`{ jeux: AUTORISE_SEULEMENT, conflits: DOSSIERS_VISIBLES, documentsEnCours: false, referents: false }`).
+
+Archive (racine `dossier-<code>/`) : `LISEZMOI.txt`, `fiche-projet.json`, `fiche-projet.pdf`, `analyse/agregats.json`, `conflits/dossiers.csv`, `documents/journal.json`, `documents/journal.csv`, `documents/completude.json`, `geojson/<role>-v<version>-<jeuId>.geojson` (jeux exportés), `manifeste.json` (`format: "BDRI-DOSSIER-1"`, `exportId`, `geojson: { demande, niveauxExportables, inclus, ecartes: [ { jeuId, raison: NON_AUTORISE|CONFIDENTIALITE|NIVEAU_NON_EXPORTABLE|GEOJSON_NON_DEMANDE } ] }`, `derogationId`, `bornes`, `fichiers: [ { chemin, octets, sha256 } ]`, `avertissements`), `manifeste.sha256` (format `sha256sum -c`). Un GeoJSON : `{ "type": "FeatureCollection", "bdri": { jeuId, role, version, sha256Source, confidentialite, derogation }, "features": [ { "type": "Feature", "geometry": ..., "properties": { objetId, nom, typeGeom, longueurM, ordre } } ] }` ; les attributs du fichier source ne sont pas exportés.
+
+### Codes d'erreur ajoutés par ce lot
+
+400 `PARAMETRES_INVALIDES`, `CHAMPS_INVALIDES`, `JUSTIFICATION_INVALIDE` ; 404 `DEROGATION_INTROUVABLE` (inconnue, autre projet ou autre bénéficiaire : même réponse), `JEU_INTROUVABLE`, `TERRITOIRE_INTROUVABLE` ; 409 `DEROGATION_INDISPONIBLE` (`etat`), `DEROGATION_INUTILE`, `JEU_NON_AUTORISE` ; 422 `EXPORT_TROP_VOLUMINEUX` (`objets`, `objetsMax`, `sommets`, `sommetsMax` ou `octets`, `octetsMax`), `BENEFICIAIRE_NON_HABILITE`, `BENEFICIAIRE_HORS_PERIMETRE` ; 429 `EXPORT_TROP_FREQUENT`, `TABLEAU_DE_BORD_TROP_FREQUENT` (`retryAfterS`, en-tête `Retry-After`) ; 503 `SERVICE_OCCUPE`, `PROJET_OCCUPE` ; 504 `EXPORT_TROP_LONG`, `TABLEAU_DE_BORD_TROP_LONG`.
+
+### Extensions des routes existantes
+
+`GET /:id/completude` : la fonction `EXPORT_DOSSIER` passe `DISPONIBLE` (aucune condition). `GET /:id/conflits/export.csv` : inchangé (même contenu, même audit `ExportConflitsProjetVoirie`) ; son contenu est aussi celui de `conflits/dossiers.csv` dans l'archive.
+
+### Réglages serveur (bornés : une valeur illisible ou hors bornes redonne le défaut ; valeurs de protection à valider par le DSI)
+
+`PROJETS_VOIRIE_EXPORT_GEOJSON_NIVEAUX` (défaut `PUBLIC,INTERNE,RESTREINT_PROJET`, ne peut que restreindre), `PROJETS_VOIRIE_EXPORT_OBJETS_MAX` (50 000), `PROJETS_VOIRIE_EXPORT_SOMMETS_MAX` (1 000 000), `PROJETS_VOIRIE_EXPORT_TAILLE_MAX_OCTETS` (64 Mo), `PROJETS_VOIRIE_EXPORT_DELAI_MS` (120 000), `PROJETS_VOIRIE_EXPORT_CADENCE_MAX` (10) par `PROJETS_VOIRIE_EXPORT_CADENCE_FENETRE_S` (3 600), `PROJETS_VOIRIE_EXPORT_DEROGATION_DUREE_H` (24, 168 au plus), `PROJETS_VOIRIE_TABLEAU_CADENCE_MAX` (30) par `PROJETS_VOIRIE_TABLEAU_CADENCE_FENETRE_S` (60). Concurrence (processus) : 2 exports, 1 par compte ; 4 tableaux. Délais côté base : `PROJETS_VOIRIE_DELAI_ANALYSE_MS` (lectures de l'export), `PROJETS_VOIRIE_DELAI_CARTE_MS` (tableaux), `PROJETS_VOIRIE_VERROU_MS`.
