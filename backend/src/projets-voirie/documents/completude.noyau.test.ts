@@ -77,7 +77,7 @@ describe("invariant d'independance : une fonction ne depend QUE de ses condition
   it("les cas du contrat : axes + reseau suffisent a l'analyse 2D et aux conflits, sans decision ni seconde source ni limites ; la comparaison n'exige que deux sources ; le recolement qu'une decision", () => {
     const r = calculerCompletude(entree({ nbAxesAutorises: 1, reseaux: [R("a", 1)], nbDecisionsDeplacement: 0 }, BRUITS[2]));
     expect([etatDe(r, "ANALYSE_2D"), etatDe(r, "CONFLITS"), etatDe(r, "COMPARAISON_SOURCES"), etatDe(r, "RECOLEMENT"), etatDe(r, "EXPORT_DOSSIER")])
-      .toEqual(["DISPONIBLE", "DISPONIBLE", "INDISPONIBLE", "INDISPONIBLE", "NON_LIVREE"]);
+      .toEqual(["DISPONIBLE", "DISPONIBLE", "INDISPONIBLE", "INDISPONIBLE", "DISPONIBLE"]);
     const s = calculerCompletude(entree({ nbAxesAutorises: 0, reseaux: [R("a", 2)], nbDecisionsDeplacement: 0 }));
     expect([etatDe(s, "ANALYSE_2D"), etatDe(s, "COMPARAISON_SOURCES")]).toEqual(["INDISPONIBLE", "DISPONIBLE"]);
     const d = calculerCompletude(entree({ nbAxesAutorises: 0, reseaux: [], nbDecisionsDeplacement: 1 }));
