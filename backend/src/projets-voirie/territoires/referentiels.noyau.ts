@@ -40,7 +40,8 @@ const schemaTypeDocument = z.object({
   obligatoire: z.boolean(),
   fonctionsDebloquees: z.array(z.string().regex(/^[A-Z0-9_]{2,64}$/, "code de fonction en majuscules")).max(20),
   // Lot D1 (CONTRAT-DOCUMENTS.md, 3.3) : role du jeu qui fournit cette piece quand elle est importee ; relie le type a une condition de fonction.
-  roleJeu: z.enum(ROLES_JEU).optional(),
+  // Revue D1, m12 : `null` retire explicitement le role (sans la cle, le role d'avant est conserve a la modification : `fusionnerParametres`).
+  roleJeu: z.enum(ROLES_JEU).nullable().optional(),
 }).strict();
 
 const schemaMethodeAcquisition = z.object({
@@ -85,6 +86,21 @@ export function familleEffective(typeReseauCode: string | null | undefined, fami
   const famille = v ? (v.parametres as { famille?: unknown } | null)?.famille : undefined;
   if (typeof famille === "string" && (FAMILLES_RESEAU as readonly string[]).includes(famille)) return { famille: famille as FamilleReseau, source: "REFERENTIEL", codeInconnu: false };
   return { famille: familleDeclaree, source: "FAMILLE_DECLAREE", codeInconnu: true };
+}
+
+/**
+ * Parametres d'une valeur MODIFIEE. Remplacement integral (regle du lot T1), sauf `roleJeu` d'un TYPE_DOCUMENT (revue D1, m12) : des parametres qui ne
+ * portent pas la cle gardent le role d'avant (avertissement `ROLE_JEU_CONSERVE`), sinon le type ne relierait plus aucune condition sans que personne le
+ * sache ; `roleJeu: null` le retire explicitement (la cle n'est pas stockee).
+ */
+export function fusionnerParametres(domaine: Domaine, avant: unknown, nouveaux: Record<string, unknown>): { parametres: Record<string, unknown>; avertissements: { code: string; message: string }[] } {
+  if (domaine !== "TYPE_DOCUMENT") return { parametres: nouveaux, avertissements: [] };
+  const ancien = (avant && typeof avant === "object" ? (avant as { roleJeu?: unknown }).roleJeu : undefined);
+  if (nouveaux.roleJeu === null) { const { roleJeu: _r, ...reste } = nouveaux; void _r; return { parametres: reste, avertissements: [] }; }
+  if (!("roleJeu" in nouveaux) && typeof ancien === "string") {
+    return { parametres: { ...nouveaux, roleJeu: ancien }, avertissements: [{ code: "ROLE_JEU_CONSERVE", message: `Le role de jeu « ${ancien} » est conserve (absent des parametres envoyes) ; envoyez roleJeu: null pour le retirer.` }] };
+  }
+  return { parametres: nouveaux, avertissements: [] };
 }
 
 /** Prochaine version d'une valeur modifiee. */

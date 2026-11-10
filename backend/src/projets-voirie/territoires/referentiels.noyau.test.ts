@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DOMAINES, FAMILLES_RESEAU, estDomaine, familleEffective, prochaineVersion, validerParametres } from "./referentiels.noyau";
+import { DOMAINES, FAMILLES_RESEAU, estDomaine, familleEffective, fusionnerParametres, prochaineVersion, validerParametres } from "./referentiels.noyau";
 
 describe("domaines", () => {
   it("les cinq domaines du contrat, et rien d'autre", () => {
@@ -77,4 +77,18 @@ describe("repli de type de reseau sur la famille", () => {
   });
 
   it("version suivante", () => { expect(prochaineVersion(1)).toBe(2); });
+});
+
+describe("revue D1, m12 : roleJeu d'un type de document conserve a la modification", () => {
+  const avant = { obligatoire: true, fonctionsDebloquees: ["ANALYSE_2D"], roleJeu: "AXES_TRAVAUX" };
+  it("des parametres sans roleJeu gardent celui d'avant, avec un avertissement ; null le retire explicitement ; une valeur le remplace", () => {
+    expect(fusionnerParametres("TYPE_DOCUMENT", avant, { obligatoire: false, fonctionsDebloquees: [] }))
+      .toEqual({ parametres: { obligatoire: false, fonctionsDebloquees: [], roleJeu: "AXES_TRAVAUX" }, avertissements: [expect.objectContaining({ code: "ROLE_JEU_CONSERVE" })] });
+    expect(fusionnerParametres("TYPE_DOCUMENT", avant, { obligatoire: false, fonctionsDebloquees: [], roleJeu: null })).toEqual({ parametres: { obligatoire: false, fonctionsDebloquees: [] }, avertissements: [] });
+    expect(fusionnerParametres("TYPE_DOCUMENT", avant, { obligatoire: true, fonctionsDebloquees: [], roleJeu: "RESEAU_TIERS" }).parametres.roleJeu).toBe("RESEAU_TIERS");
+  });
+  it("les autres domaines gardent le remplacement integral (comportement du lot T1) ; roleJeu null est valide pour TYPE_DOCUMENT", () => {
+    expect(fusionnerParametres("TYPE_RESEAU", { famille: "TELECOM", couleur: "#000000" }, { famille: "TELECOM" })).toEqual({ parametres: { famille: "TELECOM" }, avertissements: [] });
+    expect(validerParametres("TYPE_DOCUMENT", { obligatoire: true, fonctionsDebloquees: [], roleJeu: null }).ok).toBe(true);
+  });
 });
