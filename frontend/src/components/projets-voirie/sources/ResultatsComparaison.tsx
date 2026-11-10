@@ -25,6 +25,8 @@ export function ResultatsComparaison({ projetId, cmpId, peutEcrire, enLigne, met
 }) {
   const detail = useComparaison(projetId, cmpId);
   const [filtres, setFiltres] = useState<StatutResultat[]>([]);
+  // Revue m4 : `[]` veut dire « tous » ; la derniere case cochee ne se decoche donc pas, et l'ecran le dit.
+  const [messageFiltre, setMessageFiltre] = useState<string | null>(null);
   const resultats = useResultats(projetId, detail.data?.statut === "TERMINEE" ? cmpId : null, filtres);
   const [dossier, setDossier] = useState<ResultatComparaison | null>(null);
   const ouvrir = useOuvrirDossierDivergence(projetId);
@@ -62,15 +64,18 @@ export function ResultatsComparaison({ projetId, cmpId, peutEcrire, enLigne, met
               {STATUTS_RESULTAT.map((s) => (
                 <label key={s} className="flex min-h-[44px] items-center gap-1.5 text-xs text-gray-900 xl:min-h-0">
                   <input type="checkbox" className="h-4 w-4" checked={filtres.length === 0 || filtres.includes(s)}
-                    onChange={(e) => setFiltres((f) => {
-                      const base = f.length === 0 ? [...STATUTS_RESULTAT] : f;
+                    onChange={(e) => {
+                      const base = filtres.length === 0 ? [...STATUTS_RESULTAT] : filtres;
                       const n = e.target.checked ? [...new Set([...base, s])] : base.filter((x) => x !== s);
-                      return n.length === STATUTS_RESULTAT.length ? [] : n;
-                    })} />
+                      if (n.length === 0) { setMessageFiltre("Au moins un statut doit rester coché."); return; }
+                      setMessageFiltre(null);
+                      setFiltres(n.length === STATUTS_RESULTAT.length ? [] : n);
+                    }} />
                   {LIBELLE_STATUT_RESULTAT[s]}
                 </label>
               ))}
             </div>
+            <p data-testid="filtre-statut-message" role="status" aria-live="polite" className="text-xs text-amber-900">{messageFiltre ?? ""}</p>
           </fieldset>
           {resultats.isPending && <EtatChargement libelle="Chargement des résultats…" />}
           {resultats.isError && <EtatErreur erreur={classerErreurSources(resultats.error)} sujet="Résultats" onReessayer={() => void resultats.refetch()} enCours={resultats.isFetching} />}

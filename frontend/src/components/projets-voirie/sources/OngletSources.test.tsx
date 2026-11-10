@@ -44,7 +44,8 @@ const RESULTATS_P1 = [
   { id: "res2", ordre: 2, statut: "DIVERGENCE", objetA: o("2", "Conduite 2", 1, "OBJET"), objetB: o("12", "Conduite 2 bis", 2, "CLASSE"), corridorM: 3, mesure: { hausdorffM: 3.2, longueurHorsCorridorM: 40, longueurAM: 100, partHorsCorridor: 0.4 }, conflitId: null },
 ];
 const RESULTATS_P2 = [
-  { id: "res3", ordre: 3, statut: "RAPPROCHEMENT_INCERTAIN", objetA: o("3", "Conduite 3", null, "INCONNUE"), objetB: o("13", "Conduite 3 bis", 1, "JEU"), corridorM: null, mesure: null, conflitId: null },
+  // Revue m12 : un incertain dont le serveur rendrait (a tort) une mesure et un corridor : ni l'une ni l'autre ne doivent s'afficher.
+  { id: "res3", ordre: 3, statut: "RAPPROCHEMENT_INCERTAIN", objetA: o("3", "Conduite 3", null, "INCONNUE"), objetB: o("13", "Conduite 3 bis", 1, "JEU"), corridorM: 7.77, mesure: { hausdorffM: 9.87, longueurHorsCorridorM: 55.5, longueurAM: 100, partHorsCorridor: 0.555 }, conflitId: null },
   { id: "res4", ordre: 4, statut: "DIVERGENCE", objetA: o("4", "Conduite 4", 1, "OBJET"), objetB: null, corridorM: 2, mesure: null, conflitId: null },
   { id: "res5", ordre: 5, statut: "SANS_CORRESPONDANCE_B", objetA: null, objetB: o("15", "Conduite isolee", 1, "JEU"), corridorM: null, mesure: null, conflitId: null },
 ];
@@ -214,13 +215,25 @@ describe("resultats d'une comparaison", () => {
     await u.click(screen.getByRole("button", { name: "Charger plus de résultats" }));
     const inc = (await screen.findByText(/Conduite 3 ;/)).closest("li")!;
     expect(within(inc).getByTestId("raison-incertain")).toHaveTextContent("La précision de l'objet de A est inconnue en mètres");
-    expect(inc).not.toHaveTextContent(/Hausdorff|hors corridor sur/);
+    expect(inc).not.toHaveTextContent(/Hausdorff|hors corridor sur|corridor [0-9]/);
+    expect(inc).not.toHaveTextContent(/9,87|7,77|55,5|55,5 %/);
     const masque = screen.getByText(/Conduite 4 ;/).closest("li")!;
     expect(masque).toHaveTextContent("Source B : objet non communiqué (source non lisible pour votre compte)");
     expect(within(masque).getByTestId("mesure-divergence")).toHaveTextContent("non communiquée (mesure masquée pour votre compte)");
     expect(screen.getByText(/Conduite isolee/).closest("li")).toHaveTextContent("Source A : aucun objet apparié.");
     expect(h.get).toHaveBeenCalledWith(`${B}/comparaisons/cmp1/objets`, expect.objectContaining({ params: { limite: 50, curseur: "c-2" } }));
     expect(screen.queryByRole("button", { name: "Charger plus de résultats" })).toBeNull();
+  });
+  it("revue m4 : la derniere case cochee ne se decoche pas (aucun statut ne vaut jamais « tous ») ; le refus est dit", async () => {
+    const u = await ouvrir();
+    for (const nom of ["Concordance", "Divergence mesurée", "Rapprochement incertain", "Objet de A sans correspondance dans B"]) await u.click(screen.getByRole("checkbox", { name: nom }));
+    await waitFor(() => expect(h.get).toHaveBeenLastCalledWith(`${B}/comparaisons/cmp1/objets`, expect.objectContaining({ params: { limite: 50, statut: "SANS_CORRESPONDANCE_B" } })));
+    const derniere = screen.getByRole("checkbox", { name: "Objet de B sans correspondance dans A" });
+    await u.click(derniere);
+    expect(derniere).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "Concordance" })).not.toBeChecked();
+    expect(screen.getByTestId("filtre-statut-message")).toHaveTextContent("Au moins un statut doit rester coché.");
+    expect(h.get).toHaveBeenLastCalledWith(`${B}/comparaisons/cmp1/objets`, expect.objectContaining({ params: { limite: 50, statut: "SANS_CORRESPONDANCE_B" } }));
   });
   it("filtre par statut : n'envoie que les statuts coches", async () => {
     const u = await ouvrir();

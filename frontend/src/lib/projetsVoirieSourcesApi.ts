@@ -172,7 +172,8 @@ export function lireResultat(v: unknown): ResultatComparaison | null {
   const statut = v.statut as StatutResultat;
   return {
     id: String(v.id), ordre: nombre(v.ordre) ?? 0, cle: texte(v.cle), statut,
-    objetA: lireObjetResultat(v.objetA), objetB: lireObjetResultat(v.objetB), corridorM: nombre(v.corridorM),
+    // Revue m12 : un rapprochement incertain n'a ni corridor ni mesure (precision en metres manquante), meme si le serveur en rendait.
+    objetA: lireObjetResultat(v.objetA), objetB: lireObjetResultat(v.objetB), corridorM: statut === "RAPPROCHEMENT_INCERTAIN" ? null : nombre(v.corridorM),
     // Un rapprochement incertain n'a JAMAIS de mesure, meme si le serveur en rendait une : rien n'est affiche qui ressemblerait a une distance.
     mesure: statut === "RAPPROCHEMENT_INCERTAIN" ? null : lireMesure(v.mesure),
     conflitId: texte(v.conflitId),
