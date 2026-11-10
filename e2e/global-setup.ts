@@ -29,7 +29,12 @@ async function prechaufferVoirie(page: import("@playwright/test").Page, run: Ret
     }, { email: run.comptes.admin.email, password: run.comptes.admin.motDePasse });
     if (!jeton) return;
     const id = await page.evaluate(async (t) => {
-      const r = await fetch("/api/v2/projets-voirie", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${t}` }, body: JSON.stringify({ code: "PREPARATION-VOIRIE", nom: "Preparation du navigateur" }) });
+      const entetes = { "content-type": "application/json", authorization: `Bearer ${t}` };
+      // Lot T1 : le territoire est obligatoire ; la nation (creee par la migration) suffit a un projet jetable.
+      const n = await fetch("/api/v2/projets-voirie/territoires?niveau=NATION&actifs=true", { headers: entetes });
+      const territoireId = ((await n.json()) as { territoires?: Array<{ id: string }> }).territoires?.[0]?.id;
+      if (!territoireId) return null;
+      const r = await fetch("/api/v2/projets-voirie", { method: "POST", headers: entetes, body: JSON.stringify({ code: "PREPARATION-VOIRIE", nom: "Preparation du navigateur", territoireId }) });
       return ((await r.json()) as { projet?: { id: string } }).projet?.id ?? null;
     }, jeton);
     if (!id) return;
@@ -74,7 +79,7 @@ export default async function globalSetup(): Promise<void> {
     await page.getByPlaceholder("Mot de passe").fill(run.comptes.admin.motDePasse);
     await page.getByRole("button", { name: "Se connecter" }).click();
     await page.getByRole("button", { name: "Déconnexion" }).waitFor();
-    for (const chemin of ["/", "/inspections/terrain/observations", "/inspections/terrain", "/inspections/terrain/defauts", "/inspections/releve/enregistrer", "/imports", "/securite", "/projets-voirie"]) {
+    for (const chemin of ["/", "/inspections/terrain/observations", "/inspections/terrain", "/inspections/terrain/defauts", "/inspections/releve/enregistrer", "/imports", "/securite", "/projets-voirie", "/projets-voirie/parametres"]) {
       // Deux passages : le premier peut etre interrompu par le rechargement de Vite apres optimisation des dependances.
       for (let i = 0; i < 2; i++) {
         await page.goto(chemin, { waitUntil: "load" });

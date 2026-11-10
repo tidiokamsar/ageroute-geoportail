@@ -119,6 +119,20 @@ export const CABLE_PHYSIQUE: Ligne[] = [
   { nom: "Fourreau-Synth 2", coords: [[0, 80], [100, 80]] },
 ];
 
+// ------------------------------------------------------------------------------------------------ Emprises de territoires (lot T1), synthetiques
+
+/** Boite [ouest, sud, est, nord] en degres WGS 84 d'un rectangle donne en metres locaux (relatifs a ORIGINE). */
+export function boiteWgs84(dxMin: number, dyMin: number, dxMax: number, dyMax: number): [number, number, number, number] {
+  const coins = [versWgs84([dxMin, dyMin]), versWgs84([dxMax, dyMin]), versWgs84([dxMax, dyMax]), versWgs84([dxMin, dyMax])];
+  const lon = coins.map((c) => c[0]), lat = coins.map((c) => c[1]);
+  return [Math.min(...lon), Math.min(...lat), Math.max(...lon), Math.max(...lat)];
+}
+
+/** Polygone GeoJSON (WGS 84, anneau ferme, sens trigonometrique) d'une boite [ouest, sud, est, nord]. */
+export function polygoneDeBoite([o, s, e, n]: [number, number, number, number]): { type: "Polygon"; coordinates: number[][][] } {
+  return { type: "Polygon", coordinates: [[[o, s], [e, s], [e, n], [o, n], [o, s]]] };
+}
+
 // ------------------------------------------------------------------------------------------------ Construction de fichiers
 
 const echapperXml = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -220,4 +234,38 @@ export function zip(entrees: EntreeZip[]): Buffer {
     Buffer.from([0, 0]),
   ]);
   return Buffer.concat([...parties, centrale, fin]);
+}
+
+/**
+ * Lecteur ZIP minimal et INDEPENDANT de l'application (relit l'archive du dossier technique, lot X1) : repertoire central, methodes « stocke »
+ * et « deflate », CRC verifie. Refuse un nom absolu, un `..` ou un antislash (l'archive du serveur n'en porte jamais). Rend les entrees dans
+ * l'ordre du repertoire central.
+ */
+export function lireZip(b: Buffer): Array<{ nom: string; donnees: Buffer; methode: number }> {
+  let fin = -1;
+  for (let i = b.length - 22; i >= Math.max(0, b.length - 22 - 65_535); i--) if (b.readUInt32LE(i) === 0x06054b50) { fin = i; break; }
+  if (fin < 0) throw new Error("ZIP : fin du repertoire central introuvable");
+  const nb = b.readUInt16LE(fin + 10);
+  let p = b.readUInt32LE(fin + 16);
+  const sortie: Array<{ nom: string; donnees: Buffer; methode: number }> = [];
+  for (let k = 0; k < nb; k++) {
+    if (b.readUInt32LE(p) !== 0x02014b50) throw new Error("ZIP : entree centrale invalide");
+    const methode = b.readUInt16LE(p + 10);
+    const crc = b.readUInt32LE(p + 16);
+    const tailleCompressee = b.readUInt32LE(p + 20);
+    const taille = b.readUInt32LE(p + 24);
+    const lnom = b.readUInt16LE(p + 28), lextra = b.readUInt16LE(p + 30), lcom = b.readUInt16LE(p + 32);
+    const local = b.readUInt32LE(p + 42);
+    const nom = b.subarray(p + 46, p + 46 + lnom).toString("utf8");
+    if (nom.startsWith("/") || nom.includes("\\") || nom.split("/").includes("..")) throw new Error(`ZIP : nom dangereux ${nom}`);
+    if (b.readUInt32LE(local) !== 0x04034b50) throw new Error("ZIP : entree locale invalide");
+    const debut = local + 30 + b.readUInt16LE(local + 26) + b.readUInt16LE(local + 28);
+    const compresse = b.subarray(debut, debut + tailleCompressee);
+    const donnees = methode === 0 ? Buffer.from(compresse) : methode === 8 ? zlib.inflateRawSync(compresse) : (() => { throw new Error(`ZIP : methode ${methode}`); })();
+    if (donnees.length !== taille) throw new Error(`ZIP : taille de ${nom}`);
+    if ((zlib.crc32(donnees) >>> 0) !== crc) throw new Error(`ZIP : CRC de ${nom}`);
+    sortie.push({ nom, donnees, methode });
+    p += 46 + lnom + lextra + lcom;
+  }
+  return sortie;
 }

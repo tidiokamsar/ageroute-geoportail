@@ -95,6 +95,14 @@ export class ApiVoirie {
   }
 
   get(chemin: string): Promise<ReponseApi> { return this.ctx.get(chemin).then((r) => this.rendre(r)); }
+  /** GET d'un contenu binaire (archive ZIP) : octets bruts, plus le corps JSON quand la reponse est une erreur. */
+  async getBinaire(chemin: string): Promise<ReponseApi & { octets: Buffer }> {
+    const r = await this.ctx.get(chemin);
+    const octets = await r.body();
+    let corps: any = null;
+    if (!(r.headers()["content-type"] ?? "").includes("zip")) { try { corps = JSON.parse(octets.toString("utf8")); } catch { /* non JSON */ } }
+    return { statut: r.status(), corps, texte: corps ? octets.toString("utf8") : "", entetes: r.headers(), octets };
+  }
   post(chemin: string, data?: unknown): Promise<ReponseApi> { return this.ctx.post(chemin, data === undefined ? {} : { data }).then((r) => this.rendre(r)); }
   patch(chemin: string, data?: unknown): Promise<ReponseApi> { return this.ctx.patch(chemin, { data }).then((r) => this.rendre(r)); }
   put(chemin: string, data?: unknown): Promise<ReponseApi> { return this.ctx.put(chemin, { data }).then((r) => this.rendre(r)); }
@@ -109,8 +117,14 @@ export class ApiVoirie {
   }
 
   // ---- Raccourcis du module
+  /**
+   * Cree un projet (201 exige). Lot T1 : le territoire est obligatoire. Sans `territoireId` dans `extra`, le projet est rattache a la NATION (projet
+   * national, comme un projet sans region avant T1) ; avec un `regionId` seul, a un territoire de niveau REGION porte par cette region (cree une
+   * fois par l'API, par un ADMIN dedie : `territoireDeRegion`).
+   */
   async creerProjet(code: string, extra: Record<string, unknown> = {}): Promise<string> {
-    const r = await this.post(BASE, { code, nom: `Projet ${code}`, ...extra });
+    const territoireId = extra.territoireId ?? (typeof extra.regionId === "number" ? await territoireDeRegion(extra.regionId) : await territoireNational());
+    const r = await this.post(BASE, { code, nom: `Projet ${code}`, territoireId, ...extra });
     expect(r.statut, `creation du projet ${code} : ${r.texte}`).toBe(201);
     return r.corps.projet.id as string;
   }
@@ -158,9 +172,65 @@ export class ApiVoirie {
     }
     throw new Error("analyse : 429 persistant");
   }
+
+  /** Lance une comparaison de deux sources (lot S1) ; meme traitement de la cadence (429 COMPARAISON_TROP_FREQUENTE) que `analyser`. */
+  async comparer(projetId: string, jeuAId: string, jeuBId: string): Promise<ReponseApi> {
+    for (let essai = 0; essai < 8; essai++) {
+      const r = await this.post(`${BASE}/${projetId}/comparaisons`, { jeuAId, jeuBId });
+      if (r.statut !== 429) return r;
+      await new Promise((ok) => setTimeout(ok, (Number(r.corps?.retryAfterS ?? 3) + 0.3) * 1000));
+    }
+    throw new Error("comparaison : 429 persistant");
+  }
 }
 
 export const JUSTIFICATION = "Controle effectue avec le chef de projet";
+
+// ------------------------------------------------------------------------------------------------ Territoires (lot T1)
+
+let adminTerritoires: Promise<ApiVoirie> | null = null;
+/** ADMIN dedie aux territoires de preparation (cree une fois par fichier de specs, comme les autres comptes du module). */
+export function adminDesTerritoires(): Promise<ApiVoirie> {
+  if (!adminTerritoires) adminTerritoires = creerCompte("e2e-voirie-terr", "Admin Territoires E2E", "ADMIN").then((c) => ApiVoirie.connecter(c));
+  return adminTerritoires;
+}
+
+let nation: Promise<string> | null = null;
+/** Identifiant de la nation (creee par la migration T1), lu par l'API (`GET /territoires?niveau=NATION`). */
+export function territoireNational(): Promise<string> {
+  if (!nation) {
+    nation = (async () => {
+      const r = await (await adminDesTerritoires()).get(`${BASE}/territoires?niveau=NATION&actifs=true`);
+      expect(r.statut, `nation : ${r.texte.slice(0, 300)}`).toBe(200);
+      expect(r.corps.territoires.length, "une nation active").toBeGreaterThan(0);
+      return r.corps.territoires[0].id as string;
+    })();
+  }
+  return nation;
+}
+
+/** Cree un territoire par l'API (ADMIN), sous `parentId` (la nation par defaut) ; rend son identifiant. */
+export async function creerTerritoire(t: { code: string; nom: string; niveau: string; parentId?: string; regionId?: number; emprise?: unknown; crsMetriqueEpsg?: number }, admin?: ApiVoirie): Promise<string> {
+  const api = admin ?? (await adminDesTerritoires());
+  const parentId = t.parentId ?? (t.niveau === "NATION" ? undefined : await territoireNational());
+  const r = await api.post(`${BASE}/territoires`, { ...t, parentId, source: "essai de bout en bout, donnees synthetiques" });
+  expect(r.statut, `creation du territoire ${t.code} : ${r.texte.slice(0, 300)}`).toBe(201);
+  return r.corps.territoire.id as string;
+}
+
+const parRegion = new Map<number, Promise<string>>();
+/** Territoire de niveau REGION porte par la region administrative `regionId` (perimetre des comptes) ; cree au premier appel. */
+export function territoireDeRegion(regionId: number): Promise<string> {
+  let t = parRegion.get(regionId);
+  if (!t) {
+    t = (async () => {
+      const code = `E2E-REG-${regionId}-${randomUUID().slice(0, 6).toUpperCase()}`;
+      return creerTerritoire({ code, nom: `Region synthetique ${regionId}`, niveau: "REGION", regionId });
+    })();
+    parRegion.set(regionId, t);
+  }
+  return t;
+}
 
 export const sha256 = (b: Buffer): string => createHash("sha256").update(b).digest("hex");
 
@@ -237,10 +307,14 @@ export interface SaisieDepotUi {
   origine?: string;
   nature?: string;
   /**
-   * Classe de precision choisie dans l'assistant. Par defaut « B » : la valeur par defaut de l'interface (« INCONNUE ») est envoyee telle quelle au
-   * serveur, qui la refuse (400 CHAMPS_INVALIDES, defaut C1-01 du rapport LOT-C1). `"INCONNUE"` reproduit ce defaut.
+   * Classe de precision choisie dans l'assistant. Par defaut « B » (les scenarios du lot C1 ont ete ecrits ainsi pendant le defaut C1-01, corrige
+   * depuis : « Inconnue » n'est plus envoyee au serveur). `null` : la liste n'est pas touchee, la valeur par defaut de l'interface reste.
    */
-  classe?: "A" | "B" | "C" | "D" | "E" | "INCONNUE";
+  classe?: "A" | "B" | "C" | "D" | "E" | "INCONNUE" | null;
+  /** Lot S1 / UI-C : methode d'acquisition (code du referentiel METHODE_ACQUISITION), choisie dans la liste de l'assistant. */
+  methode?: string;
+  /** Lot T1 / UI-C : type de reseau configurable (code du referentiel TYPE_RESEAU). */
+  typeReseauCode?: string;
 }
 
 type Dialogue = Locator;
@@ -260,7 +334,10 @@ export async function etapeDepot(page: Page, d: Dialogue, s: SaisieDepotUi): Pro
   } else if (s.concessionnaireId) {
     await d.getByLabel("Concessionnaire propriétaire du réseau").selectOption(s.concessionnaireId);
   }
-  await d.getByLabel("Classe de précision").selectOption(s.classe ?? "B");
+  // Choisir le concessionnaire reprend son type : le type du jeu se choisit APRES (premier champ « Type de réseau », celui du jeu).
+  if (s.typeReseauCode) await d.getByLabel("Type de réseau").first().selectOption(s.typeReseauCode);
+  if (s.methode) await d.getByLabel("Méthode d'acquisition (facultatif)").selectOption(s.methode);
+  if (s.classe !== null) await d.getByLabel("Classe de précision").selectOption(s.classe ?? "B");
   if (s.origine) await d.getByLabel("Origine du fichier (facultatif)").fill(s.origine);
   await d.getByRole("button", { name: "Analyser le fichier" }).click();
 }
@@ -308,3 +385,26 @@ export async function configurerCsvLignes(d: Locator, colonnes: { x: string; y: 
 export const CHAMPS_CSV_AXES = { colonneX: "x", colonneY: "y", colonneCle: "axe", colonneOrdre: "ordre" } as const;
 
 export const continuer = (d: Locator): Locator => d.getByRole("button", { name: "Continuer", exact: true });
+
+// ------------------------------------------------------------------------------------------------ Pieces de dossier synthetiques (lot D1)
+
+/** PDF minimal SYNTHETIQUE (une page vide, texte invente) : le serveur le reconnait par sa signature `%PDF-`. Jamais un vrai plan. */
+export function pdfSynthetique(titre: string): Buffer {
+  return Buffer.from(
+    `%PDF-1.4\n% plan de reference synthetique : ${titre.replace(/[^A-Za-z0-9 -]/g, "")}\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n` +
+    "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >> endobj\n" +
+    "trailer << /Root 1 0 R >>\n%%EOF\n", "latin1");
+}
+
+/** DWG SYNTHETIQUE : la signature de version `AC1032` suivie d'octets quelconques (aucun dessin) ; le serveur ne le convertit jamais. */
+export function dwgSynthetique(): Buffer {
+  return Buffer.concat([Buffer.from("AC1032", "latin1"), Buffer.alloc(122, 0x2a)]);
+}
+
+/** Interroge l'API jusqu'a ce que `ok` soit vrai (ou le delai ecoule) : pour un effet consigne APRES la reponse (remise d'un export). */
+export async function attendreQue<T>(lire: () => Promise<T>, ok: (v: T) => boolean, delaiMs = 15_000): Promise<T> {
+  const fin = Date.now() + delaiMs;
+  let v = await lire();
+  while (!ok(v) && Date.now() < fin) { await new Promise((r) => setTimeout(r, 300)); v = await lire(); }
+  return v;
+}
