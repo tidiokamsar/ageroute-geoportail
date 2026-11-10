@@ -223,12 +223,16 @@ export async function insererConflits(tx: TxEcriture, projetId: string, analyseI
 export interface LigneConflitRetrouve {
   id: string; jeuReseauId: string; jeuAxesId: string; objetId: string; concessionnaireId: string; mesure: string; geomHex: string; classePrecision: string;
   aReexaminer: boolean; motifReexamen: string;
+  /** Vrai si l empreinte de la mesure a change (rejeu) : seule condition qui met `updatedAt` a jour. */
+  mesureModifiee: boolean;
 }
 
 /**
  * Met a jour un conflit retrouve : derniere analyse, mesure, geometrie courante, objet et jeu courants, classe copiee, drapeau a reexaminer.
  * Ne touche JAMAIS statut, risque, responsable, echeance ni action proposee (le declencheur de la base le refuserait de toute facon).
  * `updatedAt` ne change QUE si la mesure change : un recalcul qui ne change rien n est pas une mise a jour du dossier (revue RC-3, m11).
+ * Correctif D7 : « la mesure change » = son EMPREINTE change (decision du rejeu, `mesureModifiee`), plus l egalite du JSON : le detail des
+ * morceaux d un dossier de couverture porte les identifiants d objet, qui changent a chaque version du plan sans que la mesure change.
  */
 export async function majConflitsRetrouves(tx: TxEcriture, analyseId: string, l: readonly LigneConflitRetrouve[]): Promise<number> {
   if (l.length === 0) return 0;
@@ -237,11 +241,11 @@ export async function majConflitsRetrouves(tx: TxEcriture, analyseId: string, l:
        SET "derniereAnalyseId" = ${analyseId}, "mesure" = v."mesure"::jsonb, "geom" = ST_GeomFromEWKB(decode(v."geom", 'hex')),
            "jeuReseauId" = NULLIF(v."jeu", ''), "jeuAxesId" = NULLIF(v."jeuaxes", ''), "objetId" = NULLIF(v."objet", '')::bigint, "concessionnaireId" = NULLIF(v."conc", ''),
            "classePrecision" = NULLIF(v."classe", '')::"ClassePrecision", "aReexaminer" = v."are", "motifReexamen" = NULLIF(v."motif", '')::"MotifReexamenConflit",
-           "updatedAt" = CASE WHEN c."mesure" IS DISTINCT FROM v."mesure"::jsonb THEN CURRENT_TIMESTAMP ELSE c."updatedAt" END
+           "updatedAt" = CASE WHEN v."modif" THEN CURRENT_TIMESTAMP ELSE c."updatedAt" END
       FROM unnest(${l.map((x) => x.id)}::text[], ${l.map((x) => x.jeuReseauId)}::text[], ${l.map((x) => x.jeuAxesId)}::text[], ${l.map((x) => x.objetId)}::text[], ${l.map((x) => x.concessionnaireId)}::text[],
                   ${l.map((x) => x.mesure)}::text[], ${l.map((x) => x.geomHex)}::text[], ${l.map((x) => x.classePrecision)}::text[],
-                  ${l.map((x) => x.aReexaminer)}::boolean[], ${l.map((x) => x.motifReexamen)}::text[])
-           AS v("id", "jeu", "jeuaxes", "objet", "conc", "mesure", "geom", "classe", "are", "motif")
+                  ${l.map((x) => x.aReexaminer)}::boolean[], ${l.map((x) => x.motifReexamen)}::text[], ${l.map((x) => x.mesureModifiee)}::boolean[])
+           AS v("id", "jeu", "jeuaxes", "objet", "conc", "mesure", "geom", "classe", "are", "motif", "modif")
      WHERE c."id" = v."id"`;
 }
 

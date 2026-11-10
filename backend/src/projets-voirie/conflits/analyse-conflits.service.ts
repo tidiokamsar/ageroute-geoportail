@@ -352,7 +352,7 @@ async function ecrireConflits(
   for (const lot of lots(retrouves)) {
     await depot.majConflitsRetrouves(tx, analyseId, lot.map((a) => {
       const c = parCle.get(a.cle)!;
-      return { id: a.id, ...ligne(c), aReexaminer: a.aReexaminer, motifReexamen: a.motifReexamen ?? "" };
+      return { id: a.id, ...ligne(c), aReexaminer: a.aReexaminer, motifReexamen: a.motifReexamen ?? "", mesureModifiee: a.mesureModifiee };
     }));
   }
   for (const a of retrouves) {
