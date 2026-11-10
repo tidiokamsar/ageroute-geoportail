@@ -3,12 +3,17 @@
 -- Rapport de revue : REVUE-VAGUE3-T1S1.md (hors depot). Rapport des correctifs : docs/reports/CORRECTIFS-REVUE-T1S1.md. Contrats mis a jour :
 -- docs/projets-voirie/CONTRAT-SOURCES.md, CONTRAT-TERRITOIRES.md, API.md.
 --
--- CE QUE CETTE MIGRATION FAIT (ADDITIVE : aucune colonne ni table existante n'est supprimee, aucune valeur existante n'est perdue)
+-- CE QUE CETTE MIGRATION FAIT (ADDITIVE : aucune colonne ni table existante n'est supprimee, aucune valeur existante n'est perdue ; une seule ligne
+-- existante change, la regle systeme S1-CORRIDOR-0.1 qui passe RETIREE, transition admise par son declencheur d'immuabilite)
 --
 --   B1. `conflits_projet.jeuSourceBId` : le jeu B de la comparaison d'un dossier DIVERGENCE_SOURCES, renseigne pour les dossiers existants depuis leur
 --       comparaison ; son statut entre dans la lisibilite du dossier (un lecteur ne voit rien d'un jeu B non AUTORISE, personne ne voit rien d'un jeu B
 --       RETIRE). Fige, et egal au jeu B de la comparaison (declencheur).
---   (les sections suivantes sont ajoutees par les correctifs M2, M3 et M6, dans l'ordre de leurs commits)
+--   M2. Le referentiel METHODE_ACQUISITION (lot T1) devient la seule source de verite : les codes du lot S1 y entrent (aucune valeur retiree), et la
+--       base refuse au depot un code inconnu ou retire (declencheur).
+--   M3. Le type de reseau (code configurable, sinon famille) entre dans la cle de version d'un reseau : les deux index uniques partiels sont recrees.
+--   M6. Une classe de precision n'est pas une precision en metres : la regle systeme S1-CORRIDOR-0.1 (bareme provisoire) passe RETIREE, la regle
+--       systeme S1-CORRIDOR-0.2 n'a aucun bareme ; un bareme n'est admis que dans une regle approuvee par un ADMIN autre que l'auteur.
 --
 -- Idempotente (IF NOT EXISTS, ON CONFLICT DO NOTHING, gardes par pg_constraint). Exige les migrations 20261103100000 (T1) et 20261103300000 (S1).
 -- REVERSIBILITE : descentes/20261103400000_correctifs_sources_territoires.sql.
@@ -118,12 +123,17 @@ ON CONFLICT DO NOTHING;
 ALTER TABLE "regles_rapprochement_sources" ALTER COLUMN "precisionParClasseM" SET DEFAULT '{}'::jsonb;
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'rrs_bareme_personne') THEN
-    -- Une regle systeme en vigueur ne porte aucun bareme.
-    ALTER TABLE "regles_rapprochement_sources" ADD CONSTRAINT "rrs_bareme_personne" CHECK ("creeParId" IS NOT NULL OR "statut" = 'RETIREE' OR "precisionParClasseM" = '{}'::jsonb);
+    -- Une regle systeme en vigueur ne porte aucun bareme. La ligne d'origine S1-CORRIDOR-0.1 version 0 est nommee : elle est RETIREE et ne redevient
+    -- jamais APPROUVEE (declencheur d'immuabilite), mais la migration 20261103300000 doit rester rejouable (son INSERT ... ON CONFLICT DO NOTHING
+    -- evalue les contraintes avant de constater le conflit).
+    ALTER TABLE "regles_rapprochement_sources" ADD CONSTRAINT "rrs_bareme_personne" CHECK ("creeParId" IS NOT NULL OR "statut" = 'RETIREE' OR "precisionParClasseM" = '{}'::jsonb
+      OR ("code" = 'S1-CORRIDOR-0.1' AND "version" = 0));
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'rrs_bareme_separation') THEN
     -- Une regle approuvee qui porte un bareme l'a ete par une autre personne que son auteur. NOT VALID : les regles deja approuvees sont immuables (le
     -- service n'applique pas le bareme d'une regle auto-approuvee) ; la contrainte vaut pour toute ligne ecrite desormais.
-    ALTER TABLE "regles_rapprochement_sources" ADD CONSTRAINT "rrs_bareme_separation" CHECK ("statut" <> 'APPROUVEE' OR "precisionParClasseM" = '{}'::jsonb OR ("creeParId" IS NOT NULL AND "approuveParId" IS NOT NULL AND "approuveParId" <> "creeParId")) NOT VALID;
+    -- Les regles systeme (sans auteur) relevent de rrs_bareme_personne.
+    ALTER TABLE "regles_rapprochement_sources" ADD CONSTRAINT "rrs_bareme_separation" CHECK ("statut" <> 'APPROUVEE' OR "precisionParClasseM" = '{}'::jsonb OR "creeParId" IS NULL
+      OR ("approuveParId" IS NOT NULL AND "approuveParId" <> "creeParId")) NOT VALID;
   END IF;
 END $$;
