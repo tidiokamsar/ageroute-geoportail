@@ -4264,6 +4264,8 @@ enum FormatJeuProjet {
   GPKG
   SHAPEFILE
   DXF
+  /// Lot D1 (migration 20261104100000) : axes en plan (Alignments) et points (CgPoints) lus par le lecteur XML du module, sans GDAL.
+  LANDXML
 }
 
 /// PUBLIC et INTERNE ne rendent rien public dans ce lot : le module reste entierement derriere la cle de module.
@@ -5383,4 +5385,86 @@ model ComparaisonSourcesResultat {
   @@index([comparaisonId, statut, ordre])
   @@index([conflitId])
   @@map("comparaisons_sources_resultats")
+}
+
+// ===================== COMPLETUDE DOCUMENTAIRE DES PROJETS DE VOIRIE (lot D1) =====================
+// Contrat : docs/projets-voirie/CONTRAT-DOCUMENTS.md. Migration 20261104100000_completude_documentaire (additive, avec descente).
+// AUCUNE relation Prisma (comme le lot B3) : les cles etrangeres (projet, lignee, concessionnaire, jeu, comptes) sont dans la migration seulement, pour
+// que ce bloc reste en fin de fichier sans toucher aux modeles existants. Hors schema.prisma (non representable, voir docs/securite/DERIVE-SCHEMA.md,
+// section 9) : les index uniques PARTIELS (une version en cours, une version VALIDE par lignee), les declencheurs (matrice des transitions, champs et
+// piece figes, historique ecrit par la base, verification differee du remplacement, suppression et troncature refusees) et les contraintes CHECK
+// (piece presente hors ATTENDU, DWG jamais EXPLOITABLE ni VALIDE, separation des taches de la validation, justifications).
+// AUCUN fichier binaire : ni colonne bytea, ni chemin. Le seul mecanisme de conservation d'un fichier reste FichierOrigineJeuProjet (lot A1).
+
+enum StatutDocumentProjetVoirie {
+  ATTENDU
+  RECU
+  EN_ANALYSE
+  EXPLOITABLE
+  INCOMPLET
+  A_CORRIGER
+  REMPLACE
+  VALIDE
+  REJETE
+}
+
+/// Une VERSION d'un document du dossier d'un projet. `ligneeId` = identifiant de la version 1 ; `remplaceId` = version precedente.
+model DocumentProjetVoirie {
+  id                    String                     @id @default(uuid())
+  projetId              String
+  ligneeId              String
+  version               Int                        @default(1)
+  remplaceId            String?
+  /// Code du domaine TYPE_DOCUMENT (referentiel du lot T1), verifie par la base a l'insertion.
+  typeCode              String
+  titre                 String
+  description           String?
+  dateDocument          DateTime?                  @db.Date
+  concessionnaireId     String?
+  statut                StatutDocumentProjetVoirie
+  reference             String?
+  nomFichier            String?
+  /// PDF, DWG (fichier televerse, detecte par la signature) ou format du jeu lie ; nul pour une piece seulement referencee.
+  format                String?
+  sha256                String?
+  tailleOctets          Int?
+  jeuId                 String?
+  creeParId             String
+  createdAt             DateTime                   @default(now())
+  deposeParId           String?
+  deposeLe              DateTime?
+  valideParId           String?
+  valideLe              DateTime?
+  derniereActionParId   String
+  derniereActionLe      DateTime                   @default(now())
+  derniereJustification String?
+  updatedAt             DateTime                   @default(now()) @updatedAt
+  deletedAt             DateTime?
+
+  @@unique([ligneeId, version], map: "documents_projet_voirie_lignee_version_key")
+  @@index([projetId, statut])
+  @@index([projetId, typeCode])
+  @@index([jeuId])
+  @@index([remplaceId])
+  @@map("documents_projet_voirie")
+}
+
+/// Historique en AJOUT SEUL, ecrit par le declencheur de `documents_projet_voirie` (jamais par le service).
+model DocumentProjetVoirieHistorique {
+  id            BigInt                      @id @default(autoincrement())
+  documentId    String
+  projetId      String
+  ligneeId      String
+  version       Int
+  action        String
+  statutAvant   StatutDocumentProjetVoirie?
+  statutApres   StatutDocumentProjetVoirie
+  acteurId      String
+  justification String?
+  details       Json                        @default("{}")
+  createdAt     DateTime                    @default(now())
+
+  @@index([documentId, id])
+  @@index([projetId, id])
+  @@map("documents_projet_voirie_historique")
 }

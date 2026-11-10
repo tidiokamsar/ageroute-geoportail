@@ -171,7 +171,7 @@ describe("GET /import/options", () => {
   it("formats, non pris en charge, limites, CRS source autorises (liste blanche), zone attendue, champs cibles, options CSV, mode de conservation", async () => {
     const r = await lancer("get", `/${P_R1}/import/options`, "GEST");
     expect(r.status).toBe(200);
-    expect(r.body.formats.map((f: { format: string }) => f.format)).toEqual(["KML", "KMZ", "GEOJSON", "GPX", "CSV"]);
+    expect(r.body.formats.map((f: { format: string }) => f.format)).toEqual(["KML", "KMZ", "GEOJSON", "GPX", "CSV", "LANDXML"]); // lot D1 : LandXML
     expect(r.body.formats.find((f: { format: string }) => f.format === "CSV")).toMatchObject({ choixCrs: "obligatoire", crsParDefinition: null });
     expect(r.body.nonSupportes.map((f: { format: string }) => f.format)).toEqual(["DWG"]); // lot B2 : GeoPackage, Shapefile et DXF sont annonces par formatsGdal (indisponibles par defaut)
     expect(r.body.crs.cible).toMatchObject({ epsg: 4326, unite: "degre" });

@@ -31,6 +31,7 @@ import { ERREURS_JOB } from "../gdal/contrat.noyau";
 import { proposerChampsJeu, type Mapping, type PropositionJeu } from "./mapping.noyau";
 import { Enregistreur, Inventaire, PuitsFiltre, type ChampJeu, type CoucheInventoriee, type Puits, type SommetsBruts } from "./puits.noyau";
 import { traverserGpx, type ResultatGpx } from "./gpx.noyau";
+import { crsDeclareLandXml, traverserLandXml, type ResultatLandXml } from "./landxml.noyau";
 import { choisirEntreeKml, estZip, extraireEntree, inspecterZip, typeEntree, type LimitesZip, type TypeEntree } from "./zip.noyau";
 
 export interface OptionsImport {
@@ -47,6 +48,8 @@ export interface LimitesImport {
   zip: LimitesZip;
   csv: LimitesCsv;
   crsAutorises: readonly number[];
+  /** Lot D1 : tolerance de discretisation des arcs d'un LandXML (m) ; defaut du noyau LandXML si absente. */
+  landxml?: { toleranceArcM: number };
 }
 
 export interface EntreeArchiveVue { nom: string; tailleOctets: number; type: TypeEntree }
@@ -76,12 +79,12 @@ export interface Detection {
 }
 
 const EXTENSIONS_ATTENDUES: Record<string, FormatFichier> = {
-  kml: "KML", kmz: "KMZ", geojson: "GEOJSON", json: "GEOJSON", gpx: "GPX", csv: "CSV", tsv: "CSV", txt: "CSV", psv: "CSV",
+  kml: "KML", kmz: "KMZ", geojson: "GEOJSON", json: "GEOJSON", gpx: "GPX", csv: "CSV", tsv: "CSV", txt: "CSV", psv: "CSV", landxml: "LANDXML",
 };
 const ENTREES_VUES_MAX = 200;
 /** Couches listees dans la reponse d'inventaire (O6) : la liste est bornee, le total reste annonce ; les couches au-dela restent choisissables par leur identifiant. */
 export const COUCHES_REPONSE_MAX = 200;
-const CHOIX_FORMATS = "KML, KMZ, GeoJSON, GPX ou tableau delimite (CSV, TSV, TXT)";
+const CHOIX_FORMATS = "KML, KMZ, GeoJSON, GPX, LandXML ou tableau delimite (CSV, TSV, TXT)";
 
 function premierOctetUtile(b: Buffer): number {
   let i = b.length >= 3 && b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf ? 3 : 0;
@@ -126,6 +129,8 @@ export function detecter(contenu: Buffer, nomFichier: string, opts: OptionsImpor
       if (nettoye[0] === "<") {
         const racine = lireArbreKml(texte);
         if (racine.nom === "gpx") d = { format: "GPX", extensionDeclaree: ext || null, extensionCoherente: true, archive: null, entreeKml: null, racine, avertissements: [] };
+        // Lot D1 : LandXML (axes en plan et points), meme lecteur XML (ni DTD ni entite), lu par formats/landxml.noyau.ts.
+        else if (racine.nom === "LandXML") d = { format: "LANDXML", extensionDeclaree: ext || null, extensionCoherente: true, archive: null, entreeKml: null, racine, avertissements: [] };
         else {
           verifierRacineKml(racine);
           d = { format: "KML", extensionDeclaree: ext || null, extensionCoherente: true, archive: null, entreeKml: null, racine, avertissements: [] };
@@ -243,9 +248,15 @@ export function suggererMapping(colonnes: readonly string[]): Record<string, str
   return s;
 }
 
-function parcourirCouches(d: Detection, puits: Puits): ResultatGpx | null {
+/** Lot D1 : `lim` absent = inventaire (un LandXML n'est alors ni discretise ni refuse : spirales et arcs sont comptes). */
+function parcourirCouches(d: Detection, puits: Puits, lim?: LimitesImport): ResultatGpx | ResultatLandXml | null {
   if (d.racine === undefined) return null;
   if (d.format === "GPX") return traverserGpx(d.racine, puits);
+  if (d.format === "LANDXML") {
+    return traverserLandXml(d.racine, puits, lim
+      ? { toleranceArcM: lim.landxml?.toleranceArcM, sommetsParObjet: lim.lecture.sommetsParObjet, sommetsParFichier: lim.lecture.sommetsParFichier }
+      : { inventaire: true });
+  }
   traverserKml(d.racine, puits);
   return null;
 }
@@ -268,13 +279,19 @@ export function inventorier(d: Detection): InventaireFichier {
   let declare: string | null = null;
   let choixObligatoire = false;
 
-  if (d.format === "KML" || d.format === "KMZ" || d.format === "GPX") {
+  if (d.format === "KML" || d.format === "KMZ" || d.format === "GPX" || d.format === "LANDXML") {
     if (d.racine !== undefined) {
       const inv = new Inventaire();
       const gpx = parcourirCouches(d, inv);
       couches = inv.liste().map(({ id, nom, nbObjets, parTypeGeom }) => ({ id, nom, nbObjets, parTypeGeom }));
       champs = [...inv.attributs].sort();
       if (gpx) avertissements.push(...gpx.avertissements);
+    }
+    // Lot D1 : le CRS d'un LandXML est toujours choisi ; la declaration du fichier n'est que montree.
+    if (d.format === "LANDXML" && d.racine !== undefined) {
+      const c = crsDeclareLandXml(d.racine);
+      declare = c ? (c.epsg !== null ? `EPSG:${c.epsg}` : "sans code EPSG") : null;
+      choixObligatoire = true;
     }
   } else if (d.format === "GEOJSON" && d.doc !== undefined) {
     const inv = new Inventaire();
@@ -305,7 +322,7 @@ export function inventorier(d: Detection): InventaireFichier {
     format: d.format,
     detection: { methode: "contenu", extensionDeclaree: d.extensionDeclaree, extensionCoherente: d.extensionCoherente },
     archive: d.archive, couches, nbCouches, couchesTronquees, csv,
-    crs: { normeDuFormat: d.format === "CSV" ? null : "EPSG:4326", declareDansLeFichier: declare, choixObligatoire },
+    crs: { normeDuFormat: d.format === "CSV" || d.format === "LANDXML" ? null : "EPSG:4326", declareDansLeFichier: declare, choixObligatoire },
     champsDisponibles: champs.slice(0, 500),
     suggestionsMapping: suggererMapping(champs),
     avertissements,
@@ -365,6 +382,12 @@ export interface InfoImportLecture {
   mapping: Mapping;
   rejets: RejetCsv[];
   rejetsTronques: boolean;
+  /** Lot D1 : lecture d'un LandXML (comptes, tolerance des arcs, CRS et unites declares ; jamais de coordonnee). */
+  landxml?: {
+    toleranceArcM: number; nbAlignements: number; nbLignes: number; nbArcs: number; nbIrreguliers: number; sommetsArcs: number; nbPoints: number;
+    nbSurfacesIgnorees: number; nbProfilsIgnores: number; nbAutresIgnores: number; nbDiscontinuites: number;
+    crsDeclare: { epsg: number | null; nom: string | null } | null; unites: string | null;
+  };
   /** Lot B2 : provenance d'une conversion GDAL (jamais de coordonnee). */
   conversion?: {
     jobId: string; formatSource: string; gdal: { version: string; proj: string | null }; source: { nom: string; octets: number; sha256: string };
@@ -430,7 +453,8 @@ function justification(format: FormatFichier, choix: ChoixCrs, meta: MetaCrs, co
  */
 export function preparer(d: Detection, opts: OptionsImport, lim: LimitesImport): Preparation {
   const conv = d.conversion;
-  const declare = d.format === "GEOJSON" && d.doc ? crsDeclareGeoJson(d.doc) : null;
+  const lx = d.format === "LANDXML" && d.racine ? crsDeclareLandXml(d.racine) : null;
+  const declare = d.format === "GEOJSON" && d.doc ? crsDeclareGeoJson(d.doc) : lx ? { nom: lx.nom ?? "", epsg: lx.epsg } : null;
   const choix = conv
     ? choisirCrsConverti(conv.format as "GPKG" | "SHAPEFILE" | "DXF", d.selection![0].crsSource, d.selection![0].coordonnees, conv.parametres.epsgSource, opts.epsgSource, lim.crsAutorises)
     : choisirCrs(d.format, opts.epsgSource, declare, lim.crsAutorises);
@@ -439,7 +463,7 @@ export function preparer(d: Detection, opts: OptionsImport, lim: LimitesImport):
   let couche: { id: string; nom: string } | null = null;
   let coucheCle: string | undefined;
   let nbCouches = 1;
-  if (d.format === "KML" || d.format === "KMZ" || d.format === "GPX") {
+  if (d.format === "KML" || d.format === "KMZ" || d.format === "GPX" || d.format === "LANDXML") {
     const inv = new Inventaire();
     parcourirCouches(d, inv);
     const liste = inv.liste();
@@ -464,7 +488,7 @@ export function preparer(d: Detection, opts: OptionsImport, lim: LimitesImport):
   let sommetsBruts: SommetsBruts | null = null;
   const filtre = new PuitsFiltre(enr ?? reel, { couche: coucheCle, mapping: opts.mapping });
 
-  let gpx: ResultatGpx | null = null;
+  let gpx: ResultatGpx | ResultatLandXml | null = null;
   let csv: ResultatCsv | null = null;
   const mapping: Mapping = opts.mapping ?? {};
   if (d.format === "CSV") {
@@ -479,7 +503,7 @@ export function preparer(d: Detection, opts: OptionsImport, lim: LimitesImport):
   } else if (d.format === "GEOJSON" || conv) {
     traverserGeoJson(d.doc!, filtre);
   } else {
-    gpx = parcourirCouches(d, filtre);
+    gpx = parcourirCouches(d, filtre, lim);
   }
   if (d.format !== "CSV") {
     for (const col of Object.values(mapping)) {
@@ -495,6 +519,10 @@ export function preparer(d: Detection, opts: OptionsImport, lim: LimitesImport):
     besoinTransformation: choix.transformer,
     sommets: sommetsBruts,
     terminer(meta, versionProj, transformes) {
+      // Lot D1 : un LandXML ne se lit que dans un CRS projete en metres (arcs discretises en unites lineaires ; aucune mise a l'echelle).
+      if (d.format === "LANDXML" && (meta.geographique || meta.unite !== "metre")) {
+        throw new ErreurLecture("CRS_INCOMPATIBLE_FORMAT", `le CRS ${libelleCrs(meta)} n'est pas projete en metres : un LandXML (axes en plan en metres) ne peut pas lui etre applique`);
+      }
       if (enr) {
         if (!transformes) throw new Error("coordonnees transformees manquantes");
         enr.rejouer(transformes.lon, transformes.lat, sommetsBruts!.invalide);
@@ -559,6 +587,13 @@ export function preparer(d: Detection, opts: OptionsImport, lim: LimitesImport):
             nbLignes: csv.nbLignes, nbLignesRejetees: csv.nbLignesRejetees,
           } : null,
           mapping, rejets: csv?.rejets ?? [], rejetsTronques: csv?.rejetsTronques ?? false,
+          ...(gpx && "nbAlignements" in gpx ? {
+            landxml: {
+              toleranceArcM: gpx.toleranceArcM, nbAlignements: gpx.nbAlignements, nbLignes: gpx.nbLignes, nbArcs: gpx.nbArcs, nbIrreguliers: gpx.nbIrreguliers,
+              sommetsArcs: gpx.sommetsArcs, nbPoints: gpx.nbPoints, nbSurfacesIgnorees: gpx.nbSurfacesIgnorees, nbProfilsIgnores: gpx.nbProfilsIgnores,
+              nbAutresIgnores: gpx.nbAutresIgnores, nbDiscontinuites: gpx.nbDiscontinuites, crsDeclare: gpx.crsDeclare, unites: gpx.unites,
+            },
+          } : {}),
           ...(conv ? {
             conversion: {
               jobId: conv.jobId, formatSource: conv.format, gdal: conv.gdal, source: conv.source, couches: d.selection!.map((c) => c.id),

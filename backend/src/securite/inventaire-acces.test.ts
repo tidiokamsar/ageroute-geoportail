@@ -379,9 +379,16 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
     "POST /api/v2/projets-voirie/:id/regles-rapprochement/:regleRapId/approuver": ["ADMIN"],
     "POST /api/v2/projets-voirie/:id/comparaisons": ["ADMIN", "GESTIONNAIRE"],
     "POST /api/v2/projets-voirie/:id/comparaisons/:cmpId/dossiers-conflit": ["ADMIN", "GESTIONNAIRE"],
+    // Documents du dossier (lot D1) : creation, depot, version, statut, retrait (le retrait d'une piece VALIDE est reserve a l'ADMIN par le service).
+    // Prouve par api-v2/projets-voirie.documents.routes.test.ts et le banc documents-projet.
+    "POST /api/v2/projets-voirie/:id/documents": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/documents/:docId/depot": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/documents/:docId/versions": ["ADMIN", "GESTIONNAIRE"],
+    "POST /api/v2/projets-voirie/:id/documents/:docId/statut": ["ADMIN", "GESTIONNAIRE"],
+    "DELETE /api/v2/projets-voirie/:id/documents/:docId": ["ADMIN", "GESTIONNAIRE"],
   };
 
-  it("expose exactement les 15 routes du socle, les 16 des dossiers de conflit, les 6 de l'import (lot A1), les 10 des reseaux (lot B1), les 4 des jobs de conversion GDAL (lot B2), les 15 des territoires, referentiels et configuration (lot T1) et les 9 des sources (lot S1), ni plus (aucun export de geometrie, aucune route d'ordre ou de deplacement), ni moins", () => {
+  it("expose exactement les 15 routes du socle, les 16 des dossiers de conflit, les 6 de l'import (lot A1), les 10 des reseaux (lot B1), les 4 des jobs de conversion GDAL (lot B2), les 15 des territoires, referentiels et configuration (lot T1), les 9 des sources (lot S1) et les 8 des documents (lot D1), ni plus (aucun export de geometrie, aucune route d'ordre ou de deplacement), ni moins", () => {
     expect(pv.map(cle).sort()).toEqual([
       "DELETE /api/v2/projets-voirie/:id", "DELETE /api/v2/projets-voirie/:id/jeux/:jeuId",
       "GET /api/v2/projets-voirie", "GET /api/v2/projets-voirie/:id", "GET /api/v2/projets-voirie/:id/analyse",
@@ -420,6 +427,10 @@ describe("Projets de voirie et reseaux (/api/v2/projets-voirie)", () => {
       "GET /api/v2/projets-voirie/:id/sources", "GET /api/v2/projets-voirie/:id/regles-rapprochement", "POST /api/v2/projets-voirie/:id/regles-rapprochement",
       "POST /api/v2/projets-voirie/:id/regles-rapprochement/:regleRapId/approuver", "POST /api/v2/projets-voirie/:id/comparaisons", "GET /api/v2/projets-voirie/:id/comparaisons",
       "GET /api/v2/projets-voirie/:id/comparaisons/:cmpId", "GET /api/v2/projets-voirie/:id/comparaisons/:cmpId/objets", "POST /api/v2/projets-voirie/:id/comparaisons/:cmpId/dossiers-conflit",
+      // Documents du dossier et ce que les documents permettent (lot D1, CONTRAT-DOCUMENTS.md, section 5)
+      "GET /api/v2/projets-voirie/:id/completude", "GET /api/v2/projets-voirie/:id/documents", "POST /api/v2/projets-voirie/:id/documents",
+      "GET /api/v2/projets-voirie/:id/documents/:docId", "POST /api/v2/projets-voirie/:id/documents/:docId/depot", "POST /api/v2/projets-voirie/:id/documents/:docId/versions",
+      "POST /api/v2/projets-voirie/:id/documents/:docId/statut", "DELETE /api/v2/projets-voirie/:id/documents/:docId",
     ].sort());
     // Lot S1 : aucune route de fusion, de connexion calculee ni de proposition automatique de connexion.
     expect(pv.filter((l) => /fusion|fusionn|connect|connexion|continuite/i.test(l.chemin))).toEqual([]);

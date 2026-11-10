@@ -33,9 +33,14 @@ const schemaCategorieProjet = z.object({
   largeurChausseeM: z.number().positive().max(200),
 }).strict().refine((p) => p.largeurChausseeM <= p.largeurEmpriseM, { message: "largeurChausseeM doit etre au plus egale a largeurEmpriseM", path: ["largeurChausseeM"] });
 
+/** Lot D1 : roles de jeu qui peuvent fournir une piece importee (enumeration Prisma `RoleJeuProjet`, constante du contrat). */
+export const ROLES_JEU = ["AXES_TRAVAUX", "RESEAU_TIERS", "LIMITES_ROUTE", "AUTRE"] as const;
+
 const schemaTypeDocument = z.object({
   obligatoire: z.boolean(),
   fonctionsDebloquees: z.array(z.string().regex(/^[A-Z0-9_]{2,64}$/, "code de fonction en majuscules")).max(20),
+  // Lot D1 (CONTRAT-DOCUMENTS.md, 3.3) : role du jeu qui fournit cette piece quand elle est importee ; relie le type a une condition de fonction.
+  roleJeu: z.enum(ROLES_JEU).optional(),
 }).strict();
 
 const schemaMethodeAcquisition = z.object({

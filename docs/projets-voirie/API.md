@@ -1205,3 +1205,53 @@ Mesures du banc (fixtures synthétiques, UTM 29N) : deux câbles de 100 m de pr�
 ### Réglages serveur
 
 `PROJETS_VOIRIE_COMPARAISON_OBJETS_MAX` (20 000, bornes 100 à 200 000), `PROJETS_VOIRIE_COMPARAISON_INTERVALLE_S` (60, bornes 0 à 3 600 ; 0 réservé aux bancs). Délai côté base : `PROJETS_VOIRIE_DELAI_ANALYSE_MS` (celui de l'analyse). Valeurs par défaut de la règle `S1-CORRIDOR-0.1` (marge 1 m, rayon 10 m, part 0, précisions par classe `{ A: 0.5, B: 1, C: 2, D: 5 }`) : **provisoires, à valider par le DSI**.
+
+## Documents du projet, complétude documentaire et formats d'ingénierie (lot D1)
+
+Contrat : `docs/projets-voirie/CONTRAT-DOCUMENTS.md` (modèle, statuts, matrice des transitions, conditions des fonctions, LandXML, DWG, PDF). Preuves : `backend/src/api-v2/projets-voirie.documents.routes.test.ts`, noyaux `backend/src/projets-voirie/documents/*.noyau.test.ts` et `formats/landxml.noyau.test.ts`, banc `backend/tests-integration/documents-projet.integration.mts` (données 100 % synthétiques).
+
+**Principe.** Un document du dossier est typé par le référentiel `TYPE_DOCUMENT` (lot T1), versionné (une ligne par version, `ligneeId`), au statut contrôlé par le service ET par la base. Sa pièce est une **référence** (texte), une **empreinte** de fichier (PDF, DWG : le fichier n'est jamais conservé) ou un **jeu importé** du même projet. Le déposant d'une pièce ne la valide pas. « Ce que les documents permettent » dit, pour un projet, les fonctions disponibles avec les jeux `AUTORISE` et les pièces manquantes avec la fonction que chacune débloquerait ; **aucune pièce manquante ne bloque une fonction qui n'en dépend pas**.
+
+Mêmes gardes, dans le même ordre, que le socle ; projet retiré ou hors périmètre : 404 `PROJET_INTROUVABLE` ; `:docId` : UUID (400 `IDENTIFIANT_INVALIDE`). Les routes à pièce acceptent du JSON ou du multipart (champ `fichier`, 25 Mo, place de réception du dépôt d'un jeu).
+
+### Routes
+
+| Route | Rôle | Réponse |
+|---|---|---|
+| `GET /:id/completude` | lecture | `{ projetId, calculeLe, fonctions: [{ code, libelle, etat: DISPONIBLE\|INDISPONIBLE\|NON_LIVREE, conditions: [{ code, libelle, remplie, nb }] }], reseaux: [{ concessionnaireId, concessionnaire, typeReseau, nbSources, comparable }], piecesManquantes: [...], documents: { total, parStatut }, regle }` |
+| `GET /:id/documents` | lecture | `?statut=A,B&typeCode=&versions=courantes\|toutes&limite=(1..100, 50)&curseur=` : `{ documents: [vue], curseurSuivant }` ; un lecteur ne reçoit que des `VALIDE` |
+| `GET /:id/documents/:docId` | lecture | `{ document, versions: [{ id, version, statut, createdAt }], historique? }` (historique de la lignée, écrit par la base : décideurs seulement) ; 404 `DOCUMENT_INTROUVABLE` |
+| `POST /:id/documents` | ADMIN, GESTIONNAIRE | `{ typeCode, titre, description?, dateDocument?, concessionnaireId?, reference?, jeuId? }` + `fichier?` : sans pièce 201 `ATTENDU`, avec pièce 201 `RECU` ; `{ document, avertissements }` |
+| `POST /:id/documents/:docId/depot` | ADMIN, GESTIONNAIRE | pièce (`reference?`, `jeuId?`, `fichier?`) d'un document `ATTENDU` : `{ document, avertissements }` |
+| `POST /:id/documents/:docId/versions` | ADMIN, GESTIONNAIRE | pièce de la version suivante : 201 `{ document, remplace: { id, version, statut }, avertissements }` |
+| `POST /:id/documents/:docId/statut` | ADMIN, GESTIONNAIRE | `{ statut: EN_ANALYSE\|EXPLOITABLE\|INCOMPLET\|A_CORRIGER\|VALIDE\|REJETE, justification? }` (10 caractères pour INCOMPLET, A_CORRIGER, VALIDE, REJETE) : `{ document }` |
+| `DELETE /:id/documents/:docId` | ADMIN, GESTIONNAIRE (pièce `VALIDE` : ADMIN) | `{ justification }` : `{ id, retire: true }` |
+
+Vue d'un document : `{ id, projetId, ligneeId, version, remplaceId, typeCode, type: { code, libelle, actif }, titre, description, dateDocument, concessionnaire, statut, piece: { reference, nomFichier, format, sha256, tailleOctets, jeuLie }, jeu: { id, statut, role, version, format } | null, exploitable: { possible, raison }, aide, creePar, createdAt, deposePar, deposeLe, validePar, valideLe, derniereAction: { par, le, justification }, transitionsPossibles? }`. `jeu` (et le nom et le format de la pièce liée) ne sont rendus que si le jeu est lisible par le compte ; `derniereAction.justification` et `transitionsPossibles` : décideurs seulement.
+
+Pièce manquante : `{ nature: "CONDITION", code: PLAN_AXES_AUTORISE|RESEAU_AUTORISE|SECONDE_SOURCE|DECISION_DEPLACEMENT, libelle, reseau, fonctions, suffiraitPour, typesDocument, documents? }`, `{ nature: "TYPE_OBLIGATOIRE", typeDocument, roleJeu, fonctions, suffiraitPour, documents? }`, `{ nature: "DOCUMENT", document, fonctions }` (décideurs). `fonctions` : fonctions indisponibles qui l'exigent ; `suffiraitPour` : celles que cette seule pièce rendrait disponibles.
+
+Exemple réel (banc, projet aux axes et au réseau autorisés, réduit) :
+
+```json
+{ "fonctions": [
+    { "code": "ANALYSE_2D", "etat": "DISPONIBLE", "conditions": [ { "code": "PLAN_AXES_AUTORISE", "remplie": true, "nb": 1 }, { "code": "RESEAU_AUTORISE", "remplie": true, "nb": 1 } ] },
+    { "code": "COMPARAISON_SOURCES", "etat": "INDISPONIBLE", "conditions": [ { "code": "DEUX_SOURCES_MEME_RESEAU", "remplie": false, "nb": 0 } ] },
+    { "code": "RECOLEMENT", "etat": "INDISPONIBLE" }, { "code": "EXPORT_DOSSIER", "etat": "NON_LIVREE" } ],
+  "piecesManquantes": [
+    { "nature": "CONDITION", "code": "SECONDE_SOURCE", "reseau": { "concessionnaire": "Operateur Telecom Synthetique D1", "typeReseau": "TELECOM" },
+      "fonctions": ["COMPARAISON_SOURCES"], "suffiraitPour": ["COMPARAISON_SOURCES"], "typesDocument": [ { "code": "RESEAU_CONCESSIONNAIRE" } ] },
+    { "nature": "CONDITION", "code": "DECISION_DEPLACEMENT", "fonctions": ["RECOLEMENT"], "suffiraitPour": ["RECOLEMENT"], "typesDocument": [] } ] }
+```
+
+### Codes d'erreur ajoutés par ce lot
+
+400 `CHAMPS_INVALIDES`, `JUSTIFICATION_INVALIDE`, `TYPE_DOCUMENT_INCONNU`, `CONCESSIONNAIRE_INCONNU`, `PIECE_REQUISE`, `PIECE_EXCLUSIVE` ; 403 `ROLE_INSUFFISANT` ; 404 `DOCUMENT_INTROUVABLE`, `JEU_INTROUVABLE` ; 409 `TRANSITION_INTERDITE` (`de`, `vers`, `possibles`), `STATUT_INCOMPATIBLE`, `DOCUMENT_ATTENDU`, `VERSION_NON_COURANTE`, `VERSION_EN_COURS`, `DOCUMENT_NON_EXPLOITABLE` (`aide`), `JEU_NON_AUTORISE`, `SEPARATION_DES_TACHES` ; 415 `FORMAT_DOCUMENT_NON_PRIS_EN_CHARGE` ; 503 `PROJET_OCCUPE` ; 504 `COMPLETUDE_TROP_LONGUE`. Avertissements : `DWG_NON_EXPLOITABLE`, `PDF_REFERENCE`, `JEU_NON_AUTORISE`.
+
+### LandXML à l'import (routes du lot A1, inchangées)
+
+`GET /:id/import/options` annonce `LANDXML` (`choixCrs: "obligatoire"`). Inventaire : couches `alignements` (axes en plan) et `cgpoints`, `crs.declareDansLeFichier` (`CoordinateSystem/@epsgCode`, jamais une confirmation). Aperçu, simulation et dépôt : `epsgSource` obligatoire (CRS projeté en mètres de la liste blanche), `resume.import.landxml` (tolérance des arcs, comptes d'éléments lus et ignorés, CRS et unités déclarés). Codes 422 : `CRS_REQUIS`, `CRS_CONFLIT`, `CRS_INCOMPATIBLE_FORMAT`, `UNITES_REQUISES`, `LANDXML_UNITES_NON_SUPPORTEES`, `LANDXML_SPIRALE_NON_PRISE_EN_CHARGE`, `LANDXML_ARC_DEGENERE`, `LANDXML_POINT_INTROUVABLE`, `DTD_REFUSEE`, `ENTITE_REFUSEE`, `TROP_DE_SOMMETS`. Avertissements : `LANDXML_ARCS_DISCRETISES`, `LANDXML_SPIRALES` (inventaire), `LANDXML_DISCONTINUITES`, `LANDXML_PROFILS_IGNORES`, `LANDXML_SURFACES_IGNOREES`, `LANDXML_ELEMENTS_IGNORES`. Un PDF déposé à l'import : 422 `CONTENU_NON_RECONNU` (message qui renvoie aux documents) ; un DWG : 415 `FORMAT_NON_SUPPORTE` (marche à suivre pour exporter en DXF).
+
+### Réglages serveur
+
+`PROJETS_VOIRIE_LANDXML_TOLERANCE_ARC_MM` (10, bornes 1 à 1 000) : flèche maximale entre un arc LandXML et ses cordes ; **valeur de protection à valider par le DSI**. Délais côté base : `PROJETS_VOIRIE_DELAI_CARTE_MS` (complétude), `PROJETS_VOIRIE_DELAI_DEPOT_MS` et `PROJETS_VOIRIE_VERROU_MS` (écritures).
