@@ -119,6 +119,8 @@ describe("piece : format par la signature, empreinte, nom, avertissements", () =
     expect(nomFichierSur("../../etc/passwd")).toBe("passwd");
     expect(nomFichierSur("\u0001")).toBe("fichier");
     expect(nomFichierSur("a".repeat(400)).length).toBe(255);
+    // Revue D1, m11 : surcharges bidirectionnelles retirees (« plan\u202Efdp.exe » s'afficherait « planexe.pdf »).
+    expect(nomFichierSur("plan\u202Efdp.exe")).toBe("planfdp.exe");
   });
 
   it("avertissements de depot : DWG (marche a suivre DXF), PDF (reference), jeu en quarantaine", () => {

@@ -205,6 +205,24 @@ describe("validation des entrees : 400 type, jamais 500, le service n'est pas ap
   });
 });
 
+describe("revue D1, m11 : caracteres de controle et de direction refuses a l'entree", () => {
+  it("titre, reference, description et justification : C0 (hors tabulation et sauts de ligne des textes longs) et surcharges bidirectionnelles : 400 CHAMPS_INVALIDES", async () => {
+    const base = { typeCode: "PLAN_AXES", titre: "Plan" };
+    for (const corps of [{ ...base, titre: "Plan\u202Efdp.exe" }, { ...base, titre: "Plan\u0007" }, { ...base, titre: "a\nb" }, { ...base, reference: "R\u2066-1" },
+      { ...base, description: "ligne 1\u001Bligne 2" }]) {
+      const r = await appeler(ROUTES[3], "GEST", ROUTES[3].chemin, corps);
+      expect(r.status, JSON.stringify(corps)).toBe(400);
+    }
+    expect((await appeler(ROUTES[6], "GEST", ROUTES[6].chemin, { statut: "REJETE", justification: "Refus\u202Bcache par inversion" })).status).toBe(400);
+    expect((await appeler(ROUTES[7], "GEST", ROUTES[7].chemin, { justification: "Retrait\u0000\u0008 de la piece" })).status).toBe(400);
+    expect(appelsDe("creerDocument")).toEqual([]);
+    expect(appelsDe("changerStatut")).toEqual([]);
+    // Une description et une justification sur plusieurs lignes restent admises.
+    expect((await appeler(ROUTES[3], "GEST", ROUTES[3].chemin, { ...base, description: "ligne 1\nligne 2\tsuite" })).status).toBe(201);
+    expect((await appeler(ROUTES[6], "GEST", ROUTES[6].chemin, { statut: "REJETE", justification: "Refus motive\nvoir courrier" })).status).toBe(200);
+  });
+});
+
 describe("erreurs typees rendues telles quelles", () => {
   it("409 (transition, separation des taches, DWG), 415, 404, 503 : statut, code et champs du contrat", async () => {
     const cas: [ErreurMetier, number][] = [
