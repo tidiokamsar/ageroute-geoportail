@@ -801,14 +801,15 @@ describe("accessibilite et clavier de l'onglet", () => {
     installer();
     rendrePage();
     const tab = await screen.findByRole("tab", { name: "Réseaux" });
-    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Analyse", "Couches", "Conflits", "Réseaux", "Sources"]);
+    expect(screen.getAllByRole("tab").map((t) => t.textContent)).toEqual(["Analyse", "Couches", "Conflits", "Réseaux", "Sources", "Documents", "Export"]);
     tab.focus();
     // Lot UI-C : « Sources » suit « Réseaux » ; la fleche droite y mene, puis revient a « Analyse ».
     await userEvent.keyboard("{ArrowRight}");
     expect(screen.getByRole("tab", { name: "Sources" })).toHaveFocus();
-    await userEvent.keyboard("{ArrowRight}");
+    // Lot UI-D : « Documents » et « Export » (decideurs) suivent « Sources ».
+    await userEvent.keyboard("{ArrowRight}{ArrowRight}{ArrowRight}");
     expect(screen.getByRole("tab", { name: "Analyse" })).toHaveFocus();
-    await userEvent.keyboard("{ArrowLeft}{ArrowLeft}");
+    await userEvent.keyboard("{ArrowLeft}{ArrowLeft}{ArrowLeft}{ArrowLeft}");
     expect(screen.getByRole("tab", { name: "Réseaux" })).toHaveFocus();
     await userEvent.keyboard("{Enter}");
     expect(screen.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", "pv-onglet-reseaux");

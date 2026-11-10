@@ -10,6 +10,8 @@ import { FicheObjet } from "../components/projets-voirie/FicheObjet";
 import { OngletConflits, type SurbrillanceConflit } from "../components/projets-voirie/OngletConflits";
 import { OngletReseaux } from "../components/projets-voirie/reseaux/OngletReseaux";
 import { OngletSources } from "../components/projets-voirie/sources/OngletSources";
+import { OngletDocuments } from "../components/projets-voirie/documents/OngletDocuments";
+import { OngletExport } from "../components/projets-voirie/exports/OngletExport";
 import { DialogueTerritoireProjet } from "../components/projets-voirie/territoires/DialogueTerritoireProjet";
 import { useReferentiel } from "../lib/projetsVoirieTerritoiresHooks";
 import { LIBELLE_NIVEAU, libelleDeCode } from "../lib/projetsVoirieTerritoires";
@@ -43,9 +45,11 @@ const AssistantImport = lazy(() => import("../components/projets-voirie/assistan
  * des dialogues (z-50).
  */
 
-type IdOnglet = "analyse" | "couches" | "conflits" | "reseaux" | "sources";
-const ONGLETS: { id: IdOnglet; libelle: string }[] = [
+type IdOnglet = "analyse" | "couches" | "conflits" | "reseaux" | "sources" | "documents" | "export";
+const TOUS_ONGLETS: { id: IdOnglet; libelle: string; decideurs?: true }[] = [
   { id: "analyse", libelle: "Analyse" }, { id: "couches", libelle: "Couches" }, { id: "conflits", libelle: "Conflits" }, { id: "reseaux", libelle: "Réseaux" }, { id: "sources", libelle: "Sources" },
+  // Lot UI-D : documents du dossier (tous les comptes du module ; un lecteur ne voit que les pieces VALIDE) et export du dossier technique (decideurs).
+  { id: "documents", libelle: "Documents" }, { id: "export", libelle: "Export", decideurs: true },
 ];
 /** Un compte rattache a un concessionnaire n'ouvre que l'ecran des echanges : le serveur repond 403 COMPTE_REFERENT_RESTREINT hors de `/workflow`. */
 export const CODE_COMPTE_REFERENT = "COMPTE_REFERENT_RESTREINT";
@@ -82,6 +86,10 @@ export function ProjetVoirieDetailPage() {
   const [evidence, setEvidence] = useState<{ cle: string; geometrie: Geometry } | null>(null);
   // Onglet « Sources » (lot S1) : monte a la premiere visite.
   const [sourcesMonte, setSourcesMonte] = useState(false);
+  // Onglets « Documents » et « Export » (lot UI-D) : montes a la premiere visite.
+  const [documentsMonte, setDocumentsMonte] = useState(false);
+  const [exportMonte, setExportMonte] = useState(false);
+  const ONGLETS = useMemo(() => TOUS_ONGLETS.filter((o) => !o.decideurs || peutEcrire), [peutEcrire]);
   const [editionTerritoire, setEditionTerritoire] = useState(false);
   const refTitreFiche = useRef<HTMLHeadingElement>(null);
   const refOnglets = useRef<Array<HTMLButtonElement | null>>([]);
@@ -174,8 +182,8 @@ export function ProjetVoirieDetailPage() {
   }
 
   // Un changement de projet repart de zero.
-  useEffect(() => { setSelection(null); setApercu(null); setMasques(new Set()); setRequete(null); setVue(null); setConflitsMonte(false); setSurbrillance(null); setReseauxMonte(false); setEvidence(null); setSourcesMonte(false); }, [id]);
-  useEffect(() => { if (onglet === "conflits") setConflitsMonte(true); if (onglet === "reseaux") setReseauxMonte(true); if (onglet === "sources") setSourcesMonte(true); }, [onglet]);
+  useEffect(() => { setSelection(null); setApercu(null); setMasques(new Set()); setRequete(null); setVue(null); setConflitsMonte(false); setSurbrillance(null); setReseauxMonte(false); setEvidence(null); setSourcesMonte(false); setDocumentsMonte(false); setExportMonte(false); }, [id]);
+  useEffect(() => { if (onglet === "conflits") setConflitsMonte(true); if (onglet === "reseaux") setReseauxMonte(true); if (onglet === "sources") setSourcesMonte(true); if (onglet === "documents") setDocumentsMonte(true); if (onglet === "export") setExportMonte(true); }, [onglet]);
 
   if (projet.isPending) return <EtatChargement libelle="Chargement du projet…" />;
   if (projet.isError && classerErreur(projet.error).code === CODE_COMPTE_REFERENT) return <Navigate to="/projets-voirie/echanges" replace />;
@@ -355,6 +363,16 @@ export function ProjetVoirieDetailPage() {
             {sourcesMonte && (
               <div hidden={onglet !== "sources"}>
                 <OngletSources projetId={fiche.id} actif={onglet === "sources"} peutEcrire={peutEcrire} estAdmin={estAdmin} compteId={user?.id} enLigne={enLigne} />
+              </div>
+            )}
+            {documentsMonte && (
+              <div hidden={onglet !== "documents"}>
+                <OngletDocuments projetId={fiche.id} actif={onglet === "documents"} peutEcrire={peutEcrire} role={user?.role} compteId={user?.id} enLigne={enLigne} jeux={jeux} />
+              </div>
+            )}
+            {exportMonte && peutEcrire && (
+              <div hidden={onglet !== "export"}>
+                <OngletExport projetId={fiche.id} code={fiche.code} jeux={jeux} actif={onglet === "export"} estAdmin={estAdmin} compteId={user?.id} enLigne={enLigne} />
               </div>
             )}
             {conflitsMonte && (

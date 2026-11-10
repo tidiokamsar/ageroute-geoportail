@@ -56,11 +56,11 @@ beforeEach(() => {
 afterEach(() => { Object.defineProperty(window.navigator, "onLine", { configurable: true, value: true }); });
 
 describe("onglet Conflits : place dans la page et bandeau permanent", () => {
-  it("cinq onglets WAI-ARIA, fleches et Fin : Conflits est le troisieme (Reseaux et Sources, les suivants, ont leurs propres essais)", async () => {
+  it("sept onglets WAI-ARIA pour un decideur, fleches et Fin : Conflits est le troisieme (Reseaux, Sources, Documents et Export ont leurs propres essais)", async () => {
     installer();
     rendrePage();
     const tabs = await screen.findAllByRole("tab");
-    expect(tabs.map((t) => t.textContent)).toEqual(["Analyse", "Couches", "Conflits", "Réseaux", "Sources"]);
+    expect(tabs.map((t) => t.textContent)).toEqual(["Analyse", "Couches", "Conflits", "Réseaux", "Sources", "Documents", "Export"]);
     tabs[0].focus();
     await userEvent.keyboard("{ArrowRight}{ArrowRight}");
     expect(tabs[2]).toHaveFocus();
@@ -69,7 +69,7 @@ describe("onglet Conflits : place dans la page et bandeau permanent", () => {
     expect(tabs[2]).toHaveAttribute("aria-controls", "pv-panneau-conflits");
     expect(screen.getByRole("tabpanel")).toHaveAttribute("aria-labelledby", "pv-onglet-conflits");
     await userEvent.keyboard("{End}");
-    expect(tabs[4]).toHaveFocus();
+    expect(tabs[6]).toHaveFocus();
     await userEvent.keyboard("{ArrowRight}");
     expect(tabs[0]).toHaveFocus();
   });

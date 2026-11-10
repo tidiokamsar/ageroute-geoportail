@@ -357,7 +357,7 @@ describe("liste : filtres et curseur", () => {
     rendre();
     const art = await screen.findByRole("article", { name: /^Piece d1/ });
     await u.click(within(art).getByRole("button", { name: /Ouvrir la fiche/ }));
-    expect(await screen.findByText(/Document : chargement impossible|Document : introuvable/)).toHaveTextContent(/introuvable/);
+    expect((await screen.findByText(/Document : introuvable/)).closest("[role=alert]")).toHaveTextContent(/pas visible de votre compte/);
   });
 });
 
