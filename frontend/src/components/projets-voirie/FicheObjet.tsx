@@ -6,7 +6,7 @@ import type { JeuProjet, ObjetCarte } from "../../lib/projetsVoirieApi";
 import { STYLE_RESEAU, formaterDate, formaterMetres } from "../../lib/projetsVoirie";
 import { nomDuJeu } from "./PanneauCouches";
 import { useReferentiel } from "../../lib/projetsVoirieTerritoiresHooks";
-import { libelleDeCode } from "../../lib/projetsVoirieTerritoires";
+import { libelleDeCode, type DomaineReferentiel } from "../../lib/projetsVoirieTerritoires";
 
 /**
  * Fiche d'un objet : les attributs d'ORIGINE du fichier, tels quels.
@@ -28,12 +28,18 @@ export function texteValeur(v: unknown): string {
   return s.length > MAX_VALEUR ? `${s.slice(0, MAX_VALEUR)}…` : s;
 }
 
+/**
+ * Lot UI-C : libelle d'un code de referentiel porte par le jeu (type configurable, methode d'acquisition) ; une valeur desactivee reste lisible,
+ * marquee comme telle. Monte seulement quand le jeu porte un code : la fiche n'interroge pas les referentiels sinon.
+ */
+function LibelleReferentiel({ domaine, code }: { domaine: DomaineReferentiel; code: string }) {
+  const r = useReferentiel(domaine);
+  return <>{libelleDeCode(code, r.data?.valeurs)}</>;
+}
+
 export const FicheObjet = forwardRef<HTMLHeadingElement, { objet: ObjetCarte; jeu: JeuProjet | null; onFermer: () => void }>(function FicheObjet({ objet, jeu, onFermer }, refTitre) {
   const entrees = Object.entries(objet.attributs);
   const typeReseau = jeu?.typeReseau ?? jeu?.concessionnaire?.typeReseau ?? null;
-  // Lot UI-C : type configurable et methode d'acquisition, lus dans les referentiels (une valeur desactivee reste lisible, marquee comme telle).
-  const types = useReferentiel("TYPE_RESEAU", !!jeu?.typeReseauCode);
-  const methodes = useReferentiel("METHODE_ACQUISITION", !!jeu?.methodeAcquisition);
   return (
     <section aria-labelledby="pv-titre-fiche" data-testid="fiche-objet" className="rounded-md border border-navy/30 bg-white p-3 shadow-sm">
       <div className="flex items-start justify-between gap-2">
@@ -51,9 +57,9 @@ export const FicheObjet = forwardRef<HTMLHeadingElement, { objet: ObjetCarte; je
             <dt className="text-gray-600">Jeu</dt>
             <dd className="break-words">{nomDuJeu(jeu)}, version {jeu.version}</dd>
             {jeu.typeReseauCode
-              ? (<><dt className="text-gray-600">Réseau</dt><dd>{libelleDeCode(jeu.typeReseauCode, types.data?.valeurs)}</dd></>)
+              ? (<><dt className="text-gray-600">Réseau</dt><dd><LibelleReferentiel domaine="TYPE_RESEAU" code={jeu.typeReseauCode} /></dd></>)
               : typeReseau && (<><dt className="text-gray-600">Réseau</dt><dd>{STYLE_RESEAU[typeReseau].libelle}</dd></>)}
-            {jeu.methodeAcquisition && (<><dt className="text-gray-600">Acquisition</dt><dd>{libelleDeCode(jeu.methodeAcquisition, methodes.data?.valeurs)}</dd></>)}
+            {jeu.methodeAcquisition && (<><dt className="text-gray-600">Acquisition</dt><dd><LibelleReferentiel domaine="METHODE_ACQUISITION" code={jeu.methodeAcquisition} /></dd></>)}
             <dt className="text-gray-600">Données du</dt>
             <dd>{formaterDate(jeu.dateDonnees)}</dd>
           </>

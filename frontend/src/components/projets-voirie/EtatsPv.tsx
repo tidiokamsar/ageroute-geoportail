@@ -44,6 +44,8 @@ const CODES_INTROUVABLE_DU_LOT = [
   "CONFLIT_INTROUVABLE", "ANALYSE_INTROUVABLE", "REGLE_INTROUVABLE", "DECISION_INTROUVABLE",
   "OBJET_INTROUVABLE", "RELATION_INTROUVABLE", "JEU_INTROUVABLE",
   "DEMANDE_INTROUVABLE", "TACHE_INTROUVABLE", "RECOLEMENT_INTROUVABLE", "RATTACHEMENT_INTROUVABLE", "CONCESSIONNAIRE_INTROUVABLE",
+  // Lot UI-C (T1, S1) : territoire, valeur de referentiel, comparaison et resultat introuvables ou MASQUES pour ce compte (meme 404).
+  "TERRITOIRE_INTROUVABLE", "VALEUR_INTROUVABLE", "DOMAINE_INCONNU", "CLE_INCONNUE", "COMPARAISON_INTROUVABLE", "RESULTAT_INTROUVABLE",
 ];
 
 export function EtatErreur({ erreur, sujet, onReessayer, enCours }: { erreur: ErreurPv; sujet: string; onReessayer?: () => void; enCours?: boolean }) {
