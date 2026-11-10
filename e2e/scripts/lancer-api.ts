@@ -40,6 +40,16 @@ async function main() {
     JWT_REFRESH_EXPIRES_IN: "7d",
     RATE_LIMIT_REFRESH_MAX: "0",
     RATE_LIMIT_V2_MAX: "0",
+    // Module « Projets de voirie et reseaux » : delai minimal entre deux analyses de conflits d'un meme projet (defaut 60 s) et entre deux
+    // propositions d'association (defaut 30 s) ramenes a 3 s, pour que les scenarios qui rejouent une analyse n'attendent pas une minute.
+    // Pas a 0 : la cadence reste ACTIVE et un test la verifie (429 ANALYSE_TROP_FREQUENTE). Aucune autre valeur du module n'est touchee.
+    PROJETS_VOIRIE_ANALYSE_INTERVALLE_S: "3",
+    PROJETS_VOIRIE_ASSOC_INTERVALLE_S: "3",
+    // Lot S1 : meme raisonnement pour la cadence des comparaisons de sources (defaut 60 s) : 3 s, cadence toujours ACTIVE (le client la respecte).
+    PROJETS_VOIRIE_COMPARAISON_INTERVALLE_S: "3",
+    // Delai de la base pour une analyse (defaut 20 s, 504 ANALYSE_TROP_LONGUE au-dela) porte a 120 s : sur un poste partage et charge, une analyse de
+    // quelques objets depasse 20 s et ferait echouer un scenario pour une raison qui ne dit rien de l'application. Borne du serveur : 1 s a 300 s.
+    PROJETS_VOIRIE_DELAI_ANALYSE_MS: "120000",
     // Aucune integration sortante : INTEGRATIONS_SORTANTES_ACTIVES n'est pas defini.
   });
 

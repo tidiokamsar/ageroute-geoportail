@@ -14,6 +14,12 @@ import path from "node:path";
  */
 export const FACTEUR_DELAI = Math.max(1, Number(process.env.E2E_FACTEUR_DELAI ?? 1) || 1);
 
+/**
+ * Navigateur : par defaut celui que Playwright a installe pour sa version (`npx playwright install chromium`). `E2E_CHROMIUM=<chemin de
+ * chrome.exe>` en designe un autre deja present sur le poste (aucun telechargement). Sans effet si la variable est absente.
+ */
+export const OPTIONS_LANCEMENT_NAVIGATEUR: { executablePath?: string } = process.env.E2E_CHROMIUM ? { executablePath: process.env.E2E_CHROMIUM } : {};
+
 export const PORT_API = 3101;
 export const PORT_WEB = 5201;
 /** Port de controle de l'API de test (remise a zero du plafond des evenements locaux). */
