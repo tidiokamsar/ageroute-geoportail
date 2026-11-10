@@ -252,12 +252,16 @@ export function traverserLandXml(racine: NoeudXml, col: Puits, o: OptionsLandXml
         }
         return pts;
       };
+      // Revue D1, m3 : ajout par boucle, jamais `push(...pts)` (une liste de centaines de milliers de points depasserait la pile d'appels).
       const ajouterPoints = (pts: Pos2[]) => {
         if (pts.length === 0) return;
-        if (courante.length === 0) { courante.push(...pts); return; }
-        const der = courante[courante.length - 1];
-        if (Math.hypot(pts[0][0] - der[0], pts[0][1] - der[1]) <= ECART_RACCORD_M) courante.push(...pts.slice(1));
-        else { r.nbDiscontinuites++; parties.push(courante); courante = [...pts]; }
+        let debut = 0;
+        if (courante.length > 0) {
+          const der = courante[courante.length - 1];
+          if (Math.hypot(pts[0][0] - der[0], pts[0][1] - der[1]) <= ECART_RACCORD_M) debut = 1;
+          else { r.nbDiscontinuites++; parties.push(courante); courante = []; }
+        }
+        for (let k = debut; k < pts.length; k++) courante.push(pts[k]);
       };
       for (const el of cg.enfants) {
         nbElements++;

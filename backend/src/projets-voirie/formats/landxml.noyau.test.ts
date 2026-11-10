@@ -301,6 +301,18 @@ describe("fichiers hostiles : XXE, entites, bombes", () => {
     expect(code(() => traverser(landxml(alignements(axe("Long", arcs.slice(0, 20 * arcXml([0, -1000], [0, 0], [1000, 0], "cw").length)))), { toleranceArcM: 0.001, sommetsParObjet: 10_000 }))).toBe("TROP_DE_SOMMETS");
   });
 
+  it("revue D1, m3 : une IrregularLine de 300 000 points (plafond par objet releve a 1 000 000) se lit sans depassement de pile, puis se raccorde a une Line", () => {
+    const n = 300_000;
+    const morceaux: string[] = [];
+    for (let k = 0; k < n; k++) morceaux.push(`${N0 + (k % 7)} ${E0 + k * 0.01}`);
+    const fin = (n - 1) * 0.01;
+    const xml = landxml(alignements(axe("Long", `<Line><Start>${ne(-5, 0)}</Start><End>${ne(0, 0)}</End></Line><IrregularLine><PntList2D>${morceaux.join(" ")}</PntList2D></IrregularLine>`
+      + `<Line><Start>${N0 + ((n - 1) % 7)} ${E0 + fin}</Start><End>${N0} ${E0 + fin + 10}</End></Line>`)));
+    const { c } = traverser(xml, { sommetsParObjet: 1_000_000, sommetsParFichier: 2_000_000 });
+    expect(c.objets[0].formes.lignes).toHaveLength(1);
+    expect(c.objets[0].formes.lignes[0].length).toBe(n + 2);
+  });
+
   it("nombres illisibles ou demesures : NaN, jamais evalues ; un champ de plus de 40 caracteres est illisible", () => {
     expect(lireNombres("1 2.5 -3e2 abc 1e999999")).toEqual([1, 2.5, -300, NaN, NaN]);
     expect(lireNombres(`${"9".repeat(41)} 4`)).toEqual([NaN, 4]);
