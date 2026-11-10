@@ -63,10 +63,22 @@ export interface JeuDansComparaison {
 export interface RegleDeComparaison {
   regleId: string | null; code: string | null; version: number | null; famille: string | null; portee: string | null;
   margeM: number | null; rayonAppariementM: number | null; partHorsCorridorMax: number | null; precisionParClasseM: Record<string, number> | null;
+  /**
+   * Correctifs serveur T1+S1 (branche fix/vague3-revue-t1s1, M6) : attestation du bareme par classe. `source = "REGLE_APPROUVEE"` avec un
+   * `approuveParId` : le bareme d'une regle approuvee par un ADMIN autre que son auteur. Nul pour un serveur ancien (provenance non attestee).
+   */
+  bareme: { applicable: boolean | null; applique: boolean | null; source: string | null; approuveParId: string | null } | null;
 }
+export type OrigineCorridor = "PRECISIONS_METRES" | "BAREME_APPROUVE" | "INCERTAIN";
 export interface ResumeComparaison {
   totaux: Record<string, number>;
-  corridor: { minM: number | null; maxM: number | null; couplesSansCorridor: number | null; margeM: number | null; rayonAppariementM: number | null } | null;
+  corridor: {
+    minM: number | null; maxM: number | null; couplesSansCorridor: number | null; margeM: number | null; rayonAppariementM: number | null;
+    /** Correctifs serveur : provenance globale des corridors ; nulle pour un serveur ancien. */
+    origine: OrigineCorridor | null;
+  } | null;
+  /** Correctifs serveur : couples fondes sur une classe convertie par un bareme, et la regle (avec son approbateur). Nul pour un serveur ancien. */
+  bareme: { applique: boolean; couples: number | null; regle: { regleId: string | null; code: string | null; version: number | null; approuveParId: string | null } | null } | null;
   limites: string[];
   /** Comparaison en ECHEC : code et message enregistres. */
   erreur: { code: string | null; message: string | null } | null;
@@ -140,18 +152,50 @@ export const MENTION_SANS_FUSION = "Une comparaison est une synthèse, jamais un
 const m = (x: number | null | undefined) => (typeof x === "number" && Number.isFinite(x) ? `${formaterNombre(x, 2)} m` : null);
 
 /**
- * Provenance lisible de la precision retenue pour un objet. `CLASSE` : precision attribuee a une classe A a E par le BAREME d'une regle
- * approuvee (annonce de l'architecte du 09/11 : un bareme n'existe que dans une regle approuvee par un administrateur autre que son auteur) ;
- * la regle et sa version sont citees quand on les connait.
+ * Provenance du bareme par classe d'une comparaison (revue UI-C, M1). « Approuve » n'est JAMAIS deduit de `originePrecision = CLASSE` :
+ *   - SYSTEME : la regle est une regle du systeme (aucun auteur) : son bareme est provisoire et n'est jamais dit approuve, quoi que disent les champs ;
+ *   - ATTESTE : le serveur l'atteste (regle.bareme.source = REGLE_APPROUVEE avec un approbateur, ou resume.bareme.regle.approuveParId) ;
+ *   - NON_ATTESTE : un bareme existe (ou une classe a ete convertie) sans attestation (serveur ancien) : « provenance du corridor non attestee » ;
+ *   - AUCUN : aucun bareme.
  */
-export function provenancePrecision(o: Pick<ObjetResultat, "precisionM" | "originePrecision"> | null, regle: Pick<RegleDeComparaison, "code" | "version"> | null): string {
+export interface ProvenanceBareme { etat: "ATTESTE" | "SYSTEME" | "NON_ATTESTE" | "AUCUN"; code: string | null; version: number | null; couples: number | null }
+
+export function provenanceBareme(c: Pick<Comparaison, "regle" | "resume">, regleSysteme: boolean): ProvenanceBareme {
+  const rb = c.resume?.bareme?.regle ?? null;
+  const code = rb?.code ?? c.regle?.code ?? null;
+  const version = rb?.version ?? c.regle?.version ?? null;
+  const couples = c.resume?.bareme?.couples ?? null;
+  const base = { code, version, couples };
+  const unBareme = !!c.regle?.precisionParClasseM || c.resume?.bareme?.applique === true || c.resume?.corridor?.origine === "BAREME_APPROUVE";
+  if (!unBareme) return { ...base, etat: "AUCUN" };
+  if (regleSysteme) return { ...base, etat: "SYSTEME" };
+  const parRegle = c.regle?.bareme?.source === "REGLE_APPROUVEE" && !!c.regle.bareme.approuveParId;
+  const parResume = c.resume?.bareme?.applique === true && !!rb?.approuveParId;
+  return { ...base, etat: parRegle || parResume ? "ATTESTE" : "NON_ATTESTE" };
+}
+
+const citerRegle = (p: Pick<ProvenanceBareme, "code" | "version">) => (p.code ? `règle ${p.code}${p.version !== null ? ` v${p.version}` : ""}` : "règle non précisée");
+
+/** Provenance lisible de la precision retenue pour un objet ; une classe convertie n'est dite « approuvee » que si le serveur l'atteste. */
+export function provenancePrecision(o: Pick<ObjetResultat, "precisionM" | "originePrecision"> | null, p: ProvenanceBareme | null): string {
   if (!o) return "non communiquée";
   if (o.originePrecision === "INCONNUE" || o.precisionM === null) return "inconnue";
   const v = m(o.precisionM) ?? "n/d";
   if (o.originePrecision === "OBJET") return `${v}, déclarée pour l'objet`;
   if (o.originePrecision === "JEU") return `${v}, déclarée pour le jeu`;
-  const r = regle?.code ? ` (règle ${regle.code}${regle.version !== null ? ` v${regle.version}` : ""})` : "";
-  return `${v}, attribuée à la classe par un barème approuvé${r}`;
+  const r = citerRegle(p ?? { code: null, version: null });
+  if (p?.etat === "ATTESTE") return `${v}, attribuée à la classe par le barème approuvé de la ${r}`;
+  if (p?.etat === "SYSTEME") return `${v}, attribuée à la classe par le barème provisoire du système (${r}), jamais approuvé`;
+  return `${v}, attribuée à la classe par le barème de la ${r} (provenance du corridor non attestée)`;
+}
+
+/** Phrase d'en-tete sur le bareme d'une comparaison (meme regle d'attestation). */
+export function texteBareme(p: ProvenanceBareme, table: Record<string, number> | null): string {
+  const t = table ? ` : ${Object.entries(table).map(([k, x]) => `${k} ${m(x) ?? "n/d"}`).join(", ")}` : "";
+  if (p.etat === "ATTESTE") return `Une précision attribuée à une classe (A à E) vient du barème approuvé de la ${citerRegle(p)}${p.couples !== null ? ` (${p.couples} couple(s))` : ""}${t}.`;
+  if (p.etat === "SYSTEME") return `Le barème par classe de cette règle est le barème provisoire du système, jamais approuvé${t}.`;
+  if (p.etat === "NON_ATTESTE") return `Provenance du corridor non attestée : la règle porte un barème par classe${t}, mais le serveur n'atteste pas qu'il a été approuvé par un administrateur autre que son auteur.`;
+  return "Aucune classe n'est convertie en mètres : sans précision en mètres, le rapprochement reste incertain.";
 }
 
 /** Raison d'un rapprochement incertain : quelle(s) precision(s) en metres manque(nt). Jamais une mesure. */

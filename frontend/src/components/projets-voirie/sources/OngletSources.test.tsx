@@ -31,7 +31,8 @@ const COMPARABLE = {
 };
 const COMPARAISON = {
   id: "cmp1", numero: 4, statut: "TERMINEE", mode: "SOURCES", role: "RESEAU_TIERS", jeuAId: "j2", jeuBId: "j3",
-  regle: { regleId: "r0", code: "S1-CORRIDOR-0.1", version: 0, margeM: 1, rayonAppariementM: 10, partHorsCorridorMax: 0, precisionParClasseM: null },
+  // Comparaison calculee AVANT les correctifs serveur avec la regle SYSTEME S1-CORRIDOR-0.1 (bareme provisoire, jamais approuve) : aucun champ d'attestation.
+  regle: { regleId: "r0", code: "S1-CORRIDOR-0.1", version: 0, margeM: 1, rayonAppariementM: 10, partHorsCorridorMax: 0, precisionParClasseM: { A: 0.5, B: 1, C: 2, D: 5 } },
   versionAlgorithme: "S1-CORRIDOR-UTM-1", epsg: 32629,
   jeux: [{ role: "A", jeuId: "j2", nomFichier: "j2.geojson", version: 1, methodeAcquisition: "NUMERISATION_PLAN", dateDonnees: "2026-10-01" }, { role: "B", jeuId: "j3", nomFichier: "j3.geojson", version: 1, methodeAcquisition: "ANCIENNE" }],
   donneesMasquees: false, declenchePar: { id: "u2", nomComplet: "Gestionnaire Test" }, duree: 120, createdAt: "2026-11-09T09:00:00Z", limites: [],
@@ -48,7 +49,7 @@ const RESULTATS_P2 = [
   { id: "res5", ordre: 5, statut: "SANS_CORRESPONDANCE_B", objetA: null, objetB: o("15", "Conduite isolee", 1, "JEU"), corridorM: null, mesure: null, conflitId: null },
 ];
 
-interface Etat { sources: unknown; regles: unknown; comparaisons: unknown[]; erreurs: Record<string, unknown> }
+interface Etat { sources: unknown; regles: unknown; comparaisons: unknown[]; erreurs: Record<string, unknown>; comparaison?: unknown }
 let e: Etat;
 const REGLES = {
   regles: [
@@ -66,7 +67,7 @@ function installer() {
     if (url === `${B}/sources`) return { data: e.sources };
     if (url === `${B}/regles-rapprochement`) return { data: e.regles };
     if (url === `${B}/comparaisons`) return { data: { comparaisons: e.comparaisons, curseurSuivant: null } };
-    if (url === `${B}/comparaisons/cmp1`) return { data: { comparaison: COMPARAISON } };
+    if (url === `${B}/comparaisons/cmp1`) return { data: { comparaison: e.comparaison ?? COMPARAISON } };
     if (url === `${B}/comparaisons/cmp1/objets`) return { data: { resultats: cfg.params?.curseur ? RESULTATS_P2 : RESULTATS_P1, masque: false, curseurSuivant: cfg.params?.curseur ? null : "c-2" } };
     if (url.startsWith("/v2/projets-voirie/referentiels/")) {
       return { data: { valeurs: url.endsWith("METHODE_ACQUISITION")
@@ -180,14 +181,33 @@ describe("resultats d'une comparaison", () => {
     expect(sec).toHaveTextContent("j2.geojson, v1, Numérisation d'un plan");
     expect(sec).toHaveTextContent("S1-CORRIDOR-0.1 v0, marge 1 m");
     expect(sec).toHaveTextContent("De 2 à 2 m sur cette comparaison. 1 couple(s) sans corridor");
-    expect(sec).toHaveTextContent("Aucune classe n'est convertie en mètres sans barème approuvé.");
+    expect(within(sec).getByTestId("provenance-bareme")).toHaveTextContent("Le barème par classe de cette règle est le barème provisoire du système, jamais approuvé : A 0,5 m, B 1 m, C 2 m, D 5 m.");
+    expect(sec).not.toHaveTextContent(/barème approuvé/);
     expect(within(sec).getByRole("list", { name: "Totaux par statut" })).toHaveTextContent("Divergence mesurée1");
   });
-  it("divergence : Hausdorff et longueur hors corridor ; precision d'une classe : bareme approuve cite", async () => {
+  it("divergence : Hausdorff et longueur hors corridor ; regle systeme : bareme provisoire, JAMAIS « approuve » (revue M1)", async () => {
     await ouvrir();
     const li = screen.getByText(/Conduite 2 ;/).closest("li")!;
     expect(within(li).getByTestId("mesure-divergence")).toHaveTextContent("distance de Hausdorff 3,2 m, 40 m hors corridor sur 100 m, soit 40 %, corridor 3 m");
-    expect(li).toHaveTextContent("Conduite 2 bis ; précision 2 m, attribuée à la classe par un barème approuvé (règle S1-CORRIDOR-0.1 v0)");
+    expect(li).toHaveTextContent("Conduite 2 bis ; précision 2 m, attribuée à la classe par le barème provisoire du système (règle S1-CORRIDOR-0.1 v0), jamais approuvé");
+    expect(li).not.toHaveTextContent(/barème approuvé/);
+  });
+  it("serveur ancien, regle d'une personne sans attestation : « provenance du corridor non attestee »", async () => {
+    e.comparaison = { ...COMPARAISON, regle: { ...COMPARAISON.regle, regleId: "r1", code: "R-PROJET", version: 1 } };
+    await ouvrir();
+    expect(screen.getByTestId("provenance-bareme")).toHaveAttribute("data-etat", "NON_ATTESTE");
+    expect(screen.getByTestId("provenance-bareme")).toHaveTextContent(/Provenance du corridor non attestée/);
+    expect(screen.getByText(/Conduite 2 ;/).closest("li")).toHaveTextContent("précision 2 m, attribuée à la classe par le barème de la règle R-PROJET v1 (provenance du corridor non attestée)");
+  });
+  it("serveur corrige : bareme atteste (source REGLE_APPROUVEE, approbateur) : « bareme approuve » avec la regle et la version", async () => {
+    e.comparaison = {
+      ...COMPARAISON,
+      regle: { ...COMPARAISON.regle, regleId: "r5", code: "R-BAREME", version: 2, bareme: { applicable: true, applique: true, source: "REGLE_APPROUVEE", approuveParId: "u-autre" } },
+      resume: { ...COMPARAISON.resume, corridor: { ...COMPARAISON.resume.corridor, origine: "BAREME_APPROUVE" }, bareme: { applique: true, couples: 1, regle: { regleId: "r5", code: "R-BAREME", version: 2, approuveParId: "u-autre" } } },
+    };
+    await ouvrir();
+    expect(screen.getByTestId("provenance-bareme")).toHaveTextContent("vient du barème approuvé de la règle R-BAREME v2 (1 couple(s))");
+    expect(screen.getByText(/Conduite 2 ;/).closest("li")).toHaveTextContent("précision 2 m, attribuée à la classe par le barème approuvé de la règle R-BAREME v2");
   });
   it("pagination par curseur ; rapprochement incertain : la raison, AUCUNE distance ; objet B masque ; sans correspondance", async () => {
     const u = await ouvrir();

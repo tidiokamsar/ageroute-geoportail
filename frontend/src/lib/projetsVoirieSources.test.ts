@@ -53,7 +53,7 @@ describe("affichage des resultats", () => {
   it("provenance de la precision : objet, jeu, classe par un bareme approuve (regle et version citees), inconnue, non communiquee", () => {
     expect(provenancePrecision({ precisionM: 1, originePrecision: "OBJET" }, null)).toBe("1 m, déclarée pour l'objet");
     expect(provenancePrecision({ precisionM: 0.5, originePrecision: "JEU" }, null)).toBe("0,5 m, déclarée pour le jeu");
-    expect(provenancePrecision({ precisionM: 2, originePrecision: "CLASSE" }, { code: "R-B", version: 3 })).toBe("2 m, attribuée à la classe par un barème approuvé (règle R-B v3)");
+    expect(provenancePrecision({ precisionM: 2, originePrecision: "CLASSE" }, { etat: "NON_ATTESTE", code: "R-B", version: 3, couples: null })).toBe("2 m, attribuée à la classe par le barème de la règle R-B v3 (provenance du corridor non attestée)");
     expect(provenancePrecision({ precisionM: null, originePrecision: "INCONNUE" }, null)).toBe("inconnue");
     expect(provenancePrecision(null, null)).toBe("non communiquée");
   });

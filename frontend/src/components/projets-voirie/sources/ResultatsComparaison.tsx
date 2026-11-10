@@ -4,12 +4,12 @@ import { Button } from "../../ui/Button";
 import { CadreDialogue, CHAMP_TEXTE, Compteur, LIBELLE_CHAMP, useEnvoiDialogue } from "../CadreDialogue";
 import { EtatChargement, EtatErreur } from "../EtatsPv";
 import { BadgeResultat } from "./commun";
-import { useComparaison, useOuvrirDossierDivergence, useResultats } from "../../../lib/projetsVoirieSourcesHooks";
+import { useComparaison, useOuvrirDossierDivergence, useReglesRapprochement, useResultats } from "../../../lib/projetsVoirieSourcesHooks";
 import { formaterDate, formaterNombre } from "../../../lib/projetsVoirie";
 import { justificationValide } from "../../../lib/projetsVoirieConflits";
 import {
-  AIDE_STATUT_RESULTAT, LIBELLE_MODE, LIBELLE_STATUT_RESULTAT, MENTION_SANS_FUSION, STATUTS_RESULTAT, classerErreurSources, provenancePrecision, raisonIncertitude, texteMesure, totauxParStatut,
-  type Comparaison, type JeuDansComparaison, type ResultatComparaison, type StatutResultat,
+  AIDE_STATUT_RESULTAT, LIBELLE_MODE, LIBELLE_STATUT_RESULTAT, MENTION_SANS_FUSION, STATUTS_RESULTAT, classerErreurSources, provenanceBareme, provenancePrecision, raisonIncertitude, texteBareme, texteMesure, totauxParStatut,
+  type Comparaison, type JeuDansComparaison, type ProvenanceBareme, type ResultatComparaison, type StatutResultat,
 } from "../../../lib/projetsVoirieSources";
 import { libelleDeCode, type ValeurReferentiel } from "../../../lib/projetsVoirieTerritoires";
 
@@ -28,7 +28,11 @@ export function ResultatsComparaison({ projetId, cmpId, peutEcrire, enLigne, met
   const resultats = useResultats(projetId, detail.data?.statut === "TERMINEE" ? cmpId : null, filtres);
   const [dossier, setDossier] = useState<ResultatComparaison | null>(null);
   const ouvrir = useOuvrirDossierDivergence(projetId);
+  // Revue UI-C, M1 : une regle du SYSTEME (aucun auteur) n'a jamais de bareme « approuve » ; la liste des regles le dit (`systeme`).
+  const regles = useReglesRapprochement(projetId);
   const c = detail.data;
+  const systeme = !!c?.regle && (c.regle.portee === "DEFAUT" || (regles.data?.regles.some((r) => r.id === c.regle?.regleId && r.systeme) ?? false));
+  const provenance = c ? provenanceBareme(c, systeme) : null;
   const pages = resultats.data?.pages ?? [];
   const liste = pages.flatMap((p) => p.resultats);
   const masque = pages.some((p) => p.masque);
@@ -42,7 +46,7 @@ export function ResultatsComparaison({ projetId, cmpId, peutEcrire, enLigne, met
       </div>
       {detail.isPending && <EtatChargement libelle="Chargement de la comparaison…" />}
       {detail.isError && <EtatErreur erreur={classerErreurSources(detail.error)} sujet="Comparaison" onReessayer={() => void detail.refetch()} enCours={detail.isFetching} />}
-      {c && <EnTete c={c} methodes={methodes} />}
+      {c && provenance && <EnTete c={c} methodes={methodes} provenance={provenance} />}
 
       {c?.statut === "ECHEC" && (
         <p role="status" className="rounded border border-red-200 bg-red-50 p-2 text-xs text-red-900">
@@ -82,8 +86,8 @@ export function ResultatsComparaison({ projetId, cmpId, peutEcrire, enLigne, met
               {liste.map((r) => (
                 <li key={r.id} className="space-y-1 rounded border border-gray-200 p-2 text-xs text-gray-900">
                   <div className="flex flex-wrap items-center gap-2"><BadgeResultat statut={r.statut} /><span className="text-gray-700">{AIDE_STATUT_RESULTAT[r.statut]}</span></div>
-                  <LigneObjet libelle="Source A" objet={r.objetA} attendu={r.statut !== "SANS_CORRESPONDANCE_B"} regle={c.regle} />
-                  <LigneObjet libelle="Source B" objet={r.objetB} attendu={r.statut !== "SANS_CORRESPONDANCE_A"} regle={c.regle} />
+                  <LigneObjet libelle="Source A" objet={r.objetA} attendu={r.statut !== "SANS_CORRESPONDANCE_B"} provenance={provenance} />
+                  <LigneObjet libelle="Source B" objet={r.objetB} attendu={r.statut !== "SANS_CORRESPONDANCE_A"} provenance={provenance} />
                   {r.statut === "DIVERGENCE" && (
                     <p data-testid="mesure-divergence"><span className="font-semibold">Mesure : </span>{texteMesure(r) ?? "non communiquée (mesure masquée pour votre compte)"}</p>
                   )}
@@ -118,7 +122,7 @@ export function ResultatsComparaison({ projetId, cmpId, peutEcrire, enLigne, met
   );
 }
 
-function EnTete({ c, methodes }: { c: Comparaison; methodes: readonly ValeurReferentiel[] | undefined }) {
+function EnTete({ c, methodes, provenance }: { c: Comparaison; methodes: readonly ValeurReferentiel[] | undefined; provenance: ProvenanceBareme }) {
   const jeu = (r: "A" | "B") => c.jeux.find((j) => j.role === r) ?? null;
   const decrire = (j: JeuDansComparaison | null) => {
     if (!j || c.donneesMasquees || !j.nomFichier) return "données du jeu non communiquées";
@@ -139,9 +143,7 @@ function EnTete({ c, methodes }: { c: Comparaison; methodes: readonly ValeurRefe
           Plus grande des deux précisions en mètres, plus la marge.
           {corridor && corridor.minM !== null && corridor.maxM !== null ? ` De ${formaterNombre(corridor.minM, 2)} à ${formaterNombre(corridor.maxM, 2)} m sur cette comparaison.` : ""}
           {corridor?.couplesSansCorridor ? ` ${formaterNombre(corridor.couplesSansCorridor, 0)} couple(s) sans corridor (précision manquante).` : ""}
-          {r?.precisionParClasseM
-            ? ` Une précision attribuée à une classe (A à E) vient du barème de cette règle, approuvée : ${Object.entries(r.precisionParClasseM).map(([k, v]) => `${k} ${formaterNombre(v, 2)} m`).join(", ")}.`
-            : " Aucune classe n'est convertie en mètres sans barème approuvé."}
+          {" "}<span data-testid="provenance-bareme" data-etat={provenance.etat}>{texteBareme(provenance, r?.precisionParClasseM ?? null)}</span>
         </dd>
         <dt className="font-semibold">Calcul</dt><dd>{c.versionAlgorithme ?? "algorithme non précisé"}{c.epsg ? `, EPSG:${c.epsg}` : ""}, le {formaterDate(c.createdAt)}{c.declenchePar ? ` par ${c.declenchePar.nomComplet}` : ""}</dd>
       </dl>
@@ -156,10 +158,10 @@ function EnTete({ c, methodes }: { c: Comparaison; methodes: readonly ValeurRefe
   );
 }
 
-function LigneObjet({ libelle, objet, attendu, regle }: { libelle: string; objet: ResultatComparaison["objetA"]; attendu: boolean; regle: Comparaison["regle"] }) {
+function LigneObjet({ libelle, objet, attendu, provenance }: { libelle: string; objet: ResultatComparaison["objetA"]; attendu: boolean; provenance: ProvenanceBareme | null }) {
   if (!attendu) return <p><span className="font-semibold">{libelle} : </span>aucun objet apparié.</p>;
   if (!objet) return <p><span className="font-semibold">{libelle} : </span>objet non communiqué (source non lisible pour votre compte).</p>;
-  return <p><span className="font-semibold">{libelle} : </span>{objet.nom ?? "Objet sans nom"} ; précision {provenancePrecision(objet, regle)}.</p>;
+  return <p><span className="font-semibold">{libelle} : </span>{objet.nom ?? "Objet sans nom"} ; précision {provenancePrecision(objet, provenance)}.</p>;
 }
 
 function DialogueDossierDivergence({ resultat, enLigne, onFermer, onValider }: { resultat: ResultatComparaison; enLigne: boolean; onFermer: () => void; onValider: (justification: string) => Promise<unknown> }) {
