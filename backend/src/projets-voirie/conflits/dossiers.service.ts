@@ -512,6 +512,16 @@ export async function proposerDecision(acteur: Acteur, projetId: string, cid: st
   });
 }
 
+/**
+ * Defense en profondeur (observation O-5 du lot C1) : si le controle du service manquait, la contrainte `cpd_separation` de la base refuse
+ * l'ecriture ; ce refus devient l'erreur metier 409 SEPARATION_DES_TACHES au lieu d'un 500. Toute autre erreur est rendue telle quelle (null).
+ */
+export function separationRefuseeParLaBase(e: unknown): ErreurMetier | null {
+  const texte = e instanceof Error ? e.message : String(e);
+  if (!/cpd_separation/.test(texte)) return null;
+  return new ErreurMetier(409, "SEPARATION_DES_TACHES", "La personne qui a proposé cette décision ne peut pas la trancher (séparation des tâches, contrôlée aussi par la base).");
+}
+
 export async function trancherDecision(acteur: Acteur, projetId: string, cid: string, did: string, verdict: "APPROUVEE" | "REFUSEE", t: { motif?: string; derogation?: string }) {
   return sousVerrou(projetId, cid, async (tx, ligne) => {
     const d = await tx.decisionConflit.findFirst({ where: { id: did, conflitId: cid } });
@@ -529,7 +539,7 @@ export async function trancherDecision(acteur: Acteur, projetId: string, cid: st
     const n = await tx.decisionConflit.updateMany({
       where: { id: did, statut: "PROPOSEE" },
       data: { statut: verdict, approuveParId: acteur.id, approuveLe: maintenant, motifDecision: tr.motif, derogationSeparation: sep.derogation },
-    });
+    }).catch((e: unknown) => { throw separationRefuseeParLaBase(e) ?? e; });
     if (n.count !== 1) throw new ErreurMetier(409, "DECISION_DEJA_TRANCHEE", "Cette décision vient d'être tranchée par une autre personne.");
     await tx.conflitHistorique.create({
       data: {
