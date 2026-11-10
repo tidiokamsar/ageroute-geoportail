@@ -137,8 +137,8 @@ async function main() {
   // ================================================================ 1. Rien d'autorise : fonctions indisponibles, pieces manquantes
   const c0 = await get(`/${PID}/completude`);
   exemples["completude_vide"] = c0.body;
-  verifier("1. completude d'un projet vide : toutes les fonctions indisponibles (export : NON_LIVREE), quatre pieces de condition, les deux types obligatoires",
-    c0.status === 200 && ["ANALYSE_2D", "CONFLITS", "COMPARAISON_SOURCES", "RECOLEMENT"].every((f) => fonction(c0.body, f) === "INDISPONIBLE") && fonction(c0.body, "EXPORT_DOSSIER") === "NON_LIVREE"
+  verifier("1. completude d'un projet vide : toutes les fonctions indisponibles (export : DISPONIBLE sans condition depuis le lot X1), quatre pieces de condition, les deux types obligatoires",
+    c0.status === 200 && ["ANALYSE_2D", "CONFLITS", "COMPARAISON_SOURCES", "RECOLEMENT"].every((f) => fonction(c0.body, f) === "INDISPONIBLE") && fonction(c0.body, "EXPORT_DOSSIER") === "DISPONIBLE"
     && c0.body.piecesManquantes.filter((p: { nature: string }) => p.nature === "CONDITION").map((p: { code: string }) => p.code).join() === "PLAN_AXES_AUTORISE,RESEAU_AUTORISE,SECONDE_SOURCE,DECISION_DEPLACEMENT"
     && c0.body.piecesManquantes.filter((p: { nature: string }) => p.nature === "TYPE_OBLIGATOIRE").map((p: { typeDocument: { code: string } }) => p.typeDocument.code).join() === "PLAN_AXES,RESEAU_CONCESSIONNAIRE", c0.body);
   const pieceAxes = c0.body.piecesManquantes.find((p: { code?: string }) => p.code === "PLAN_AXES_AUTORISE");

@@ -130,6 +130,10 @@ export const MODULE_PAR_ENTITE: Record<string, ModuleKey | null> = {
   ComparaisonSources: "projets-voirie",
   // Documents du dossier d'un projet (lot D1) : creation, depot, version, statut, retrait. Reference et empreinte seulement, jamais de contenu de fichier.
   DocumentProjetVoirie: "projets-voirie",
+  // Export du dossier technique (lot X1) : remise d une archive (empreinte, taille, jeux exportes et ecartes, sans geometrie) et derogations de confidentialite
+  // (creation et consommation, jeux couverts, beneficiaire, justification).
+  ExportDossierProjetVoirie: "projets-voirie",
+  DerogationExportProjetVoirie: "projets-voirie",
   User: null,
   AppSetting: null,
 };

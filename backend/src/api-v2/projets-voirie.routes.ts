@@ -28,6 +28,8 @@ import {
 import { monterRoutesTerritoires } from "./projets-voirie.territoires.routes";
 import { monterRoutesDocuments } from "./projets-voirie.documents.routes";
 import { regionsDuTerritoire } from "../projets-voirie/territoires/territoires.service";
+import { monterRoutesExports } from "./projets-voirie.dossier-technique.routes";
+import { monterRoutesTableaux } from "./projets-voirie.tableaux.routes";
 
 /**
  * `/api/v2/projets-voirie` -- Projets de voirie et reseaux (contrat : docs/projets-voirie/CONTRAT.md, v2 ; reference :
@@ -39,7 +41,8 @@ import { regionsDuTerritoire } from "../projets-voirie/territoires/territoires.s
  *   - lecture : toute personne qui a la cle de module ;
  *   - ecritures : ADMIN et GESTIONNAIRE (depot, autorisation, rejet, retrait, creation, modification) ; DELETE d'un projet : ADMIN ;
  *   - export CSV de l'analyse : ADMIN et GESTIONNAIRE, audite ; agregats seulement, AUCUNE geometrie ;
- *   - aucune route n'exporte les geometries d'un jeu (ni fichier GeoJSON, ni KML) ; la carte est une couche d'affichage bornee ;
+ *   - aucune route n'exporte les geometries d'un jeu (ni fichier GeoJSON, ni KML), SAUF le dossier technique du lot X1 (`/:id/export/dossier`, decideurs,
+ *     audite, jeux AUTORISE d'un niveau exportable ou sous derogation ADMIN a usage unique) ; la carte est une couche d'affichage bornee ;
  *   - un projet sans region n'est visible que des comptes nationaux ; un projet d'une region visible des seuls comptes de cette region.
  *
  * Donnees sensibles (traces d'infrastructure de tiers) : `Cache-Control: no-store`, `nosniff`, et JAMAIS dans l'API publique.
@@ -211,6 +214,8 @@ projetsVoirieV2Router.post(
 
 // Lot T1 : territoires, referentiels et configuration. Routes LITTERALES, montees AVANT `/:id` (sinon `:id` les avalerait).
 monterRoutesTerritoires(projetsVoirieV2Router, { administrateur, acteurDe, porteeDe, enveloppe, refuser, UUID });
+// Lot X1 : tableaux de bord national et par territoire (agregats), routes LITTERALES aussi montees AVANT `/:id`.
+monterRoutesTableaux(projetsVoirieV2Router, { acteurDe, porteeDe, enveloppe, refuser });
 
 // `/concessionnaires` AVANT `/:id`, sinon `:id` l'avalerait.
 projetsVoirieV2Router.get("/concessionnaires", enveloppe(async (_req, res) => { res.json(await listerConcessionnaires()); }));
@@ -306,6 +311,8 @@ const champsDepot = z.object({
   // METHODE_ACQUISITION ; la route ne verifie que la forme, le depot verifie la valeur (422 METHODE_ACQUISITION_INCONNUE si inconnue, retiree ou inactive).
   // Toute valeur absente, inactive ou mal formee du referentiel rend 422 METHODE_ACQUISITION_INCONNUE (decision de l'architecte du 10/11/2026), jamais 400.
   methodeAcquisition: optionnel(z.string().trim().min(1).max(64).transform((s) => s.toUpperCase())),
+  // Revue du lot X1, M1 : justification d'un abaissement du niveau de confidentialite (ADMIN seul, verifie par le service).
+  justificationConfidentialite: optionnel(z.string().trim().min(1).max(2000)),
 }).merge(champsImport).strict();
 
 const requeteDepot = z.object({ simuler: booleenRequete }).strict();
@@ -452,3 +459,7 @@ monterRoutesSources(projetsVoirieV2Router, { ecriture, administrateur, gardeProj
 // ------------------------------------------------------------------------------------------------
 
 monterRoutesDocuments(projetsVoirieV2Router, { ecriture, gardeProjet, acteurDe, enveloppe, refuser, UUID, placeDeReception, recevoir, refuserNul });
+// Export du dossier technique et derogations de confidentialite (lot X1) : memes gardes, meme ordre (voir projets-voirie.dossier-technique.routes.ts).
+// ------------------------------------------------------------------------------------------------
+
+monterRoutesExports(projetsVoirieV2Router, { ecriture, administrateur, gardeProjet, acteurDe, enveloppe, refuser, UUID });

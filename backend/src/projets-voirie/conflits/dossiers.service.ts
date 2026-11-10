@@ -560,27 +560,55 @@ export const ENTETE_CSV_CONFLITS = [
 const EXPORT_MAX = 100_000;
 
 export async function exporterConflitsCsv(acteur: Acteur, projetId: string, f: FiltresConflits) {
+  const { csv, nbLignes, projet } = await produireCsvConflits(acteur, projetId, f);
+  await prisma.$transaction(async (tx) => {
+    await logAuditTransactionnelle(tx, {
+      userId: acteur.id, action: "CREATE", entityType: "ExportConflitsProjetVoirie", entityId: projet.id,
+      after: { format: "csv", projet: projet.code, nbLignes, filtres: f, geometries: false }, ipAddress: acteur.ip,
+    });
+  });
+  return { csv, nbLignes, nomFichier: `conflits-${projet.code.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.csv` };
+}
+
+/**
+ * Contenu du CSV des dossiers (memes colonnes, meme lisibilite, meme neutralisation des formules), SANS audit : l'appelant audite la remise (route
+ * `export.csv` ci-dessus, ou dossier technique du lot X1, qui l'embarque dans son archive et audite l'archive entiere).
+ */
+export async function produireCsvConflits(acteur: Acteur, projetId: string, f: FiltresConflits, o: { delaiMaxMs?: number } = {}) {
+  // Lot X1 (revue, M4) : le dossier technique passe son budget restant ; le delai cote base est le plus petit des deux.
+  const delai = Math.max(1_000, Math.min(delaiAnalyseMs(), o.delaiMaxMs ?? Number.POSITIVE_INFINITY));
   const projet = await prisma.projetVoirie.findFirst({ where: { id: projetId, deletedAt: null }, select: { id: true, code: true } });
   if (!projet) throw introuvable("Projet", "PROJET_INTROUVABLE");
   // Jusqu'a 100 000 lignes jointes : meme limiteur que les analyses (3 simultanes) et meme delai cote base (revue RC-3, m8).
-  const trop = `L'export a dépassé ${Math.round(delaiAnalyseMs() / 1000)} s et a été interrompu : filtrez les dossiers (statut, type, axe) pour en exporter moins.`;
+  const trop = `L'export a dépassé ${Math.round(delai / 1000)} s et a été interrompu : filtrez les dossiers (statut, type, axe) pour en exporter moins.`;
   const lignes = await limiteurAnalyses.executer(() => avecErreurDelai("EXPORT_TROP_LONG", trop, () => prisma.$transaction(async (tx) => {
-    await poserDelais(tx, delaiAnalyseMs(), delaiVerrouMs());
-    return tx.conflitProjet.findMany({
+    await poserDelais(tx, delai, delaiVerrouMs());
+    const lus = await tx.conflitProjet.findMany({
       where: filtreConflits(projetId, f, acteur.role), orderBy: [{ axe: "asc" }, { type: "asc" }, { id: "asc" }], take: EXPORT_MAX,
       include: {
         ...INCLURE_LISTE, premiereAnalyse: { select: { numero: true } }, derniereAnalyse: { select: { numero: true } },
         _count: { select: { preuves: true, decisions: true } },
       },
     });
-  }, { timeout: delaiAnalyseMs() + 15_000, maxWait: 10_000 })));
+    // Revue du lot X1, m1 : statut du jeu B de la comparaison d'un dossier DIVERGENCE_SOURCES (la mesure est une distance entre A et B).
+    const cmpIds = [...new Set(lus.map((c) => c.comparaisonId).filter((x): x is string => !!x))];
+    const statutsB = new Map<string, string | null>();
+    if (cmpIds.length) {
+      const r = await tx.$queryRaw<{ id: string; s: string | null }[]>`SELECT cs."id", jb."statut"::text AS "s" FROM "comparaisons_sources_projet" cs LEFT JOIN "projets_voirie_jeux" jb ON jb."id" = cs."jeuBId" WHERE cs."id" = ANY(${cmpIds}::text[])`;
+      for (const x of r) statutsB.set(x.id, x.s);
+    }
+    return lus.map((c) => ({ ...c, statutJeuB: c.comparaisonId ? statutsB.get(c.comparaisonId) ?? null : undefined }));
+  }, { timeout: delai + 15_000, maxWait: 10_000 })));
   const m = (c: { mesure: unknown }) => (c.mesure ?? {}) as Record<string, number | null>;
   // Lot B1 : nature de la cible (colonnes ajoutees AVANT `cle`, qui reste la derniere), pour les dossiers dont les donnees du reseau sont lisibles.
   const cibles = await cibleDesObjets(acteur.role, lignes.flatMap((c) => (c.objetId === null || !donneesReseauLisibles(acteur.role, statutsLies(c)) ? [] : [String(c.objetId)])));
   const rows = lignes.map((c) => {
     // Les donnees tirees d'un jeu RETIRE ne sortent pas, meme dans un export (voir visibilite.noyau.ts).
     const lisible = donneesReseauLisibles(acteur.role, statutsLies(c));
-    const mesure = lisible ? m(c) : {};
+    // Revue du lot X1, m1 : la mesure d'un dossier issu d'une comparaison n'est rendue que si le jeu B est lisible (jamais un jeu B RETIRE ; comparaison
+    // introuvable : masquee, echec ferme).
+    const mesureLisible = lisible && (c.statutJeuB === undefined || (c.statutJeuB !== null && donneesReseauLisibles(acteur.role, [c.statutJeuB])));
+    const mesure = mesureLisible ? m(c) : {};
     return [
       c.axe, c.type, c.statut, c.risque ?? "", c.aReexaminer ? "oui" : "non", c.motifReexamen ?? "", lisible ? c.concessionnaire?.nom ?? "" : "", lisible ? c.jeuReseau?.typeReseau ?? "" : "",
       lisible ? c.classePrecision ?? "inconnue" : "", c.verticalEvalue ? "oui" : "non",
@@ -592,13 +620,7 @@ export async function exporterConflitsCsv(acteur: Acteur, projetId: string, f: F
     ];
   });
   const csv = "﻿" + [ENTETE_CSV_CONFLITS.join(";"), ...rows.map((r) => r.map((v) => celluleCsv(v as string | number)).join(";"))].join("\r\n") + "\r\n";
-  await prisma.$transaction(async (tx) => {
-    await logAuditTransactionnelle(tx, {
-      userId: acteur.id, action: "CREATE", entityType: "ExportConflitsProjetVoirie", entityId: projet.id,
-      after: { format: "csv", projet: projet.code, nbLignes: rows.length, filtres: f, geometries: false }, ipAddress: acteur.ip,
-    });
-  });
-  return { csv, nbLignes: rows.length, nomFichier: `conflits-${projet.code.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.csv` };
+  return { csv, nbLignes: rows.length, projet };
 }
 
 /** Garde de coherence (tests) : les enumerations du noyau sont celles utilisees ici. */

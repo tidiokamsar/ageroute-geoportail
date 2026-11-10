@@ -364,3 +364,16 @@ Dans tous les cas : liste blanche (`CRS_NON_AUTORISE`), un CRS déclaré ne se s
 ## 15. LandXML (lot D1, implémenté)
 
 Lu sans GDAL, par le lecteur XML du module (`xml.noyau.ts` : ni DTD, ni entité, ni ressource externe ; plafonds), dans le **même** parcours que les autres formats (inventaire, aperçu sans écriture, simulation, dépôt en quarantaine, CRS, mapping, validation, delta, revue des suppressions, retour arrière). Valeur `LANDXML` de `FormatJeuProjet` (migration `20261104100000`). Détail : `CONTRAT-DOCUMENTS.md`, section 7.1. En bref : axes en plan (`Alignments` : `Line`, `Curve` discrétisée à une flèche au plus égale à `PROJETS_VOIRIE_LANDXML_TOLERANCE_ARC_MM`, défaut 10 mm, `IrregularLine`) et points (`CgPoints`) ; spirales et chaînes refusées (`LANDXML_SPIRALE_NON_PRISE_EN_CHARGE`) ; arc dégénéré refusé (`LANDXML_ARC_DEGENERE`) ; profils, surfaces et autres éléments ignorés et comptés ; ordre « Nord Est » ; unités en mètres exigées ; **CRS toujours choisi** (`epsgSource`, liste blanche, projeté en mètres), un CRS déclaré par le fichier n'étant qu'une information comparée. DWG : toujours 415 `FORMAT_NON_SUPPORTE`, avec la marche à suivre pour exporter en DXF ; il se conserve comme document du projet (non exploitable). PDF : 422 `CONTENU_NON_RECONNU`, il se conserve comme document de référence.
+
+## 16. Niveau de confidentialité d'un dépôt (revue du lot X1, M1 ; décision de l'architecte du 10/11/2026)
+
+Le niveau de confidentialité d'un jeu garde l'export du dossier technique (`CONTRAT-EXPORTS.md`) : il ne s'abaisse plus par un simple redépôt. Règle, appliquée au dépôt (`POST /:id/jeux`, simulation et conversion GDAL comprises) par `confidentialite-depot.noyau.ts` :
+
+1. Ordre : `PUBLIC` < `INTERNE` < `RESTREINT_PROJET` < `CONFIDENTIEL_CONCESSIONNAIRE` < `INFRASTRUCTURE_SENSIBLE` ; un niveau inconnu compte comme le plus restrictif.
+2. **Plancher** : le niveau le plus restrictif de la **lignée** (toutes les versions de même clé de version : projet, rôle, concessionnaire, méthode d'acquisition pour un réseau ; tous statuts), et, pour un `RESEAU_TIERS`, `CONFIDENTIEL_CONCESSIONNAIRE`. Le rôle `AUTRE` n'a pas de lignée.
+3. Sans niveau demandé : le plus restrictif du défaut du rôle et du plancher (avertissement `CONFIDENTIALITE_HERITEE` quand la lignée l'impose).
+4. Niveau demandé au moins égal au plancher : admis.
+5. Niveau demandé **sous** le plancher : réservé à l'**ADMIN**, avec le champ `justificationConfidentialite` (10 caractères au moins) ; audit `JeuDonneesProjet` (`after.abaissementConfidentialite: { de, vers, justification }`) et avertissement `CONFIDENTIALITE_ABAISSEE`. Tout autre compte : **403 `CONFIDENTIALITE_ABAISSEMENT_RESERVE`** (`plancher`, `demande`) ; un ADMIN sans justification : **400 `JUSTIFICATION_INVALIDE`** ; `justificationConfidentialite` sans abaissement : 400 `CHAMPS_INVALIDES`.
+6. **Retour arrière** (`POST /:id/jeux/:jeuId/retour-arriere`) : la version restaurée prend le niveau le plus restrictif d'elle-même et de la version qu'elle remplace (audité).
+
+Les jeux déposés avant cette règle gardent leur niveau : à relever par l'ADMIN (aucune migration ne les modifie).

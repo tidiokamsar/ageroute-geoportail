@@ -25,7 +25,8 @@ export const CONDITIONS_PAR_FONCTION: Readonly<Record<Fonction, readonly Conditi
   CONFLITS: ["PLAN_AXES_AUTORISE", "RESEAU_AUTORISE"],
   COMPARAISON_SOURCES: ["DEUX_SOURCES_MEME_RESEAU"],
   RECOLEMENT: ["DECISION_DEPLACEMENT"],
-  EXPORT_DOSSIER: null,
+  // Lot X1 : l'export du dossier technique ne depend d'aucune piece (il rend ce qui existe) : disponible sans condition (CONTRAT-EXPORTS.md, section 8).
+  EXPORT_DOSSIER: [],
 };
 
 export const LIBELLES_FONCTION: Readonly<Record<Fonction, string>> = {

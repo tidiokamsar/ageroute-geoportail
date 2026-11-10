@@ -23,6 +23,8 @@ const ROUTES_GDAL = join(SRC, "api-v2", "projets-voirie.gdal.routes.ts");
 const ROUTES_TERRITOIRES = join(SRC, "api-v2", "projets-voirie.territoires.routes.ts");
 const ROUTES_SOURCES = join(SRC, "api-v2", "projets-voirie.sources.routes.ts");
 const ROUTES_DOCUMENTS = join(SRC, "api-v2", "projets-voirie.documents.routes.ts");
+const ROUTES_DOSSIER_TECHNIQUE = join(SRC, "api-v2", "projets-voirie.dossier-technique.routes.ts");
+const ROUTES_TABLEAUX = join(SRC, "api-v2", "projets-voirie.tableaux.routes.ts");
 
 function sources(dossier: string): string[] {
   const sortie: string[] = [];
@@ -53,6 +55,8 @@ const TABLES_DU_MODULE = [
   "regles_rapprochement_sources", "comparaisons_sources_projet", "comparaisons_sources_resultats",
   // Documents du dossier (lot D1) : documents et historique (ecrit par la base). Aucune table de fichier : rien n'est stocke.
   "documents_projet_voirie", "documents_projet_voirie_historique",
+  // Export du dossier technique (lot X1) : journal des archives remises (ajout seul) et derogations de confidentialite. Les tableaux de bord n ecrivent rien.
+  "exports_dossier_projet_voirie", "derogations_export_projet_voirie",
 ];
 const DELEGUES_DU_MODULE = [
   "projetVoirie", "jeuDonneesProjet", "objetProjet", "concessionnaireReseau", "auditLog",
@@ -70,9 +74,11 @@ const DELEGUES_DU_MODULE = [
   "regleRapprochementSources", "comparaisonSources", "comparaisonSourcesResultat",
   // Documents du dossier (lot D1).
   "documentProjetVoirie", "documentProjetVoirieHistorique",
+  // Export du dossier technique (lot X1).
+  "exportDossierProjetVoirie", "derogationExportProjetVoirie",
 ];
 
-const fichiersDuModule = [...sources(MODULE), ROUTES, ROUTES_CONFLITS, ROUTES_IMPORT, ROUTES_WORKFLOW, ROUTES_RESEAUX, ROUTES_GDAL, ROUTES_TERRITOIRES, ROUTES_SOURCES, ROUTES_DOCUMENTS];
+const fichiersDuModule = [...sources(MODULE), ROUTES, ROUTES_CONFLITS, ROUTES_IMPORT, ROUTES_WORKFLOW, ROUTES_RESEAUX, ROUTES_GDAL, ROUTES_TERRITOIRES, ROUTES_SOURCES, ROUTES_DOCUMENTS, ROUTES_DOSSIER_TECHNIQUE, ROUTES_TABLEAUX];
 
 describe("le module n'ecrit que dans ses propres tables", () => {
   it("le module contient du code a verifier (garde contre une lecture qui ne trouve rien)", () => {
@@ -140,6 +146,9 @@ describe("rien d'autre dans le code ne lit les donnees du module (jamais d'API p
     join("api-v2", "projets-voirie.sources.routes.ts"),
     // Documents du dossier (lot D1).
     join("api-v2", "projets-voirie.documents.routes.ts"),
+    // Export du dossier technique et tableaux de bord (lot X1).
+    join("api-v2", "projets-voirie.dossier-technique.routes.ts"),
+    join("api-v2", "projets-voirie.tableaux.routes.ts"),
     // Demarrage du sondage des jobs de conversion GDAL (lot B2) : un seul appel, desactive par defaut.
     "server.ts",
     // Cle de module.

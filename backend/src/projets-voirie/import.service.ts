@@ -37,6 +37,7 @@ import { resoudreTypeReseau } from "./territoires/referentiels.service";
 import { INCLURE_JEU, vueJeu } from "./vues";
 import { filtreCleVersion } from "./sources/cle-version.noyau";
 import { insererConnexionsDeclarees } from "./reseaux/reseaux.depot";
+import { niveauDuDepot } from "./confidentialite-depot.noyau";
 
 export type Role = "AXES_TRAVAUX" | "RESEAU_TIERS" | "LIMITES_ROUTE" | "AUTRE";
 export type Nature = "ACTIF_PHYSIQUE" | "CIRCUIT_LOGIQUE" | "EQUIPEMENT" | "AXE" | "EMPRISE" | "INCONNUE";
@@ -61,6 +62,8 @@ export interface ChampsDepot {
   dateConstat?: string;
   /** Lot S1 : code de la methode d'acquisition (referentiel METHODE_ACQUISITION, valeur active : correctifs T1+S1, M2) ; composante de la cle de version d'un reseau. */
   methodeAcquisition?: string;
+  /** Revue du lot X1, M1 : justification (ADMIN seul) d'un niveau de confidentialite plus bas que celui de la lignee ou du role. */
+  justificationConfidentialite?: string;
 }
 
 export interface DemandeDepot {
@@ -101,6 +104,7 @@ class SimulationTerminee extends Error {
   constructor(public readonly resultat: unknown) { super("simulation terminee"); }
 }
 
+/** Defaut du role (premiere version) ; une nouvelle version herite du niveau le plus restrictif de sa lignee (`confidentialite-depot.noyau.ts`). */
 export const confidentialiteParDefaut = (role: Role): Niveau => (role === "RESEAU_TIERS" ? "CONFIDENTIEL_CONCESSIONNAIRE" : "RESTREINT_PROJET");
 
 /** Nature imposee par le role, ou celle demandee (jamais AXE ou EMPRISE pour un reseau). */
@@ -344,6 +348,7 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
 
   let version = 1;
   let remplace: { id: string; version: number } | null = null;
+  let niveauxLignee: string[] = [];
   if (c.role !== "AUTRE") {
     // Lot S1 : la methode d'acquisition fait partie de la cle d'un reseau de concessionnaire (seconde source), pas des autres roles (CONTRAT-SOURCES.md, 3.1).
     // Correctifs T1+S1 (M3) : et le type de reseau (code configurable, sinon famille) : deux types d'un meme concessionnaire ne sont jamais versions l'un de l'autre.
@@ -356,6 +361,13 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
     const max = await tx.jeuDonneesProjet.aggregate({ where: cle, _max: { version: true } });
     version = (max._max.version ?? 0) + 1;
     remplace = courant;
+    // Revue du lot X1, M1 : niveaux de TOUTE la lignee (tous statuts) ; la nouvelle version ne descend pas sous le plus restrictif sans ADMIN.
+    niveauxLignee = (await tx.jeuDonneesProjet.findMany({ where: cle, select: { confidentialite: true } })).map((j) => j.confidentialite);
+  }
+  const niveau = niveauDuDepot({ role: c.role, demande: c.confidentialite, niveauxLignee, roleActeur: d.acteur.role, justification: c.justificationConfidentialite });
+  if (!niveau.ok) throw new ErreurMetier(niveau.status, niveau.code, niveau.message, niveau.extra);
+  if (c.justificationConfidentialite !== undefined && !niveau.abaissement) {
+    throw new ErreurMetier(400, "CHAMPS_INVALIDES", "justificationConfidentialite ne s'emploie que pour abaisser le niveau de confidentialite sous celui de la lignee ou du role (ADMIN).");
   }
 
   const id = randomUUID();
@@ -366,7 +378,7 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
       dateDonnees: dateJour(c.dateDonnees), origineFichier: c.origineFichier ?? null,
       classePrecision: c.classePrecision ?? null, precisionHorizontaleM: c.precisionHorizontaleM ?? null, precisionVerticaleM: c.precisionVerticaleM ?? null,
       methode: c.methode ?? null, methodeAcquisition: c.methodeAcquisition ?? null, dateConstat: dateJour(c.dateConstat), natureObjets: nature,
-      confidentialite: c.confidentialite ?? confidentialiteParDefaut(c.role), statut: "CONTROLE", version, remplaceId: remplace?.id ?? null,
+      confidentialite: niveau.niveau as Niveau, statut: "CONTROLE", version, remplaceId: remplace?.id ?? null,
       creeParId: d.acteur.id,
     },
   });
@@ -380,6 +392,8 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
   if (process.env.PV_TRACE === "1") console.info(`[projets-voirie] mesures (union des trace) : ${Math.round(performance.now() - t1)} ms`);
 
   const avertissements: Avertissement[] = [...lecture.avertissements, ...mappe.avertissements];
+  if (niveau.herite) avertissements.push({ code: "CONFIDENTIALITE_HERITEE", message: `Niveau de confidentialite herite de la lignee du jeu (${niveau.niveau}) : une nouvelle version ne descend pas sous le niveau le plus restrictif de ses versions.` });
+  if (niveau.abaissement) avertissements.push({ code: "CONFIDENTIALITE_ABAISSEE", message: `Niveau abaisse par un administrateur de ${niveau.abaissement.de} a ${niveau.abaissement.vers} (justification auditee).` });
   if (bilan.reparees > 0) avertissements.push({ code: "GEOMETRIES_REPAREES", message: "Géométries invalides réparées par la base (anneau qui se croise, par exemple).", nb: bilan.reparees });
   if (bilan.vides > 0) avertissements.push({ code: "GEOMETRIES_VIDES_IGNOREES", message: "Géométries devenues vides après réparation, ignorées.", nb: bilan.vides });
 
@@ -453,7 +467,7 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
     after: {
       projetId: d.projetId, role: c.role, concessionnaireId: concId, nomFichier: jeu.nomFichier, format: lecture.format, sha256,
       tailleOctets: tailleDe(d), nbObjets: mesures.nbObjets, longueurTraceFusionneM: mesures.longueurTraceFusionneM,
-      version, statut: "CONTROLE", confidentialite: jeu.confidentialite, natureObjets: nature, classePrecision: c.classePrecision ?? null, methodeAcquisition: c.methodeAcquisition ?? null,
+      version, statut: "CONTROLE", confidentialite: jeu.confidentialite, abaissementConfidentialite: niveau.abaissement, natureObjets: nature, classePrecision: c.classePrecision ?? null, methodeAcquisition: c.methodeAcquisition ?? null,
       connexionsDeclarees: connexions,
       origineFichier: c.origineFichier ?? null, remplaceId: remplace?.id ?? null, delta, suppressions,
       avertissements: avertissements.map((a) => ({ code: a.code, nb: a.nb ?? null })),
