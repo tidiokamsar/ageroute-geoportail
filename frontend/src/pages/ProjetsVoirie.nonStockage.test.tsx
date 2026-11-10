@@ -132,7 +132,7 @@ describe("preuve statique", () => {
     const api = sansCommentaires(readFileSync(path.join(RACINE, "lib/projetsVoirieExportsApi.ts"), "utf8"));
     expect(api).not.toMatch(/\/api\/public|\/public\//);
     const routes = [...api.matchAll(/`\$\{BASE\}([^`]*)`/g)].map((m) => m[1].replace(/\/\$\{id\(\w+\)\}/g, ""));
-    expect(routes.sort()).toEqual(["/export/derogations", "/export/derogations", "/export/dossier", "/export/journal", "/tableau-de-bord", "/tableau-de-bord/territoires"].sort());
+    expect(routes.sort()).toEqual(["/export/derogations", "/export/derogations", "/export/derogations/miennes", "/export/dossier", "/export/journal", "/tableau-de-bord", "/tableau-de-bord/territoires"].sort());
     // L'archive passe d'axios au navigateur par `enregistrerBlob` (lib/download.ts, hors module) : ni lecture, ni React Query, ni stockage.
     expect(api).toMatch(/enregistrerBlob\(blob, nom\)/);
     const hooks = sansCommentaires(readFileSync(path.join(RACINE, "lib/projetsVoirieExportsHooks.ts"), "utf8"));
