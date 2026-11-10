@@ -99,8 +99,11 @@ export type PieceManquante =
   | { nature: "TYPE_OBLIGATOIRE"; typeDocument: { code: string; libelle: string }; roleJeu: string | null; fonctions: Fonction[]; suffiraitPour: Fonction[]; documents?: DocumentVuPiece[] }
   | { nature: "DOCUMENT"; document: DocumentVuPiece; fonctions: Fonction[] };
 
-/** Statuts d'une piece qui MANQUE encore au dossier (en attente, recue non examinee, a reprendre, ou rejetee sans version plus recente). */
-export const STATUTS_PIECE_MANQUANTE: readonly StatutDocument[] = ["ATTENDU", "RECU", "EN_ANALYSE", "INCOMPLET", "A_CORRIGER", "REJETE"];
+/**
+ * Statuts de la DERNIERE version non retiree d'une lignee qui font de la piece une piece qui MANQUE encore au dossier : en attente, recue non examinee, a
+ * reprendre, rejetee sans version plus recente, ou REMPLACE dont la remplacante a ete retiree (revue D1, M1 : la piece ne sort pas du dossier sans trace).
+ */
+export const STATUTS_PIECE_MANQUANTE: readonly StatutDocument[] = ["ATTENDU", "RECU", "EN_ANALYSE", "INCOMPLET", "A_CORRIGER", "REJETE", "REMPLACE"];
 
 const estFonction = (v: string): v is Fonction => (FONCTIONS as readonly string[]).includes(v);
 

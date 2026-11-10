@@ -118,7 +118,14 @@ export async function listerDocuments(acteur: Acteur, projetId: string, f: Filtr
   await exigerProjetActif(projetId);
   const and: Prisma.DocumentProjetVoirieWhereInput[] = [{ projetId, deletedAt: null }, visible(acteur.role)];
   if (f.statuts?.length) and.push({ statut: { in: f.statuts } });
-  if (!f.toutesVersions) and.push({ statut: { not: "REMPLACE" } });
+  // Versions courantes : tout sauf REMPLACE, et la DERNIERE version non retiree de sa lignee meme si elle est REMPLACE (remplacante retiree, revue D1, M1).
+  if (!f.toutesVersions) {
+    const orphelines = await prisma.$queryRaw<{ id: string }[]>`
+      SELECT d."id" FROM "documents_projet_voirie" d
+       WHERE d."projetId" = ${projetId} AND d."deletedAt" IS NULL AND d."statut"::text = 'REMPLACE'
+         AND NOT EXISTS (SELECT 1 FROM "documents_projet_voirie" n WHERE n."ligneeId" = d."ligneeId" AND n."version" > d."version" AND n."deletedAt" IS NULL)`;
+    and.push({ OR: [{ statut: { not: "REMPLACE" } }, { id: { in: orphelines.map((o) => o.id) } }] });
+  }
   if (f.typeCode) and.push({ typeCode: f.typeCode });
   if (f.curseur) and.push({ OR: [{ createdAt: { lt: f.curseur.t } }, { createdAt: f.curseur.t, id: { lt: f.curseur.i } }] });
   const lignes = await prisma.documentProjetVoirie.findMany({ where: { AND: and }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: f.limite + 1 });
@@ -230,26 +237,30 @@ export async function nouvelleVersion(acteur: Acteur, projetId: string, docId: s
   return enTransaction(async (tx) => {
     await verrouillerProjet(tx, projetId);
     const precedente = await ligneOuErreur(tx, projetId, docId);
-    const plusRecente = await tx.documentProjetVoirie.findFirst({ where: { ligneeId: precedente.ligneeId, version: { gt: precedente.version } }, select: { id: true } });
+    // Revue D1, M1 : la derniere version est la derniere NON RETIREE ; une version retiree ne fige pas la lignee.
+    const plusRecente = await tx.documentProjetVoirie.findFirst({ where: { ligneeId: precedente.ligneeId, version: { gt: precedente.version }, deletedAt: null }, select: { id: true } });
     if (plusRecente) throw new ErreurMetier(409, "VERSION_NON_COURANTE", "Cette version n'est pas la derniere du document : deposez la nouvelle version sur la derniere.", { derniereId: plusRecente.id });
     await exigerType(tx, precedente.typeCode, false);
     const effet = effetNouvelleVersion(precedente.statut);
     if (!effet.ok) throw new ErreurMetier(effet.status, effet.code, effet.message, effet.extra);
     const p = await resoudrePiece(tx, projetId, piece);
     const maintenant = new Date();
+    // Numero suivant : le plus grand de la lignee, versions retirees comprises (l'index (lignee, version) les garde).
+    const max = await tx.documentProjetVoirie.aggregate({ where: { ligneeId: precedente.ligneeId }, _max: { version: true } });
+    const version = (max._max.version ?? precedente.version) + 1;
     let precedenteApres = precedente;
     if (effet.precedente === "REMPLACE") {
       // La precedente quitte l'index « une version en cours » AVANT l'insertion ; la base verifie a la fin de la transaction qu'une version plus recente existe.
       precedenteApres = await tx.documentProjetVoirie.update({
         where: { id: precedente.id },
-        data: { statut: "REMPLACE", derniereActionParId: acteur.id, derniereActionLe: maintenant, derniereJustification: `Remplacee par la version ${precedente.version + 1}.` },
+        data: { statut: "REMPLACE", derniereActionParId: acteur.id, derniereActionLe: maintenant, derniereJustification: `Remplacee par la version ${version}.` },
       });
       await audit(tx, acteur, "UPDATE", precedente.id, precedente, precedenteApres);
     }
     const id = randomUUID();
     const ligne = await tx.documentProjetVoirie.create({
       data: {
-        id, projetId, ligneeId: precedente.ligneeId, version: precedente.version + 1, remplaceId: precedente.id, typeCode: precedente.typeCode, titre: precedente.titre,
+        id, projetId, ligneeId: precedente.ligneeId, version, remplaceId: precedente.id, typeCode: precedente.typeCode, titre: precedente.titre,
         description: precedente.description, dateDocument: precedente.dateDocument, concessionnaireId: precedente.concessionnaireId, statut: "RECU",
         reference: p.reference, jeuId: p.jeuId, nomFichier: p.nomFichier, format: p.format, sha256: p.sha256, tailleOctets: p.tailleOctets,
         deposeParId: acteur.id, deposeLe: maintenant, creeParId: acteur.id, derniereActionParId: acteur.id, derniereActionLe: maintenant, derniereJustification: null,

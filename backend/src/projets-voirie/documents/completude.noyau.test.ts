@@ -153,6 +153,18 @@ describe("pieces manquantes : la fonction que chacune debloquerait", () => {
   });
 });
 
+describe("revue D1, M1 : retrait de la derniere version", () => {
+  it("une version REMPLACE dont la remplacante a ete retiree est la derniere version de la lignee : la piece reste manquante (decideur), avec les fonctions de son type", () => {
+    // v1 EN_ANALYSE puis v2 deposee (v1 REMPLACE), puis v2 retiree : l'appelant ne transmet que les lignes non retirees, donc v1 seule.
+    const v1 = doc("PLAN_AXES", "REMPLACE", "DWG", { ligneeId: "L-ret", version: 1 });
+    const r = calculerCompletude(entree({ nbAxesAutorises: 0, reseaux: [R("a", 1)], nbDecisionsDeplacement: 0 }, [v1]));
+    const p = r.piecesManquantes.find((x) => x.nature === "DOCUMENT");
+    expect(p && p.nature === "DOCUMENT" ? [p.document.id, p.document.statut, p.fonctions] : null).toEqual([v1.id, "REMPLACE", ["ANALYSE_2D", "CONFLITS"]]);
+    const axes = r.piecesManquantes.find((x) => x.nature === "CONDITION" && x.code === "PLAN_AXES_AUTORISE");
+    expect(axes && axes.nature === "CONDITION" ? axes.documents?.map((d) => d.id) : null).toEqual([v1.id]);
+  });
+});
+
 describe("reseaux depuis les jeux autorises (identite du lot S1 : concessionnaire et famille)", () => {
   it("regroupe par (concessionnaire, type) ; ignore les autres roles", () => {
     const r = reseauxDepuisJeux([

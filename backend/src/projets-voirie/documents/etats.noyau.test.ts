@@ -92,10 +92,11 @@ describe("gardes d'un changement de statut, dans l'ordre du contrat", () => {
 });
 
 describe("versions", () => {
-  it("la version precedente en cours passe REMPLACE tout de suite ; VALIDE et REJETE sont conserves ; ATTENDU et REMPLACE refusent", () => {
+  it("la version precedente en cours passe REMPLACE tout de suite ; VALIDE, REJETE et REMPLACE (remplacante retiree) sont conserves ; ATTENDU refuse", () => {
     const attendus: Record<StatutDocument, string> = {
       ATTENDU: "DOCUMENT_ATTENDU", RECU: "REMPLACE", EN_ANALYSE: "REMPLACE", INCOMPLET: "REMPLACE", A_CORRIGER: "REMPLACE", EXPLOITABLE: "REMPLACE",
-      VALIDE: "CONSERVE", REJETE: "CONSERVE", REMPLACE: "VERSION_NON_COURANTE",
+      // Revue D1, M1 : une version REMPLACE n'est la derniere NON RETIREE que si sa remplacante a ete retiree ; la lignee doit pouvoir repartir d'elle.
+      VALIDE: "CONSERVE", REJETE: "CONSERVE", REMPLACE: "CONSERVE",
     };
     for (const s of STATUTS_DOCUMENT) {
       const e = effetNouvelleVersion(s);

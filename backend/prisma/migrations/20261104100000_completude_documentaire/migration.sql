@@ -151,10 +151,14 @@ BEGIN
     END IF;
     PERFORM referentiels_voirie_exige('TYPE_DOCUMENT', NEW."typeCode");
     IF NEW."version" > 1 THEN
+      -- La version n remplace la DERNIERE version NON RETIREE de la meme lignee, du meme projet et du meme type, et porte le numero qui suit le plus
+      -- grand de la lignee (versions retirees comprises) : un retrait ne fige pas la lignee (revue D1, M1).
       SELECT * INTO precedente FROM "documents_projet_voirie" WHERE "id" = NEW."remplaceId";
       IF NOT FOUND OR precedente."ligneeId" <> NEW."ligneeId" OR precedente."projetId" <> NEW."projetId" OR precedente."typeCode" <> NEW."typeCode"
-         OR precedente."version" <> NEW."version" - 1 THEN
-        RAISE EXCEPTION 'documents_projet_voirie : la version % doit remplacer la version % de la meme lignee, du meme projet et du meme type', NEW."version", NEW."version" - 1
+         OR precedente."deletedAt" IS NOT NULL OR precedente."version" >= NEW."version"
+         OR NEW."version" <> (SELECT max("version") FROM "documents_projet_voirie" WHERE "ligneeId" = NEW."ligneeId") + 1
+         OR EXISTS (SELECT 1 FROM "documents_projet_voirie" WHERE "ligneeId" = NEW."ligneeId" AND "deletedAt" IS NULL AND "version" > precedente."version") THEN
+        RAISE EXCEPTION 'documents_projet_voirie : la version % doit remplacer la derniere version non retiree de la meme lignee, du meme projet et du meme type, et suivre le plus grand numero de la lignee', NEW."version"
           USING ERRCODE = 'check_violation';
       END IF;
     END IF;

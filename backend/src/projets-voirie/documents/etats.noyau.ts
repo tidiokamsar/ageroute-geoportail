@@ -95,15 +95,15 @@ export function verifierChangement(e: EntreeChangement): Verdict {
 }
 
 /**
- * Effet d'une nouvelle version sur la DERNIERE version de la lignee :
+ * Effet d'une nouvelle version sur la DERNIERE version NON RETIREE de la lignee :
  *   - en cours (RECU, EN_ANALYSE, INCOMPLET, A_CORRIGER, EXPLOITABLE) : REMPLACE tout de suite ;
  *   - VALIDE : reste VALIDE jusqu'a la validation de la nouvelle (le dossier garde une piece valide pendant l'examen) ;
  *   - REJETE : reste REJETE ;
- *   - ATTENDU : refus, la piece se depose (route `depot`) ; REMPLACE ne peut pas etre la derniere version.
+ *   - REMPLACE : seulement quand sa remplacante a ete retiree (revue D1, M1) : elle reste REMPLACE et la lignee repart d'elle ;
+ *   - ATTENDU : refus, la piece se depose (route `depot`).
  */
 export function effetNouvelleVersion(derniere: StatutDocument): { ok: true; precedente: "REMPLACE" | "CONSERVE" } | Refus {
   if (derniere === "ATTENDU") return refus(409, "DOCUMENT_ATTENDU", "Ce document est encore attendu : deposez sa piece (POST .../depot) au lieu d'une nouvelle version.");
-  if (derniere === "REMPLACE") return refus(409, "VERSION_NON_COURANTE", "Cette version est remplacee : deposez la nouvelle version sur la derniere version du document.");
-  if (derniere === "VALIDE" || derniere === "REJETE") return { ok: true, precedente: "CONSERVE" };
+  if (derniere === "VALIDE" || derniere === "REJETE" || derniere === "REMPLACE") return { ok: true, precedente: "CONSERVE" };
   return { ok: true, precedente: "REMPLACE" };
 }

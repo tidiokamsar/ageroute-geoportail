@@ -34,7 +34,7 @@ Une ligne = **une version** d'un document. Les versions d'un même document form
 |---|---|
 | `id` | uuid |
 | `projetId` | projet (clé étrangère) ; immuable |
-| `ligneeId`, `version`, `remplaceId` | version 1 : `ligneeId = id`, `remplaceId` nul ; version n > 1 : `remplaceId` = version n-1 de la même lignée (déclencheur) ; immuables ; `(ligneeId, version)` unique |
+| `ligneeId`, `version`, `remplaceId` | version 1 : `ligneeId = id`, `remplaceId` nul ; version n > 1 : `remplaceId` = la dernière version **non retirée** de la même lignée, et n = le plus grand numéro de la lignée (versions retirées comprises) + 1 (déclencheur ; revue D1, M1 : un retrait ne fige pas la lignée) ; immuables ; `(ligneeId, version)` unique |
 | `typeCode` | code du domaine `TYPE_DOCUMENT` (existant et non retiré à l'écriture : `referentiels_voirie_exige`, lot T1 ; actif exigé par le service à la création, une nouvelle version d'un document existant n'exigeant qu'un type non retiré) ; immuable |
 | `titre` (1 à 200), `description` (2 000 au plus), `dateDocument` (jour), `concessionnaireId` | immuables après la création (une erreur se corrige par une nouvelle version ou un retrait) |
 | `statut` | enum `StatutDocumentProjetVoirie` (section 4) |
@@ -93,7 +93,7 @@ Matrice (service `documents/etats.noyau.ts` et déclencheur `documents_projet_vo
 
 Refus : transition hors matrice 409 `TRANSITION_INTERDITE` (avec `de`, `vers`, `possibles`) ; `EXPLOITABLE` ou `VALIDE` d'un DWG 409 `DOCUMENT_NON_EXPLOITABLE` (avec l'aide à l'export DXF) ; `EXPLOITABLE` ou `VALIDE` d'une pièce liée à un jeu qui n'est pas `AUTORISE` 409 `JEU_NON_AUTORISE` ; `VALIDE` par le déposant 409 `SEPARATION_DES_TACHES` ; justification absente ou courte 400 `JUSTIFICATION_INVALIDE`.
 
-**Versions** : `POST .../versions` sur la dernière version d'une lignée crée la version n+1 (`RECU`). La version précédente passe `REMPLACE` tout de suite si elle était en cours (`RECU`, `EN_ANALYSE`, `INCOMPLET`, `A_CORRIGER`, `EXPLOITABLE`) ; une version `VALIDE` le reste jusqu'à ce que la nouvelle devienne `VALIDE` (le dossier garde une pièce valide pendant l'examen de la suivante) ; une version `REJETE` reste `REJETE`. Sur un document `ATTENDU` : 409 `DOCUMENT_ATTENDU` (utiliser `depot`). Sur une version qui n'est pas la dernière : 409 `VERSION_NON_COURANTE`.
+**Versions** : `POST .../versions` sur la dernière version **non retirée** d'une lignée crée la version suivante (`RECU`, numéro = plus grand numéro de la lignée + 1). La version précédente passe `REMPLACE` tout de suite si elle était en cours (`RECU`, `EN_ANALYSE`, `INCOMPLET`, `A_CORRIGER`, `EXPLOITABLE`) ; une version `VALIDE` le reste jusqu'à ce que la nouvelle devienne `VALIDE` (le dossier garde une pièce valide pendant l'examen de la suivante) ; une version `REJETE` reste `REJETE`. Sur un document `ATTENDU` : 409 `DOCUMENT_ATTENDU` (utiliser `depot`). Sur une version qui n'est pas la dernière non retirée : 409 `VERSION_NON_COURANTE` ; sur une version retirée : 404. **Retrait de la dernière version** (revue D1, M1) : la précédente redevient la dernière ; si elle est `REMPLACE` (sa remplaçante a été retirée), elle reste `REMPLACE` (terminal), reste visible dans la liste des versions courantes, compte comme pièce manquante, et la lignée repart d'elle par une nouvelle version.
 
 ## 5. API (préfixe `/api/v2/projets-voirie`, mêmes gardes que le socle, dans le même ordre)
 

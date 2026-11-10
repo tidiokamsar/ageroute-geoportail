@@ -359,6 +359,36 @@ async function main() {
   verifier("12. compte d'une autre region : le MEME 404 masque partout ; sans la cle du module 403 ; sans jeton 401",
     hors.slice(0, 4).every((r) => r.status === 404 && r.body.code === "PROJET_INTROUVABLE") && hors[4].status === 403 && hors[5].status === 401, hors.map((r) => r.status));
 
+  // ================================================================ 12 bis. Revue D1, M1 : le retrait de la derniere version ne fige pas la lignee
+  const pdfDoc = async (titre: string) => (await multipart(`/${PID}/documents`, { typeCode: "AUTRE", titre }, { contenu: Buffer.concat([PDF, randomBytes(16)]), nom: "piece.pdf" })).body.document.id as string;
+  const st = (id: string, statut: string, t = T.chef, justification?: string) => envoyer("post", `/${PID}/documents/${id}/statut`, { statut, ...(justification ? { justification } : {}) }, t);
+  const nv = (id: string) => multipart(`/${PID}/documents/${id}/versions`, { reference: "Nouvelle piece" }, { contenu: Buffer.concat([PDF, randomBytes(16)]), nom: "piece-v.pdf" });
+  const retirer = (id: string) => envoyer("delete", `/${PID}/documents/${id}`, { justification: "Mauvais fichier depose par erreur" });
+  // Cas 1 : v1 VALIDE, v2 deposee puis retiree : v1 doit pouvoir etre remplacee.
+  const RT1 = await pdfDoc("Retrait cas 1");
+  await st(RT1, "EN_ANALYSE"); await st(RT1, "EXPLOITABLE"); await st(RT1, "VALIDE", T.chef2, "Piece conforme au dossier");
+  const RT1v2 = (await nv(RT1)).body.document.id as string;
+  const r1ret = await retirer(RT1v2);
+  const r1surRetiree = await nv(RT1v2);
+  const r1v3 = await nv(RT1);
+  verifier("12 bis. M1 cas 1 : v1 VALIDE, v2 retiree : une nouvelle version sur v1 est acceptee (version 3, remplace v1, v1 toujours VALIDE) ; sur la version retiree : 404",
+    r1ret.status === 200 && r1surRetiree.status === 404 && r1v3.status === 201 && r1v3.body.document.version === 3 && r1v3.body.document.remplaceId === RT1 && (await statutDoc(RT1)) === "VALIDE",
+    [r1ret.status, r1surRetiree.status, r1v3.body]);
+  // Cas 2 : v1 en analyse, v2 deposee (v1 REMPLACE) puis retiree : le document reste visible et manquant, et la lignee repart de v1.
+  const RT2 = await pdfDoc("Retrait cas 2");
+  await st(RT2, "EN_ANALYSE");
+  const RT2v2 = (await nv(RT2)).body.document.id as string;
+  await retirer(RT2v2);
+  const liste2 = await get(`/${PID}/documents?limite=100`);
+  const comp2 = await get(`/${PID}/completude`);
+  const r2v3 = await nv(RT2);
+  verifier("12 bis. M1 cas 2 : v1 REMPLACE dont la remplacante est retiree : visible dans la liste courante, piece manquante de la completude ; une nouvelle version (3) repart de v1",
+    (await statutDoc(RT2)) === "REMPLACE" && liste2.body.documents.some((d: { id: string }) => d.id === RT2)
+    && comp2.body.piecesManquantes.some((p: { nature: string; document?: { id: string } }) => p.nature === "DOCUMENT" && p.document?.id === RT2)
+    && r2v3.status === 201 && r2v3.body.document.version === 3 && r2v3.body.document.remplaceId === RT2, [liste2.body.documents?.map((d: { id: string }) => d.id), r2v3.body]);
+  const numeroDirect = await essaiAnnule(async (tx) => { await tx.$executeRawUnsafe(`INSERT INTO documents_projet_voirie (id, "projetId", "ligneeId", version, "remplaceId", "typeCode", titre, statut, reference, "deposeParId", "deposeLe", "creeParId", "derniereActionParId") VALUES ('dx5', $1, $2, 2, $2, 'AUTRE', 'Retrait cas 2', 'RECU', 'r', $3, now(), $3, $3)`, PID, RT2, admin.id); });
+  verifier("12 bis. M1 : la base refuse un numero deja pris par une version retiree ou une version qui ne suit pas le plus grand numero (23505 ou 23514)", ["23505", "23514"].includes(numeroDirect), numeroDirect);
+
   // ================================================================ 13. Isolation et audit
   const apresTout = await etat();
   const MODULE = new Set(["projets_voirie", "projets_voirie_jeux", "projets_voirie_objets", "concessionnaires_reseau", "audit_logs", "documents_projet_voirie", "documents_projet_voirie_historique",
