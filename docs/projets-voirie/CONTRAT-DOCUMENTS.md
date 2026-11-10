@@ -130,7 +130,7 @@ Lecture seule (`READ ONLY`, `statement_timeout` de la carte), pour tout compte q
 |---|---|
 | `PLAN_AXES_AUTORISE` | au moins un jeu `AXES_TRAVAUX` `AUTORISE` |
 | `RESEAU_AUTORISE` | au moins un jeu `RESEAU_TIERS` `AUTORISE` |
-| `DEUX_SOURCES_MEME_RESEAU` | au moins un réseau (même concessionnaire, même famille de type, règle d'éligibilité du lot S1) porte deux jeux `AUTORISE` ou plus |
+| `DEUX_SOURCES_MEME_RESEAU` | au moins un réseau porte deux jeux `AUTORISE` ou plus ; deux jeux sont deux sources du même réseau **si et seulement si l'éligibilité du lot S1 l'accepte** (`evaluerEligibilité`, mode `SOURCES`), appelée par la complétude avec `typeReseauCode` (revue D1, M2) : aucune règle d'identité propre, la complétude suit la correction M3 de la revue T1+S1 (code `TYPE_RESEAU` dans l'identité) sans changement |
 | `DECISION_DEPLACEMENT` | au moins une décision `DEPLACER_RESEAU` `APPROUVEE` sur un dossier `TRAITEMENT_DECIDE` ou `CLOTURE` du projet (dossier visible du compte : pour un lecteur, ses jeux liés sont `AUTORISE`) |
 
 | Fonction | Conditions |
@@ -151,7 +151,7 @@ Chaque pièce manquante porte `fonctions` (les fonctions indisponibles qui l'exi
 - `nature: "TYPE_OBLIGATOIRE"` : un type actif `obligatoire` qui n'est pas **fourni** (fourni = un jeu `AUTORISE` de son `roleJeu`, ou un document `VALIDE` de ce type) ; `fonctions` = ses `fonctionsDebloquees` encore indisponibles (vide si elles sont déjà disponibles : la pièce manque au dossier sans rien bloquer) ;
 - `nature: "DOCUMENT"` (décideurs seulement) : un document en cours ou rejeté sans version plus récente, avec les fonctions de son type encore indisponibles.
 
-Réponse : `{ projetId, calculeLe, fonctions: [ { code, etat: DISPONIBLE|INDISPONIBLE|NON_LIVREE, conditions: [ { code, remplie, nb } ], raison } ], reseaux: [ { concessionnaire: { id, nom }, typeReseau, nbSources, comparable } ], piecesManquantes: [...], documents: { total, parStatut }, regle }` (`documents` : un lecteur ne compte que les `VALIDE`).
+Réponse : `{ projetId, calculeLe, fonctions: [ { code, etat: DISPONIBLE|INDISPONIBLE|NON_LIVREE, conditions: [ { code, remplie, nb } ], raison } ], reseaux: [ { concessionnaireId, concessionnaire, typeReseau, typeReseauCode, nbSources, comparable } ], piecesManquantes: [...], documents: { total, parStatut }, regle }` (`documents` : un lecteur ne compte que les `VALIDE`).
 
 ## 7. Formats d'ingénierie
 

@@ -1218,7 +1218,7 @@ Mêmes gardes, dans le même ordre, que le socle ; projet retiré ou hors périm
 
 | Route | Rôle | Réponse |
 |---|---|---|
-| `GET /:id/completude` | lecture | `{ projetId, calculeLe, fonctions: [{ code, libelle, etat: DISPONIBLE\|INDISPONIBLE\|NON_LIVREE, conditions: [{ code, libelle, remplie, nb }] }], reseaux: [{ concessionnaireId, concessionnaire, typeReseau, nbSources, comparable }], piecesManquantes: [...], documents: { total, parStatut }, regle }` |
+| `GET /:id/completude` | lecture | `{ projetId, calculeLe, fonctions: [{ code, libelle, etat: DISPONIBLE\|INDISPONIBLE\|NON_LIVREE, conditions: [{ code, libelle, remplie, nb }] }], reseaux: [{ concessionnaireId, concessionnaire, typeReseau, typeReseauCode, nbSources, comparable }], piecesManquantes: [...], documents: { total, parStatut }, regle }` |
 | `GET /:id/documents` | lecture | `?statut=A,B&typeCode=&versions=courantes\|toutes&limite=(1..100, 50)&curseur=` : `{ documents: [vue], curseurSuivant }` ; un lecteur ne reçoit que des `VALIDE` |
 | `GET /:id/documents/:docId` | lecture | `{ document, versions: [{ id, version, statut, createdAt }], historique? }` (historique de la lignée, écrit par la base : décideurs seulement) ; 404 `DOCUMENT_INTROUVABLE` |
 | `POST /:id/documents` | ADMIN, GESTIONNAIRE | `{ typeCode, titre, description?, dateDocument?, concessionnaireId?, reference?, jeuId? }` + `fichier?` : sans pièce 201 `ATTENDU`, avec pièce 201 `RECU` ; `{ document, avertissements }` |

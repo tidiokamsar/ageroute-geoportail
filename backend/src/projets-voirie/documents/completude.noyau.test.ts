@@ -4,13 +4,14 @@ import {
   type DocumentEntree, type EntreeCompletude, type EtatProjet, type Fonction, type PieceManquante, type ReseauEtat, type TypeDocumentEntree,
 } from "./completude.noyau";
 import { STATUTS_DOCUMENT, type StatutDocument } from "./etats.noyau";
+import { evaluerEligibilite } from "../sources/eligibilite.noyau";
 
 /**
  * « Ce que les documents permettent » (lot D1 ; CONTRAT-DOCUMENTS.md, section 6). L'INVARIANT D'INDEPENDANCE est prouve par ENUMERATION de tous les
  * etats d'un petit univers (axes 0 a 2, cinq configurations de reseaux, decisions 0 ou 1) croises avec du « bruit documentaire » (types obligatoires
  * manquants, documents attendus, DWG recus, pieces incompletes ou rejetees) : aucune piece manquante ne bloque une fonction independante.
  */
-const R = (cle: string, nbSources: number): ReseauEtat => ({ cle, concessionnaireId: `c-${cle}`, concessionnaireNom: `Concessionnaire ${cle}`, typeReseau: "TELECOM", nbSources });
+const R = (cle: string, nbSources: number): ReseauEtat => ({ cle, concessionnaireId: `c-${cle}`, concessionnaireNom: `Concessionnaire ${cle}`, typeReseau: "TELECOM", typeReseauCode: null, nbSources, comparable: nbSources >= 2 });
 const CONFIG_RESEAUX: ReseauEtat[][] = [[], [R("a", 1)], [R("a", 2)], [R("a", 1), R("b", 1)], [R("a", 1), R("b", 3)]];
 const ETATS: EtatProjet[] = [];
 for (const nbAxesAutorises of [0, 1, 2]) for (const reseaux of CONFIG_RESEAUX) for (const nbDecisionsDeplacement of [0, 1]) ETATS.push({ nbAxesAutorises, reseaux, nbDecisionsDeplacement });
@@ -165,14 +166,23 @@ describe("revue D1, M1 : retrait de la derniere version", () => {
   });
 });
 
-describe("reseaux depuis les jeux autorises (identite du lot S1 : concessionnaire et famille)", () => {
-  it("regroupe par (concessionnaire, type) ; ignore les autres roles", () => {
-    const r = reseauxDepuisJeux([
-      { role: "RESEAU_TIERS", concessionnaireId: "c1", concessionnaireNom: "C1", typeReseau: "TELECOM" },
-      { role: "RESEAU_TIERS", concessionnaireId: "c1", concessionnaireNom: "C1", typeReseau: "TELECOM" },
-      { role: "RESEAU_TIERS", concessionnaireId: "c1", concessionnaireNom: "C1", typeReseau: "EAU_POTABLE" },
-      { role: "AXES_TRAVAUX", concessionnaireId: null, concessionnaireNom: null, typeReseau: null },
-    ]);
-    expect(r.map((x) => [x.cle, x.nbSources])).toEqual([["c1|EAU_POTABLE", 1], ["c1|TELECOM", 2]]);
+describe("reseaux depuis les jeux autorises : identite decidee par l'eligibilite du lot S1 (revue D1, M2)", () => {
+  const j = (id: string, o: Partial<{ role: string; concessionnaireId: string | null; typeReseau: string | null; typeReseauCode: string | null; jour: number }> = {}) => ({
+    id, projetId: "p", role: o.role ?? "RESEAU_TIERS", statut: "AUTORISE", concessionnaireId: o.concessionnaireId === undefined ? "c1" : o.concessionnaireId, concessionnaireNom: "C1",
+    typeReseau: o.typeReseau === undefined ? "TELECOM" : o.typeReseau, typeReseauCode: o.typeReseauCode ?? null, methodeAcquisition: null, remplaceId: null,
+    createdAt: new Date(Date.UTC(2026, 10, o.jour ?? 1)),
+  });
+  it("regroupe ce que l'eligibilite S1 declare comparable ; ignore les autres roles ; un reseau sans concessionnaire reste seul", () => {
+    const r = reseauxDepuisJeux([j("a"), j("b", { jour: 2 }), j("c", { typeReseau: "EAU_POTABLE", jour: 3 }), j("x", { role: "AXES_TRAVAUX", concessionnaireId: null, typeReseau: null }),
+      j("s1", { concessionnaireId: null, jour: 4 }), j("s2", { concessionnaireId: null, jour: 5 })]);
+    expect(r.map((x) => [x.concessionnaireId, x.typeReseau, x.nbSources])).toEqual([["c1", "TELECOM", 2], ["c1", "EAU_POTABLE", 1], [null, "TELECOM", 1], [null, "TELECOM", 1]]);
+  });
+  it("deux types configurables de la meme famille : la completude dit exactement ce que l'eligibilite S1 dit (comparable si et seulement si elle accepte la paire)", () => {
+    const a = j("a", { typeReseauCode: "FIBRE_SYNTH" }), b = j("b", { typeReseauCode: "CUIVRE_SYNTH", jour: 2 });
+    const r = reseauxDepuisJeux([a, b]);
+    const accepte = evaluerEligibilite(a, b).ok;
+    expect(r.some((x) => x.comparable === undefined)).toBe(false);
+    expect(r.length === 1 && r[0].nbSources === 2).toBe(accepte);
+    expect(r.map((x) => x.typeReseauCode)).toEqual(accepte ? ["FIBRE_SYNTH"] : ["FIBRE_SYNTH", "CUIVRE_SYNTH"]);
   });
 });

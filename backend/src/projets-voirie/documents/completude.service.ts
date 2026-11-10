@@ -32,7 +32,8 @@ export async function completudeProjet(acteur: Acteur, projetId: string) {
       const projet = await tx.projetVoirie.findFirst({ where: { id: projetId, deletedAt: null }, select: { id: true } });
       if (!projet) throw introuvable("Projet", "PROJET_INTROUVABLE");
       const jeux = await tx.jeuDonneesProjet.findMany({
-        where: { projetId, statut: "AUTORISE" }, select: { role: true, concessionnaireId: true, typeReseau: true, concessionnaire: { select: { nom: true } } },
+        where: { projetId, statut: "AUTORISE" },
+        select: { id: true, projetId: true, role: true, statut: true, concessionnaireId: true, typeReseau: true, typeReseauCode: true, methodeAcquisition: true, remplaceId: true, createdAt: true, concessionnaire: { select: { nom: true } } },
       });
       // Decisions de deplacement approuvees, sur des dossiers ou un deplacement est decide (TRAITEMENT_DECIDE, CLOTURE) et que le compte voit.
       const [{ n }] = await tx.$queryRaw<{ n: bigint }[]>`
@@ -58,7 +59,8 @@ export async function completudeProjet(acteur: Acteur, projetId: string) {
       const c = calculerCompletude({
         etat: {
           nbAxesAutorises: parRole.AXES_TRAVAUX ?? 0,
-          reseaux: reseauxDepuisJeux(jeux.map((j) => ({ role: j.role, concessionnaireId: j.concessionnaireId, concessionnaireNom: j.concessionnaire?.nom ?? null, typeReseau: j.typeReseau }))),
+          // Revue D1, M2 : identite d'un reseau decidee par l'eligibilite du lot S1, code TYPE_RESEAU transmis.
+          reseaux: reseauxDepuisJeux(jeux.map(({ concessionnaire, ...j }) => ({ ...j, concessionnaireNom: concessionnaire?.nom ?? null, typeReseauCode: j.typeReseauCode ?? null }))),
           nbDecisionsDeplacement: Number(n),
         },
         types: types.map(typeDepuisLigne), documents, jeuxAutorisesParRole: parRole, decideur,
