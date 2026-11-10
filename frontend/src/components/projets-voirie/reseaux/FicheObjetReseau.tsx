@@ -10,7 +10,7 @@ import { ElementRelation } from "./ElementRelation";
 import type { CorpsRelation, FicheObjetReseau as FicheLue, ObjetReseau, RelationReseau } from "../../../lib/projetsVoirieReseauxApi";
 import {
   AIDE_NATURE_COURTE, LIBELLE_CONFIANCE, LIBELLE_ETAT_VERTICAL, LIBELLE_ORIGINE_VALEUR, LIBELLE_STATUT_JEU_COURT, LIBELLE_STATUT_QUALITE, MENTION_3D, MENTION_LIGNES_CABLES,
-  ROLES_JEU_QUALIFIABLES, STATUTS_JEU_QUALIFIABLES, classerErreurReseau, libelleTypeObjet, texteMetres, type ActionRelation, type CorpsDescripteur,
+  ROLES_JEU_QUALIFIABLES, STATUTS_JEU_QUALIFIABLES, classerErreurReseau, libelleTypeObjet, texteMetres, type ActionRelation, type CorpsDescripteur, LIBELLE_ETAT_CONNEXION, MENTION_CONNEXION,
 } from "../../../lib/projetsVoirieReseaux";
 import { AIDE_CLASSE, LIBELLE_CONFIDENTIALITE, LIBELLE_ROLE, formaterDate, formaterMetres, type Confidentialite, type RoleJeu } from "../../../lib/projetsVoirie";
 import { formaterDateHeure } from "../../../lib/projetsVoirieConflits";
@@ -111,6 +111,12 @@ export const FicheObjetReseau = forwardRef<HTMLHeadingElement, PropsFicheObjetRe
         </p>
         <p className="text-xs text-gray-800">{AIDE_NATURE_COURTE[o.nature]}</p>
         {o.nature === "CIRCUIT_LOGIQUE" && <p role="note" className="text-xs text-gray-800">{MENTION_LIGNES_CABLES}</p>}
+        {f.connexions && (
+          <p data-testid="etat-connexion" data-etat={f.connexions.etat} className="text-xs text-gray-900">
+            <strong>{LIBELLE_ETAT_CONNEXION[f.connexions.etat]}</strong>
+            {f.connexions.etat !== "NON_FOURNIE" && ` (${f.connexions.nbConfirmees ?? 0} confirmée(s) par le fournisseur, ${f.connexions.nbInconnues ?? 0} de preuve inconnue)`}. {MENTION_CONNEXION}
+          </p>
+        )}
       </header>
 
       <div className="flex flex-wrap gap-2">

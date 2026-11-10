@@ -76,4 +76,11 @@ export const MESSAGE_CODE_IMPORT: Record<string, string> = {
   ENTITE_REFUSEE: "Le document contient une entité XML, refusée par sécurité." + RIEN_ECRIT,
   XML_TROP_PROFOND: "Le document XML est trop imbriqué pour être lu." + RIEN_ECRIT,
   JSON_INVALIDE: "Le document JSON est invalide ou tronqué." + RIEN_ECRIT,
+  // Lot B2 : chaine GDAL (GeoPackage, Shapefile ZIP, DXF), DESACTIVEE par defaut
+  FORMAT_GDAL_DESACTIVE: "Ce format (GeoPackage, Shapefile ZIP ou DXF) est désactivé sur ce serveur : la chaîne de conversion isolée n'est pas en service. Exportez le fichier en GeoJSON, KML, GPX ou CSV depuis votre logiciel SIG ou de dessin, puis déposez ce fichier." + RIEN_ECRIT,
+  GDAL_DESACTIVE: "La conversion des formats GeoPackage, Shapefile ZIP et DXF est désactivée sur ce serveur. Déposez le fichier en GeoJSON, KML, GPX ou CSV." + RIEN_ECRIT,
+  CONVERSION_ASYNCHRONE_REQUISE: "Ce format est lu par la chaîne de conversion isolée, en tâche de fond : cette interface ne pilote pas encore cette conversion. Déposez le fichier en GeoJSON, KML, GPX ou CSV." + RIEN_ECRIT,
+  METHODE_ACQUISITION_INCONNUE: "Cette méthode d'acquisition n'est pas acceptée par le serveur : choisissez-en une autre dans la liste, ou laissez-la non renseignée." + RIEN_ECRIT,
+  TYPE_RESEAU_INCONNU: "Ce type de réseau est inconnu ou retiré du référentiel : choisissez-en un dans la liste." + RIEN_ECRIT,
+  TYPE_RESEAU_INCOHERENT: "Le type de réseau choisi n'appartient pas à la famille indiquée : choisissez le type seul, la famille en est déduite." + RIEN_ECRIT,
 };

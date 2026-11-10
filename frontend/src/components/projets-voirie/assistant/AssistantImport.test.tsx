@@ -122,7 +122,7 @@ describe("etape 1 : depot", () => {
     expect(f).toHaveTextContent("GeoJSON : .geojson, .json");
     expect(f).toHaveTextContent("GPX : .gpx");
     expect(f).toHaveTextContent("Tableau délimité (CSV, TSV, TXT) : .csv, .tsv, .txt");
-    expect(f).toHaveTextContent("Pas encore lus : GEOPACKAGE, SHAPEFILE, DXF, DWG");
+    expect(f).toHaveTextContent("Non lus : GEOPACKAGE, SHAPEFILE, DXF, DWG (exportez un DWG en DXF)");
     expect(f).toHaveTextContent(/détecté par le contenu du fichier, pas par son extension/);
     expect(dialogue()).toHaveTextContent("Fichier (25 Mo maximum)");
     expect(dialogue()).toHaveTextContent(/données d'infrastructure sensibles/);
@@ -185,7 +185,7 @@ describe("etape 1 : depot", () => {
     expect(dialogue()).toHaveTextContent(/ne lit pas/);
     await u.click(bouton("Analyser le fichier"));
     const alerte = await screen.findByText(/Code : FORMAT_NON_SUPPORTE/).then((e) => e.closest("[role=alert]") as HTMLElement);
-    expect(alerte).toHaveTextContent(/GeoPackage, Shapefile, DXF et DWG sont prévus à un lot suivant/);
+    expect(alerte).toHaveTextContent(/GeoPackage, Shapefile ZIP et DXF passent par une chaîne de conversion isolée, qui peut être désactivée sur ce serveur ; DWG n'est pas lu/);
     expect(screen.getByRole("heading", { name: "Dépôt du fichier" })).toBeInTheDocument();
   });
   it("hors ligne : on ne peut pas analyser", async () => {

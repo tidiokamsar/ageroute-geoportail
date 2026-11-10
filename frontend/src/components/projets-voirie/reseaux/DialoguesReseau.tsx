@@ -7,9 +7,9 @@ import { useObjetsReseau } from "../../../lib/projetsVoirieReseauxHooks";
 import type { CorpsRelation, ObjetReseau, RelationReseau } from "../../../lib/projetsVoirieReseauxApi";
 import {
   AIDE_NATURE_COURTE, EFFET_ACTION_RELATION, LIBELLE_ACTION_RELATION, LIBELLE_CONFIANCE, LIBELLE_NATURE_COURT, LIBELLE_ORIGINE_VALEUR, LIBELLE_STATUT_QUALITE, LIBELLE_TYPE_RELATION_COURT,
-  NIVEAUX_CONFIANCE, SAISIE_DESCRIPTEUR_VIDE, STATUTS_QUALITE, TYPES_OBJET_PAR_NATURE, VERBE_ACTION_RELATION, classeDeclarable, classerErreurReseau, corpsDescripteur,
+  LIBELLE_PREUVE, MENTION_CONNEXION, NIVEAUX_CONFIANCE, PREUVES_CONNEXION, SAISIE_DESCRIPTEUR_VIDE, STATUTS_QUALITE, TYPES_OBJET_PAR_NATURE, VERBE_ACTION_RELATION, classeDeclarable, classerErreurReseau, corpsDescripteur,
   erreursDescripteur, libelleTypeObjet, naturesCompatibles, natureQuiSAppliquera, texteMetres, texteNombre, FILTRES_OBJETS_VIDES,
-  type ActionRelation, type CorpsDescripteur, type NatureDeclarable, type NiveauConfiance, type SaisieDescripteur, type StatutQualite, type TypeRelation,
+  type ActionRelation, type CorpsDescripteur, type NatureDeclarable, type NiveauConfiance, type PreuveConnexion, type SaisieDescripteur, type StatutQualite, type TypeRelation,
 } from "../../../lib/projetsVoirieReseaux";
 import { AIDE_CLASSE } from "../../../lib/projetsVoirie";
 import { justificationValide } from "../../../lib/projetsVoirieConflits";
@@ -170,13 +170,25 @@ export const libelleRelation = (r: Pick<RelationReseau, "typeRelation" | "source
 
 type SensRelation = { type: TypeRelation; objetOuvertEstSource: boolean; natureCherchee: NatureDeclarable; phrase: string };
 
-/** Les sens possibles d'une relation depuis un objet donne : un circuit est porte par une infrastructure, un equipement est contenu dans une infrastructure. */
+/**
+ * Les sens possibles d'une relation depuis un objet donne : un circuit est porte par une infrastructure, un equipement est contenu dans une
+ * infrastructure ; lot S1 : deux objets PHYSIQUES (infrastructure ou equipement) peuvent etre DECLARES connectes. L'autre objet se cherche par
+ * son NOM, jamais par proximite : aucune connexion n'est proposee d'apres la geometrie.
+ */
 export function sensPossibles(o: Pick<ObjetReseau, "nature">): SensRelation[] {
+  const connexions = (pronom: string): SensRelation[] => [
+    { type: "CONNECTE_A", objetOuvertEstSource: true, natureCherchee: "ACTIF_PHYSIQUE", phrase: `${pronom} est déclaré connecté à l'infrastructure physique suivante` },
+    { type: "CONNECTE_A", objetOuvertEstSource: true, natureCherchee: "EQUIPEMENT", phrase: `${pronom} est déclaré connecté à l'équipement suivant` },
+  ];
   if (o.nature === "CIRCUIT_LOGIQUE") return [{ type: "PORTE_PAR", objetOuvertEstSource: true, natureCherchee: "ACTIF_PHYSIQUE", phrase: "Ce circuit est porté par l'infrastructure physique suivante" }];
-  if (o.nature === "EQUIPEMENT") return [{ type: "CONTENU_DANS", objetOuvertEstSource: true, natureCherchee: "ACTIF_PHYSIQUE", phrase: "Cet équipement est contenu dans l'infrastructure suivante (chambre, regard)" }];
+  if (o.nature === "EQUIPEMENT") return [
+    { type: "CONTENU_DANS", objetOuvertEstSource: true, natureCherchee: "ACTIF_PHYSIQUE", phrase: "Cet équipement est contenu dans l'infrastructure suivante (chambre, regard)" },
+    ...connexions("Cet équipement"),
+  ];
   if (o.nature === "ACTIF_PHYSIQUE") return [
     { type: "PORTE_PAR", objetOuvertEstSource: false, natureCherchee: "CIRCUIT_LOGIQUE", phrase: "Le circuit logique suivant est porté par cette infrastructure" },
     { type: "CONTENU_DANS", objetOuvertEstSource: false, natureCherchee: "EQUIPEMENT", phrase: "L'équipement suivant est contenu dans cette infrastructure" },
+    ...connexions("Cette infrastructure"),
   ];
   return [];
 }
@@ -190,6 +202,8 @@ export function DialogueNouvelleRelation({ projetId, objet, enLigne, onFermer, o
   const [q, setQ] = useState("");
   const [choix, setChoix] = useState<string | null>(null);
   const [j, setJ] = useState("");
+  // Lot S1 : preuve d'une connexion declaree ; « inconnue » par defaut (recommandation du contrat) : on n'affirme pas une confirmation du fournisseur sans elle.
+  const [preuve, setPreuve] = useState<PreuveConnexion>("INCONNUE");
   const { enCours, erreur, envoyer } = useEnvoiDialogue(onFermer, classerErreurReseau);
   const s = sens[i];
   const filtres = useMemo(() => ({ ...FILTRES_OBJETS_VIDES, nature: s?.natureCherchee ?? ("" as const), q }), [s, q]);
@@ -202,6 +216,7 @@ export function DialogueNouvelleRelation({ projetId, objet, enLigne, onFermer, o
     if (!s || choix === null) return;
     void envoyer(() => onValider({
       type: s.type, sourceObjetId: s.objetOuvertEstSource ? objet.id : choix, cibleObjetId: s.objetOuvertEstSource ? choix : objet.id, justification: j.trim(),
+      ...(s.type === "CONNECTE_A" ? { preuve } : {}),
     }));
   }
 
@@ -219,7 +234,7 @@ export function DialogueNouvelleRelation({ projetId, objet, enLigne, onFermer, o
         <fieldset className="space-y-1">
           <legend className={LIBELLE_CHAMP}>Sens de la relation</legend>
           {sens.map((x, k) => (
-            <label key={x.type} className="flex min-h-[44px] items-center gap-2 text-sm text-gray-900 xl:min-h-0">
+            <label key={x.phrase} className="flex min-h-[44px] items-center gap-2 text-sm text-gray-900 xl:min-h-0">
               <input type="radio" name={`${id}-sens`} className="h-4 w-4" checked={i === k} disabled={enCours} onChange={() => { setI(k); setChoix(null); }} />{x.phrase}
             </label>
           ))}
@@ -244,6 +259,17 @@ export function DialogueNouvelleRelation({ projetId, objet, enLigne, onFermer, o
           ))}
           </div>
           {aSuite && <p className="text-xs text-gray-700">D&apos;autres objets existent : affinez la recherche pour retrouver le vôtre.</p>}
+        </fieldset>
+      )}
+      {s?.type === "CONNECTE_A" && (
+        <fieldset className="space-y-1 rounded border border-gray-300 p-2" aria-describedby={`${id}-preuve-aide`}>
+          <legend className="px-1 text-sm font-medium text-gray-900">Preuve de la connexion (obligatoire)</legend>
+          <p id={`${id}-preuve-aide`} className="text-xs text-gray-700">{MENTION_CONNEXION} Ne choisissez « confirmée par le fournisseur » que si un document ou un fichier du concessionnaire l&apos;atteste.</p>
+          {PREUVES_CONNEXION.map((p) => (
+            <label key={p} className="flex min-h-[44px] items-center gap-2 text-sm text-gray-900 xl:min-h-0">
+              <input type="radio" name={`${id}-preuve`} className="h-4 w-4" checked={preuve === p} disabled={enCours} onChange={() => setPreuve(p)} />{LIBELLE_PREUVE[p]}
+            </label>
+          ))}
         </fieldset>
       )}
       <div>

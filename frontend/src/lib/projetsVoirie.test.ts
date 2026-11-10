@@ -177,7 +177,7 @@ describe("classement des erreurs {error, code}", () => {
       expect(e.message).not.toContain("message brut");
     }
     expect(MESSAGE_CODE.FORMAT_NON_SUPPORTE).toMatch(/KML, KMZ, GeoJSON, GPX/);
-    expect(MESSAGE_CODE.FORMAT_NON_SUPPORTE).toMatch(/GeoPackage, Shapefile, DXF et DWG sont prévus à un lot suivant/);
+    expect(MESSAGE_CODE.FORMAT_NON_SUPPORTE).toMatch(/GeoPackage, Shapefile ZIP et DXF passent par une chaîne de conversion isolée, qui peut être désactivée sur ce serveur ; DWG n'est pas lu/);
     expect(MESSAGE_CODE.HORS_GUINEE).toMatch(/Guinée/);
     expect(MESSAGE_CODE.CRS_NON_SUPPORTE).toMatch(/code EPSG/);
   });

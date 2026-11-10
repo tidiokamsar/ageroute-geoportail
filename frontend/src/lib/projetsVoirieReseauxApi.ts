@@ -2,9 +2,9 @@ import { api } from "./api";
 import { ReponseInattendue } from "./projetsVoirieApi";
 import { NATURES_OBJET, versNombre, type ClassePrecision, type NatureObjet, type TypeGeom } from "./projetsVoirie";
 import {
-  ETATS_VERTICAUX, ACTIONS_RELATION, NIVEAUX_CONFIANCE, ORIGINES_RELATION, STATUTS_QUALITE, STATUTS_RELATION, TYPES_RELATION, paramsObjets, paramsRelations,
-  type ActionRelation, type CorpsDescripteur, type EtatVertical, type FiltresObjets, type FiltresRelations, type NiveauConfiance, type OrigineRelation, type OrigineValeur,
-  type StatutQualite, type StatutRelation, type TypeRelation,
+  ETATS_CONNEXION, ETATS_VERTICAUX, ACTIONS_RELATION, NIVEAUX_CONFIANCE, ORIGINES_RELATION, PREUVES_CONNEXION, STATUTS_QUALITE, STATUTS_RELATION, TYPES_RELATION, paramsObjets, paramsRelations,
+  type ActionRelation, type CorpsDescripteur, type EtatConnexion, type EtatVertical, type FiltresObjets, type FiltresRelations, type NiveauConfiance, type OrigineRelation, type OrigineValeur,
+  type PreuveConnexion, type StatutQualite, type StatutRelation, type TypeRelation,
 } from "./projetsVoirieReseaux";
 
 /**
@@ -127,6 +127,8 @@ export interface RelationReseau {
   actionsPossibles: ActionRelation[];
   /** Role de l'objet ouvert dans la relation (fiche d'un objet seulement). */
   role: "SOURCE" | "CIBLE" | null;
+  /** Lot S1 : preuve d'une connexion declaree (CONNECTE_A) ; nulle pour les autres types. */
+  preuve: PreuveConnexion | null;
 }
 
 export interface PageRelationsReseau { relations: RelationReseau[]; suivant: string | null; ignores: number }
@@ -137,6 +139,8 @@ export interface FicheObjetReseau {
   ignoresRelations: number;
   /** Autres objets du meme jeu a la trace strictement identique (circuits superposes) ; `null` si non calcule (pas une ligne) ou non fourni. */
   tracePartagee: { nbAutresObjets: number | null; libelle: string | null } | null;
+  /** Lot S1 : etat de connexion DECLARE de l'objet (jamais deduit) ; nul pour un serveur plus ancien. */
+  connexions: { etat: EtatConnexion; nbConfirmees: number | null; nbInconnues: number | null; libelle: string | null } | null;
 }
 
 export interface BilanProposition {
@@ -269,6 +273,7 @@ export function lireRelationReseau(v: unknown): RelationReseau | null {
     creePar: texte(v.creePar), createdAt: texte(v.createdAt),
     actionsPossibles: tableau(v.actionsPossibles).flatMap((a) => { const x = parmi(a, ACTIONS_RELATION); return x ? [x] : []; }),
     role: v.role === "SOURCE" || v.role === "CIBLE" ? v.role : null,
+    preuve: parmi(v.preuve, PREUVES_CONNEXION),
   };
 }
 
@@ -291,6 +296,11 @@ export function lireFicheObjetReseau(data: unknown): FicheObjetReseau {
   return {
     objet, relations, ignoresRelations: liste.length - relations.length,
     tracePartagee: tp ? { nbAutresObjets: nombre(tp.nbAutresObjets), libelle: texte(tp.libelle) } : null,
+    connexions: (() => {
+      const c = estObjet(racine.connexions) ? racine.connexions : null;
+      const etat = c ? parmi(c.etat, ETATS_CONNEXION) : null;
+      return c && etat ? { etat, nbConfirmees: nombre(c.nbConfirmees), nbInconnues: nombre(c.nbInconnues), libelle: texte(c.libelle) } : null;
+    })(),
   };
 }
 
@@ -390,7 +400,8 @@ export async function listerRelationsReseau(projetId: string, filtres: FiltresRe
   return lirePageRelationsReseau(data);
 }
 
-export interface CorpsRelation { type: TypeRelation; sourceObjetId: string; cibleObjetId: string; justification: string }
+/** Lot S1 : `preuve` OBLIGATOIRE pour CONNECTE_A et INTERDITE pour les autres types (400 CHAMPS_INVALIDES sinon). */
+export interface CorpsRelation { type: TypeRelation; sourceObjetId: string; cibleObjetId: string; justification: string; preuve?: PreuveConnexion }
 /** Declaration MANUELLE : une personne affirme la relation, elle est creee validee (c'est une decision humaine, avec son auteur et sa justification). */
 export async function declarerRelationReseau(projetId: string, corps: CorpsRelation): Promise<void> {
   await api.post(`${BASE}/${id(projetId)}/reseau/relations`, corps);

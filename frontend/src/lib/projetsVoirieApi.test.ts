@@ -32,8 +32,8 @@ describe("liste, creation, fiche, parametres, retrait du projet", () => {
   });
   it("POST / cree un projet", async () => {
     h.post.mockResolvedValueOnce({ data: { id: "p1", code: "A-1", nom: "A", jeux: [] } });
-    const p = await creerProjet({ code: "A-1", nom: "A", largeurEmpriseM: 15, largeurChausseeM: 7 });
-    expect(h.post).toHaveBeenCalledWith(BASE, { code: "A-1", nom: "A", largeurEmpriseM: 15, largeurChausseeM: 7 });
+    const p = await creerProjet({ code: "A-1", nom: "A", largeurEmpriseM: 15, largeurChausseeM: 7, territoireId: "t-1" });
+    expect(h.post).toHaveBeenCalledWith(BASE, { code: "A-1", nom: "A", largeurEmpriseM: 15, largeurChausseeM: 7, territoireId: "t-1" });
     expect(p.id).toBe("p1");
   });
   it("GET /:id : forme a plat ou imbriquee, emprise, jeux", async () => {
@@ -64,7 +64,7 @@ describe("liste, creation, fiche, parametres, retrait du projet", () => {
 describe("concessionnaires", () => {
   it("GET et POST /concessionnaires", async () => {
     h.get.mockResolvedValueOnce({ data: [{ id: "c1", nom: "Operateur", typeReseau: "TELECOM", contact: "x" }, { nom: "sans id" }] });
-    expect(await listerConcessionnaires()).toEqual([{ id: "c1", nom: "Operateur", typeReseau: "TELECOM", contact: "x" }]);
+    expect(await listerConcessionnaires()).toEqual([{ id: "c1", nom: "Operateur", typeReseau: "TELECOM", typeReseauCode: null, contact: "x" }]);
     expect(h.get).toHaveBeenCalledWith(`${BASE}/concessionnaires`);
     h.post.mockResolvedValueOnce({ data: { id: "c2", nom: "Eaux", typeReseau: "EAU_POTABLE" } });
     const c = await creerConcessionnaire({ nom: "Eaux", typeReseau: "EAU_POTABLE" });

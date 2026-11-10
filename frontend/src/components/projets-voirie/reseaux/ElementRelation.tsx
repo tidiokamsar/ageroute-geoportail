@@ -2,7 +2,7 @@ import { Button } from "../../ui/Button";
 import { BadgeNature, BadgeOrigineRelation, BadgeStatutRelation } from "./BadgesReseau";
 import type { ExtremiteRelation, RelationReseau } from "../../../lib/projetsVoirieReseauxApi";
 import {
-  LIBELLE_ACTION_RELATION, LIBELLE_TYPE_RELATION, STYLE_STATUT_RELATION, libelleTypeObjet, texteMetres, type ActionRelation,
+  LIBELLE_ACTION_RELATION, LIBELLE_PREUVE, LIBELLE_TYPE_RELATION, STYLE_STATUT_RELATION, libelleTypeObjet, texteMetres, type ActionRelation, type TypeRelation,
 } from "../../../lib/projetsVoirieReseaux";
 import { formaterDateHeure } from "../../../lib/projetsVoirieConflits";
 import { formaterPourcent } from "../../../lib/projetsVoirie";
@@ -28,6 +28,9 @@ function Extremite({ e, libelle, ouvert, onOuvrir }: { e: ExtremiteRelation | nu
   );
 }
 
+const LIBELLE_SOURCE: Record<TypeRelation, string> = { PORTE_PAR: "Circuit", CONTENU_DANS: "Équipement", CONNECTE_A: "Objet" };
+const LIBELLE_CIBLE: Record<TypeRelation, string> = { PORTE_PAR: "Porté par", CONTENU_DANS: "Contenu dans", CONNECTE_A: "Connecté à" };
+
 export function ElementRelation({ relation: r, objetOuvertId, onAction, onOuvrirObjet, enLigne }: {
   relation: RelationReseau; objetOuvertId?: string; onAction: (r: RelationReseau, a: ActionRelation) => void; onOuvrirObjet?: (objetId: string) => void; enLigne: boolean;
 }) {
@@ -40,8 +43,11 @@ export function ElementRelation({ relation: r, objetOuvertId, onAction, onOuvrir
         <strong>{LIBELLE_TYPE_RELATION[r.typeRelation]}</strong>
       </p>
       <p className="text-[11px] text-gray-700">{STYLE_STATUT_RELATION[r.statut].aide}</p>
-      <Extremite e={r.source} libelle={r.typeRelation === "PORTE_PAR" ? "Circuit" : "Équipement"} ouvert={!!objetOuvertId && r.source?.objetId === objetOuvertId} onOuvrir={onOuvrirObjet} />
-      <Extremite e={r.cible} libelle={r.typeRelation === "PORTE_PAR" ? "Porté par" : "Contenu dans"} ouvert={!!objetOuvertId && r.cible?.objetId === objetOuvertId} onOuvrir={onOuvrirObjet} />
+      <Extremite e={r.source} libelle={LIBELLE_SOURCE[r.typeRelation]} ouvert={!!objetOuvertId && r.source?.objetId === objetOuvertId} onOuvrir={onOuvrirObjet} />
+      <Extremite e={r.cible} libelle={LIBELLE_CIBLE[r.typeRelation]} ouvert={!!objetOuvertId && r.cible?.objetId === objetOuvertId} onOuvrir={onOuvrirObjet} />
+      {r.typeRelation === "CONNECTE_A" && (
+        <p data-testid="preuve-connexion" className="text-gray-900"><strong>Preuve :</strong> {r.preuve ? LIBELLE_PREUVE[r.preuve] : "non fournie par le serveur"}. Connexion déclarée, jamais déduite d&apos;une proximité.</p>
+      )}
       {p && (
         <div data-testid="detail-proposition" className="rounded border border-amber-300 bg-amber-50 p-1.5 text-amber-900">
           <p><strong>Calcul de la proposition automatique</strong> (superposition géométrique{p.methode ? `, méthode ${p.methode}` : ""}{p.version ? ` ${p.version}` : ""})</p>

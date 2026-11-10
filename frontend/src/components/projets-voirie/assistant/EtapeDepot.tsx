@@ -4,12 +4,16 @@ import { Button } from "../../ui/Button";
 import { Input, Select } from "../../ui/Input";
 import { toast } from "../../../lib/toast";
 import { useConcessionnaires, useCreerConcessionnaire } from "../../../lib/projetsVoirieHooks";
+import { useReferentiel } from "../../../lib/projetsVoirieTerritoiresHooks";
 import {
-  AIDE_CLASSE, CLASSES_PRECISION, LIBELLE_CONFIDENTIALITE, LIBELLE_NATURE, LIBELLE_ROLE, MESSAGE_QUARANTAINE, NIVEAUX_CONFIDENTIALITE, ROLES_JEU, STYLE_RESEAU, TYPES_RESEAU,
+  AIDE_CLASSE, CLASSES_PRECISION, LIBELLE_CONFIDENTIALITE, LIBELLE_NATURE, LIBELLE_ROLE, MESSAGE_QUARANTAINE, NIVEAUX_CONFIDENTIALITE, ROLES_JEU, STYLE_RESEAU,
   classerErreur, confidentialiteParDefaut, controlerFichier, formaterTaille, natureParDefaut, naturesProposees,
-  type ClassePrecision, type Confidentialite, type NatureObjet, type RoleJeu, type TypeReseau,
+  type ClassePrecision, type Confidentialite, type NatureObjet, type RoleJeu,
 } from "../../../lib/projetsVoirie";
-import { LIBELLE_FORMAT, type OptionsImportApi, type Saisie } from "../../../lib/projetsVoirieImport";
+import {
+  LIBELLE_FORMAT, LIBELLE_FORMAT_GDAL, MARCHE_GDAL_DESACTIVE, MESSAGE_CODE_GDAL_ASYNCHRONE, formatGdalDuFichier, messageGdalDesactive, type OptionsImportApi, type Saisie,
+} from "../../../lib/projetsVoirieImport";
+import { classerErreurTerritoires, familleDuType, libelleDeCode, optionsDeChoix } from "../../../lib/projetsVoirieTerritoires";
 import { Champ, Encart } from "./commun";
 
 const aujourdhui = () => new Date().toISOString().slice(0, 10);
@@ -17,6 +21,10 @@ const aujourdhui = () => new Date().toISOString().slice(0, 10);
 /**
  * Etape 1 : depot du fichier et metadonnees du jeu. Formats acceptes, taille maximale et mode de conservation viennent de l'API (rien n'est code en
  * dur). Le fichier n'est ni lu ni apercu par le navigateur : il est transmis au serveur a l'etape suivante, sans copie locale.
+ *
+ * Lot UI-C : les types de reseau et les methodes d'acquisition se chargent depuis les referentiels (`GET /referentiels/:domaine`) ; une valeur
+ * desactivee n'est plus proposee. Les formats GDAL (GeoPackage, Shapefile ZIP, DXF) sont annonces avec leur etat sur ce serveur ; desactives, ils
+ * sont refuses localement avec la marche a suivre (deposer en GeoJSON, KML, GPX ou CSV).
  */
 export function EtapeDepot({ saisie: s, erreurs, options, occupe, enLigne, onSaisie, onFichier }: {
   saisie: Saisie; erreurs: Record<string, string>; options: OptionsImportApi; occupe: boolean; enLigne: boolean;
@@ -25,13 +33,20 @@ export function EtapeDepot({ saisie: s, erreurs, options, occupe, enLigne, onSai
   const id = useId();
   const concessionnaires = useConcessionnaires(true);
   const creerConc = useCreerConcessionnaire();
+  const types = useReferentiel("TYPE_RESEAU");
+  const methodes = useReferentiel("METHODE_ACQUISITION");
   const [glisse, setGlisse] = useState(false);
   const [nouveau, setNouveau] = useState(false);
-  const [nc, setNc] = useState<{ nom: string; type: TypeReseau; contact: string }>({ nom: "", type: "TELECOM", contact: "" });
+  const [nc, setNc] = useState<{ nom: string; typeCode: string; contact: string }>({ nom: "", typeCode: "", contact: "" });
   const [erreurNc, setErreurNc] = useState<string | null>(null);
 
   const tailleMax = options.limites.tailleMaxOctets;
   const verdict = controlerFichier(s.fichier, options.formats, tailleMax);
+  const gdalFichier = formatGdalDuFichier(s.fichier?.name, options.formatsGdal);
+  const gdalIndisponibles = options.formatsGdal?.formats.filter((f) => f.etat === "INDISPONIBLE") ?? [];
+  const gdalSupportes = options.formatsGdal?.formats.filter((f) => f.etat === "SUPPORTE") ?? [];
+  const typesV = types.data?.valeurs;
+  const libelleFamille = (f: string | null | undefined) => (f && f in STYLE_RESEAU ? STYLE_RESEAU[f as keyof typeof STYLE_RESEAU].libelle : null);
   const tiers = s.role === "RESEAU_TIERS";
   const err = (k: string) => erreurs[k];
   const extensions = options.formats.flatMap((f) => f.extensions);
@@ -42,7 +57,8 @@ export function EtapeDepot({ saisie: s, erreurs, options, occupe, enLigne, onSai
   }
   function choisirConcessionnaire(cid: string) {
     const c = concessionnaires.data?.find((x) => x.id === cid);
-    onSaisie({ concessionnaireId: cid, typeReseau: s.typeReseau || c?.typeReseau || "" });
+    // Le type repris du concessionnaire : son code s'il en porte un, sinon sa famille (repli du contrat T1). Un choix deja fait n'est pas ecrase.
+    onSaisie({ concessionnaireId: cid, typeReseauCode: s.typeReseauCode || c?.typeReseauCode || "", typeReseau: s.typeReseau || c?.typeReseau || "" });
   }
   function surDepot(e: DragEvent<HTMLLabelElement>) {
     e.preventDefault();
@@ -53,15 +69,16 @@ export function EtapeDepot({ saisie: s, erreurs, options, occupe, enLigne, onSai
   async function creerConcessionnaire() {
     const nom = nc.nom.trim();
     if (!nom) { setErreurNc("Saisissez le nom du concessionnaire."); return; }
+    if (!nc.typeCode) { setErreurNc("Choisissez le type de réseau du concessionnaire."); return; }
     setErreurNc(null);
     try {
-      const c = await creerConc.mutateAsync({ nom, typeReseau: nc.type, ...(nc.contact.trim() ? { contact: nc.contact.trim() } : {}) });
+      const c = await creerConc.mutateAsync({ nom, typeReseauCode: nc.typeCode, ...(nc.contact.trim() ? { contact: nc.contact.trim() } : {}) });
       setNouveau(false);
-      setNc({ nom: "", type: "TELECOM", contact: "" });
-      onSaisie({ concessionnaireId: c.id, typeReseau: c.typeReseau ?? nc.type });
+      setNc({ nom: "", typeCode: "", contact: "" });
+      onSaisie({ concessionnaireId: c.id, typeReseauCode: c.typeReseauCode ?? nc.typeCode, typeReseau: c.typeReseau ?? "" });
       toast.success(`Concessionnaire « ${c.nom} » créé.`);
     } catch (e) {
-      setErreurNc(classerErreur(e).message);
+      setErreurNc(classerErreurTerritoires(e).message);
     }
   }
 
@@ -97,11 +114,19 @@ export function EtapeDepot({ saisie: s, erreurs, options, occupe, enLigne, onSai
           <ul className="list-disc pl-5">
             {options.formats.map((f) => <li key={f.format}>{LIBELLE_FORMAT[f.format] ?? f.format} : {f.extensions.join(", ")}</li>)}
           </ul>
-          {options.nonSupportes.length > 0 && <p>Pas encore lus : {options.nonSupportes.map((n) => n.format).join(", ")}. Le PDF reste une pièce jointe ; une page HTML n&apos;est jamais importée.</p>}
+          {gdalIndisponibles.length > 0 && (
+            <div data-testid="formats-gdal-desactives" className="mt-1 rounded border border-amber-300 bg-amber-50 p-2 text-amber-950">
+              <p><strong>Désactivés sur ce serveur :</strong> {gdalIndisponibles.map((f) => `${LIBELLE_FORMAT_GDAL[f.format] ?? f.format} (${f.extensions.join(", ")})`).join(" ; ")}.{options.formatsGdal?.raison ? ` Raison : ${options.formatsGdal.raison}.` : ""}</p>
+              <p>{MARCHE_GDAL_DESACTIVE}</p>
+            </div>
+          )}
+          {gdalSupportes.length > 0 && <p data-testid="formats-gdal-actifs">Lus en tâche de fond par la chaîne de conversion isolée de ce serveur : {gdalSupportes.map((f) => LIBELLE_FORMAT_GDAL[f.format] ?? f.format).join(", ")}. {MESSAGE_CODE_GDAL_ASYNCHRONE}</p>}
+          {options.nonSupportes.length > 0 && <p>Non lus : {options.nonSupportes.map((n) => n.format).join(", ")}{options.nonSupportes.some((n) => n.format === "DWG") ? " (exportez un DWG en DXF)" : ""}. Le PDF reste une pièce jointe ; une page HTML n&apos;est jamais importée.</p>}
         </div>
         <p id={`${id}-fichier-etat`} className="mt-0.5 text-xs">
           {s.fichier && verdict.ok && verdict.format && <span className="text-green-800">Extension reconnue : {LIBELLE_FORMAT[verdict.format] ?? verdict.format} (indice : le serveur vérifie le contenu).</span>}
-          {s.fichier && verdict.ok && !verdict.format && verdict.avertissement && <span className="text-amber-900">{verdict.avertissement}</span>}
+          {s.fichier && verdict.ok && !verdict.format && gdalFichier && <span role="alert" className="text-red-700">{gdalFichier.etat === "INDISPONIBLE" ? messageGdalDesactive(gdalFichier) : MESSAGE_CODE_GDAL_ASYNCHRONE}</span>}
+          {s.fichier && verdict.ok && !verdict.format && !gdalFichier && verdict.avertissement && <span className="text-amber-900">{verdict.avertissement}</span>}
           {s.fichier && !verdict.ok && <span role="alert" className="text-red-700">{verdict.message}</span>}
           {!s.fichier && err("fichier") && <span role="alert" className="text-red-700">{err("fichier")}</span>}
         </p>
@@ -114,10 +139,10 @@ export function EtapeDepot({ saisie: s, erreurs, options, occupe, enLigne, onSai
           </Select>
         </Champ>
         {tiers && (
-          <Champ id={`${id}-type`} libelle="Type de réseau" aide="Repris du concessionnaire s'il est connu.">
-            <Select id={`${id}-type`} value={s.typeReseau} onChange={(e) => onSaisie({ typeReseau: e.target.value as TypeReseau | "" })} disabled={occupe} className="mt-1 border-gray-300">
-              <option value="">Non précisé</option>
-              {TYPES_RESEAU.map((t) => <option key={t} value={t}>{STYLE_RESEAU[t].libelle}</option>)}
+          <Champ id={`${id}-type`} libelle="Type de réseau" aide={types.isError ? `Liste indisponible : ${classerErreurTerritoires(types.error).message}` : "Repris du concessionnaire s'il est connu. La famille technique en est déduite par le serveur."}>
+            <Select id={`${id}-type`} value={s.typeReseauCode} onChange={(e) => onSaisie({ typeReseauCode: e.target.value, typeReseau: e.target.value ? familleDuType(typesV?.find((t) => t.code === e.target.value)) ?? "" : s.typeReseau })} disabled={occupe || types.isPending} className="mt-1 border-gray-300">
+              <option value="">{types.isPending ? "Chargement des types…" : s.typeReseau && libelleFamille(s.typeReseau) ? `Non précisé (famille du concessionnaire : ${libelleFamille(s.typeReseau)})` : "Non précisé"}</option>
+              {optionsDeChoix(typesV, s.typeReseauCode || null).map((o) => <option key={o.code} value={o.code} disabled={o.desactivee}>{o.libelle}</option>)}
             </Select>
           </Champ>
         )}
@@ -133,7 +158,7 @@ export function EtapeDepot({ saisie: s, erreurs, options, occupe, enLigne, onSai
           <Champ id={`${id}-conc`} libelle="Concessionnaire propriétaire du réseau" erreur={err("concessionnaire")}>
             <Select id={`${id}-conc`} value={s.concessionnaireId} onChange={(e) => choisirConcessionnaire(e.target.value)} disabled={occupe || concessionnaires.isPending} aria-invalid={err("concessionnaire") ? true : undefined} aria-describedby={err("concessionnaire") ? `${id}-conc-erreur` : undefined} className="mt-1 border-gray-300">
               <option value="">{concessionnaires.isPending ? "Chargement de la liste…" : "Choisir un concessionnaire"}</option>
-              {(concessionnaires.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.nom}{c.typeReseau ? ` (${STYLE_RESEAU[c.typeReseau].libelle})` : ""}</option>)}
+              {(concessionnaires.data ?? []).map((c) => <option key={c.id} value={c.id}>{c.nom}{c.typeReseauCode ? ` (${libelleDeCode(c.typeReseauCode, typesV)})` : c.typeReseau ? ` (${STYLE_RESEAU[c.typeReseau].libelle})` : ""}</option>)}
             </Select>
           </Champ>
           {concessionnaires.isError && <p role="alert" className="text-xs text-red-700">La liste des concessionnaires n&apos;a pas pu être chargée. {classerErreur(concessionnaires.error).message}</p>}
@@ -148,8 +173,9 @@ export function EtapeDepot({ saisie: s, erreurs, options, occupe, enLigne, onSai
                   <Input id={`${id}-nc-nom`} value={nc.nom} onChange={(e) => setNc({ ...nc, nom: e.target.value })} maxLength={120} autoComplete="off" className="mt-1 border-gray-300" />
                 </Champ>
                 <Champ id={`${id}-nc-type`} libelle="Type de réseau">
-                  <Select id={`${id}-nc-type`} value={nc.type} onChange={(e) => setNc({ ...nc, type: e.target.value as TypeReseau })} className="mt-1 border-gray-300">
-                    {TYPES_RESEAU.map((t) => <option key={t} value={t}>{STYLE_RESEAU[t].libelle}</option>)}
+                  <Select id={`${id}-nc-type`} value={nc.typeCode} onChange={(e) => setNc({ ...nc, typeCode: e.target.value })} disabled={types.isPending} className="mt-1 border-gray-300">
+                    <option value="">{types.isPending ? "Chargement des types…" : "Choisir un type"}</option>
+                    {optionsDeChoix(typesV).map((o) => <option key={o.code} value={o.code}>{o.libelle}</option>)}
                   </Select>
                 </Champ>
               </div>
@@ -190,7 +216,13 @@ export function EtapeDepot({ saisie: s, erreurs, options, occupe, enLigne, onSai
       </fieldset>
 
       <div className="grid gap-3 sm:grid-cols-2">
-        <Champ id={`${id}-date`} libelle="Date des données (facultatif)" aide="Date du levé ou de la fourniture du fichier." erreur={err("dateDonnees")}>
+        <Champ id={`${id}-acq`} libelle="Méthode d'acquisition (facultatif)" aide={methodes.isError ? `Liste indisponible : ${classerErreurTerritoires(methodes.error).message}` : "Comment la donnée a été obtenue. Pour un réseau, deux méthodes différentes font deux sources comparables ; la même méthode, une nouvelle version."}>
+          <Select id={`${id}-acq`} value={s.methodeAcquisition} onChange={(e) => onSaisie({ methodeAcquisition: e.target.value })} disabled={occupe || methodes.isPending} className="mt-1 border-gray-300">
+            <option value="">{methodes.isPending ? "Chargement des méthodes…" : "Non renseignée"}</option>
+            {optionsDeChoix(methodes.data?.valeurs, s.methodeAcquisition || null).map((o) => <option key={o.code} value={o.code} disabled={o.desactivee}>{o.libelle}</option>)}
+          </Select>
+        </Champ>
+        <Champ id={`${id}-date`} libelle="Date des données (facultatif)" aide="Date de validité de la donnée (levé ou fourniture), distincte de la date du dépôt." erreur={err("dateDonnees")}>
           <Input id={`${id}-date`} type="date" max={aujourdhui()} value={s.dateDonnees} onChange={(e) => onSaisie({ dateDonnees: e.target.value })} disabled={occupe} aria-invalid={err("dateDonnees") ? true : undefined} className="mt-1 border-gray-300" />
         </Champ>
         <Champ id={`${id}-conf`} libelle="Confidentialité" aide="Proposée selon le rôle. Les tracés de concessionnaires ne figurent jamais dans l'API publique, et aucune géométrie n'est exportée.">

@@ -50,8 +50,13 @@ export const libelleEtape = (id: IdEtape) => ETAPES.find((e) => e.id === id)?.li
 export interface FormatApi { format: string; extensions: string[]; crsParDefinition: string | null; choixCrs: "interdit" | "facultatif" | "obligatoire" }
 export interface CrsSource { epsg: number; nom: string | null; unite: string | null; disponible: boolean }
 export interface ChampCible { champ: string; portee: "objet" | "jeu"; description: string }
+/** Lot B2 : formats lus par la chaine GDAL isolee (GeoPackage, Shapefile ZIP, DXF), DESACTIVEE par defaut sur un serveur. */
+export interface FormatGdalApi { format: string; extensions: string[]; etat: "SUPPORTE" | "INDISPONIBLE"; raison: string | null }
+export interface FormatsGdalApi { actif: boolean; disponible: boolean; raison: string | null; formats: FormatGdalApi[] }
 export interface OptionsImportApi {
   formats: FormatApi[];
+  /** `null` pour un serveur qui ne l'annonce pas (anterieur au lot B2). */
+  formatsGdal: FormatsGdalApi | null;
   nonSupportes: { format: string; raison: string }[];
   limites: {
     tailleMaxOctets: number; objetsMax: number | null; echantillonMax: number | null; delaiApercuMs: number | null;
@@ -86,8 +91,14 @@ export function lireOptionsImport(data: unknown): OptionsImportApi {
   const z = estObjet(data.crs.zoneAttendue) ? data.crs.zoneAttendue : null;
   const zbbox = z ? lireBbox(z.bbox) : null;
   const csv = estObjet(data.csv) ? data.csv : {};
+  const g = estObjet(data.formatsGdal) ? data.formatsGdal : null;
   return {
     formats,
+    formatsGdal: g ? {
+      actif: g.actif === true, disponible: g.disponible === true, raison: texte(g.raison),
+      formats: tableau(g.formats).flatMap((f): FormatGdalApi[] => (estObjet(f) && texte(f.format)
+        ? [{ format: String(f.format), extensions: chaines(f.extensions), etat: f.etat === "SUPPORTE" ? "SUPPORTE" : "INDISPONIBLE", raison: texte(f.raison) }] : [])),
+    } : null,
     nonSupportes: tableau(data.nonSupportes).flatMap((n) => (estObjet(n) && texte(n.format) ? [{ format: String(n.format), raison: texte(n.raison) ?? "" }] : [])),
     limites: {
       tailleMaxOctets: versNombre(lim.tailleMaxOctets) ?? TAILLE_MAX_FICHIER, objetsMax: versNombre(lim.objetsMax), echantillonMax: versNombre(lim.echantillonMax),
@@ -339,7 +350,12 @@ export interface Saisie {
   fichier: File | null;
   role: RoleJeu;
   concessionnaireId: string;
+  /** Famille technique (repli pour un concessionnaire sans code) ; envoyee seulement si `typeReseauCode` est vide. */
   typeReseau: TypeReseau | "";
+  /** Lot T1 : code du referentiel TYPE_RESEAU (liste chargee depuis l'API). */
+  typeReseauCode: string;
+  /** Lot S1 : code du referentiel METHODE_ACQUISITION ; vide = non renseignee. */
+  methodeAcquisition: string;
   natureObjet: NatureObjet;
   dateDonnees: string;
   origineFichier: string;
@@ -352,7 +368,7 @@ export interface Saisie {
 }
 
 export const SAISIE_VIDE: Saisie = {
-  fichier: null, role: "RESEAU_TIERS", concessionnaireId: "", typeReseau: "", natureObjet: natureParDefaut("RESEAU_TIERS"), dateDonnees: "", origineFichier: "",
+  fichier: null, role: "RESEAU_TIERS", concessionnaireId: "", typeReseau: "", typeReseauCode: "", methodeAcquisition: "", natureObjet: natureParDefaut("RESEAU_TIERS"), dateDonnees: "", origineFichier: "",
   classePrecision: "INCONNUE", precisionH: "", precisionV: "", methode: "", dateConstat: "", confidentialite: confidentialiteParDefaut("RESEAU_TIERS"),
 };
 
@@ -415,14 +431,34 @@ function lirePrecision(t: string, cle: string, erreurs: Record<string, string>):
   return p;
 }
 
+/** Format GDAL annonce par l'extension d'un fichier, ou `null`. Le serveur decide par le contenu ; ceci n'est qu'un indice. */
+export function formatGdalDuFichier(nom: string | null | undefined, gdal: FormatsGdalApi | null | undefined): FormatGdalApi | null {
+  if (!nom || !gdal) return null;
+  const n = nom.toLowerCase();
+  return gdal.formats.find((f) => f.extensions.some((e) => n.endsWith(e.toLowerCase()))) ?? null;
+}
+
+export const LIBELLE_FORMAT_GDAL: Record<string, string> = { GPKG: "GeoPackage", SHAPEFILE: "Shapefile (archive ZIP)", DXF: "DXF (dessin d'ingénierie)" };
+/** Marche a suivre quand la conversion GDAL est desactivee sur ce serveur. */
+export const MARCHE_GDAL_DESACTIVE = "Exportez le fichier depuis votre logiciel SIG ou de dessin en GeoJSON, KML, GPX ou CSV (avec ses coordonnées et son système de coordonnées), puis déposez ce fichier.";
+export const MESSAGE_CODE_GDAL_ASYNCHRONE = "Ce format est lu par la chaîne de conversion isolée du serveur, en tâche de fond : cette interface ne pilote pas encore cette conversion. Déposez le fichier en GeoJSON, KML, GPX ou CSV.";
+
+export function messageGdalDesactive(f: FormatGdalApi): string {
+  return `Le format ${LIBELLE_FORMAT_GDAL[f.format] ?? f.format} est désactivé sur ce serveur : il n'est pas lu. ${MARCHE_GDAL_DESACTIVE}`;
+}
+
 /** Valide l'etape 1 et construit les donnees du depot. `options` : champs de lecture deja serialises (`champsLecture`). */
 export function construireDonneesDepot(
-  s: Saisie, formats: readonly FormatApi[], tailleMax: number, options: Readonly<Record<string, string>> = {},
+  s: Saisie, formats: readonly FormatApi[], tailleMax: number, options: Readonly<Record<string, string>> = {}, formatsGdal: FormatsGdalApi | null = null,
 ): { donnees: DonneesDepot | null; erreurs: Record<string, string> } {
   const erreurs: Record<string, string> = {};
   const verdict = controlerFichier(s.fichier, formats, tailleMax);
+  const gdal = formatGdalDuFichier(s.fichier?.name, formatsGdal);
   if (!s.fichier) erreurs.fichier = "Choisissez un fichier.";
   else if (!verdict.ok) erreurs.fichier = verdict.message ?? "Fichier non utilisable.";
+  // Format GDAL desactive : refus LOCAL, sans envoi (le serveur rendrait 415 FORMAT_GDAL_DESACTIVE). Actif : la conversion asynchrone n'est pas
+  // encore pilotee par cette interface (ecart documente) ; le serveur repondrait 422 CONVERSION_ASYNCHRONE_REQUISE.
+  else if (gdal) erreurs.fichier = gdal.etat === "INDISPONIBLE" ? messageGdalDesactive(gdal) : MESSAGE_CODE_GDAL_ASYNCHRONE;
   if (s.role === "RESEAU_TIERS" && !s.concessionnaireId) erreurs.concessionnaire = "Choisissez le concessionnaire propriétaire du réseau, ou créez-le.";
   if (s.dateDonnees && s.dateDonnees > aujourdhui()) erreurs.dateDonnees = "La date des données ne peut pas être dans le futur.";
   if (s.dateConstat && s.dateConstat > aujourdhui()) erreurs.dateConstat = "La date de constat ne peut pas être dans le futur.";
@@ -436,7 +472,8 @@ export function construireDonneesDepot(
       fichier: s.fichier,
       role: s.role,
       ...(tiers ? { concessionnaireId: s.concessionnaireId } : {}),
-      ...(tiers && s.typeReseau ? { typeReseau: s.typeReseau } : {}),
+      ...(tiers && s.typeReseauCode ? { typeReseauCode: s.typeReseauCode } : tiers && s.typeReseau ? { typeReseau: s.typeReseau } : {}),
+      ...(s.methodeAcquisition ? { methodeAcquisition: s.methodeAcquisition } : {}),
       natureObjet: s.natureObjet,
       ...(s.dateDonnees ? { dateDonnees: s.dateDonnees } : {}),
       ...(s.origineFichier.trim() ? { origineFichier: s.origineFichier.trim() } : {}),
@@ -591,10 +628,11 @@ export const LIBELLE_REJET_CSV: Record<string, string> = {
 };
 
 export const LIBELLE_DELIMITEUR: Record<string, string> = { ",": "virgule", ";": "point-virgule", "\t": "tabulation", "|": "barre verticale" };
-export const LIBELLE_FORMAT: Record<string, string> = { KML: "KML", KMZ: "KMZ (archive KML)", GEOJSON: "GeoJSON", GPX: "GPX", CSV: "Tableau délimité (CSV, TSV, TXT)" };
+export const LIBELLE_FORMAT: Record<string, string> = { KML: "KML", KMZ: "KMZ (archive KML)", GEOJSON: "GeoJSON", GPX: "GPX", CSV: "Tableau délimité (CSV, TSV, TXT)", ...LIBELLE_FORMAT_GDAL };
 export const LIBELLE_CHAMP_CIBLE: Record<string, string> = {
   nom: "Nom de l'objet", identifiant: "Identifiant stable (suivi entre versions)", typeReseau: "Type de réseau", concessionnaire: "Concessionnaire",
   classePrecision: "Classe de précision", precisionHorizontaleM: "Précision horizontale (m)", precisionVerticaleM: "Précision verticale (m)",
   methode: "Méthode de levé", dateDonnees: "Date des données", dateConstat: "Date de constat", natureObjets: "Nature des objets",
+  methodeAcquisition: "Méthode d'acquisition (code du référentiel)", connecteA: "Objet connecté (nom d'un objet du même fichier, déclaration du fournisseur)",
 };
 export const LIBELLE_UNITE: Record<string, string> = { metre: "mètres", degre: "degrés", "pied US": "pieds US", pied: "pieds" };
