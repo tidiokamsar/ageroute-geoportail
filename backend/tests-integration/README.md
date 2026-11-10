@@ -59,6 +59,10 @@ reconstruite avec les 93 migrations, puis ramenee en arriere par les descentes d
 
 Depuis `20261103100000_territoires_referentiels`, la création d'un projet exige `territoireId`. Les bancs `projets-voirie`, `conflits-projets-voirie`, `import-formats`, `reseau-physique-logique`, `workflow-roles` et `gdal-jobs` passent leur application par `lib/territoire-par-defaut.mts`, qui ajoute à une création de projet sans territoire un territoire de niveau REGION rattaché à la région du corps (ou la nation sans région). Ces bancs restent des preuves de non-régression de leur sujet ; ils exigent que `replay` (ou leur clone) porte la migration du lot T1.
 
+## Banc du lot X1 (export du dossier technique, tableaux de bord)
+
+`exports-tableaux.integration.mts` cree son clone `essai_exports_x1` a partir de `replay` et y applique la migration `20261104200000_exports_tableaux_de_bord` si elle manque. Il cree ses territoires et ses projets par l'API (aucune enveloppe de territoire par defaut), releve l'archive avec le lecteur ZIP du module et en verifie les empreintes, verrouille une table depuis une seconde connexion pour prouver les delais cote base, et pose des reglages par variable d'environnement pendant quelques verifications (cadence, plafond de sommets, verrou), retires ensuite.
+
 ## La garde
 
 `lib/garde.ts` est importé par chaque banc et **termine le processus (code 3)** si la cible n'est pas

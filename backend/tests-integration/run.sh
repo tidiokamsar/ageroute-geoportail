@@ -76,6 +76,9 @@ lancer "territoires-referentiels.integration.mts"
 # Documents du projet, completude documentaire, LandXML, DWG et PDF (lot D1) : clone `essai_documents_d1` ; applique lui-meme la migration 20261104100000 au clone.
 lancer "documents-projet.integration.mts"
 
+# Export du dossier technique, derogations et tableaux de bord (lot X1) : clone `essai_exports_x1` ; applique lui-meme la migration 20261104200000 au clone.
+lancer "exports-tableaux.integration.mts"
+
 printf '\n%s\n' "Resultat des bancs d'integration"
 printf '%s\n' "${lignes[@]}"
 echo "Chaque banc nomme ses verifications et sort en code 1 si une seule est fausse (lib/verdict.ts fait aussi echouer un banc qui n'en fait aucune ; curseur tient son propre decompte). Detail : /tmp/integration-<banc>.log."
