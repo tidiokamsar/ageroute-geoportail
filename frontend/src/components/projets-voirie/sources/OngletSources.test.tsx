@@ -288,6 +288,26 @@ describe("regles de rapprochement", () => {
   });
 });
 
+describe("regles : bareme laisse vide (revue m3)", () => {
+  it("l'aide ne promet rien que le serveur ne fasse : le bareme est celui que le serveur enregistre, relu dans la liste apres creation", async () => {
+    // Serveur de cette branche : un brouillon sans bareme recoit le bareme provisoire ; l'ecran montre ce que le serveur a enregistre.
+    const CREEE = { id: "r9", code: "R-SANS-BAREME", version: 1, statut: "BROUILLON", portee: "PROJET", margeM: 1, rayonAppariementM: 10, partHorsCorridorMax: 0, precisionParClasseM: { A: 0.5, B: 1, C: 2, D: 5 }, creePar: { id: "u2", nomComplet: "Gestionnaire Test" } };
+    h.post.mockImplementation(async () => { e.regles = { ...REGLES, regles: [...REGLES.regles, CREEE] }; return { data: { regle: CREEE } }; });
+    const u = userEvent.setup();
+    rendre();
+    await u.click(await screen.findByRole("button", { name: /Créer un brouillon de règle/ }));
+    const d = await screen.findByRole("dialog");
+    expect(d).toHaveTextContent(/Laissé vide, le barème est celui que le serveur enregistre : il est affiché dans la liste après la création/);
+    expect(d).not.toHaveTextContent(/sans lui, un tel objet donne un rapprochement incertain/);
+    await u.type(within(d).getByLabelText("Code de la règle"), "R-SANS-BAREME");
+    await u.type(within(d).getByLabelText(/Justification/), "Regle sans bareme saisi");
+    await u.click(within(d).getByRole("button", { name: "Créer le brouillon" }));
+    const li = (await screen.findByText("R-SANS-BAREME v1")).closest("li")!;
+    expect(li).toHaveTextContent("Barème par classe : A 0,5 m, B 1 m, C 2 m, D 5 m.");
+    expect(li).toHaveTextContent(/ne s'applique qu'après approbation par un administrateur autre que l'auteur/);
+  });
+});
+
 describe("accessibilite (axe)", () => {
   it("aucune violation : sources, resultats, dialogue de comparaison", async () => {
     const u = userEvent.setup();

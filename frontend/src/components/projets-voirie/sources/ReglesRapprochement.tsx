@@ -59,7 +59,7 @@ export function ReglesRapprochement({ projetId, actif, peutEcrire, estAdmin, com
                     <span>{r.portee === "PROJET" ? "propre au projet" : "générale"}{r.systeme ? ", règle du système" : ""}</span>
                   </p>
                   <p>Marge {metres(r.margeM)}, rayon d&apos;appariement {metres(r.rayonAppariementM)}, part hors corridor tolérée {r.partHorsCorridorMax === null ? "n/d" : `${formaterNombre(r.partHorsCorridorMax * 100, 1)} %`}.</p>
-                  <p>{r.precisionParClasseM ? `Barème par classe : ${Object.entries(r.precisionParClasseM).map(([k, v]) => `${k} ${metres(v)}`).join(", ")}.` : "Sans barème par classe : une classe A à E n'est pas convertie en mètres."}</p>
+                  <p>{r.precisionParClasseM ? `Barème par classe : ${Object.entries(r.precisionParClasseM).map(([k, v]) => `${k} ${metres(v)}`).join(", ")}.${r.statut === "BROUILLON" ? " Il ne s'applique qu'après approbation par un administrateur autre que l'auteur." : r.systeme ? " Barème provisoire du système, jamais approuvé par une personne." : ""}` : "Sans barème par classe : une classe A à E n'est pas convertie en mètres."}</p>
                   <p className="text-gray-700">
                     {r.creePar ? `Créée par ${r.creePar.nomComplet}` : "Créée par le système"}{r.createdAt ? ` le ${formaterDate(r.createdAt)}` : ""}
                     {r.approuvePar ? `, approuvée par ${r.approuvePar.nomComplet}${r.approuveLe ? ` le ${formaterDate(r.approuveLe)}` : ""}` : ""}.
@@ -106,7 +106,7 @@ function DialogueRegle({ enLigne, onFermer, onValider }: { enLigne: boolean; onF
       titre="Créer un brouillon de règle de rapprochement"
       description={<>
         <p>Un brouillon n&apos;agit sur aucune comparaison tant qu&apos;un administrateur, autre que vous, ne l&apos;a pas approuvé. Un champ laissé vide prend la valeur par défaut du serveur (provisoire, à valider par la DSI).</p>
-        <p>Le barème par classe attribue une précision en mètres à un objet qui ne déclare qu&apos;une classe : sans lui, un tel objet donne un rapprochement incertain.</p>
+        <p>Le barème par classe attribue une précision en mètres à un objet qui ne déclare qu&apos;une classe. Laissé vide, le barème est celui que le serveur enregistre : il est affiché dans la liste après la création. Un barème ne s&apos;applique qu&apos;après approbation par un administrateur autre que l&apos;auteur ; sans barème appliqué, un objet qui ne déclare qu&apos;une classe donne un rapprochement incertain.</p>
       </>}
       enCours={enCours} erreur={erreur} peutValider={r.corps !== null} aide={r.erreurs} libelleValider="Créer le brouillon" libelleEnCours="Enregistrement…"
       onFermer={onFermer} onValider={() => { if (r.corps) void envoyer(() => onValider(r.corps as CorpsRegleRapprochement)); }} enLigne={enLigne} large
