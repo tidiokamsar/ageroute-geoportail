@@ -288,15 +288,24 @@ describe("fichiers hostiles : XXE, entites, bombes", () => {
     expect(code(() => detecter(Buffer.from(`<LandXML><Units/><!ENTITY x "y"></LandXML>`), "a.xml", {}, LIM))).toBe("DTD_REFUSEE");
   });
 
-  it("bombe de sommets : un arc immense refuse sans allocation (plus de SEGMENTS_ARC_MAX segments) ; des milliers d'arcs refuses au plafond du fichier, en moins d'une seconde", () => {
+  it("bombe de sommets : un arc immense refuse sans allocation (plus de SEGMENTS_ARC_MAX segments) ; des milliers d'arcs refuses au plafond, pour un cout du meme ordre qu'une lecture legitime de la taille du plafond", () => {
     const geant = landxml(alignements(axe("Geant", arcXml([0, -1e7], [0, 0], [-1e7, 0], "ccw"))));
     expect(code(() => traverser(geant, { toleranceArcM: 0.001 }))).toBe("TROP_DE_SOMMETS");
     expect(segmentsArc(1e7, Math.PI * 1.5, 0.001)).toBeGreaterThan(SEGMENTS_ARC_MAX);
     // 2 000 arcs de 1 000 m de rayon a 1 mm de fleche (~2 500 sommets chacun) : 5 millions de sommets annonces, refus au plafond de 2 millions.
     const arcs = Array.from({ length: 2000 }, (_, k) => arcXml([0, -1000 + k * 0], [0, 0], [1000, 0], "cw")).join("");
+    // Revue D1, m10 : borne RELATIVE (le meme poste, la meme charge) au lieu d'un chronometre absolu instable. La bombe s'arrete au plafond par axe
+    // (1 000 000 de sommets, sur 5 millions annonces) : son cout doit rester du meme ordre que la lecture legitime de 600 arcs (environ 1 000 000 de sommets).
+    const reference = Array.from({ length: 600 }, () => arcXml([0, -1000], [0, 0], [1000, 0], "cw")).join("");
+    const t0 = performance.now();
+    traverser(landxml(alignements(axe("Reference", reference))), { toleranceArcM: 0.001, sommetsParObjet: 2_000_000, sommetsParFichier: 2_000_000 });
+    const tReference = performance.now() - t0;
     const t = performance.now();
-    expect(code(() => traverser(landxml(alignements(axe("Bombe", arcs))), { toleranceArcM: 0.001, sommetsParObjet: 1_000_000, sommetsParFichier: 2_000_000 }))).toBe("TROP_DE_SOMMETS");
-    expect(performance.now() - t).toBeLessThan(1500);
+    let message = "";
+    try { traverser(landxml(alignements(axe("Bombe", arcs))), { toleranceArcM: 0.001, sommetsParObjet: 1_000_000, sommetsParFichier: 2_000_000 }); } catch (e) { message = (e as Error).message; expect((e as ErreurLecture).code).toBe("TROP_DE_SOMMETS"); }
+    const tBombe = performance.now() - t;
+    expect(message).toMatch(/depasse 1000000 sommets/);
+    expect(tBombe).toBeLessThan(3 * tReference + 300);
     // Plafond par axe (sommets par objet du socle) applique pendant la discretisation.
     expect(code(() => traverser(landxml(alignements(axe("Long", arcs.slice(0, 20 * arcXml([0, -1000], [0, 0], [1000, 0], "cw").length)))), { toleranceArcM: 0.001, sommetsParObjet: 10_000 }))).toBe("TROP_DE_SOMMETS");
   });
