@@ -120,10 +120,17 @@ describe("page projet : carte, panneau, onglets", () => {
     const sourcesTab = screen.getByRole("tab", { name: "Sources" });
     await userEvent.keyboard("{ArrowRight}");
     expect(sourcesTab).toHaveAttribute("aria-selected", "true");
+    // Sixieme et septieme onglets (lot UI-D, decideurs) : « Documents » puis « Export » ; la fleche droite revient ensuite a « Analyse ».
+    const documentsTab = screen.getByRole("tab", { name: "Documents" });
+    const exportTab = screen.getByRole("tab", { name: "Export" });
+    await userEvent.keyboard("{ArrowRight}");
+    expect(documentsTab).toHaveAttribute("aria-selected", "true");
+    await userEvent.keyboard("{ArrowRight}");
+    expect(exportTab).toHaveAttribute("aria-selected", "true");
     await userEvent.keyboard("{ArrowRight}");
     expect(analyseTab).toHaveAttribute("aria-selected", "true");
     await userEvent.keyboard("{End}");
-    expect(sourcesTab).toHaveFocus();
+    expect(exportTab).toHaveFocus();
     await userEvent.keyboard("{Home}");
     expect(analyseTab).toHaveFocus();
     expect(analyseTab).toHaveAttribute("aria-controls", "pv-panneau-analyse");

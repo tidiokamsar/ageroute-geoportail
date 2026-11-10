@@ -122,6 +122,22 @@ describe("preuve statique", () => {
     expect(routes.filter((r) => /envoyer|message|mail|notifier|ordre|ordonner|deplacer|executer|supprimer|fichier|upload|telecharg/i.test(r))).toEqual([]);
     expect(api).not.toMatch(/api\.delete|FormData|multipart/);
   });
+  it("lot UI-D : les documents n'appellent que les routes du contrat D1 (aucun stockage de fichier, aucune API publique)", () => {
+    const api = sansCommentaires(readFileSync(path.join(RACINE, "lib/projetsVoirieDocumentsApi.ts"), "utf8"));
+    expect(api).not.toMatch(/\/api\/public|\/public\//);
+    const routes = [...api.matchAll(/`\$\{BASE\}([^`]*)`/g)].map((m) => m[1].replace(/\/\$\{id\(\w+\)\}/g, ""));
+    expect(routes.sort()).toEqual(["/completude", "/documents", "/documents", "/documents", "/documents", "/documents/depot", "/documents/statut", "/documents/versions"].sort());
+  });
+  it("lot UI-D : l'export n'appelle que les routes du contrat X1 ; l'archive n'est jamais lue ni mise en cache par le module", () => {
+    const api = sansCommentaires(readFileSync(path.join(RACINE, "lib/projetsVoirieExportsApi.ts"), "utf8"));
+    expect(api).not.toMatch(/\/api\/public|\/public\//);
+    const routes = [...api.matchAll(/`\$\{BASE\}([^`]*)`/g)].map((m) => m[1].replace(/\/\$\{id\(\w+\)\}/g, ""));
+    expect(routes.sort()).toEqual(["/export/derogations", "/export/derogations", "/export/dossier", "/export/journal", "/tableau-de-bord", "/tableau-de-bord/territoires"].sort());
+    // L'archive passe d'axios au navigateur par `enregistrerBlob` (lib/download.ts, hors module) : ni lecture, ni React Query, ni stockage.
+    expect(api).toMatch(/enregistrerBlob\(blob, nom\)/);
+    const hooks = sansCommentaires(readFileSync(path.join(RACINE, "lib/projetsVoirieExportsHooks.ts"), "utf8"));
+    expect(hooks).not.toMatch(/exporterDossier/);
+  });
   it("aucune route, aucun appel du module ne vise l'API publique ni une exportation de geometrie", () => {
     const api = sansCommentaires(readFileSync(path.join(RACINE, "lib/projetsVoirieApi.ts"), "utf8"));
     expect(api).not.toMatch(/\/api\/public|\/public\//);
