@@ -5468,3 +5468,45 @@ model DocumentProjetVoirieHistorique {
   @@index([projetId, id])
   @@map("documents_projet_voirie_historique")
 }
+
+// ===================== EXPORT DU DOSSIER TECHNIQUE ET DEROGATIONS DE CONFIDENTIALITE (lot X1) =====================
+// Contrat : docs/projets-voirie/CONTRAT-EXPORTS.md. Migration 20261104200000_exports_tableaux_de_bord (additive, avec descente).
+// AUCUNE relation Prisma (comme les lots B3 et D1) : les cles etrangeres (projet, comptes, export consommateur) sont dans la migration seulement. Hors
+// schema.prisma (voir docs/securite/DERIVE-SCHEMA.md, section 10) : les contraintes CHECK (empreinte, tailles, manifeste objet, 1 a 20 jeux, justification,
+// duree de 7 jours au plus, usage pose en entier), les declencheurs (journal en ajout seul, derogation immuable et consommee une seule fois avant son
+// expiration, suppression et troncature refusees). Les tableaux de bord n'ecrivent rien et n'ont aucun modele.
+
+/// Journal en AJOUT SEUL des dossiers techniques remis : empreinte et taille de l'archive, manifeste (chemins, tailles, empreintes, jeux) sans geometrie.
+model ExportDossierProjetVoirie {
+  id            String   @id
+  projetId      String
+  acteurId      String
+  sha256        String
+  tailleOctets  Int
+  nbFichiers    Int
+  nbJeuxGeojson Int      @default(0)
+  manifeste     Json     @default("{}")
+  createdAt     DateTime @default(now())
+
+  @@index([acteurId, createdAt])
+  @@index([projetId, createdAt])
+  @@map("exports_dossier_projet_voirie")
+}
+
+/// Derogation ADMIN, justifiee, nominative et a USAGE UNIQUE, pour exporter en GeoJSON des jeux CONFIDENTIEL_CONCESSIONNAIRE ou INFRASTRUCTURE_SENSIBLE.
+model DerogationExportProjetVoirie {
+  id             String    @id
+  projetId       String
+  jeuxIds        String[]
+  beneficiaireId String
+  accordeeParId  String
+  justification  String
+  createdAt      DateTime  @default(now())
+  expireLe       DateTime
+  utiliseeLe     DateTime?
+  exportId       String?   @unique(map: "derogations_export_projet_voirie_exportId_key")
+
+  @@index([projetId, createdAt])
+  @@index([beneficiaireId])
+  @@map("derogations_export_projet_voirie")
+}
