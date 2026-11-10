@@ -26,16 +26,18 @@ import { contexteSpatialDuProjet, type ContexteSpatial } from "../territoires/co
 import * as socle from "../analyse.depot";
 import { limiteurAnalyses } from "../limiteurs";
 import { ErreurMetier, introuvable } from "../erreurs";
-import { SOMMETS_AXES_ANALYSE_MAX, SOMMETS_RESEAU_ANALYSE_MAX } from "../analyse.service";
+import { exigerCapacite } from "../capacite";
 import type { Acteur } from "../projets.service";
 import { descripteursDesObjets } from "../reseaux/reseaux.depot";
 import { classeEffective } from "../reseaux/types.noyau";
 import { verifierCadence } from "./cadence.noyau";
-import { cellule, empreinteMesure, finaliserCandidats, type CandidatBrut, type ConflitCalcule } from "./classification.noyau";
+import { cellule, empreinteMesure, finaliserCandidats, lireMesure, normaliserNom, type CandidatBrut, type ConflitCalcule } from "./classification.noyau";
 import * as depot from "./conflits.depot";
 import { distanceProximiteM, resoudreRegle, type RegleLue } from "./regle.noyau";
 import { calculerRejeu, jeuxToken, type ActionRejeu, type ConflitExistant, type ConflitTrouve } from "./rejeu.noyau";
 import { VERSION_ALGORITHME_CONFLITS, type ClassePrecision, type Mesure, type StatutConflit } from "./types.noyau";
+import { morceauxDe, regrouperCouverture } from "./couverture.noyau";
+import { colonneIdentifiant } from "../formats/versions.depot";
 
 const TAILLE_LOT = 1000;
 const lots = <T>(l: readonly T[], n = TAILLE_LOT): T[][] => { const s: T[][] = []; for (let i = 0; i < l.length; i += n) s.push(l.slice(i, i + n)); return s; };
@@ -90,11 +92,6 @@ interface JeuLu {
   classePrecision: ClassePrecision; precisionHorizontaleM: number | null; confidentialite: string; nbObjets: number; nomFichier: string;
 }
 
-const lireMesure = (j: unknown): Mesure => {
-  const m = (j ?? {}) as Partial<Mesure>;
-  const n = (x: unknown) => (typeof x === "number" && Number.isFinite(x) ? x : 0);
-  return { longueurChausseeM: n(m.longueurChausseeM), longueurEmpriseM: n(m.longueurEmpriseM), distanceMinM: typeof m.distanceMinM === "number" ? m.distanceMinM : null, nbCroisements: n(m.nbCroisements), longueurPieceM: n(m.longueurPieceM) };
-};
 
 /** Mesure d'une partie de reseau selon son type (voir conflits.depot.ts). Les lengths sont celles de la partie, mesurees sur la geographie. */
 function mesureDe(l: depot.LigneCandidat): Mesure {
@@ -106,7 +103,11 @@ function mesureDe(l: depot.LigneCandidat): Mesure {
 export interface ResumeAnalyse {
   statut: "TERMINEE";
   versionAlgorithme: string;
-  totaux: { conflitsTrouves: number; axes: number; jeuxReseau: number; axesNonCouverts: number };
+  /**
+   * `axes` : objets lineaires du plan d'axes ; `axesNonCouverts` : dossiers de couverture insuffisante (un par axe depuis le correctif D7, un par
+   * objet avant) ; `morceauxNonCouverts` : objets du plan d'axes qu'aucun jeu de reseau ne couvre (absent des analyses d'avant D7).
+   */
+  totaux: { conflitsTrouves: number; axes: number; jeuxReseau: number; axesNonCouverts: number; morceauxNonCouverts: number };
   parType: Record<string, number>;
   parStatut: Record<string, number>;
   nouveaux: number; retrouves: number; identiques: number; modifies: number; disparus: number; reapparus: number; marquesAReexaminer: number;
@@ -194,12 +195,8 @@ async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: Pr
   // ---------------------------------------------------------------- Calcul (delai cote base, budget partage)
   const budget = new Budget(tx, delai, delaiVerrouMs(), trop);
   if (axesIds.length > 0 && reseauIds.length > 0) {
-    const v = await budget.etape(() => socle.volumes(tx, axesIds, reseauIds), "volumes");
-    if (v.sommetsAxes > SOMMETS_AXES_ANALYSE_MAX || v.sommetsReseau > SOMMETS_RESEAU_ANALYSE_MAX) {
-      throw new ErreurMetier(422, "ANALYSE_TROP_VOLUMINEUSE",
-        `Les jeux autorisés portent trop de sommets pour une analyse (${Math.round(v.sommetsAxes)} pour les axes, maximum ${SOMMETS_AXES_ANALYSE_MAX} ; ${Math.round(v.sommetsReseau)} pour les réseaux, maximum ${SOMMETS_RESEAU_ANALYSE_MAX}) : simplifiez ou découpez les fichiers.`,
-        { sommetsAxes: Math.round(v.sommetsAxes), sommetsReseau: Math.round(v.sommetsReseau) });
-    }
+    // Correctif D4 : comptage prealable (sans calcul geometrique), refus immediat au-dela des plafonds mesures (capacite.ts) ; trace ECHEC.
+    exigerCapacite(await budget.etape(() => socle.volumes(tx, axesIds, reseauIds), "volumes"), "ANALYSE_CONFLITS");
   }
   const etendue = await budget.etape(() => socle.etendueLongitude(tx, axesIds.length ? axesIds : reseauIds), "etendue");
   const epsg = etendue ? ctx.epsgPour((etendue.ouest + etendue.est) / 2) : ctx.epsgDefaut;
@@ -207,9 +204,14 @@ async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: Pr
   const plafond = conflitsParAnalyseMax();
 
   const lignes = await budget.etape(() => depot.candidatsLineaires(tx, b, jeuxTol, plafond + 1), "candidats");
-  const couverture = await budget.etape(() => depot.couvertureDesAxes(tx, axesIds, reseauIds), "couverture");
-  const sansCouverture = couverture.filter((c) => c.nbCouvrants === 0);
-  if (lignes.length + sansCouverture.length > plafond) {
+  // Correctif D7 : un dossier de couverture par AXE (identifiant mappe, sinon nom normalise ; un objet sans nom garde son dossier), voir couverture.noyau.ts.
+  const colonnes = new Map(lus.filter((j) => j.role === "AXES_TRAVAUX").map((j) => [j.id, colonneIdentifiant(j.resume)] as const));
+  const couverture = await budget.etape(() => depot.couvertureDesAxes(tx, axesIds, reseauIds, colonnes), "couverture");
+  const groupesCouverture = regrouperCouverture(couverture.map((c) => ({
+    objetId: c.aid, jeuAxesId: c.jeu, ordre: c.ordre, nom: c.nom, identifiant: c.identifiant, libelle: c.axe, longueurM: c.len, nbCouvrants: c.nbCouvrants,
+  })));
+  const morceauxNonCouverts = groupesCouverture.reduce((s, g) => s + g.morceaux.length, 0);
+  if (lignes.length + groupesCouverture.length > plafond) {
     throw new ErreurMetier(422, "ANALYSE_TROP_VOLUMINEUSE",
       `Le projet produirait plus de ${plafond} conflits : réduisez l'emprise des travaux ou découpez les jeux.`, { conflitsMax: plafond });
   }
@@ -219,6 +221,7 @@ async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: Pr
   // celle de son jeu, sinon inconnue (jamais deduite). Sans descripteur, rien ne change. Une classe qui change fait marquer le dossier a reexaminer
   // (NOUVELLE_VERSION_DONNEES) par le rejeu existant, sans jamais toucher un verdict humain.
   const descripteurs = await budget.etape(() => descripteursDesObjets(tx, lignes.map((l) => l.oid)), "descripteurs");
+  const geomsCouverture = await budget.etape(() => depot.geometriesCouverture(tx, groupesCouverture.map((g) => g.morceaux.map((m) => m.objetId))), "geometries de couverture");
   const bruts: CandidatBrut[] = [
     ...lignes.map((l): CandidatBrut => {
       const j = jeuParId.get(l.jeu)!;
@@ -227,10 +230,16 @@ async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: Pr
         classePrecision: classeEffective(descripteurs.get(l.oid)?.classe, j.classePrecision).classe, mesure: mesureDe(l), cellule: [l.cx, l.cy], geomHex: l.g,
       };
     }),
-    ...sansCouverture.map((c): CandidatBrut => ({
-      type: "COUVERTURE_INSUFFISANTE", axe: c.axe, jeuReseauId: null, jeuAxesId: c.jeu, objetId: null, concessionnaireId: null, nomObjet: null, empreinteObjet: null,
-      classePrecision: null, mesure: { longueurChausseeM: 0, longueurEmpriseM: 0, distanceMinM: null, nbCroisements: 0, longueurPieceM: c.len }, cellule: cellule(c.lon, c.lat), geomHex: c.g,
-    })),
+    ...groupesCouverture.map((g, i): CandidatBrut => {
+      const geo = geomsCouverture[i];
+      // Un objet sans nom (identite nulle) : mesure, geometrie et cle d'avant le regroupement, donc le meme dossier au rejeu.
+      return {
+        type: "COUVERTURE_INSUFFISANTE", axe: g.axe, jeuReseauId: null, jeuAxesId: g.jeuAxesId, objetId: null, concessionnaireId: null, nomObjet: null, empreinteObjet: null,
+        classePrecision: null, identiteAxe: g.identite,
+        mesure: { longueurChausseeM: 0, longueurEmpriseM: 0, distanceMinM: null, nbCroisements: 0, longueurPieceM: geo.len, ...(g.identite !== null ? { morceaux: morceauxDe(g) } : {}) },
+        cellule: cellule(geo.lon, geo.lat), geomHex: geo.g,
+      };
+    }),
   ];
   const calcules = finaliserCandidats(projet.id, bruts);
 
@@ -240,7 +249,7 @@ async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: Pr
   // (jamais NON_RETROUVE, jamais modifie). Il n'a d'ailleurs pas d'analyse (contrainte cp_origine_coherente).
   const existantsLus = await tx.conflitProjet.findMany({
     where: { projetId: projet.id, type: { not: "DIVERGENCE_SOURCES" } },
-    select: { id: true, cle: true, statut: true, mesure: true, classePrecision: true, jeuReseauId: true, derniereAnalyseId: true, aReexaminer: true, motifReexamen: true },
+    select: { id: true, cle: true, type: true, axe: true, statut: true, mesure: true, classePrecision: true, jeuReseauId: true, derniereAnalyseId: true, aReexaminer: true, motifReexamen: true },
   });
   const analysesPrec = existantsLus.length > 0
     ? await tx.analyseConflitProjet.findMany({ where: { id: { in: [...new Set(existantsLus.flatMap((x) => (x.derniereAnalyseId ? [x.derniereAnalyseId] : [])))] } }, select: { id: true, jeux: true } })
@@ -268,13 +277,13 @@ async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: Pr
   const limites = [
     ...LIMITES_OBLIGATOIRES,
     "Seuls les réseaux linéaires sont évalués : les objets ponctuels et surfaciques des fichiers ne produisent aucun dossier.",
-    ...(sansCouverture.length > 0 ? [`${sansCouverture.length} axe(s) ne sont recouverts par aucun jeu de réseau autorisé : zone à investiguer, jamais une absence de réseau.`] : []),
+    ...(groupesCouverture.length > 0 ? [`${groupesCouverture.length} axe(s) (${morceauxNonCouverts} objet(s) du plan d'axes) ne sont recouverts par aucun jeu de réseau autorisé : zone à investiguer, jamais une absence de réseau.`] : []),
     ...(axes.length === 0 ? ["Aucun plan d'axes autorisé : aucun conflit ne peut être calculé."] : []),
     ...(reseaux.length === 0 && axes.length > 0 ? ["Aucun réseau de concessionnaire autorisé : tous les axes sont à investiguer, ce qui ne prouve pas l'absence de réseau."] : []),
   ];
   const resume: ResumeAnalyse = {
     statut: "TERMINEE", versionAlgorithme: VERSION_ALGORITHME_CONFLITS,
-    totaux: { conflitsTrouves: calcules.length, axes: couverture.length, jeuxReseau: reseaux.length, axesNonCouverts: sansCouverture.length },
+    totaux: { conflitsTrouves: calcules.length, axes: couverture.length, jeuxReseau: reseaux.length, axesNonCouverts: groupesCouverture.length, morceauxNonCouverts },
     parType, parStatut,
     nouveaux: rejeu.nouveaux, retrouves: rejeu.retrouves, identiques: rejeu.identiques, modifies: rejeu.modifies, disparus: rejeu.disparus,
     reapparus: rejeu.reapparus, marquesAReexaminer: rejeu.marquesAReexaminer,
@@ -312,7 +321,7 @@ async function executer(tx: Prisma.TransactionClient, acteur: Acteur, projet: Pr
   return { analyse: vueAnalyse(analyse), resume };
 }
 
-type ExistantLu = { id: string; mesure: unknown };
+type ExistantLu = { id: string; mesure: unknown; type?: string; axe?: string };
 
 async function ecrireConflits(
   tx: Prisma.TransactionClient, projet: ProjetLu, analyseId: string, existants: readonly ExistantLu[],
@@ -364,7 +373,21 @@ async function ecrireConflits(
   const manquants = actions.filter((a): a is Extract<ActionRejeu, { genre: "NON_RETROUVE" }> => a.genre === "NON_RETROUVE");
   const aMarquer = manquants.filter((a) => a.historique !== null).map((a) => a.id);
   for (const lot of lots(aMarquer)) await depot.marquerNonRetrouves(tx, lot);
-  for (const id of aMarquer) historique.push({ conflitId: id, action: "REEXAMEN", acteurId: null, analyseId, donnees: { motif: "NON_RETROUVE" } });
+  // Correctif D7 (rejeu d'une analyse d'avant le regroupement) : un dossier de couverture PAR OBJET non retrouve dont l'axe porte le meme nom
+  // normalise qu'un dossier regroupe de cette analyse cite ce dossier (`regroupeDans`) dans sa ligne REEXAMEN. Rien d'autre ne change : statut,
+  // verdict, preuves et historique de l'ancien dossier sont conserves ; il est marque a reexaminer comme tout dossier non retrouve.
+  const idParCle = new Map<string, string>([...nouvelles.map(({ id, c }) => [c.cle, id] as const), ...retrouves.map((a) => [a.cle, a.id] as const)]);
+  const regroupes = new Map<string, { conflitId: string; cle: string }>();
+  for (const c of parCle.values()) {
+    if (c.type === "COUVERTURE_INSUFFISANTE" && c.identiteAxe && idParCle.has(c.cle)) regroupes.set(normaliserNom(c.axe), { conflitId: idParCle.get(c.cle)!, cle: c.cle });
+  }
+  const parId = new Map(existants.map((x) => [x.id, x] as const));
+  for (const id of aMarquer) {
+    const x = parId.get(id);
+    const ancienParObjet = x?.type === "COUVERTURE_INSUFFISANTE" && typeof x.axe === "string" && !(x.mesure as { morceaux?: unknown } | null)?.morceaux;
+    const cible = ancienParObjet ? regroupes.get(normaliserNom(x!.axe!)) : undefined;
+    historique.push({ conflitId: id, action: "REEXAMEN", acteurId: null, analyseId, donnees: { motif: "NON_RETROUVE", ...(cible ? { regroupeDans: cible } : {}) } });
+  }
 
   for (const lot of lots(historique, 2000)) await tx.conflitHistorique.createMany({ data: lot });
   for (const lot of lots(aTroncons, 500)) await depot.majTronconsProches(tx, lot, demiEmpriseM);

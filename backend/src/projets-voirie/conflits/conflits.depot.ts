@@ -16,14 +16,15 @@
  * arithmetique, `floor(x / pas + 0.5)`) ne font qu'un dossier : leurs geometries sont reunies, leurs longueurs additionnees.
  * Les objets ponctuels et polygonaux ne sont pas evalues (comme dans l'analyse indicative : seuls les lineaires le sont).
  *
- * COUVERTURE_INSUFFISANTE : un axe qu'aucun jeu de reseau autorise ne recouvre (l'emprise englobante d'un jeu lineaire doit CONTENIR l'axe).
- * C'est une zone a investiguer, jamais une absence de reseau.
+ * COUVERTURE_INSUFFISANTE : un objet d'axe qu'aucun jeu de reseau autorise ne recouvre (l'emprise englobante d'un jeu lineaire doit CONTENIR
+ * l'objet). C'est une zone a investiguer, jamais une absence de reseau. Correctif D7 : les objets non couverts d'un meme axe font UN dossier
+ * (regroupement par couverture.noyau.ts, geometrie par `geometriesCouverture`).
  *
  * Aucune ecriture dans le referentiel : `troncons` n'est lu que pour `tronconsProches`.
  */
 
 import { Prisma, type PrismaClient } from "@prisma/client";
-import { LONGUEUR, QUART_DE_CERCLE, SOMMETS_PAR_MORCEAU, TOLERANCE_RESEAU_M, axobj, type Bandes } from "../analyse.depot";
+import { LONGUEUR, QUART_DE_CERCLE, SOMMETS_PAR_MORCEAU, TOLERANCE_RESEAU_M, axobj, proches, type Bandes } from "../analyse.depot";
 import { PAS_CELLULE_DEG } from "./types.noyau";
 
 export type TxLecture = Pick<PrismaClient, "$queryRaw">;
@@ -60,20 +61,24 @@ export async function candidatsLineaires(tx: TxLecture, b: Bandes, jeuxTol: read
   if (jeuxTol.length === 0 || b.axesIds.length === 0) return [];
   const jeuIds = jeuxTol.map((j) => j.jeu);
   const tols = jeuxTol.map((j) => j.tol);
+  // Correctif D4 : seuls les objets a moins de demi-emprise + tolerance (la plus grande des jeux) d'un axe sont transformes et examines
+  // (prefiltre par index, `proches` d'analyse.depot.ts) ; les autres n'auraient produit aucune ligne.
+  const portee = b.de + Math.max(0, ...tols);
   const r = await tx.$queryRaw<(Omit<LigneCandidat, "oid"> & { oid: bigint | string })[]>`
-    WITH ${axobj(b)},
+    WITH ${axobj(b)}, ${proches(b, portee)},
     morceaux AS MATERIALIZED (SELECT a."id" AS "aid", a."axe" AS "axe", ST_Subdivide(a."g", ${SOMMETS_PAR_MORCEAU}::int) AS "g" FROM axobj a),
     params AS MATERIALIZED (SELECT p."jeu" AS "jeu", p."tol" AS "tol" FROM unnest(${jeuIds}::text[], ${tols}::float8[]) AS p("jeu", "tol")),
     obj AS MATERIALIZED (
       SELECT o."id" AS "oid", o."jeuId" AS "jeu", o."nom" AS "nom", o."empreinte" AS "emp", p."tol" AS "tol",
              ST_Simplify(ST_Transform(o."geom", ${b.epsg}::int), ${TOLERANCE_RESEAU_M}::float8, true) AS "og"
         FROM "projets_voirie_objets" o JOIN params p ON p."jeu" = o."jeuId"
-       WHERE o."typeGeom" = 'LIGNE'),
+       WHERE o."typeGeom" = 'LIGNE' AND o."id" IN (SELECT x."id" FROM proches x)),
     paires AS MATERIALIZED (
       SELECT m."aid" AS "aid", m."axe" AS "axe", m."loc" AS "loc", o."oid" AS "oid", o."jeu" AS "jeu", o."nom" AS "nom", o."emp" AS "emp", o."og" AS "og", o."tol" AS "tol"
         FROM obj o
         CROSS JOIN LATERAL (
-          SELECT p."aid" AS "aid", min(p."axe") AS "axe", ST_Collect(p."g") AS "loc"
+          -- Correctif D4 : morceaux decoupes a la boite de l'objet elargie de 2 x (demi-emprise + tolerance) + 1 m (voir mesurerParObjet du socle).
+          SELECT p."aid" AS "aid", min(p."axe") AS "axe", ST_ClipByBox2D(ST_Collect(p."g"), ST_Expand(Box2D(o."og"), 2 * (${b.de}::float8 + o."tol") + 1)) AS "loc"
             FROM morceaux p
            WHERE p."g" && ST_Expand(o."og", ${b.de}::float8 + o."tol") AND ST_DWithin(p."g", o."og", ${b.de}::float8 + o."tol")
            GROUP BY p."aid") m),
@@ -131,29 +136,66 @@ export async function candidatsLineaires(tx: TxLecture, b: Bandes, jeuxTol: read
   }));
 }
 
-export interface LigneCouverture { aid: string; jeu: string; axe: string; len: number; lon: number; lat: number; g: string; nbCouvrants: number }
+export interface LigneCouverture { aid: string; jeu: string; ordre: number; nom: string | null; identifiant: string | null; axe: string; len: number; nbCouvrants: number }
 
 /**
- * Tous les axes lineaires des jeux d'axes, avec le nombre de jeux de reseau LINEAIRES autorises dont l'emprise englobante contient l'axe.
- * Un axe sans jeu couvrant est une zone a investiguer.
+ * Tous les objets lineaires des jeux d'axes, avec le nombre de jeux de reseau LINEAIRES autorises dont l'emprise englobante contient l'objet.
+ * Un objet sans jeu couvrant est une zone a investiguer. Correctif D7 : rend aussi l'ordre, le nom brut et la valeur de la colonne `identifiant`
+ * du mapping de son jeu (`colonnes` : jeu d'axes -> colonne, absente = aucune), pour regrouper les morceaux par axe (couverture.noyau.ts) ;
+ * la geometrie n'est plus lue ici, mais seulement pour les axes non couverts (`geometriesCouverture`).
  */
-export async function couvertureDesAxes(tx: TxLecture, axesIds: readonly string[], reseauIds: readonly string[]): Promise<LigneCouverture[]> {
+export async function couvertureDesAxes(tx: TxLecture, axesIds: readonly string[], reseauIds: readonly string[], colonnes: ReadonlyMap<string, string | null> = new Map()): Promise<LigneCouverture[]> {
   if (axesIds.length === 0) return [];
-  const r = await tx.$queryRaw<{ aid: bigint | string; jeu: string; axe: string; len: number; lon: number; lat: number; g: string; nb: number }[]>`
+  const r = await tx.$queryRaw<{ aid: bigint | string; jeu: string; ordre: number; nom: string | null; ident: string | null; axe: string; len: number; nb: number }[]>`
     WITH enveloppes AS MATERIALIZED (
       SELECT o."jeuId" AS "jeu", ST_SetSRID(ST_Extent(o."geom")::geometry, 4326) AS "env"
         FROM "projets_voirie_objets" o
        WHERE o."jeuId" = ANY(${[...reseauIds]}::text[]) AND o."typeGeom" = 'LIGNE'
-       GROUP BY o."jeuId")
-    SELECT o."id"::text AS "aid", o."jeuId" AS "jeu", COALESCE(o."nom", 'Axe ' || (o."ordre" + 1)::text) AS "axe",
-           ST_Length(o."geom"::geography) AS "len", ST_X(rp."p") AS "lon", ST_Y(rp."p") AS "lat",
-           encode(ST_AsEWKB(o."geom"), 'hex') AS "g",
+       GROUP BY o."jeuId"),
+    colonnes AS MATERIALIZED (SELECT c."jeu" AS "jeu", NULLIF(c."col", '') AS "col" FROM unnest(${[...axesIds]}::text[], ${axesIds.map((j) => colonnes.get(j) ?? "")}::text[]) AS c("jeu", "col"))
+    SELECT o."id"::text AS "aid", o."jeuId" AS "jeu", o."ordre" AS "ordre", o."nom" AS "nom",
+           CASE WHEN k."col" IS NULL THEN NULL ELSE o."attributs" ->> k."col" END AS "ident",
+           COALESCE(o."nom", 'Axe ' || (o."ordre" + 1)::text) AS "axe",
+           ST_Length(o."geom"::geography) AS "len",
            (SELECT count(*)::int FROM enveloppes e WHERE ST_Covers(e."env", o."geom")) AS "nb"
       FROM "projets_voirie_objets" o
-      CROSS JOIN LATERAL (SELECT CASE WHEN GeometryType(o."geom") = 'LINESTRING' THEN ST_LineInterpolatePoint(o."geom", 0.5) ELSE ST_PointOnSurface(o."geom") END AS "p") rp
+      LEFT JOIN colonnes k ON k."jeu" = o."jeuId"
      WHERE o."jeuId" = ANY(${[...axesIds]}::text[]) AND o."typeGeom" = 'LIGNE'
      ORDER BY "axe", o."id"`;
-  return r.map((x) => ({ aid: String(x.aid), jeu: x.jeu, axe: x.axe, len: Number(x.len), lon: Number(x.lon), lat: Number(x.lat), g: x.g, nbCouvrants: Number(x.nb) }));
+  return r.map((x) => ({ aid: String(x.aid), jeu: x.jeu, ordre: Number(x.ordre), nom: x.nom, identifiant: x.ident, axe: x.axe, len: Number(x.len), nbCouvrants: Number(x.nb) }));
+}
+
+export interface GeometrieCouverture { len: number; lon: number; lat: number; g: string }
+
+/**
+ * Correctif D7 : geometrie de chaque dossier de couverture, a partir des identifiants des morceaux NON couverts de son axe (`groupes[i]`).
+ * Un seul morceau : sa geometrie telle quelle, sa longueur et le milieu de la ligne (exactement le calcul d'avant le regroupement, donc la meme
+ * mesure et la meme cle pour un objet d'axe sans nom). Plusieurs : leur REUNION (`ST_UnaryUnion`, puis `ST_LineMerge` des morceaux bout a bout),
+ * mesuree sur la geographie (une portion commune a deux morceaux ne compte qu'une fois), et un point de la reunion. Resultat dans l'ordre des groupes.
+ */
+export async function geometriesCouverture(tx: TxLecture, groupes: readonly (readonly string[])[]): Promise<GeometrieCouverture[]> {
+  if (groupes.length === 0) return [];
+  const idx = groupes.flatMap((g, i) => g.map(() => i));
+  const ids = groupes.flatMap((g) => [...g]);
+  const r = await tx.$queryRaw<{ i: number; len: number; lon: number; lat: number; g: string }[]>`
+    WITH m AS MATERIALIZED (
+      SELECT v."i" AS "i", o."geom" AS "geom"
+        FROM unnest(${idx}::int[], ${ids}::bigint[]) AS v("i", "oid")
+        JOIN "projets_voirie_objets" o ON o."id" = v."oid"),
+    u AS MATERIALIZED (
+      SELECT m."i" AS "i",
+             CASE WHEN count(*) = 1 THEN (array_agg(m."geom"))[1] ELSE ST_LineMerge(ST_UnaryUnion(ST_Collect(m."geom"))) END AS "geom"
+        FROM m GROUP BY m."i")
+    SELECT u."i" AS "i", ST_Length(u."geom"::geography) AS "len", ST_X(rp."p") AS "lon", ST_Y(rp."p") AS "lat", encode(ST_AsEWKB(u."geom"), 'hex') AS "g"
+      FROM u
+      CROSS JOIN LATERAL (SELECT CASE WHEN GeometryType(u."geom") = 'LINESTRING' THEN ST_LineInterpolatePoint(u."geom", 0.5) ELSE ST_PointOnSurface(u."geom") END AS "p") rp
+     ORDER BY u."i"`;
+  const parI = new Map(r.map((x) => [Number(x.i), { len: Number(x.len), lon: Number(x.lon), lat: Number(x.lat), g: x.g }] as const));
+  return groupes.map((_, i) => {
+    const x = parI.get(i);
+    if (!x) throw new Error("geometriesCouverture : groupe sans geometrie");
+    return x;
+  });
 }
 
 // ------------------------------------------------------------------------------------------------
