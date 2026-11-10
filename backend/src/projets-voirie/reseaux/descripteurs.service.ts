@@ -78,7 +78,7 @@ export async function ficheObjetReseau(acteur: Acteur, projetId: string, objetId
     const r = await depot.listerRelations(tx, { projetId, statutsJeu: statutsLisibles(acteur.role), objetId, limite: 200 });
     const p = l.typeGeom === "LIGNE" ? await depot.tracePartagee(tx, objetId) : null;
     // Lot S1 : etat de connexion DECLARE (CONNECTE_A validees, avec leur preuve), jamais deduit d une proximite.
-    const cx = await depot.connexionsDe(tx, objetId);
+    const cx = await depot.connexionsDe(tx, objetId, statutsLisibles(acteur.role));
     return { ligne: l, relations: r.slice(0, 200), partage: p, connexions: cx };
   });
   // m4 : les relations rendues portent aussi les objets (nom, nature, jeu) de l'AUTRE bout, qui peut etre d'un autre jeu sensible : tout est trace.

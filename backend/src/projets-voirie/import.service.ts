@@ -331,7 +331,10 @@ async function deposerDansTransaction(tx: Tx, d: DemandeDepot, lecture0: Resulta
     const conc = await tx.concessionnaireReseau.findFirst({ where: { id: c.concessionnaireId, deletedAt: null } });
     if (!conc) throw introuvable("Concessionnaire", "CONCESSIONNAIRE_INTROUVABLE");
     // Lot T1 : le code du referentiel (du depot, sinon du concessionnaire) donne la famille ; sans code, la famille declaree (repli).
-    const type = await resoudreTypeReseau(tx, { code: c.typeReseauCode ?? conc.typeReseauCode, famille: c.typeReseau ?? conc.typeReseau });
+    // Correctifs T1+S1 (m6) : une famille demandee SANS code et differente de celle du concessionnaire est une surcharge (admise par le socle et par
+    // l'assistant) : le code du concessionnaire, d'une autre famille, n'est alors pas herite (sinon 400 TYPE_RESEAU_INCOHERENT).
+    const surchargeFamille = !c.typeReseauCode && c.typeReseau !== undefined && c.typeReseau !== conc.typeReseau;
+    const type = await resoudreTypeReseau(tx, { code: c.typeReseauCode ?? (surchargeFamille ? null : conc.typeReseauCode), famille: c.typeReseau ?? conc.typeReseau });
     typeReseau = type.famille as TypeReseau;
     typeReseauCode = type.code;
   }

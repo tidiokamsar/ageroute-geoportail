@@ -265,12 +265,19 @@ export async function insererConnexionsDeclarees(tx: TxEcriture, e: { projetId: 
   return { creees: Number(r[0]?.creees ?? 0), nonResolues: Number(r[0]?.nonresolues ?? 0) };
 }
 
-/** Lot S1 : connexions declarees (CONNECTE_A) qui touchent un objet, avec leur statut et leur preuve : l etat de connexion s en deduit (jamais d une proximite). */
-export async function connexionsDe(tx: TxLecture, objetId: string): Promise<{ statut: string; preuve: string | null }[]> {
+/**
+ * Lot S1 : connexions declarees (CONNECTE_A) qui touchent un objet, avec leur statut et leur preuve : l etat de connexion s en deduit (jamais d une
+ * proximite). Correctifs T1+S1 (m8) : seules comptent les connexions dont l objet de L AUTRE bout est d un jeu lisible pour le compte (`statutsJeu`),
+ * comme la liste des relations : un lecteur ne voit pas « CONFIRMEE (n) » pour des liens vers des jeux non AUTORISE ou RETIRE.
+ */
+export async function connexionsDe(tx: TxLecture, objetId: string, statutsJeu: readonly string[]): Promise<{ statut: string; preuve: string | null }[]> {
   if (!ID_OBJET.test(objetId)) return [];
   return tx.$queryRaw<{ statut: string; preuve: string | null }[]>`
     SELECT r."statut"::text AS "statut", r."preuve"::text AS "preuve" FROM "reseau_relations" r
-     WHERE r."typeRelation"::text = 'CONNECTE_A' AND (r."sourceObjetId" = ${objetId}::bigint OR r."cibleObjetId" = ${objetId}::bigint)`;
+      JOIN "projets_voirie_objets" o ON o."id" = (CASE WHEN r."sourceObjetId" = ${objetId}::bigint THEN r."cibleObjetId" ELSE r."sourceObjetId" END)
+      JOIN "projets_voirie_jeux" j ON j."id" = o."jeuId"
+     WHERE r."typeRelation"::text = 'CONNECTE_A' AND (r."sourceObjetId" = ${objetId}::bigint OR r."cibleObjetId" = ${objetId}::bigint)
+       AND j."statut"::text = ANY(${[...statutsJeu]}::text[])`;
 }
 
 export async function changerStatutRelation(tx: TxEcriture, relId: string, vers: string, acteurId: string, justification: string): Promise<void> {

@@ -444,6 +444,20 @@ async function main() {
   const fC2b = await get(`/${PID}/reseau/objets/${C2o}`);
   verifier("10. saisie humaine justifiee : CONNECTE_A creee VALIDEE, preuve INCONNUE ; le cable C2 passe a l'etat INCONNUE (pas CONFIRMEE)",
     man.status === 201 && man.body.relation.typeRelation === "CONNECTE_A" && man.body.relation.preuve === "INCONNUE" && fC2b.body.connexions.etat === "INCONNUE", [man.body, fC2b.body.connexions]);
+  // Correctifs T1+S1 (m8) : une connexion vers un objet d'un jeu en CONTROLE n'est pas comptee dans l'etat de connexion d'un lecteur.
+  const JL2 = (await deposer(PID, await geojson([{ nom: "Cable C3", coords: [[150, 300], [220, 300]] }]), { role: "RESEAU_TIERS", concessionnaireId: CL, natureObjets: "ACTIF_PHYSIQUE", methodeAcquisition: "GNSS_RTK" }, "elec-controle.geojson")).id;
+  const C3o = (await sql<{ id: string }>(`SELECT id::text FROM projets_voirie_objets WHERE "jeuId" = $1`, JL2))[0].id;
+  const versControle = await envoyer("post", `/${PID}/reseau/relations`, { type: "CONNECTE_A", sourceObjetId: C2o, cibleObjetId: C3o, preuve: "CONFIRMEE_PAR_FOURNISSEUR", justification: "Connexion declaree par le fournisseur" });
+  const [cxLect, cxChef] = await Promise.all([get(`/${PID}/reseau/objets/${C2o}`, T.lecteur), get(`/${PID}/reseau/objets/${C2o}`)]);
+  verifier("10. m8 : un lien CONFIRMEE vers un objet d'un jeu en CONTROLE : le LECTEUR n'en voit rien (etat INCONNUE, 0 confirmee) ; le gestionnaire, qui lit ce jeu, voit CONFIRMEE",
+    (await statut(JL2)) === "CONTROLE" && versControle.status === 201 && cxLect.body.connexions?.etat === "INCONNUE" && cxLect.body.connexions.nbConfirmees === 0
+    && cxChef.body.connexions?.etat === "CONFIRMEE" && cxChef.body.connexions.nbConfirmees === 1, [versControle.body, cxLect.body.connexions, cxChef.body.connexions]);
+  // Correctifs T1+S1 (m6) : une famille demandee sans code, autre que celle du concessionnaire, est une surcharge admise (le code n'est pas herite).
+  const surcharge = await request(app).post(`${BASE}/${PID}/jeux?simuler=true`).set("Authorization", `Bearer ${T.chef}`)
+    .field("role", "RESEAU_TIERS").field("concessionnaireId", CT).field("typeReseau", "EAU_POTABLE").field("methodeAcquisition", "GEORADAR")
+    .attach("fichier", await geojson([ligne("Conduite surchargee", 5000)]), { filename: "surcharge.geojson" });
+  verifier("10. m6 : surcharge de famille au depot (EAU_POTABLE pour un concessionnaire TELECOM, sans code) : acceptee, famille EAU_POTABLE, aucun code herite (plus de 400 TYPE_RESEAU_INCOHERENT)",
+    surcharge.status === 200 && surcharge.body.jeu?.typeReseau === "EAU_POTABLE" && surcharge.body.jeu?.typeReseauCode === null, surcharge.body);
   const sansPreuve = await envoyer("post", `/${PID}/reseau/relations`, { type: "CONNECTE_A", sourceObjetId: C1o, cibleObjetId: C2o, justification: "Connexion visible sur la photo du releve" });
   const oJA = (await sql<{ id: string }>(`SELECT id::text FROM projets_voirie_objets WHERE "jeuId" = $1 ORDER BY id LIMIT 1`, JA))[0].id;
   const natureLogique = await envoyer("post", `/${PID}/reseau/relations`, { type: "CONNECTE_A", sourceObjetId: oJA, cibleObjetId: C1o, preuve: "INCONNUE", justification: "Connexion visible sur la photo du releve" });
