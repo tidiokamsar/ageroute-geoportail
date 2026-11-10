@@ -69,21 +69,33 @@ beforeEach(() => {
 });
 
 describe("roles", () => {
-  it("un non-administrateur ne voit que la configuration, en lecture, sans aucun bouton d'ecriture", async () => {
-    h.role = "LECTEUR";
+  // Revue UI-C, M2 : chaque verification d'absence attend un contenu REELLEMENT charge (articles de configuration issus de GET /configuration),
+  // et une contre-epreuve ADMIN prouve que le bouton existe quand le role l'autorise. Sans cela, l'assertion porterait sur une page vide.
+  const CLES = ["Emprise nationale de plausibilité", "Systèmes de coordonnées admis à l'import", "Protections du serveur (délais, plafonds, cadences)"];
+  async function articlesCharges() {
+    const articles = await Promise.all(CLES.map((n) => screen.findByRole("article", { name: n })));
+    expect(articles.every((a) => within(a).getByText(/Valeur en vigueur/))).toBe(true);
+    return articles;
+  }
+  it.each(["LECTEUR", "GESTIONNAIRE"])("%s : configuration chargee, en lecture ; aucun bouton d'ecriture, aucun onglet d'administration", async (role) => {
+    h.role = role;
     rendre();
-    expect(await screen.findByRole("heading", { name: "Configuration nationale" })).toBeInTheDocument();
-    expect(screen.queryByRole("tab")).toBeNull();
+    const articles = await articlesCharges();
+    for (const a of articles) expect(within(a).queryByRole("button")).toBeNull();
     expect(screen.queryByRole("button", { name: /Modifier/ })).toBeNull();
+    expect(screen.queryByRole("tab")).toBeNull();
     expect(screen.getByText(/Seul un administrateur peut modifier/)).toBeInTheDocument();
     expect(h.get.mock.calls.map((c) => c[0])).not.toContain(`${B}/territoires`);
   });
-  it("un gestionnaire non plus n'administre ni territoires ni referentiels", async () => {
-    h.role = "GESTIONNAIRE";
+  it("contre-epreuve ADMIN : un bouton « Modifier » par cle chargee, et les onglets d'administration", async () => {
+    h.role = "ADMIN";
+    const u = userEvent.setup();
     rendre();
-    await screen.findByRole("heading", { name: "Configuration nationale" });
-    expect(screen.queryByRole("tab", { name: "Territoires" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /Modifier/ })).toBeNull();
+    await screen.findByRole("list", { name: "Arborescence des territoires" });
+    expect(screen.getByRole("tab", { name: "Territoires" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Référentiels" })).toBeInTheDocument();
+    await u.click(screen.getByRole("tab", { name: "Configuration nationale" }));
+    for (const a of await articlesCharges()) expect(within(a).getByRole("button", { name: /^Modifier/ })).toBeInTheDocument();
   });
 });
 
