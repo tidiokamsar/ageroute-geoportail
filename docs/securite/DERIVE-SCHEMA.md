@@ -366,6 +366,30 @@ PostGIS du serveur n'est pas 3.5.2 ; chaque autre ligne est un ecart a classer. 
 Condition : le conteneur `backend` doit avoir `DATABASE_URL` dans son environnement et la CLI Prisma (`prisma` est dans
 `dependencies`, l'image est construite avec `npm ci --omit=dev`) ; sinon utiliser la commande 2 seule.
 
+## 7 bis. Migration `20261103400000_correctifs_sources_territoires` (correctifs de la revue T1+S1, 10/11/2026)
+
+Objets que la migration ajoute ou change, et ce que `schema.prisma` en declare :
+
+| Objet | Declare par le schema | Classement attendu par l'outil |
+|---|---|---|
+| `conflits_projet.jeuSourceBId` (texte, FK `ON UPDATE CASCADE ON DELETE RESTRICT`), index `conflits_projet_jeuSourceBId_idx` | oui : champ, relation `ConflitJeuSourceB` (`onDelete: Restrict`), `@@index([jeuSourceBId])` | aucun ecart |
+| contrainte `cp_jeu_source_b`, declencheur `conflits_projet_jeu_source_b` | non (Prisma ne represente ni CHECK ni declencheur) | hors du perimetre de l'outil, comme les CHECK et declencheurs des lots precedents |
+| index uniques partiels `projets_voirie_jeux_cle_autorise_key` et `projets_voirie_jeux_cle_attente_key`, recrees sur expression (fonction `pv_identite_type_reseau`) | non (partiels et sur expression) | `EX-PARTIEL` / `EX-EXPRESSION`, comme leur version du lot S1 |
+| fonction `pv_identite_type_reseau`, declencheur `projets_voirie_jeux_methode_acquisition`, contraintes `rrs_systeme`, `rrs_bareme_personne`, `rrs_bareme_separation` (NOT VALID) | non | hors du perimetre de l'outil |
+| defaut de `regles_rapprochement_sources.precisionParClasseM` : `'{}'::jsonb` (au lieu du bareme provisoire) | oui : `@default("{}")` (modifie avec la migration ; sans cela, l'outil signalerait un defaut different) | aucun ecart |
+| donnees : 9 valeurs `METHODE_ACQUISITION`, regle `S1-CORRIDOR-0.1` passee `RETIREE`, regle `S1-CORRIDOR-0.2` | sans objet (donnees) | sans objet |
+
+Montee, descente et remontee : banc `prisma/descentes/verifier.sh --seulement 20261103400000_correctifs_sources_territoires` sur une base reconstruite a 103 migrations (conteneur jetable) : 6 verifications reussies, 0 echec (schema identique apres la descente, aller-retour identique, deux gardes dont une sans derogation possible).
+
+Controle de derive (10/11/2026, conteneur jetable, PostgreSQL 17 / PostGIS 3.5) : `scripts/verifier-derive-schema.ts --reconstruire` sur la chaine des
+103 migrations (dont celle-ci) contre `schema.prisma` de la branche `fix/vague3-revue-t1s1` : code 1 (derive presente), **160** derives et 48 exceptions
+documentees sur toute la chaine. **Aucune ne porte sur un objet de cette migration** (`jeuSourceBId`, sa cle etrangere et son index, les deux index de
+cle de version, les contraintes et declencheurs ajoutes, le defaut de `precisionParClasseM`) : recherche faite dans la sortie complete. Parmi les derives
+voisines, preexistantes et hors de ce lot : la cle etrangere et l'index de `conflits_projet.comparaisonId` et les cles etrangeres de
+`regles_rapprochement_sources` (lot S1, champs sans `@relation`), a corriger avec le lot S1 ou par une reference d'ecarts connus (section 6.2). L'ecart
+de 87 (26/10) a 160 vient des migrations ajoutees depuis par les autres lots ; il n'a pas ete ventile ici. Le fichier `--json` n'a pas ete ecrit
+(chemin du dossier temporaire mal converti sous Git Bash, code 2 a l'ecriture finale apres le rapport) : sans effet sur le decompte.
+
 ## 8. Non verifie
 
 - La production, entierement (section 7).
