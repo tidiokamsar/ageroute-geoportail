@@ -35,10 +35,11 @@ export function OngletTerritoires({ enLigne }: { enLigne: boolean }) {
   const liste = useMemo(() => filtrerTerritoires(arbre.data?.territoires ?? [], { q: saisie }), [arbre.data, saisie]);
   const aUneNation = (arbre.data?.territoires ?? []).some((t) => t.niveau === "NATION");
   const crsAdmis = (listeBlancheEffective(config.data?.configuration) ?? []).filter((e) => e !== 4326);
-  const empriseNationale = (() => {
+  // Revue m10 : reference stable (la carte d'emprise recadre quand la reference change ; un nouveau rendu ne doit pas annuler le zoom).
+  const empriseNationale = useMemo(() => {
     const e = config.data?.configuration.find((c) => c.cle === "EMPRISE_PLAUSIBILITE")?.valeur as { bbox?: unknown } | undefined;
     return Array.isArray(e?.bbox) && e.bbox.length === 4 && e.bbox.every((x) => typeof x === "number") ? (e.bbox as Bbox) : null;
-  })();
+  }, [config.data]);
 
   return (
     <section aria-labelledby="pv-titre-territoires" className="space-y-3">
@@ -228,6 +229,11 @@ function DialogueModification({ territoire: t, parent, crsAdmis, empriseNational
       onFermer={onFermer} onValider={() => void envoyer(async () => { const r = await modifier.mutateAsync({ tid: t.id, corps }); onModifie(r.territoire.nom, r.avertissements); })} enLigne={enLigne} large
     >
       <ChampsCommuns id={id} v={v} maj={maj} crsAdmis={crsAdmis} desactive={enCours} />
+      {(v.region ? Number(v.region) : null) !== t.regionId && (
+        <p role="note" data-testid="avertissement-region" className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-950">
+          Changer la région administrative modifie le périmètre de ce territoire et de ses subdivisions, mais les projets déjà rattachés à ce territoire et à ses subdivisions gardent leur région actuelle : vérifiez-les avec la liste des projets filtrée par ce territoire.
+        </p>
+      )}
       <label className="flex min-h-[44px] items-center gap-2 text-sm text-gray-900 xl:min-h-0">
         <input type="checkbox" className="h-4 w-4" checked={v.actif} disabled={enCours} onChange={(ev) => maj({ actif: ev.target.checked })} />Territoire actif (proposé à la création d&apos;un projet)
       </label>

@@ -277,6 +277,35 @@ describe("referentiels (ADMIN)", () => {
   });
 });
 
+describe("revue m6 et m9", () => {
+  it("m6 : apres un 409 VALEUR_UTILISEE, un echec de la desactivation (reseau) ne repropose pas « Retirer la valeur »", async () => {
+    h.delete.mockRejectedValue({ response: { status: 409, data: { code: "VALEUR_UTILISEE", usages: { jeux: 2 } } } });
+    h.patch.mockRejectedValue(new Error("Network Error"));
+    const u = userEvent.setup();
+    rendre();
+    await u.click(await screen.findByRole("tab", { name: "Référentiels" }));
+    await screen.findByRole("table", { name: "Types de réseau" });
+    await u.click(screen.getByRole("button", { name: "Retirer Type FIBRE" }));
+    const d = await screen.findByRole("dialog");
+    await u.click(within(d).getByRole("button", { name: "Retirer la valeur" }));
+    await u.click(await within(d).findByRole("button", { name: "Désactiver la valeur" }));
+    expect(await within(d).findByText(/injoignable/)).toBeInTheDocument();
+    expect(within(d).getByRole("button", { name: "Désactiver la valeur" })).toBeInTheDocument();
+    expect(within(d).queryByRole("button", { name: "Retirer la valeur" })).toBeNull();
+    expect(h.delete).toHaveBeenCalledTimes(1);
+  });
+  it("m9 : changer la region d'un territoire previent que ses projets gardent leur region", async () => {
+    const u = userEvent.setup();
+    rendre();
+    await u.click(await screen.findByRole("button", { name: /Modifier Region synthetique/ }));
+    const d = await screen.findByRole("dialog");
+    expect(within(d).queryByTestId("avertissement-region")).toBeNull();
+    await within(within(d).getByLabelText(/Région administrative/)).findByRole("option", { name: "Region administrative 1" });
+    await u.selectOptions(within(d).getByLabelText(/Région administrative/), "1");
+    expect(within(d).getByTestId("avertissement-region")).toHaveTextContent(/projets déjà rattachés à ce territoire et à ses subdivisions gardent leur région/);
+  });
+});
+
 describe("configuration nationale", () => {
   it("source affichee : une variable d'environnement l'emporte (dit clairement) ; source par sous-cle des protections", async () => {
     h.role = "LECTEUR";

@@ -46,7 +46,7 @@ describe("liste des projets", () => {
     expect(r1).toHaveTextContent("Chaussée 7 m, emprise 15 m (théoriques)");
     expect(within(t).getByRole("link", { name: /Autre projet/ }).closest("tr")).toHaveTextContent("(validées)");
     expect(within(t).getByRole("link", { name: /Autre projet/ }).closest("tr")).toHaveTextContent("Non renseignée");
-    expect(h.get).toHaveBeenCalledWith("/v2/projets-voirie", { params: { limite: 25 } });
+    expect(h.get).toHaveBeenCalledWith("/v2/projets-voirie", expect.objectContaining({ params: { limite: 25 } }));
   });
 
   it("compteurs par statut du serveur : autorises pour tous, « a autoriser » pour les seuls gestionnaires", async () => {
@@ -67,7 +67,7 @@ describe("liste des projets", () => {
     rendre();
     await screen.findByRole("table");
     await userEvent.type(screen.getByLabelText("Rechercher un projet"), "kissi");
-    await waitFor(() => expect(h.get).toHaveBeenLastCalledWith("/v2/projets-voirie", { params: { q: "kissi", limite: 25 } }));
+    await waitFor(() => expect(h.get).toHaveBeenLastCalledWith("/v2/projets-voirie", expect.objectContaining({ params: { q: "kissi", limite: 25 } })));
     expect(h.get.mock.calls.filter((c) => c[1].params.q && c[1].params.q.length < 5)).toHaveLength(0);
   });
 
@@ -76,7 +76,7 @@ describe("liste des projets", () => {
     rendre();
     await userEvent.click(await screen.findByRole("button", { name: "Charger plus de projets" }));
     expect(await screen.findByRole("link", { name: /Autre projet/ })).toBeInTheDocument();
-    expect(h.get).toHaveBeenLastCalledWith("/v2/projets-voirie", { params: { curseur: "curseur-2", limite: 25 } });
+    expect(h.get).toHaveBeenLastCalledWith("/v2/projets-voirie", expect.objectContaining({ params: { curseur: "curseur-2", limite: 25 } }));
     expect(screen.queryByRole("button", { name: "Charger plus de projets" })).toBeNull();
   });
 });
@@ -188,10 +188,10 @@ describe("territoire (lot T1)", () => {
     expect(choix.closest("label")).toHaveTextContent("Region synthetique");
     expect(screen.getByRole("radio", { name: /Commune fermee/ }).closest("label")).toHaveTextContent("(inactif)");
     await u.click(choix);
-    await waitFor(() => expect(h.get).toHaveBeenLastCalledWith("/v2/projets-voirie", { params: { territoireId: "com", limite: 25 } }));
+    await waitFor(() => expect(h.get).toHaveBeenLastCalledWith("/v2/projets-voirie", expect.objectContaining({ params: { territoireId: "com", limite: 25 } })));
     expect(screen.getByTestId("filtre-territoire-actif")).toHaveTextContent("Territoire : Commune synthetique (Commune), avec ses subdivisions.");
     await u.click(screen.getByRole("button", { name: /Retirer le filtre/ }));
-    await waitFor(() => expect(h.get).toHaveBeenLastCalledWith("/v2/projets-voirie", { params: { limite: 25 } }));
+    await waitFor(() => expect(h.get).toHaveBeenLastCalledWith("/v2/projets-voirie", expect.objectContaining({ params: { limite: 25 } })));
   });
   it("le selecteur de territoire en erreur (hors ligne) le dit, avec un reessai", async () => {
     h.get.mockImplementation(async (url: string) => {

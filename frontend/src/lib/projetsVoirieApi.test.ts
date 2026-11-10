@@ -30,6 +30,13 @@ describe("liste, creation, fiche, parametres, retrait du projet", () => {
     expect(lirePageProjets([{ id: "p", code: "C", nom: "N" }]).projets).toHaveLength(1);
     expect(lirePageProjets({ items: [], nextCursor: null })).toEqual({ projets: [], suivant: null });
   });
+  it("revue m11 : la liste des projets transmet le signal d'annulation ; le projet porte sa region", async () => {
+    const ctrl = new AbortController();
+    h.get.mockResolvedValueOnce({ data: { projets: [{ id: "p1", code: "A-1", nom: "A", regionId: 3 }], suivant: null } });
+    const page = await listerProjets({ territoireId: "t" }, ctrl.signal);
+    expect(h.get).toHaveBeenCalledWith(BASE, { params: { territoireId: "t" }, signal: ctrl.signal });
+    expect(page.projets[0].regionId).toBe(3);
+  });
   it("POST / cree un projet", async () => {
     h.post.mockResolvedValueOnce({ data: { id: "p1", code: "A-1", nom: "A", jeux: [] } });
     const p = await creerProjet({ code: "A-1", nom: "A", largeurEmpriseM: 15, largeurChausseeM: 7, territoireId: "t-1" });

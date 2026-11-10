@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useCallback, useId, useState } from "react";
 import { CadreDialogue, LIBELLE_CHAMP, useEnvoiDialogue } from "../CadreDialogue";
 import { Select } from "../../ui/Input";
 import { SelecteurTerritoire } from "./SelecteurTerritoire";
@@ -28,6 +28,9 @@ export function DialogueTerritoireProjet({ projet, enLigne, onFermer, onValider 
     ...(categorieChange ? { categorieCode: categorie || null } : {}),
   };
   const options = optionsDeChoix(categories.data?.valeurs, projet.categorieCode);
+  // Revue m8 : ne proposer que les territoires de la region du projet (nationale : sans region) ; region inconnue (serveur ancien) : aucun filtre.
+  const regionConnue = projet.regionId !== undefined;
+  const memeRegion = useCallback((t: Territoire) => t.regionEffectiveId === (projet.regionId ?? null), [projet.regionId]);
 
   return (
     <CadreDialogue
@@ -42,6 +45,8 @@ export function DialogueTerritoireProjet({ projet, enLigne, onFermer, onValider 
     >
       <SelecteurTerritoire
         libelle="Territoire" valeur={territoire?.id ?? projet.territoireId} courant={projet.territoire} actifsSeulement desactive={enCours}
+        filtre={regionConnue ? memeRegion : undefined}
+        aide={regionConnue ? "Seuls les territoires de la région du projet sont proposés." : undefined}
         onChange={(t) => setTerritoire(t)}
       />
       <div>
