@@ -167,6 +167,46 @@ describe("ce qui est refuse : spirales, arcs degeneres, unites", () => {
   });
 });
 
+describe("revue D1, M3 : un element de ligne illisible refuse l'axe, il ne le tronque jamais", () => {
+  it("axe de quatre Line dont la deuxieme a un depart illisible : 422 LANDXML_COORDONNEE_ILLISIBLE (et non un axe de 100 m sur 400) ; l'inventaire ne refuse pas", () => {
+    const els = ligneXml([0, 0], [100, 0]) + `<Line><Start>abc ${E0 + 100}</Start><End>${ne(200, 0)}</End></Line>` + ligneXml([200, 0], [300, 0]) + ligneXml([300, 0], [400, 0]);
+    const xml = landxml(alignements(axe("Axe T", els)));
+    expect(code(() => traverser(xml))).toBe("LANDXML_COORDONNEE_ILLISIBLE");
+    expect(code(() => lire(xml))).toBe("LANDXML_COORDONNEE_ILLISIBLE");
+    try { traverser(xml); } catch (e) { expect((e as Error).message).toMatch(/axe n°1, element n°2/); expect((e as Error).message).not.toMatch(/\d{5,}/); }
+    expect(traverser(xml, { inventaire: true }).c.objets).toHaveLength(1);
+  });
+  it("Line sans End, PntList2D de longueur impaire, avec un nombre illisible, ou d'un seul point ; pntRef vers un point illisible : meme refus", () => {
+    const pts = `<CgPoints><CgPoint name="P1">${ne(0, 0)}</CgPoint><CgPoint name="PX">x y</CgPoint></CgPoints>`;
+    const cas = [
+      `<Line><Start>${ne(0, 0)}</Start></Line>`,
+      `<IrregularLine><PntList2D>${ne(0, 0)} ${ne(10, 0)} ${N0 + 5}</PntList2D></IrregularLine>`,
+      `<IrregularLine><PntList2D>${ne(0, 0)} ${N0} abc</PntList2D></IrregularLine>`,
+      `<IrregularLine><PntList2D>${ne(0, 0)}</PntList2D></IrregularLine>`,
+      `<IrregularLine></IrregularLine>`,
+    ];
+    for (const el of cas) expect(code(() => traverser(landxml(alignements(axe("Axe I", el))))), el.slice(0, 60)).toBe("LANDXML_COORDONNEE_ILLISIBLE");
+    expect(code(() => traverser(landxml(pts + alignements(axe("Axe R", `<Line><Start pntRef="P1"/><End pntRef="PX"/></Line>`)))))).toBe("LANDXML_COORDONNEE_ILLISIBLE");
+  });
+});
+
+describe("revue D1, m1 et m6 : declarations ambigues ou non reconnues", () => {
+  const corps = alignements(axe("Axe U", ligneXml([0, 0], [10, 0])));
+  it("m1 : deux elements Units, ou Metric et Imperial ensemble : LANDXML_UNITES_NON_SUPPORTEES (unites ambigues), jamais lu en metres", () => {
+    expect(code(() => traverser(landxml(corps, { unites: `<Units><Imperial linearUnit="USSurveyFoot"/><Metric linearUnit="meter"/></Units>` })))).toBe("LANDXML_UNITES_NON_SUPPORTEES");
+    expect(code(() => traverser(landxml(corps, { unites: `<Units><Metric linearUnit="meter"/></Units><Units><Imperial linearUnit="USSurveyFoot"/></Units>` })))).toBe("LANDXML_UNITES_NON_SUPPORTEES");
+    expect(code(() => traverser(landxml(corps, { unites: `<Units><Metric linearUnit="meter"/><Metric linearUnit="meter"/></Units>` })))).toBe("LANDXML_UNITES_NON_SUPPORTEES");
+  });
+  it("m6 : epsgCode prefixe (EPSG:xxxx, urn OGC) reconnu et compare ; une valeur non reconnue est montree et refusee (CRS_NON_SUPPORTE), jamais ignoree", () => {
+    const avec = (v: string) => landxml(corps, { crs: `<CoordinateSystem epsgCode="${v}"/>` });
+    expect(crsDeclareLandXml(lireXml(avec("EPSG:2263")))).toMatchObject({ epsg: 2263 });
+    expect(crsDeclareLandXml(lireXml(avec("urn:ogc:def:crs:EPSG::32629")))).toMatchObject({ epsg: 32629 });
+    expect(code(() => lire(avec("EPSG:32628"), 32629))).toBe("CRS_CONFLIT");
+    expect(code(() => lire(avec("Lambert local"), 32629))).toBe("CRS_NON_SUPPORTE");
+    expect(inventorier(detecter(Buffer.from(avec("Lambert local")), "a.xml", {}, LIM)).crs.declareDansLeFichier).toBe("non reconnu : « Lambert local »");
+  });
+});
+
 describe("CRS jamais deduit, liste blanche, projete en metres", () => {
   const xml = landxml(alignements(axe("Axe K", ligneXml([0, 0], [100, 0]))), { crs: `<CoordinateSystem name="UTM 29 synthetique" epsgCode="32629"/>` });
 
@@ -193,7 +233,7 @@ describe("CRS jamais deduit, liste blanche, projete en metres", () => {
     const inv = inventorier(detecter(Buffer.from(xml), "axes.xml", {}, LIM));
     expect(inv.format).toBe("LANDXML");
     expect(inv.crs).toEqual({ normeDuFormat: null, declareDansLeFichier: "EPSG:32629", choixObligatoire: true });
-    expect(crsDeclareLandXml(lireXml(xml))).toEqual({ epsg: 32629, nom: "UTM 29 synthetique" });
+    expect(crsDeclareLandXml(lireXml(xml))).toEqual({ epsg: 32629, nom: "UTM 29 synthetique", brut: null });
   });
 });
 
@@ -248,17 +288,38 @@ describe("fichiers hostiles : XXE, entites, bombes", () => {
     expect(code(() => detecter(Buffer.from(`<LandXML><Units/><!ENTITY x "y"></LandXML>`), "a.xml", {}, LIM))).toBe("DTD_REFUSEE");
   });
 
-  it("bombe de sommets : un arc immense refuse sans allocation (plus de SEGMENTS_ARC_MAX segments) ; des milliers d'arcs refuses au plafond du fichier, en moins d'une seconde", () => {
+  it("bombe de sommets : un arc immense refuse sans allocation (plus de SEGMENTS_ARC_MAX segments) ; des milliers d'arcs refuses au plafond, pour un cout du meme ordre qu'une lecture legitime de la taille du plafond", () => {
     const geant = landxml(alignements(axe("Geant", arcXml([0, -1e7], [0, 0], [-1e7, 0], "ccw"))));
     expect(code(() => traverser(geant, { toleranceArcM: 0.001 }))).toBe("TROP_DE_SOMMETS");
     expect(segmentsArc(1e7, Math.PI * 1.5, 0.001)).toBeGreaterThan(SEGMENTS_ARC_MAX);
     // 2 000 arcs de 1 000 m de rayon a 1 mm de fleche (~2 500 sommets chacun) : 5 millions de sommets annonces, refus au plafond de 2 millions.
     const arcs = Array.from({ length: 2000 }, (_, k) => arcXml([0, -1000 + k * 0], [0, 0], [1000, 0], "cw")).join("");
+    // Revue D1, m10 : borne RELATIVE (le meme poste, la meme charge) au lieu d'un chronometre absolu instable. La bombe s'arrete au plafond par axe
+    // (1 000 000 de sommets, sur 5 millions annonces) : son cout doit rester du meme ordre que la lecture legitime de 600 arcs (environ 1 000 000 de sommets).
+    const reference = Array.from({ length: 600 }, () => arcXml([0, -1000], [0, 0], [1000, 0], "cw")).join("");
+    const t0 = performance.now();
+    traverser(landxml(alignements(axe("Reference", reference))), { toleranceArcM: 0.001, sommetsParObjet: 2_000_000, sommetsParFichier: 2_000_000 });
+    const tReference = performance.now() - t0;
     const t = performance.now();
-    expect(code(() => traverser(landxml(alignements(axe("Bombe", arcs))), { toleranceArcM: 0.001, sommetsParObjet: 1_000_000, sommetsParFichier: 2_000_000 }))).toBe("TROP_DE_SOMMETS");
-    expect(performance.now() - t).toBeLessThan(1500);
+    let message = "";
+    try { traverser(landxml(alignements(axe("Bombe", arcs))), { toleranceArcM: 0.001, sommetsParObjet: 1_000_000, sommetsParFichier: 2_000_000 }); } catch (e) { message = (e as Error).message; expect((e as ErreurLecture).code).toBe("TROP_DE_SOMMETS"); }
+    const tBombe = performance.now() - t;
+    expect(message).toMatch(/depasse 1000000 sommets/);
+    expect(tBombe).toBeLessThan(3 * tReference + 300);
     // Plafond par axe (sommets par objet du socle) applique pendant la discretisation.
     expect(code(() => traverser(landxml(alignements(axe("Long", arcs.slice(0, 20 * arcXml([0, -1000], [0, 0], [1000, 0], "cw").length)))), { toleranceArcM: 0.001, sommetsParObjet: 10_000 }))).toBe("TROP_DE_SOMMETS");
+  });
+
+  it("revue D1, m3 : une IrregularLine de 300 000 points (plafond par objet releve a 1 000 000) se lit sans depassement de pile, puis se raccorde a une Line", () => {
+    const n = 300_000;
+    const morceaux: string[] = [];
+    for (let k = 0; k < n; k++) morceaux.push(`${N0 + (k % 7)} ${E0 + k * 0.01}`);
+    const fin = (n - 1) * 0.01;
+    const xml = landxml(alignements(axe("Long", `<Line><Start>${ne(-5, 0)}</Start><End>${ne(0, 0)}</End></Line><IrregularLine><PntList2D>${morceaux.join(" ")}</PntList2D></IrregularLine>`
+      + `<Line><Start>${N0 + ((n - 1) % 7)} ${E0 + fin}</Start><End>${N0} ${E0 + fin + 10}</End></Line>`)));
+    const { c } = traverser(xml, { sommetsParObjet: 1_000_000, sommetsParFichier: 2_000_000 });
+    expect(c.objets[0].formes.lignes).toHaveLength(1);
+    expect(c.objets[0].formes.lignes[0].length).toBe(n + 2);
   });
 
   it("nombres illisibles ou demesures : NaN, jamais evalues ; un champ de plus de 40 caracteres est illisible", () => {

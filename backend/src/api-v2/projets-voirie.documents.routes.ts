@@ -39,7 +39,18 @@ const jourIso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((s) => {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s && d.getUTCFullYear() >= 1900 && d.getUTCFullYear() <= 2100;
 }, "date AAAA-MM-JJ valide attendue");
 const codeType = z.string().trim().min(2).max(64).transform((s) => s.toUpperCase()).pipe(z.string().regex(/^[A-Z0-9][A-Z0-9_-]{1,63}$/, "code du referentiel TYPE_DOCUMENT"));
-const justification = z.string().trim().max(2000);
+/**
+ * Revue D1, m11 : un texte libre ne porte ni caractere de controle C0 (sauf tabulation et sauts de ligne dans un texte long) ni surcharge de direction
+ * (U+200E, U+200F, U+202A a U+202E, U+2066 a U+2069) : refuses a l'entree (400), pour qu'un titre ou une reference ne s'affiche pas autrement qu'il s'ecrit
+ * (interface, journal exporte par le lot X1).
+ */
+// eslint-disable-next-line no-control-regex
+const CONTROLE_COURT = /[\u0000-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/;
+// eslint-disable-next-line no-control-regex
+const CONTROLE_LONG = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/;
+const sansControle = (court: boolean) => (s: string) => !(court ? CONTROLE_COURT : CONTROLE_LONG).test(s);
+const MESSAGE_CONTROLE = "caracteres de controle ou de direction interdits";
+const justification = z.string().trim().max(2000).refine(sansControle(false), MESSAGE_CONTROLE);
 
 export function monterRoutesDocuments(router: Router, o: OutilsRoutesDocuments): void {
   const { ecriture, gardeProjet, acteurDe, enveloppe, refuser, UUID, placeDeReception, recevoir, refuserNul } = o;
@@ -51,7 +62,7 @@ export function monterRoutesDocuments(router: Router, o: OutilsRoutesDocuments):
   });
 
   const fichierDe = (req: Request): PieceDepot["fichier"] => (req.file ? { contenu: req.file.buffer, nom: req.file.originalname } : undefined);
-  const champsPiece = { reference: opt(z.string().trim().min(1).max(300)), jeuId: opt(uuid) };
+  const champsPiece = { reference: opt(z.string().trim().min(1).max(300).refine(sansControle(true), MESSAGE_CONTROLE)), jeuId: opt(uuid) };
 
   // ------------------------------------------------------------------------------------------------ Ce que les documents permettent
   router.get("/:id/completude", gardeProjet, enveloppe(async (req, res) => { res.json(await completudeProjet(acteurDe(req), req.params.id)); }));
@@ -80,7 +91,8 @@ export function monterRoutesDocuments(router: Router, o: OutilsRoutesDocuments):
 
   // ------------------------------------------------------------------------------------------------ Ecritures (JSON ou multipart : fichier facultatif)
   const corpsCreation = z.object({
-    typeCode: codeType, titre: z.string().trim().min(1).max(200), description: opt(z.string().trim().max(2000)), dateDocument: opt(jourIso),
+    typeCode: codeType, titre: z.string().trim().min(1).max(200).refine(sansControle(true), MESSAGE_CONTROLE),
+    description: opt(z.string().trim().max(2000).refine(sansControle(false), MESSAGE_CONTROLE)), dateDocument: opt(jourIso),
     concessionnaireId: opt(uuid), ...champsPiece,
   }).strict();
   router.post("/:id/documents", ecriture, gardeProjet, placeDeReception, recevoir, refuserNul, enveloppe(async (req, res) => {
@@ -110,7 +122,7 @@ export function monterRoutesDocuments(router: Router, o: OutilsRoutesDocuments):
     res.json(await changerStatut(acteurDe(req), req.params.id, req.params.docId, p.data.statut, p.data.justification));
   }));
 
-  const corpsRetrait = z.object({ justification: justification.min(10, "10 caractères au moins") }).strict();
+  const corpsRetrait = z.object({ justification: z.string().trim().min(10, "10 caractères au moins").max(2000).refine(sansControle(false), MESSAGE_CONTROLE) }).strict();
   router.delete("/:id/documents/:docId", ecriture, gardeProjet, enveloppe(async (req, res) => {
     const p = corpsRetrait.safeParse(req.body ?? {});
     if (!p.success) return refuser(res, p.error, "JUSTIFICATION_INVALIDE");

@@ -80,6 +80,9 @@ export function choisirCrs(format: FormatFichier, epsgSource: number | undefined
     if (epsgSource === undefined) {
       throw new ErreurLecture("CRS_REQUIS", `le CRS des coordonnees d'un LandXML doit etre choisi (epsgSource) : il n'est jamais deduit du fichier${declare?.epsg ? ` (qui declare EPSG:${declare.epsg})` : ""}. Liste blanche : ${autorises.map((e) => `EPSG:${e}`).join(", ")}`);
     }
+    if (declare && declare.epsg === null) {
+      throw new ErreurLecture("CRS_NON_SUPPORTE", `le fichier declare un systeme de coordonnees « ${declare.nom.slice(0, 60)} » qui n'est pas un code EPSG reconnu : sa concordance avec EPSG:${epsgSource} ne peut pas etre verifiee. Corrigez CoordinateSystem/@epsgCode (par exemple EPSG:${epsgSource}) ou retirez-le`);
+    }
     if (declare && declare.epsg !== null && declare.epsg !== epsgSource) {
       throw new ErreurLecture("CRS_CONFLIT", `le fichier declare EPSG:${declare.epsg} mais EPSG:${epsgSource} est demande : un CRS declare ne se surcharge pas`);
     }
@@ -129,6 +132,12 @@ export function metaDepuisSpatialRef(l: { srid: number; srtext: string | null; p
   if (!geographique) {
     const u = /\+units=([A-Za-z-]+)/.exec(proj)?.[1];
     unite = u === undefined || u === "m" ? "metre" : u === "us-ft" ? "pied US" : u === "ft" ? "pied" : u;
+    // Revue D1, m2 : sans +units, un facteur +to_meter different de 1 n'est pas le metre (pied de Clarke, pied US...) ; un facteur illisible est inconnu.
+    const t = /\+to_meter=(\S+)/.exec(proj)?.[1];
+    if (u === undefined && t !== undefined) {
+      const f = Number(t);
+      unite = !Number.isFinite(f) || f <= 0 ? "inconnue" : Math.abs(f - 1) < 1e-12 ? "metre" : Math.abs(f - 0.3048) < 1e-4 ? "pied" : "inconnue";
+    }
   }
   return { epsg: l.srid, nom: m ? m[1] : `EPSG:${l.srid}`, unite, geographique };
 }

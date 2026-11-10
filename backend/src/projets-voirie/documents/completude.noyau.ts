@@ -10,6 +10,7 @@
  */
 
 import { FONCTIONS_DEBLOQUABLES } from "../territoires/referentiels.noyau";
+import { evaluerEligibilite, type JeuEligible } from "../sources/eligibilite.noyau";
 import type { StatutDocument } from "./etats.noyau";
 
 export type Fonction = (typeof FONCTIONS_DEBLOQUABLES)[number];
@@ -50,7 +51,11 @@ export const ROLE_PAR_CONDITION: Readonly<Record<Condition, string | null>> = {
   DECISION_DEPLACEMENT: null,
 };
 
-export interface ReseauEtat { cle: string; concessionnaireId: string | null; concessionnaireNom: string | null; typeReseau: string | null; nbSources: number }
+export interface ReseauEtat {
+  cle: string; concessionnaireId: string | null; concessionnaireNom: string | null; typeReseau: string | null; typeReseauCode: string | null; nbSources: number;
+  /** Deux sources ou plus que l'eligibilite du lot S1 accepte de comparer. */
+  comparable: boolean;
+}
 
 /** Etat d'un projet tel que les fonctions le voient : jeux AUTORISE et decisions seulement. */
 export interface EtatProjet { nbAxesAutorises: number; reseaux: readonly ReseauEtat[]; nbDecisionsDeplacement: number }
@@ -58,7 +63,7 @@ export interface EtatProjet { nbAxesAutorises: number; reseaux: readonly ReseauE
 export type EtatFonction = "DISPONIBLE" | "INDISPONIBLE" | "NON_LIVREE";
 
 export function conditionsRemplies(e: EtatProjet): Record<Condition, { remplie: boolean; nb: number }> {
-  const deux = e.reseaux.filter((r) => r.nbSources >= 2).length;
+  const deux = e.reseaux.filter((r) => r.comparable && r.nbSources >= 2).length;
   return {
     PLAN_AXES_AUTORISE: { remplie: e.nbAxesAutorises > 0, nb: e.nbAxesAutorises },
     RESEAU_AUTORISE: { remplie: e.reseaux.length > 0, nb: e.reseaux.length },
@@ -84,6 +89,8 @@ const disponibles = (e: EtatProjet): Set<Fonction> => new Set(FONCTIONS.filter((
 export interface TypeDocumentEntree { code: string; libelle: string; actif: boolean; obligatoire: boolean; fonctionsDebloquees: readonly string[]; roleJeu: string | null }
 export interface DocumentEntree {
   id: string; ligneeId: string; version: number; typeCode: string; titre: string; statut: StatutDocument; format: string | null; concessionnaireId: string | null;
+  /** Revue D1, m5 : la piece est liee a un jeu RETIRE (elle ne fournit plus son type). */
+  jeuRetire?: boolean;
 }
 
 export type CodePiece = "PLAN_AXES_AUTORISE" | "RESEAU_AUTORISE" | "SECONDE_SOURCE" | "DECISION_DEPLACEMENT";
@@ -99,8 +106,11 @@ export type PieceManquante =
   | { nature: "TYPE_OBLIGATOIRE"; typeDocument: { code: string; libelle: string }; roleJeu: string | null; fonctions: Fonction[]; suffiraitPour: Fonction[]; documents?: DocumentVuPiece[] }
   | { nature: "DOCUMENT"; document: DocumentVuPiece; fonctions: Fonction[] };
 
-/** Statuts d'une piece qui MANQUE encore au dossier (en attente, recue non examinee, a reprendre, ou rejetee sans version plus recente). */
-export const STATUTS_PIECE_MANQUANTE: readonly StatutDocument[] = ["ATTENDU", "RECU", "EN_ANALYSE", "INCOMPLET", "A_CORRIGER", "REJETE"];
+/**
+ * Statuts de la DERNIERE version non retiree d'une lignee qui font de la piece une piece qui MANQUE encore au dossier : en attente, recue non examinee, a
+ * reprendre, rejetee sans version plus recente, ou REMPLACE dont la remplacante a ete retiree (revue D1, M1 : la piece ne sort pas du dossier sans trace).
+ */
+export const STATUTS_PIECE_MANQUANTE: readonly StatutDocument[] = ["ATTENDU", "RECU", "EN_ANALYSE", "INCOMPLET", "A_CORRIGER", "REJETE", "REMPLACE"];
 
 const estFonction = (v: string): v is Fonction => (FONCTIONS as readonly string[]).includes(v);
 
@@ -117,9 +127,9 @@ export interface EntreeCompletude {
 
 export interface Completude {
   fonctions: { code: Fonction; libelle: string; etat: EtatFonction; conditions: { code: Condition; libelle: string; remplie: boolean; nb: number }[] }[];
-  reseaux: { concessionnaireId: string | null; concessionnaire: string | null; typeReseau: string | null; nbSources: number; comparable: boolean }[];
+  reseaux: { concessionnaireId: string | null; concessionnaire: string | null; typeReseau: string | null; typeReseauCode: string | null; nbSources: number; comparable: boolean }[];
   piecesManquantes: PieceManquante[];
-  documents: { total: number; parStatut: Partial<Record<StatutDocument, number>> };
+  documents: { total: number; parStatut: Partial<Record<StatutDocument, number>>; tronque?: boolean };
 }
 
 /** Dernieres versions de chaque lignee parmi les documents visibles. */
@@ -161,14 +171,14 @@ export function calculerCompletude(x: EntreeCompletude): Completude {
   };
   if (!conds.PLAN_AXES_AUTORISE.remplie) pieceCondition("PLAN_AXES_AUTORISE", { ...x.etat, nbAxesAutorises: 1 }, null);
   if (!conds.RESEAU_AUTORISE.remplie) {
-    pieceCondition("RESEAU_AUTORISE", { ...x.etat, reseaux: [...x.etat.reseaux, { cle: "(nouveau)", concessionnaireId: null, concessionnaireNom: null, typeReseau: null, nbSources: 1 }] }, null);
+    pieceCondition("RESEAU_AUTORISE", { ...x.etat, reseaux: [...x.etat.reseaux, { cle: "(nouveau)", concessionnaireId: null, concessionnaireNom: null, typeReseau: null, typeReseauCode: null, nbSources: 1, comparable: false }] }, null);
   }
   if (!conds.DEUX_SOURCES_MEME_RESEAU.remplie) {
     if (x.etat.reseaux.length === 0) {
-      pieceCondition("SECONDE_SOURCE", { ...x.etat, reseaux: [{ cle: "(nouveau)", concessionnaireId: null, concessionnaireNom: null, typeReseau: null, nbSources: 2 }] }, null);
+      pieceCondition("SECONDE_SOURCE", { ...x.etat, reseaux: [{ cle: "(nouveau)", concessionnaireId: null, concessionnaireNom: null, typeReseau: null, typeReseauCode: null, nbSources: 2, comparable: true }] }, null);
     } else {
       for (const r of x.etat.reseaux) {
-        pieceCondition("SECONDE_SOURCE", { ...x.etat, reseaux: x.etat.reseaux.map((y) => (y.cle === r.cle ? { ...y, nbSources: y.nbSources + 1 } : y)) }, r);
+        pieceCondition("SECONDE_SOURCE", { ...x.etat, reseaux: x.etat.reseaux.map((y) => (y.cle === r.cle ? { ...y, nbSources: y.nbSources + 1, comparable: true } : y)) }, r);
       }
     }
   }
@@ -177,13 +187,13 @@ export function calculerCompletude(x: EntreeCompletude): Completude {
   // Types obligatoires non fournis : fourni = un jeu AUTORISE de son role, ou un document VALIDE de ce type.
   for (const t of typesActifs.filter((y) => y.obligatoire)) {
     const parJeu = t.roleJeu !== null && (x.jeuxAutorisesParRole[t.roleJeu] ?? 0) > 0;
-    const parDocument = x.documents.some((d) => d.typeCode === t.code && d.statut === "VALIDE");
+    const parDocument = x.documents.some((d) => d.typeCode === t.code && d.statut === "VALIDE" && !d.jeuRetire);
     if (parJeu || parDocument) continue;
     const fonctions = t.fonctionsDebloquees.filter(estFonction).filter((f) => etats[f] === "INDISPONIBLE");
     // Si le type est fourni par un jeu de son role, les conditions de ce role deviennent remplies (ce qu'une piece de ce seul type debloquerait).
     let apres: EtatProjet = x.etat;
     if (t.roleJeu === "AXES_TRAVAUX") apres = { ...x.etat, nbAxesAutorises: x.etat.nbAxesAutorises + 1 };
-    else if (t.roleJeu === "RESEAU_TIERS" && x.etat.reseaux.length === 0) apres = { ...x.etat, reseaux: [{ cle: "(nouveau)", concessionnaireId: null, concessionnaireNom: null, typeReseau: null, nbSources: 1 }] };
+    else if (t.roleJeu === "RESEAU_TIERS" && x.etat.reseaux.length === 0) apres = { ...x.etat, reseaux: [{ cle: "(nouveau)", concessionnaireId: null, concessionnaireNom: null, typeReseau: null, typeReseauCode: null, nbSources: 1, comparable: false }] };
     pieces.push({
       nature: "TYPE_OBLIGATOIRE", typeDocument: { code: t.code, libelle: t.libelle }, roleJeu: t.roleJeu, fonctions, suffiraitPour: suffit(apres),
       ...(x.decideur ? { documents: documentsDesTypes([t.code]) } : {}),
@@ -205,21 +215,30 @@ export function calculerCompletude(x: EntreeCompletude): Completude {
       code: f, libelle: LIBELLES_FONCTION[f], etat: etats[f],
       conditions: (CONDITIONS_PAR_FONCTION[f] ?? []).map((c) => ({ code: c, libelle: LIBELLES_CONDITION[c], remplie: conds[c].remplie, nb: conds[c].nb })),
     })),
-    reseaux: x.etat.reseaux.map((r) => ({ concessionnaireId: r.concessionnaireId, concessionnaire: r.concessionnaireNom, typeReseau: r.typeReseau, nbSources: r.nbSources, comparable: r.nbSources >= 2 })),
+    reseaux: x.etat.reseaux.map((r) => ({ concessionnaireId: r.concessionnaireId, concessionnaire: r.concessionnaireNom, typeReseau: r.typeReseau, typeReseauCode: r.typeReseauCode, nbSources: r.nbSources, comparable: r.comparable })),
     piecesManquantes: pieces,
     documents: { total: x.documents.length, parStatut },
   };
 }
 
-/** Reseaux d'un projet depuis ses jeux AUTORISE de role RESEAU_TIERS : meme identite que l'eligibilite du lot S1 (concessionnaire, famille de type). */
-export function reseauxDepuisJeux(jeux: readonly { role: string; concessionnaireId: string | null; concessionnaireNom: string | null; typeReseau: string | null }[]): ReseauEtat[] {
-  const m = new Map<string, ReseauEtat>();
-  for (const j of jeux) {
-    if (j.role !== "RESEAU_TIERS") continue;
-    const cle = `${j.concessionnaireId ?? ""}|${j.typeReseau ?? ""}`;
-    const r = m.get(cle);
-    if (r) r.nbSources++;
-    else m.set(cle, { cle, concessionnaireId: j.concessionnaireId, concessionnaireNom: j.concessionnaireNom, typeReseau: j.typeReseau, nbSources: 1 });
+/** Jeu tel que la completude le passe a l'eligibilite du lot S1 (le code TYPE_RESEAU est transmis : l'eligibilite decide de son role). */
+export type JeuReseau = JeuEligible & { concessionnaireNom: string | null; typeReseauCode: string | null };
+
+/**
+ * Reseaux d'un projet depuis ses jeux AUTORISE de role RESEAU_TIERS (revue D1, M2). La completude n'a AUCUNE regle d'identite propre : deux jeux sont deux
+ * sources du meme reseau si et seulement si l'eligibilite du lot S1 (`evaluerEligibilite`, mode SOURCES) accepte de les comparer. Quand cette regle change
+ * (decision M3 de la revue T1+S1 : code TYPE_RESEAU dans l'identite), la completude la suit sans modification. Un jeu sans concessionnaire reste seul.
+ */
+export function reseauxDepuisJeux(jeux: readonly JeuReseau[]): ReseauEtat[] {
+  const groupes: { rep: JeuReseau; membres: JeuReseau[] }[] = [];
+  const tries = jeux.filter((j) => j.role === "RESEAU_TIERS").sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : 1));
+  for (const j of tries) {
+    const g = groupes.find((x) => { const v = evaluerEligibilite(x.rep, j); return v.ok && v.mode === "SOURCES"; });
+    if (g) g.membres.push(j);
+    else groupes.push({ rep: j, membres: [j] });
   }
-  return [...m.values()].sort((a, b) => a.cle.localeCompare(b.cle));
+  return groupes.map((g) => ({
+    cle: g.rep.id, concessionnaireId: g.rep.concessionnaireId, concessionnaireNom: g.rep.concessionnaireNom, typeReseau: g.rep.typeReseau,
+    typeReseauCode: g.rep.typeReseauCode, nbSources: g.membres.length, comparable: g.membres.length >= 2,
+  }));
 }

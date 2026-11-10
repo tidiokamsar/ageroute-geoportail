@@ -290,7 +290,7 @@ export function inventorier(d: Detection): InventaireFichier {
     // Lot D1 : le CRS d'un LandXML est toujours choisi ; la declaration du fichier n'est que montree.
     if (d.format === "LANDXML" && d.racine !== undefined) {
       const c = crsDeclareLandXml(d.racine);
-      declare = c ? (c.epsg !== null ? `EPSG:${c.epsg}` : "sans code EPSG") : null;
+      declare = c ? (c.epsg !== null ? `EPSG:${c.epsg}` : c.brut !== null ? `non reconnu : « ${c.brut} »` : "sans code EPSG") : null;
       choixObligatoire = true;
     }
   } else if (d.format === "GEOJSON" && d.doc !== undefined) {
@@ -386,7 +386,7 @@ export interface InfoImportLecture {
   landxml?: {
     toleranceArcM: number; nbAlignements: number; nbLignes: number; nbArcs: number; nbIrreguliers: number; sommetsArcs: number; nbPoints: number;
     nbSurfacesIgnorees: number; nbProfilsIgnores: number; nbAutresIgnores: number; nbDiscontinuites: number;
-    crsDeclare: { epsg: number | null; nom: string | null } | null; unites: string | null;
+    crsDeclare: { epsg: number | null; nom: string | null; brut: string | null } | null; unites: string | null;
   };
   /** Lot B2 : provenance d'une conversion GDAL (jamais de coordonnee). */
   conversion?: {
@@ -454,7 +454,10 @@ function justification(format: FormatFichier, choix: ChoixCrs, meta: MetaCrs, co
 export function preparer(d: Detection, opts: OptionsImport, lim: LimitesImport): Preparation {
   const conv = d.conversion;
   const lx = d.format === "LANDXML" && d.racine ? crsDeclareLandXml(d.racine) : null;
-  const declare = d.format === "GEOJSON" && d.doc ? crsDeclareGeoJson(d.doc) : lx ? { nom: lx.nom ?? "", epsg: lx.epsg } : null;
+  // LandXML : un epsgCode reconnu est compare ; un epsgCode present mais non reconnu est passe sans code (refus CRS_NON_SUPPORTE, revue D1 m6) ; un
+  // CoordinateSystem sans epsgCode n'est qu'un nom (aucune declaration a comparer).
+  const declare = d.format === "GEOJSON" && d.doc ? crsDeclareGeoJson(d.doc)
+    : lx && lx.epsg !== null ? { nom: lx.nom ?? "", epsg: lx.epsg } : lx && lx.brut !== null ? { nom: lx.brut, epsg: null } : null;
   const choix = conv
     ? choisirCrsConverti(conv.format as "GPKG" | "SHAPEFILE" | "DXF", d.selection![0].crsSource, d.selection![0].coordonnees, conv.parametres.epsgSource, opts.epsgSource, lim.crsAutorises)
     : choisirCrs(d.format, opts.epsgSource, declare, lim.crsAutorises);

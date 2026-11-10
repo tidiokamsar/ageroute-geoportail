@@ -10,7 +10,7 @@
  *       (polyligne `PntList2D`) ; une discontinuite de plus de `ECART_RACCORD_M` ouvre une nouvelle partie (comptee) ;
  *   - `CgPoints/CgPoint` : un objet POINT par point (couche `cgpoints`) ; `pntRef` resolu dans les CgPoints du fichier.
  * CE QUI EST REFUSE : `Spiral` et `Chain` (`LANDXML_SPIRALE_NON_PRISE_EN_CHARGE` : une clothoide n'est pas approchee en silence), un arc degenere
- *   (`LANDXML_ARC_DEGENERE`), un `pntRef` introuvable, des unites absentes (`UNITES_REQUISES`) ou non metriques (`LANDXML_UNITES_NON_SUPPORTEES`).
+ *   (`LANDXML_ARC_DEGENERE`), une `Line` ou une `IrregularLine` dont une coordonnee est absente ou illisible (`LANDXML_COORDONNEE_ILLISIBLE`, revue D1, M3), un `pntRef` introuvable, des unites absentes (`UNITES_REQUISES`) ou non metriques (`LANDXML_UNITES_NON_SUPPORTEES`).
  * CE QUI EST IGNORE ET COMPTE : `Profile` (profil en long), `Surfaces/Surface`, tout autre element (`Parcels`, `PipeNetworks`, `Roadways`...).
  *
  * COORDONNEES : la norme ecrit « Nord Est [altitude] » ; X = Est, Y = Nord. Le CRS n'est JAMAIS deduit (choisi par l'utilisateur, voir crs.noyau.ts) ;
@@ -46,7 +46,8 @@ export interface OptionsLandXml {
   inventaire?: boolean;
 }
 
-export interface CrsDeclareLandXml { epsg: number | null; nom: string | null }
+/** `brut` : valeur de `epsgCode` telle que lue (bornee) quand elle n'est pas un code reconnu ; nul sinon (revue D1, m6). */
+export interface CrsDeclareLandXml { epsg: number | null; nom: string | null; brut: string | null }
 
 export interface ResultatLandXml {
   avertissements: Avertissement[];
@@ -100,21 +101,23 @@ function versBrut(nombres: readonly number[], avecAltitude: boolean): Brut {
 export function crsDeclareLandXml(racine: NoeudXml): CrsDeclareLandXml | null {
   const cs = enfant(racine, "CoordinateSystem");
   if (!cs) return null;
-  const brut = (cs.attrs.epsgCode ?? "").trim();
-  const epsg = /^\d{4,6}$/.test(brut) ? Number(brut) : null;
+  // eslint-disable-next-line no-control-regex
+  const brut = (cs.attrs.epsgCode ?? "").replace(/[\u0000-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, "").trim().slice(0, 60);
+  // Revue D1, m6 : « 32629 », « EPSG:32629 » et « urn:ogc:def:crs:EPSG::32629 » sont reconnus ; toute autre valeur est gardee pour etre montree et refusee.
+  const m = /^(?:EPSG:|urn:ogc:def:crs:EPSG:[0-9.]*:)?(\d{4,6})$/i.exec(brut);
+  const epsg = m ? Number(m[1]) : null;
   const nom = (cs.attrs.name ?? cs.attrs.desc ?? "").trim().slice(0, 120) || null;
-  return { epsg, nom };
+  return { epsg, nom, brut: epsg === null && brut !== "" ? brut : null };
 }
 
 /** Unite lineaire declaree (`Units/Metric/@linearUnit` ou `Units/Imperial/@linearUnit`), nulle si absente. */
-export function unitesLandXml(racine: NoeudXml): { systeme: "Metric" | "Imperial" | null; lineaire: string | null } {
-  const u = enfant(racine, "Units");
-  if (!u) return { systeme: null, lineaire: null };
-  const m = enfant(u, "Metric");
-  if (m) return { systeme: "Metric", lineaire: (m.attrs.linearUnit ?? "").trim().slice(0, 40) || null };
-  const imp = enfant(u, "Imperial");
-  if (imp) return { systeme: "Imperial", lineaire: (imp.attrs.linearUnit ?? "").trim().slice(0, 40) || null };
-  return { systeme: null, lineaire: null };
+export function unitesLandXml(racine: NoeudXml): { systeme: "Metric" | "Imperial" | null; lineaire: string | null; ambigu: boolean } {
+  const groupes = enfants(racine, "Units");
+  // Revue D1, m1 : plusieurs Units, ou plusieurs declarations (Metric, Imperial) : ambigu, donc refuse ; jamais « la premiere gagne ».
+  const decl = groupes.flatMap((u) => u.enfants.filter((e) => e.nom === "Metric" || e.nom === "Imperial"));
+  if (groupes.length > 1 || decl.length > 1) return { systeme: null, lineaire: null, ambigu: true };
+  if (decl.length === 0) return { systeme: null, lineaire: null, ambigu: false };
+  return { systeme: decl[0].nom as "Metric" | "Imperial", lineaire: (decl[0].attrs.linearUnit ?? "").trim().slice(0, 40) || null, ambigu: false };
 }
 
 /** Motif d'un arc degenere (jamais de coordonnee). */
@@ -175,9 +178,12 @@ export function traverserLandXml(racine: NoeudXml, col: Puits, o: OptionsLandXml
   const unites = unitesLandXml(racine);
   const r: ResultatLandXml = {
     avertissements: [], toleranceArcM: tolerance, nbAlignements: 0, nbLignes: 0, nbArcs: 0, nbIrreguliers: 0, nbSpirales: 0, sommetsArcs: 0, nbPoints: 0,
-    nbSurfacesIgnorees: 0, nbProfilsIgnores: 0, nbAutresIgnores: 0, nbDiscontinuites: 0, crsDeclare: crsDeclareLandXml(racine), unites: unites.lineaire,
+    nbSurfacesIgnorees: 0, nbProfilsIgnores: 0, nbAutresIgnores: 0, nbDiscontinuites: 0, crsDeclare: crsDeclareLandXml(racine), unites: unites.ambigu ? "ambigu" : unites.lineaire,
   };
   if (!inventaire) {
+    if (unites.ambigu) {
+      throw new ErreurLecture("LANDXML_UNITES_NON_SUPPORTEES", "unites ambigues : plusieurs elements Units ou plusieurs declarations (Metric, Imperial). Une seule declaration Units/Metric/@linearUnit=\"meter\" est lue, sans aucune mise a l'echelle");
+    }
     if (unites.lineaire === null) {
       throw new ErreurLecture("UNITES_REQUISES", "le LandXML ne declare pas ses unites (Units/Metric/@linearUnit) : elles ne sont jamais devinees. Exportez-le en metres avec la balise Units");
     }
@@ -239,12 +245,23 @@ export function traverserLandXml(racine: NoeudXml, col: Puits, o: OptionsLandXml
         if (!inventaire && sommetsObjet > budget.objetMax) throw new ErreurLecture("TROP_DE_SOMMETS", `l'axe n°${numero} depasse ${budget.objetMax} sommets apres discretisation : decoupez-le`);
         if (!inventaire && budget.fichier > budget.fichierMax) throw new ErreurLecture("TROP_DE_SOMMETS", `le fichier depasse ${budget.fichierMax} sommets apres discretisation : decoupez-le`);
       };
+      // Revue D1, M3 : un element de ligne dont une coordonnee est absente ou illisible REFUSE l'axe (comme un arc degenere) : jamais un axe tronque.
+      const lisible = (pts: Pos2[], ou: string): Pos2[] => {
+        if (!inventaire && (pts.length < 2 || pts.some((p) => !Number.isFinite(p[0]) || !Number.isFinite(p[1])))) {
+          throw new ErreurLecture("LANDXML_COORDONNEE_ILLISIBLE", `${ou} : coordonnee absente ou illisible (deux points au moins, chacun « Nord Est »). L'axe est refuse plutot que depose tronque`);
+        }
+        return pts;
+      };
+      // Revue D1, m3 : ajout par boucle, jamais `push(...pts)` (une liste de centaines de milliers de points depasserait la pile d'appels).
       const ajouterPoints = (pts: Pos2[]) => {
         if (pts.length === 0) return;
-        if (courante.length === 0) { courante.push(...pts); return; }
-        const der = courante[courante.length - 1];
-        if (Math.hypot(pts[0][0] - der[0], pts[0][1] - der[1]) <= ECART_RACCORD_M) courante.push(...pts.slice(1));
-        else { r.nbDiscontinuites++; parties.push(courante); courante = [...pts]; }
+        let debut = 0;
+        if (courante.length > 0) {
+          const der = courante[courante.length - 1];
+          if (Math.hypot(pts[0][0] - der[0], pts[0][1] - der[1]) <= ECART_RACCORD_M) debut = 1;
+          else { r.nbDiscontinuites++; parties.push(courante); courante = []; }
+        }
+        for (let k = debut; k < pts.length; k++) courante.push(pts[k]);
       };
       for (const el of cg.enfants) {
         nbElements++;
@@ -252,7 +269,7 @@ export function traverserLandXml(racine: NoeudXml, col: Puits, o: OptionsLandXml
         if (el.nom === "Line") {
           r.nbLignes++; nbLignesAxe++;
           compterSommets(2);
-          ajouterPoints([pointDe(enfant(el, "Start"), ou), pointDe(enfant(el, "End"), ou)]);
+          ajouterPoints(lisible([pointDe(enfant(el, "Start"), ou), pointDe(enfant(el, "End"), ou)], ou));
         } else if (el.nom === "Curve") {
           r.nbArcs++; nbArcsAxe++;
           const s = pointDe(enfant(el, "Start"), ou), c = pointDe(enfant(el, "Center"), ou), e = pointDe(enfant(el, "End"), ou);
@@ -276,7 +293,7 @@ export function traverserLandXml(racine: NoeudXml, col: Puits, o: OptionsLandXml
           for (let k = 0; k + 1 < nombres.length; k += 2) pts.push([nombres[k + 1], nombres[k]]);
           if (nombres.length % 2 === 1) pts.push([NaN, NaN]);
           compterSommets(pts.length);
-          ajouterPoints(pts);
+          ajouterPoints(lisible(pts, ou));
         } else if (el.nom === "Spiral" || el.nom === "Chain") {
           r.nbSpirales++;
           if (!inventaire) {

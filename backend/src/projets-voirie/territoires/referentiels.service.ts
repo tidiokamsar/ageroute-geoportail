@@ -10,7 +10,7 @@ import { logAuditTransactionnelle } from "../../utils/audit";
 import { FORME_METHODE_ACQUISITION } from "../config";
 import { ErreurMetier, introuvable } from "../erreurs";
 import type { Acteur } from "../projets.service";
-import { CODE_REFERENTIEL, DOMAINES, estDomaine, familleEffective, prochaineVersion, validerParametres, type Domaine, type FamilleReseau } from "./referentiels.noyau";
+import { CODE_REFERENTIEL, DOMAINES, estDomaine, familleEffective, fusionnerParametres, prochaineVersion, validerParametres, type Domaine, type FamilleReseau } from "./referentiels.noyau";
 import { instantaneReferentiel, vueReferentiel } from "./vues";
 
 const INCLURE = { approuvePar: { select: { id: true, nomComplet: true } } } as const;
@@ -59,6 +59,7 @@ export async function creerValeur(acteur: Acteur, domaineBrut: string, d: Creati
   }
   const p = validerParametres(domaine, d.parametres);
   if (!p.ok) throw new ErreurMetier(400, "PARAMETRES_INVALIDES", `Paramètres invalides pour le domaine ${domaine}.`, { details: p.erreurs });
+  if (p.parametres.roleJeu === null) delete p.parametres.roleJeu;
   try {
     return await prisma.$transaction(async (tx) => {
       const maintenant = new Date();
@@ -84,10 +85,14 @@ export async function modifierValeur(acteur: Acteur, domaineBrut: string, code: 
     const avant = await tx.referentielVoirie.findFirst({ where: { domaine, code, deletedAt: null }, include: INCLURE });
     if (!avant) throw introuvable("Valeur de référentiel", "VALEUR_INTROUVABLE");
     let parametres = avant.parametres;
+    let avertissements: { code: string; message: string }[] = [];
     if (m.parametres !== undefined) {
       const p = validerParametres(domaine, m.parametres);
       if (!p.ok) throw new ErreurMetier(400, "PARAMETRES_INVALIDES", `Paramètres invalides pour le domaine ${domaine}.`, { details: p.erreurs });
-      parametres = p.parametres as Prisma.JsonValue;
+      // Revue D1, m12 : roleJeu d'un TYPE_DOCUMENT conserve s'il n'est pas envoye (null le retire).
+      const f = fusionnerParametres(domaine, avant.parametres, p.parametres);
+      parametres = f.parametres as Prisma.JsonValue;
+      avertissements = f.avertissements;
       // Correctifs T1+S1 (m7) : la famille d'un type de reseau porte par un jeu ou un concessionnaire ne change plus (les jeux existants garderaient
       // l'ancienne famille, les nouveaux depots la nouvelle : un meme code porterait deux familles). Creez un nouveau code.
       const familleAvant = (avant.parametres as { famille?: unknown } | null)?.famille;
@@ -110,7 +115,7 @@ export async function modifierValeur(acteur: Acteur, domaineBrut: string, code: 
     });
     await tx.referentielVoirieHistorique.create({ data: { referentielId: avant.id, action: "MODIFICATION", version, avant: instantaneReferentiel(avant) as object, apres: instantaneReferentiel(apres) as object, acteurId: acteur.id } });
     await logAuditTransactionnelle(tx, { userId: acteur.id, action: "UPDATE", entityType: "ReferentielVoirie", entityId: avant.id, before: instantaneReferentiel(avant), after: instantaneReferentiel(apres), ipAddress: acteur.ip });
-    return { valeur: vueReferentiel(apres) };
+    return { valeur: vueReferentiel(apres), ...(avertissements.length ? { avertissements } : {}) };
   });
 }
 
