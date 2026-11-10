@@ -12,13 +12,20 @@
 // l'authentification des autres comptes.
 import { ouvrirBancClone } from "./lib/banc-clone.mts";
 import { verifier, conclure } from "./lib/verdict.ts";
+import { avecTerritoireParDefaut } from "./lib/territoire-par-defaut.mts";
 
+// Correctif D4 : ce banc eprouve les DELAIS cote base sur un projet au-dela des plafonds de capacite par defaut (20 000 lignes) ; il porte donc
+// les plafonds a leur borne haute pour que le calcul soit tente, puis verifie, plafonds par defaut, le refus immediat (422) du meme projet.
+process.env.PROJETS_VOIRIE_ANALYSE_OBJETS_MAX ??= "200000";
+process.env.PROJETS_VOIRIE_ANALYSE_SOMMETS_MAX ??= "4000000";
 const banc = await ouvrirBancClone("essai_pv_charge", { migrations: ["20261101200000_reseaux_physiques_logiques"] });
 const { prisma } = await banc.imp("lib/prisma");
 const { createApp } = await banc.imp("app");
 const { signAccessToken } = await banc.imp("utils/jwt");
 const request = (await import("supertest")).default;
-const app = createApp();
+// Lot T1 : la creation d un projet exige un territoire ; enveloppe des bancs anterieurs (voir lib/territoire-par-defaut.mts). Sans elle, ce banc
+// echouait des sa premiere requete depuis le lot T1 (constat du correctif D4).
+const app = avecTerritoireParDefaut(createApp(), prisma);
 const BASE = "/api/v2/projets-voirie";
 const MESURE_SEULE = process.env.PV_CHARGE_SANS_VERIF === "1";
 const N_AXE = Number(process.env.PV_CHARGE_SOMMETS_AXE ?? 100_000);
@@ -107,6 +114,18 @@ async function main() {
     if (court <= 2000) {
       verifier(`delai d'analyse reduit a ${court} ms : la base coupe la requete, reponse 504 ANALYSE_TROP_LONGUE en moins de 6 s`, an.status === 504 && an.body.code === "ANALYSE_TROP_LONGUE" && dureeAnalyse < 6000, [an.status, an.body.code, dureeAnalyse]);
     }
+  }
+
+  // --- Correctif D4 : plafonds par defaut, refus immediat ---
+  const plafonds = [process.env.PROJETS_VOIRIE_ANALYSE_OBJETS_MAX, process.env.PROJETS_VOIRIE_ANALYSE_SOMMETS_MAX];
+  delete process.env.PROJETS_VOIRIE_ANALYSE_OBJETS_MAX; delete process.env.PROJETS_VOIRIE_ANALYSE_SOMMETS_MAX;
+  const tr = performance.now();
+  const refus = await request(app).get(`${BASE}/${PID}/analyse`).set("Authorization", `Bearer ${TL}`);
+  mesure("GET analyse, plafonds de capacite par defaut", ms(tr), `-> ${refus.status} ${refus.body.code ?? ""} objets ${refus.body.objets ?? "-"} max ${refus.body.objetsMax ?? "-"}`);
+  [process.env.PROJETS_VOIRIE_ANALYSE_OBJETS_MAX, process.env.PROJETS_VOIRIE_ANALYSE_SOMMETS_MAX] = plafonds;
+  if (!MESURE_SEULE) {
+    verifier("plafonds par defaut : refus immediat 422 ANALYSE_TROP_VOLUMINEUSE (moins de 5 s) avec le volume et le plafond",
+      refus.status === 422 && refus.body.code === "ANALYSE_TROP_VOLUMINEUSE" && typeof refus.body.objets === "number" && typeof refus.body.objetsMax === "number" && ms(tr) < 5000, [refus.status, refus.body.code]);
   }
 
   // --- Carte ---
