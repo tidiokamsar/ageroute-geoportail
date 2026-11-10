@@ -36,7 +36,13 @@ const id = encodeURIComponent;
 
 export interface Personne { id: string | null; nom: string | null }
 export interface ConcessionnaireConflit { id: string; nom: string | null }
-export interface MesureConflit { longueurChausseeM: number | null; longueurEmpriseM: number | null; distanceMinM: number | null; nbCroisements: number | null; longueurPieceM: number | null }
+export interface MesureConflit {
+  longueurChausseeM: number | null; longueurEmpriseM: number | null; distanceMinM: number | null; nbCroisements: number | null; longueurPieceM: number | null;
+  /** Correctif D7 : morceaux du plan d'axes reunis dans un dossier de couverture (un dossier par axe). Absent pour les autres dossiers ; la liste n'a pas le detail. */
+  morceaux?: MorceauxCouverture | null;
+}
+export interface MorceauCouverture { objetId: string | null; ordre: number | null; nom: string | null; longueurM: number | null }
+export interface MorceauxCouverture { nb: number | null; longueurTotaleM: number | null; detail: MorceauCouverture[]; detailTronque: boolean }
 export interface TronconProche { code: string; nom: string | null }
 export interface RefAnalyse { id: string; numero: number | null }
 
@@ -172,6 +178,8 @@ export interface ResumeAnalyseConflit {
   axes: number | null;
   jeuxReseau: number | null;
   axesNonCouverts: number | null;
+  /** Correctif D7 : objets du plan d'axes non couverts (absent des analyses d'avant le regroupement par axe). */
+  morceauxNonCouverts?: number | null;
   parType: Record<string, number>;
   parStatut: Record<string, number>;
   nouveaux: number | null;
@@ -277,7 +285,15 @@ function lireMesure(v: unknown): MesureConflit {
   return {
     longueurChausseeM: nombreOuNull(m.longueurChausseeM), longueurEmpriseM: nombreOuNull(m.longueurEmpriseM), distanceMinM: nombreOuNull(m.distanceMinM),
     nbCroisements: nombreOuNull(m.nbCroisements), longueurPieceM: nombreOuNull(m.longueurPieceM),
+    ...(estObjet(m.morceaux) ? { morceaux: lireMorceaux(m.morceaux) } : {}),
   };
+}
+
+function lireMorceaux(v: Record<string, unknown>): MorceauxCouverture {
+  const detail = Array.isArray(v.detail) ? v.detail.filter(estObjet).map((d) => ({
+    objetId: typeof d.objetId === "string" ? d.objetId : null, ordre: nombreOuNull(d.ordre), nom: typeof d.nom === "string" ? d.nom : null, longueurM: nombreOuNull(d.longueurM),
+  })) : [];
+  return { nb: nombreOuNull(v.nb), longueurTotaleM: nombreOuNull(v.longueurTotaleM), detail, detailTronque: v.detailTronque === true };
 }
 
 /** Geometrie GeoJSON : acceptee nue ou dans un Feature. Une valeur qui n'en est pas une est ecartee (`null`), jamais interpretee. */
@@ -481,7 +497,7 @@ function lireResumeAnalyse(v: unknown, nbConflitsTrouves: unknown): ResumeAnalys
   const t = estObjet(r.totaux) ? r.totaux : {};
   return {
     total: nombreOuNull(t.conflitsTrouves) ?? nombreOuNull(nbConflitsTrouves),
-    axes: nombreOuNull(t.axes), jeuxReseau: nombreOuNull(t.jeuxReseau), axesNonCouverts: nombreOuNull(t.axesNonCouverts),
+    axes: nombreOuNull(t.axes), jeuxReseau: nombreOuNull(t.jeuxReseau), axesNonCouverts: nombreOuNull(t.axesNonCouverts), morceauxNonCouverts: nombreOuNull(t.morceauxNonCouverts),
     parType: lireNombresParCle(r.parType), parStatut: lireNombresParCle(r.parStatut),
     nouveaux: nombreOuNull(r.nouveaux), retrouves: nombreOuNull(r.retrouves), identiques: nombreOuNull(r.identiques), modifies: nombreOuNull(r.modifies),
     disparus: nombreOuNull(r.disparus), reapparus: nombreOuNull(r.reapparus), marquesAReexaminer: nombreOuNull(r.marquesAReexaminer),

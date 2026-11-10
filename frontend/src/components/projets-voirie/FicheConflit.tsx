@@ -183,7 +183,26 @@ export const FicheConflit = forwardRef<HTMLHeadingElement, PropsFicheConflit>(fu
           {m.longueurPieceM !== null && <Ligne libelle="Partie de réseau concernée">{formaterMetres(m.longueurPieceM)}</Ligne>}
           {f.objet?.nom ? <Ligne libelle="Objet du fichier">{f.objet.nom}</Ligne>
             : f.geometrieMasquee && f.type !== "COUVERTURE_INSUFFISANTE" ? <Ligne libelle="Objet du fichier">{TEXTE_MASQUE}</Ligne> : null}
+          {m.morceaux && (
+            <Ligne libelle="Morceaux non couverts">
+              <span data-testid="morceaux-couverture">{m.morceaux.nb === null ? "nombre non fourni" : `${formaterNombre(m.morceaux.nb, 0)} morceau${m.morceaux.nb > 1 ? "x" : ""} du plan d'axes`}{m.morceaux.longueurTotaleM !== null ? `, ${formaterMetres(m.morceaux.longueurTotaleM)} au total` : ""}</span>
+            </Ligne>
+          )}
         </dl>
+        )}
+        {!mesureAbsente(f) && m.morceaux && m.morceaux.detail.length > 0 && (
+          <details className="mt-1 text-xs">
+            <summary className="cursor-pointer text-gray-800">Détail des morceaux (objets du plan d'axes)</summary>
+            <ol data-testid="detail-morceaux" className="mt-1 max-h-48 list-none overflow-auto pl-0">
+              {m.morceaux.detail.map((d, i) => (
+                <li key={`${d.objetId ?? "?"}-${i}`} className="flex justify-between gap-2 border-b border-gray-100 py-0.5">
+                  <span>{d.nom ?? "Morceau sans nom"}{d.ordre !== null ? ` (rang ${formaterNombre(d.ordre + 1, 0)} du fichier)` : ""}</span>
+                  <span>{d.longueurM === null ? "longueur non fournie" : formaterMetres(d.longueurM)}</span>
+                </li>
+              ))}
+            </ol>
+            {m.morceaux.detailTronque && <p className="text-gray-700">Détail limité aux {formaterNombre(m.morceaux.detail.length, 0)} premiers morceaux ; le nombre et la longueur totale portent sur tous.</p>}
+          </details>
         )}
       </Section>
 

@@ -606,6 +606,29 @@ describe("champs masques par le serveur pour un lecteur : « masque », jamais u
     expect(section("Attribution")).toHaveTextContent("concessionnaire masqué pour votre compte");
   });
 
+  it("correctif D7 : la fiche d'un dossier de couverture regroupe donne le nombre de morceaux, leur longueur totale et le detail de chacun", async () => {
+    const couv = fiche({
+      type: "COUVERTURE_INSUFFISANTE", axe: "Corridor synthetique", objet: null, concessionnaire: null, typeReseau: null, jeuReseauId: null,
+      mesure: { longueurChausseeM: 0, longueurEmpriseM: 0, distanceMinM: null, nbCroisements: 0, longueurPieceM: 750,
+        morceaux: { nb: 3, longueurTotaleM: 750, detailTronque: true, detail: [
+          { objetId: "11", ordre: 0, nom: "Corridor synthetique", longueurM: 250 }, { objetId: "12", ordre: 1, nom: null, longueurM: 250 },
+        ] } },
+    });
+    const f = await ouvrirFiche("cf-1", { fiches: { "cf-1": couv } });
+    expect(within(f).getByTestId("morceaux-couverture")).toHaveTextContent("3 morceaux du plan d'axes, 750 m au total");
+    const detail = within(f).getByTestId("detail-morceaux");
+    expect(within(detail).getAllByRole("listitem")).toHaveLength(2);
+    expect(detail).toHaveTextContent("Corridor synthetique (rang 1 du fichier)250 m");
+    expect(detail).toHaveTextContent("Morceau sans nom (rang 2 du fichier)250 m");
+    expect(within(f).getByText(/Détail limité aux 2 premiers morceaux/)).toBeInTheDocument();
+  });
+
+  it("correctif D7 : un dossier sans morceaux (autres types, couverture d'avant le regroupement) n'affiche aucune ligne de morceaux", async () => {
+    const f = await ouvrirFiche();
+    expect(within(f).queryByTestId("morceaux-couverture")).toBeNull();
+    expect(within(f).queryByTestId("detail-morceaux")).toBeNull();
+  });
+
   it("fiche NON masquee : une source ou un troncon absent garde son texte habituel (le serveur n'a rien masque)", async () => {
     const f = await ouvrirFiche("cf-1", { fiches: { "cf-1": fiche({ sources: [], tronconsProches: [] }) } });
     expect(within(f).getByRole("heading", { name: /Sources et versions/ }).closest("section")).toHaveTextContent("Aucune source n'est listée par le serveur");

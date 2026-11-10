@@ -406,6 +406,15 @@ describe("tolerance aux champs masques par le serveur (lecteur, jeu non autorise
     const c = lireConflitResume({ ...masque(), mesure: { longueurChausseeM: "12,5", distanceMinM: "abc", nbCroisements: null } });
     expect(c?.mesure).toEqual({ longueurChausseeM: 12.5, longueurEmpriseM: null, distanceMinM: null, nbCroisements: null, longueurPieceM: null });
   });
+  it("correctif D7 : morceaux d'un dossier de couverture regroupe lus (nombre, total, detail) ; une ligne de detail invalide est ecartee ; sans detail (liste) : detail vide", () => {
+    const c = lireConflitResume({ ...masque(), mesure: { longueurPieceM: 750, morceaux: { nb: 3, longueurTotaleM: 750, detailTronque: false,
+      detail: [{ objetId: "11", ordre: 0, nom: "Corridor synthetique", longueurM: 250 }, "pas un objet", { objetId: 12, ordre: "1", nom: null, longueurM: 250 }] } } });
+    expect(c?.mesure.morceaux).toEqual({ nb: 3, longueurTotaleM: 750, detailTronque: false, detail: [
+      { objetId: "11", ordre: 0, nom: "Corridor synthetique", longueurM: 250 }, { objetId: null, ordre: 1, nom: null, longueurM: 250 },
+    ] });
+    const l = lireConflitResume({ ...masque(), mesure: { longueurPieceM: 750, morceaux: { nb: 128, longueurTotaleM: 32000, detailTronque: false } } });
+    expect(l?.mesure.morceaux).toEqual({ nb: 128, longueurTotaleM: 32000, detailTronque: false, detail: [] });
+  });
   it("fiche : tronconsProches, sources, decisions, regle, largeurs, analyses absents ou nuls : listes vides et null, aucune exception", () => {
     const f = lireFicheConflit({ conflit: masque(), sources: null, regle: null, largeurs: null, analyses: null, tronconsProches: null, historique: null, preuves: null, decisions: null });
     expect(f.tronconsProches).toEqual([]);
