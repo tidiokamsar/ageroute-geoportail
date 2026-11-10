@@ -50,6 +50,41 @@ Deux points d'attention propres à ce lot :
 - **Avant la descente de `20261101300000` (workflow) : retirer la clé de module `projets-voirie` aux comptes référents** (O10). La descente supprime les rattachements (`referents_concessionnaire`) : un compte `LECTEUR` jusque-là confiné au workflow redeviendrait, avec sa clé de module, un lecteur ordinaire du socle et des dossiers de conflit de tous les projets de son périmètre. Marche à suivre : lister les comptes rattachés actifs (`SELECT DISTINCT "userId" FROM referents_concessionnaire WHERE "revoqueLe" IS NULL`), retirer la clé `projets-voirie` de chacun par l'administration des comptes, vérifier qu'ils n'ouvrent plus le module, puis seulement descendre. La révocation d'un rattachement ne retire pas la clé automatiquement (décision à prendre, `CONTRAT-WORKFLOW.md`, section 10, point 7).
 - **Avant la descente de `20261101100000` (formats)** : si un jeu porte le format `KMZ`, `GPX` ou `CSV`, la descente refuse même avec la dérogation (retirer la valeur obligerait à inventer un format de remplacement). Il faut d'abord décider du sort de ces jeux (retrait logique, sans suppression physique) ; aucune conversion automatique n'est prévue.
 
+## 4 bis. Vague 3 : six migrations de plus (branche `feat/vague3-integration`, 10/11/2026)
+
+La vague 3 ajoute au module les lots B2 (GDAL), T1 (territoires, référentiels, configuration), S1 (sources multiples), les correctifs de la revue T1+S1, D1 (documents) et X1 (exports, tableaux de bord). Avec les cinq de la vague 1, **onze migrations du module** sont en attente sur une production restée à 94 migrations (relevé du 08/11/2026 : 105 au total après la vague 3). Le script de déploiement relève l'état exact au moment du geste ; sa constante `ATTENDUES_EN_ATTENTE` doit être réglée sur le nombre réellement relevé, jamais sur ce document.
+
+| Ordre | Migration | Lot | Ce qu'elle crée | Garde de la descente |
+|---|---|---|---|---|
+| 6 | `20261102200000_import_jobs_gdal` | B2 | valeurs `GPKG`, `SHAPEFILE`, `DXF` du type `FormatJeuProjet` ; `projets_voirie_import_jobs` (machine à états imposée par la base) | refuse si des jobs existent |
+| 7 | `20261103100000_territoires_referentiels` | T1 | `territoires_voirie`, `referentiels_voirie`, `configuration_voirie` et leurs historiques ; nation, région Faranah, préfecture et commune de Kissidougou ; rattachement des projets existants ; colonnes `territoireId`, `categorieCode`, `typeReseauCode` | refuse si un administrateur a créé ou modifié un territoire, une valeur ou une configuration |
+| 8 | `20261103300000_multi_sources_comparaison` | S1 | `methodeAcquisition` des jeux (index de version recréés), `regles_rapprochement_sources`, `comparaisons_sources_projet` et leurs résultats, relation `CONNECTE_A` | refuse s'il existe des dossiers `DIVERGENCE_SOURCES` ou des relations `CONNECTE_A` (le second refus ne se lève pas : décision métier) |
+| 9 | `20261103400000_correctifs_sources_territoires` | correctifs T1+S1 | `conflits_projet.jeuSourceBId` ; méthodes d'acquisition de S1 versées au référentiel ; type de réseau dans la clé de version ; règle système `S1-CORRIDOR-0.2` sans barème, `S1-CORRIDOR-0.1` retirée | refuse si des jeux ne se distinguent que par le type de réseau, ou si des règles et comparaisons postérieures existent ; les valeurs versées au référentiel restent |
+| 10 | `20261104100000_completude_documentaire` | D1 | valeur `LANDXML` ; `documents_projet_voirie` et son historique (ajout seul, écrit par la base) | refuse s'il existe des documents ; refuse sans dérogation possible si un jeu est au format `LANDXML` |
+| 11 | `20261104200000_exports_tableaux_de_bord` | X1 | `exports_dossier_projet_voirie` (journal des tentatives), `derogations_export_projet_voirie` (séparation des tâches par contrainte) | refuse s'il existe des lignes de journal ou des dérogations |
+
+**Ordre de mise en service (en plus de la règle O10 de la section 2).**
+- Les onze migrations s'appliquent avant le code de la vague 3. Le code de la vague 3 lit `territoireId` à chaque lecture de projet : sans la migration 7, tout le module répond 500.
+- **L'interface et le backend de la vague 3 partent ensemble** (même commit). Le backend de T1 exige `territoireId` à la création d'un projet (400 `TERRITOIRE_REQUIS`). Seule l'interface du lot UI-C l'envoie : un backend de la vague 3 avec l'interface de la vague 1 rendrait la création de projet impossible.
+- GDAL reste désactivé (`PROJETS_VOIRIE_GDAL` absent). La migration 6 n'exige ni le conteneur ni le spool. Les formats GeoPackage, Shapefile et DXF répondent 415 `FORMAT_GDAL_DESACTIVE`, ce qui est normal.
+
+**Contrôles après migration, avant d'ouvrir le trafic (lecture seule), en plus de la section 3.**
+- Les onze lignes figurent dans `_prisma_migrations`, avec `finished_at` renseigné.
+- `SELECT code, niveau FROM territoires_voirie WHERE "deletedAt" IS NULL AND code LIKE 'GN%' ORDER BY code` rend la nation et la chaîne de Kissidougou.
+- `SELECT count(*) FROM projets_voirie WHERE "territoireId" IS NULL AND "deletedAt" IS NULL` rend 0.
+- Les rattachements à contrôler (constat m5 de la revue) : `SELECT p.code, t.code FROM projets_voirie p JOIN territoires_voirie t ON t.id = p."territoireId" WHERE t.code = 'NON_RENSEIGNE' OR t.code LIKE 'MIG-%'`. Chaque ligne est à rattacher par l'administration, par `PATCH` du projet.
+- `SELECT code, statut FROM regles_rapprochement_sources WHERE code LIKE 'S1-CORRIDOR-%' ORDER BY code` rend `0.1` RETIREE et `0.2` APPROUVEE.
+- `SELECT domaine, count(*) FROM referentiels_voirie WHERE "deletedAt" IS NULL GROUP BY 1` : les cinq domaines sont présents.
+- Aucune ligne n'a changé dans `troncons`, `ouvrages` et `chantiers`.
+
+**Descentes, ordre inverse** : `20261104200000`, `20261104100000`, `20261103400000`, `20261103300000`, `20261103100000`, `20261102200000`, puis celles de la section 4. Mêmes règles qu'en section 4 : code retiré d'abord, sauvegarde vérifiée, une transaction par descente, ligne de `_prisma_migrations` retirée ensuite. Ce qui est perdu, même avec l'autorisation :
+- descente de T1 : le rattachement des projets à leur territoire (`commune` et `prefecture` restent) et les codes de type de réseau (la famille reste) ;
+- descente des correctifs : les valeurs versées au référentiel restent, car des jeux les portent et rien n'est supprimé physiquement.
+
+**Sauvegarde.** Tout ce que le module conserve est dans PostgreSQL : jeux, objets, fichiers d'origine (colonne `contenu`, quand la conservation est activée), documents (références et empreintes seulement), journaux. La sauvegarde de la Console (`docs/securite/SAUVEGARDE-RESTAURATION.md`, `pg_dump` complet) le couvre sans réglage particulier. Le spool GDAL n'est pas une donnée : il est transitoire, purgé après consommation, et ne se sauvegarde pas (`CHAINE-GDAL.md`). Après une restauration, refaire les contrôles ci-dessus.
+
+**Nouvelle ville** : par l'administration, sans code ni migration. Voir `GUIDE-NOUVELLE-VILLE.md`.
+
 ## 5. Ce qui change pour les utilisateurs après la livraison de correction
 
 Utile au support, aucune action d'exploitation :
