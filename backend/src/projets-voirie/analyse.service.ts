@@ -29,13 +29,16 @@ import { classeEffective, natureEffective } from "./reseaux/types.noyau";
 import { LIMITE_SOURCES_MULTIPLES, retenirJeux, sourcesMultiples } from "./reseaux/comptage.noyau";
 import { INCLURE_JEU } from "./vues";
 import { contexteSpatialDuProjet } from "./territoires/contexte-spatial";
+import { exigerCapacite } from "./capacite";
 
 export const OBJETS_PAR_AXE_MAX = 100;
 const LIGNES_OBJETS_MAX = 100_000;
 const CROISEMENTS_MAX = 5_000;
 const TAILLE_ZONES_MAX = 8_000_000;
-/** Volumes de sommets au-dela desquels une analyse est refusee (422) plutot que tentee : voir analyse.depot.ts, cout borne. */
-export const SOMMETS_AXES_ANALYSE_MAX = 500_000;
+/**
+ * Plafond de sommets de la COMPARAISON DE SOURCES (lot S1, `sources/comparaison.service.ts`), seul usage restant. Les trois calculs lourds
+ * (analyse 2D, comptage, analyse de conflits) ont, depuis le correctif D4, leurs plafonds mesures et configurables : voir capacite.ts.
+ */
 export const SOMMETS_RESEAU_ANALYSE_MAX = 3_000_000;
 
 export interface DemandeAnalyse {
@@ -102,12 +105,8 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
     const budget = new Budget(tx, delai, delaiVerrouMs(), trop);
     const calcule = axesIds.length > 0 && reseauIds.length > 0;
     if (calcule) {
-      const v = await budget.etape(() => depot.volumes(tx, axesIds, reseauIds), "volumes");
-      if (v.sommetsAxes > SOMMETS_AXES_ANALYSE_MAX || v.sommetsReseau > SOMMETS_RESEAU_ANALYSE_MAX) {
-        throw new ErreurMetier(422, "ANALYSE_TROP_VOLUMINEUSE",
-          `Les jeux autorises portent trop de sommets pour une analyse (${Math.round(v.sommetsAxes)} pour les axes, maximum ${SOMMETS_AXES_ANALYSE_MAX} ; ${Math.round(v.sommetsReseau)} pour les reseaux, maximum ${SOMMETS_RESEAU_ANALYSE_MAX}) : simplifiez ou decoupez les fichiers.`,
-          { sommetsAxes: Math.round(v.sommetsAxes), sommetsReseau: Math.round(v.sommetsReseau) });
-      }
+      // Correctif D4 : comptage prealable (sans calcul geometrique), refus immediat au-dela des plafonds mesures (capacite.ts).
+      exigerCapacite(await budget.etape(() => depot.volumes(tx, axesIds, reseauIds), "volumes"), "ANALYSE_2D");
     }
     const etendue = await budget.etape(() => depot.etendueLongitude(tx, axesIds.length ? axesIds : reseauIds), "etendue");
     const epsg = etendue ? spatial.epsgPour((etendue.ouest + etendue.est) / 2) : spatial.epsgDefaut;
@@ -145,7 +144,8 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
     for (const j of liste) {
       const m = parJeu.get(j.id);
       if (!m) continue;
-      c += m.chausseeM; e += m.empriseM; x += m.croisements; h += Math.max(0, m.fusionneM - m.empriseM);
+      // Correctif D4 : trace fusionne entier = longueur mesuree au depot (meme definition), plus de fusion du reseau entier a chaque analyse.
+      c += m.chausseeM; e += m.empriseM; x += m.croisements; h += Math.max(0, j.longueurTraceFusionneM - m.empriseM);
     }
     return { chausseeM: r2(c), empriseM: r2(e), empriseHorsChausseeM: r2(Math.max(0, e - c)), horsEmpriseM: r2(h), croisements: x };
   };

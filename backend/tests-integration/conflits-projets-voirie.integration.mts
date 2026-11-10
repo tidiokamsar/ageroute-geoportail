@@ -206,7 +206,7 @@ async function main() {
   const a1 = await analyser();
   exemples["analyse_creee"] = a1.body;
   verifier("3. POST analyses : 201, analyse TERMINEE numero 1, version de l'algorithme, largeurs utilisees 15 / 7, declenchee par le compte",
-    a1.status === 201 && a1.body.analyse.numero === 1 && a1.body.analyse.statut === "TERMINEE" && a1.body.analyse.versionAlgorithme === "RC3-2D-UTM-1"
+    a1.status === 201 && a1.body.analyse.numero === 1 && a1.body.analyse.statut === "TERMINEE" && a1.body.analyse.versionAlgorithme === "RC3-2D-UTM-2"
     && a1.body.analyse.largeurEmpriseM === 15 && a1.body.analyse.largeurChausseeM === 7 && a1.body.analyse.declenchePar.nomComplet === "Sekou Gestionnaire", a1.body);
   const A1: string = a1.body.analyse.id;
   const r1 = a1.body.resume;

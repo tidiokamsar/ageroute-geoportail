@@ -98,8 +98,9 @@ export function geometrieVisible(role: string, statutJeu: string | null): boolea
  * `bbox` : boite englobante (nulle si non lisible) ; `undefined` pour une reponse d'ecriture, qui ne la porte pas (relire la fiche).
  * Les donnees tirees du jeu (reseau, objet, mesure, classe, concessionnaire, jeu, boite) ne sont rendues que si le jeu est lisible pour `role`.
  */
-export function vueConflit(c: LigneConflit, role: string, bbox?: number[] | null, cible?: CibleConflit | null) {
+export function vueConflit(c: LigneConflit, role: string, bbox?: number[] | null, cible?: CibleConflit | null, options: { sansDetailMorceaux?: boolean } = {}) {
   const visible = donneesReseauLisibles(role, statutsLies(c));
+  const mesure = visible ? (options.sansDetailMorceaux ? mesureSansDetail(c.mesure) : c.mesure) : null;
   const depassee = c.echeance !== null && c.echeance < aujourdhui() && !STATUTS_FERMES.includes(c.statut as StatutConflit);
   return {
     id: c.id, projetId: c.projetId, cle: c.cle, type: c.type, axe: c.axe, statut: c.statut, risque: c.risque,
@@ -110,7 +111,7 @@ export function vueConflit(c: LigneConflit, role: string, bbox?: number[] | null
     typeReseau: visible ? c.jeuReseau?.typeReseau ?? null : null,
     jeuReseauId: visible ? c.jeuReseauId : null,
     objet: visible && c.objet ? { id: String(c.objet.id), nom: c.objet.nom } : null,
-    mesure: visible ? c.mesure : null, premiereAnalyseId: c.premiereAnalyseId, derniereAnalyseId: c.derniereAnalyseId,
+    mesure, premiereAnalyseId: c.premiereAnalyseId, derniereAnalyseId: c.derniereAnalyseId,
     // Lot S1 : comparaison de sources dont est issu un dossier DIVERGENCE_SOURCES (nul pour un dossier calcule par une analyse).
     comparaisonId: c.comparaisonId,
     // Lot B1 : nature de l'objet en conflit (infrastructure physique, simple circuit logique...). Information calculee a la lecture, masquee comme le reste du reseau.
@@ -118,6 +119,16 @@ export function vueConflit(c: LigneConflit, role: string, bbox?: number[] | null
     ...(bbox === undefined ? {} : { bbox: visible ? bbox : null }), geometrieMasquee: !visible,
     createdAt: c.createdAt, updatedAt: c.updatedAt,
   };
+}
+
+/**
+ * Correctif D7 : la LISTE ne porte que le nombre, la longueur totale et `detailTronque` des morceaux d'un dossier de couverture regroupe ; le
+ * detail par morceau (jusqu'a 1 000 lignes par dossier) est dans la fiche. Toute autre mesure passe telle quelle.
+ */
+export function mesureSansDetail(mesure: unknown): unknown {
+  const m = mesure as { morceaux?: { nb?: unknown; longueurTotaleM?: unknown; detailTronque?: unknown } } | null;
+  if (!m || typeof m !== "object" || !m.morceaux || typeof m.morceaux !== "object") return mesure;
+  return { ...m, morceaux: { nb: m.morceaux.nb, longueurTotaleM: m.morceaux.longueurTotaleM, detailTronque: m.morceaux.detailTronque } };
 }
 
 async function boitesEnglobantes(ids: readonly string[]): Promise<Map<string, number[]>> {
@@ -196,7 +207,7 @@ export async function listerConflits(acteur: Acteur, projetId: string, f: Filtre
   const compteurs: Record<string, number> = Object.fromEntries(STATUTS_CONFLIT.map((s) => [s, 0]));
   for (const g of groupes) compteurs[g.statut] = g._count._all;
   const cibles = await cibleDesObjets(acteur.role, page.flatMap((c) => (c.objetId === null ? [] : [String(c.objetId)])));
-  const vues = page.map((c) => vueConflit(c, acteur.role, boites.get(c.id) ?? null, c.objetId === null ? null : cibles.get(String(c.objetId)) ?? null));
+  const vues = page.map((c) => vueConflit(c, acteur.role, boites.get(c.id) ?? null, c.objetId === null ? null : cibles.get(String(c.objetId)) ?? null, { sansDetailMorceaux: true }));
 
   // Le rendu de la boite englobante d'un reseau de tiers est une lecture de position : tracee comme la carte, avant la remise.
   // Un dossier de couverture insuffisante rend l'axe : c'est le plan d'axes qui est consulte (revue RC-3, m6).

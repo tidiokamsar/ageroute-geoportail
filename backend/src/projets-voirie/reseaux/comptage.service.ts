@@ -21,6 +21,8 @@ import type { Acteur } from "../projets.service";
 import { JEU_INTROUVABLE, exigerProjetActif, jour, statutsLisibles } from "./commun";
 import { LIMITE_SOURCES_MULTIPLES, assemblerComptage, retenirJeux, sourcesMultiples } from "./comptage.noyau";
 import * as depot from "./reseaux.depot";
+import { volumes } from "../analyse.depot";
+import { exigerCapacite } from "../capacite";
 
 export interface DemandeComptage { jeuId?: string; inclureNonAutorises: boolean }
 
@@ -56,6 +58,8 @@ export async function comptageProjet(acteur: Acteur, projetId: string, d: Demand
     await tx.$executeRaw`SET TRANSACTION READ ONLY`;
     await poserDelais(tx, delai, delaiVerrouMs());
     const budget = new Budget(tx, delai, delaiVerrouMs(), trop);
+    // Correctif D4 : comptage prealable des jeux retenus (sans calcul geometrique), refus immediat au-dela des plafonds mesures (capacite.ts).
+    if (jeuxIds.length > 0) exigerCapacite(await budget.etape(() => volumes(tx, [], jeuxIds), "volumes"), "COMPTAGE");
     const m = await budget.etape(() => depot.mesurerComptage(tx, demande), "comptage");
     const q = await budget.etape(() => depot.mesurerQualite(tx, demande), "qualite");
     return { m, q };
