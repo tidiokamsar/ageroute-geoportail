@@ -3,7 +3,7 @@ import { requete } from "../lib/base";
 import { expect, seConnecter, test } from "../lib/fixtures";
 import {
   ApiVoirie, BASE, MODULES_VOIRIE, accorderPerimetre, attendreEtape, auditDe, codeProjet, comptesInterdits, creerCompte, creerRegion, empreinteTroncons, etapeDepot,
-  jeuxDuProjet, ouvrirAssistant, ouvrirProjet, type CompteVoirie, type FichierEnvoye,
+  jeuxDuProjet, ouvrirAssistant, ouvrirProjet, territoireDeRegion, type CompteVoirie, type FichierEnvoye,
 } from "../lib/voirie";
 import { AXES, RESEAU_TELECOM, geojson, kml, zip } from "../lib/voirie-geo";
 
@@ -205,6 +205,15 @@ test("hors périmètre territorial : 404 masqué, identique à un projet inexist
   // Un compte regional ne cree que dans sa region (403), jamais sans region ni dans une autre.
   expect((await b.post(BASE, { code: codeProjet(marqueur, "CREE-B"), nom: "Region A", regionId: regionA })).statut).toBe(403);
   expect((await b.post(BASE, { code: codeProjet(marqueur, "CREE-B2"), nom: "Sans region" })).statut).toBe(403);
+  // Lot T1 (correctifs m3) : un territoire d'une autre region et un territoire inexistant repondent la MEME chose a un compte regional
+  // (404 TERRITOIRE_INTROUVABLE, avant toute autre verification) : aucun oracle d'existence d'un territoire.
+  const territoireA = await territoireDeRegion(regionA);
+  const terrAutre = await b.post(BASE, { code: codeProjet(marqueur, "CREE-B3"), nom: "Territoire de A", territoireId: territoireA });
+  const terrInconnu = await b.post(BASE, { code: codeProjet(marqueur, "CREE-B4"), nom: "Territoire inconnu", territoireId: UUID_INCONNU });
+  expect(terrAutre.statut, terrAutre.texte.slice(0, 200)).toBe(404);
+  expect(terrAutre.corps).toMatchObject({ code: "TERRITOIRE_INTROUVABLE" });
+  expect(terrAutre.corps, "meme corps que pour un territoire inexistant").toEqual(terrInconnu.corps);
+  expect(await requete(`SELECT 1 FROM projets_voirie WHERE code LIKE $1`, [`${codeProjet(marqueur, "CREE-B")}%`])).toHaveLength(0);
 
   // Navigateur : le compte de la region B ouvre le projet de A : « introuvable », pas « refuse », et rien du projet.
   const { page } = await ouvrirProfil();
@@ -357,7 +366,10 @@ test("un nom d'objet qui contient du HTML est affiché comme du texte, jamais ex
   await attendreEtape(d, "Contrôles et échantillon");
   const echantillon = d.getByTestId("echantillon");
   await expect(echantillon).toContainText(piege);
-  expect(await echantillon.locator("img").count(), "aucune balise <img> n'a ete creee depuis le fichier").toBe(0);
+  // Vague 3 : l'echantillon contient la carte (Leaflet y cree ses propres <img> de tuiles) ; seules comptent les balises HORS de la carte, et toute
+  // balise portant la source ou le gestionnaire du piege.
+  expect(await echantillon.evaluate((e) => Array.from(e.querySelectorAll("img")).filter((i) => !i.closest(".leaflet-container")).length), "aucune balise <img> n'a ete creee depuis le fichier").toBe(0);
+  expect(await page.locator('img[src="x"], img[onerror]').count(), "aucune balise du piege, nulle part").toBe(0);
   expect(await page.locator("script:not([src])", { hasText: "__pwn" }).count()).toBe(0);
   expect(await page.evaluate(() => (window as unknown as { __pwn?: number }).__pwn), "aucun script du fichier ne s'est execute").toBeUndefined();
   await api.fermer();

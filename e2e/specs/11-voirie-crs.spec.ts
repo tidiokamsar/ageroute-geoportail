@@ -183,7 +183,9 @@ test("KIS-CRS-01 : mauvaise zone UTM (28N au lieu de 29N) : résultat hors de la
   await d.getByRole("button", { name: "Vérifier la transformation" }).click();
   const alerte = d.locator('[role="alert"][data-code="HORS_GUINEE"]');
   await expect(alerte).toBeVisible();
-  await expect(alerte).toContainText("en dehors de la Guinée");
+  // Vague 3 (UI-C, revue m7) : message generique, precise par l'emprise nationale CONFIGUREE que le serveur renvoie (aucun pays code dans l'ecran).
+  await expect(alerte).toContainText("hors de l'emprise nationale de plausibilité configurée sur ce serveur");
+  await expect(alerte).toContainText("Rien n'a été écrit");
   await expect(continuer(d)).toBeDisabled();
   expect(await jeuxDuProjet(projetId), "rien n'est ecrit").toHaveLength(0);
   // Correction : le bon fuseau fait disparaitre l'erreur et debloque l'etape.

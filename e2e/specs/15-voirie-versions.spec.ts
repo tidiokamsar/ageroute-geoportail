@@ -205,12 +205,11 @@ test("KIS-REV-01 : un refus de revue est définitif côté serveur (l'autorisati
 });
 
 /**
- * DEFAUT C1-02 (confirme le 08/11/2026, capture de l'echec) : apres un REFUS de revue, l'assistant dit « Une nouvelle revue remplace celle-ci » et propose
- * encore « Accepter les suppressions » (`frontend/src/components/projets-voirie/assistant/EtapeDelta.tsx`, bloc « revue-suppressions »), alors que le
- * serveur refuse toute acceptation apres un refus (`backend/src/projets-voirie/formats/revue-versions.service.ts:127-130`, 409 SUPPRESSIONS_REFUSEES).
- * Le geste aboutit a un message d'erreur au lieu de n'etre pas propose. Ce test decrit le comportement attendu ; suspendu jusqu'a la correction.
+ * Ancien DEFAUT C1-02 (constate le 08/11/2026, corrige par la vague 3 : `EtapeDelta.tsx`, commit 68685b6) : apres un REFUS de revue, l'assistant ne
+ * propose plus « Accepter les suppressions » (le serveur la refuse, regle O1, 409 SUPPRESSIONS_REFUSEES) et dit que le refus est definitif ; le refus
+ * reste possible a redire, rien n'est supprime.
  */
-test.fixme("DEFAUT C1-02 : après un refus de revue, l'assistant ne propose plus « Accepter les suppressions »", async ({ ouvrirProfil, marqueur }) => {
+test("C1-02 corrigé : après un refus de revue, l'assistant ne propose plus « Accepter les suppressions » et dit que le refus est définitif", async ({ ouvrirProfil, marqueur }) => {
   const api = await ApiVoirie.connecter(gestionnaire);
   const projetId = await api.creerProjet(codeProjet(marqueur, "REV4"));
   const conc = await api.creerConcessionnaire(`Operateur C102 ${marqueur}`, "TELECOM");
@@ -225,6 +224,15 @@ test.fixme("DEFAUT C1-02 : après un refus de revue, l'assistant ne propose plus
   await page.getByRole("button", { name: /Versions et suppressions du jeu .*, version 2/ }).click();
   const d = page.getByRole("dialog", { name: "Ajouter des données au projet" });
   await expect(d.getByTestId("revue-suppressions")).toHaveAttribute("data-statut", "REFUSEES");
+  await expect(d.getByTestId("derniere-revue")).toContainText("refusée");
+  await expect(d.getByTestId("derniere-revue")).toContainText("Ce refus est définitif");
+  await expect(d.getByTestId("derniere-revue")).not.toContainText("Une nouvelle revue remplace celle-ci");
   await expect(d.getByRole("button", { name: "Accepter les suppressions" })).toHaveCount(0);
+  await expect(d.getByRole("button", { name: "Refuser les suppressions" }), "le refus reste possible a redire").toBeVisible();
+  // L'autorisation reste bloquee et rien n'est supprime.
+  await d.getByRole("button", { name: "Continuer vers l'approbation" }).click();
+  await d.getByLabel(/Justification \(10 caractères minimum\)/).first().fill(JUSTIFICATION);
+  await expect(d.getByRole("button", { name: "Autoriser ce jeu" }), "justifie, mais bloque par le refus").toBeDisabled();
+  expect((await jeuxDuProjet(projetId)).find((j) => j.id === v2)!.statut).toBe("CONTROLE");
   await api.fermer();
 });

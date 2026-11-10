@@ -1,7 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { requete } from "../lib/base";
 import { expect, seConnecter, test } from "../lib/fixtures";
 import {
-  ApiVoirie, DIALOGUE_ASSISTANT, attendreEtape, codeProjet, comptesInterdits, creerCompte, empreinteTroncons, etapeDepot, exigerAccessible, jeuxDuProjet,
+  ApiVoirie, DIALOGUE_ASSISTANT, attendreEtape, codeProjet, comptesInterdits, creerCompte, creerTerritoire, empreinteTroncons, etapeDepot, exigerAccessible, jeuxDuProjet,
   nombreObjetsDuJeu, ouvrirAssistant, ouvrirProjet, sha256, auditDe, violationsAxe, type CompteVoirie,
 } from "../lib/voirie";
 import { AXES, RESEAU_TELECOM, geojson, kml } from "../lib/voirie-geo";
@@ -21,10 +22,15 @@ test.describe.configure({ mode: "serial" });
 
 let gestionnaire: CompteVoirie;
 let lecteur: CompteVoirie;
+let communeId = "";
+const communeCode = `E2E-COM-${randomUUID().slice(0, 8).toUpperCase()}`;
+const communeNom = `Commune synthetique ${communeCode.slice(-8)}`;
 
 test.beforeAll(async () => {
   gestionnaire = await creerCompte("e2e-voirie-gest", "Gestionnaire Voirie E2E", "GESTIONNAIRE");
   lecteur = await creerCompte("e2e-voirie-lect", "Lecteur Voirie E2E", "LECTEUR");
+  // Une commune directement sous la nation (un niveau peut etre saute, contrat T1, section 3.1).
+  communeId = await creerTerritoire({ code: communeCode, nom: communeNom, niveau: "COMMUNE" });
 });
 
 // Etat partage par les trois premiers scenarios (meme projet : le fichier redepose doit etre celui du deuxieme).
@@ -46,17 +52,26 @@ test("KIS-IMP-01 : un gestionnaire cree un projet puis depose un GeoJSON d'axes 
   const creation = page.getByRole("dialog", { name: "Nouveau projet de voirie et réseaux" });
   await creation.getByLabel("Code du projet").fill(code);
   await creation.getByLabel("Nom du projet").fill(nom);
-  await creation.getByLabel("Commune (facultatif)").fill("Commune synthetique");
+  // Lot T1 / UI-C : le territoire est obligatoire. Sans choix, le formulaire refuse localement (rien n'est envoye).
+  await creation.getByRole("button", { name: "Créer le projet" }).click();
+  await expect(creation.getByText("Choisissez le territoire du projet : il est obligatoire.")).toBeVisible();
+  expect(await requete(`SELECT 1 FROM projets_voirie WHERE code = $1`, [code]), "aucun projet cree sans territoire").toHaveLength(0);
+  // Commune synthetique creee par un ADMIN (beforeAll) : on la retrouve par son code dans le selecteur du perimetre.
+  await creation.getByRole("searchbox", { name: "Rechercher (nom ou code)" }).fill(communeCode);
+  await creation.getByRole("radio", { name: new RegExp(communeCode) }).check();
+  await expect(creation.getByTestId("territoire-choisi")).toContainText(communeCode);
   await creation.getByLabel("Chaussée (m)").fill("7");
   await creation.getByLabel("Emprise (m)").fill("15");
   await creation.getByRole("button", { name: "Créer le projet" }).click();
   await expect(page.getByRole("heading", { level: 1, name: nom })).toBeVisible();
   await expect(page).toHaveURL(/\/projets-voirie\/[0-9a-f-]{36}$/);
 
-  const lignes = await requete<{ id: string; emprise: number; chaussee: number; statut: string; cree: string }>(
-    `SELECT id, "largeurEmpriseM"::float AS emprise, "largeurChausseeM"::float AS chaussee, "statutParametres"::text AS statut, "creeParId" AS cree FROM projets_voirie WHERE code = $1`, [code]);
+  const lignes = await requete<{ id: string; emprise: number; chaussee: number; statut: string; cree: string; territoire: string; commune: string | null }>(
+    `SELECT id, "largeurEmpriseM"::float AS emprise, "largeurChausseeM"::float AS chaussee, "statutParametres"::text AS statut, "creeParId" AS cree,
+            "territoireId" AS territoire, commune FROM projets_voirie WHERE code = $1`, [code]);
   expect(lignes, "le projet est en base, une seule fois").toHaveLength(1);
-  expect(lignes[0]).toMatchObject({ emprise: 15, chaussee: 7, statut: "THEORIQUE", cree: gestionnaire.id });
+  // La commune du projet est DERIVEE du territoire par le serveur (contrat T1, 3.4), plus saisie.
+  expect(lignes[0]).toMatchObject({ emprise: 15, chaussee: 7, statut: "THEORIQUE", cree: gestionnaire.id, territoire: communeId, commune: communeNom });
   partage.projetId = lignes[0].id; partage.code = code; partage.nom = nom;
 
   // ---- Assistant : etape 1, depot
@@ -297,13 +312,11 @@ test("accessibilité : l'assistant d'import, étape par étape (axe-core, WCAG 2
 });
 
 /**
- * DEFAUT C1-01 (confirme le 08/11/2026, trace Playwright de l'echec) : la classe de precision par defaut de l'assistant est « Inconnue » ; l'assistant
- * l'envoie telle quelle (`frontend/src/lib/projetsVoirieApi.ts:630`, `corps.append("classePrecision", d.classePrecision)`, la valeur « INCONNUE » etant
- * `projetsVoirieImport.ts:356`) et le serveur la refuse (`backend/src/api-v2/projets-voirie.routes.ts:254`, enum A a E ; « inconnue » = champ absent) :
- * 400 CHAMPS_INVALIDES a l'etape « Simuler l'enregistrement », pour tout depot fait avec les valeurs par defaut. Les scenarios ci-dessus choisissent une
- * classe reelle pour pouvoir aller au bout. Ce test decrit le comportement ATTENDU ; il est suspendu (fixme) jusqu'a la correction du defaut.
+ * Ancien DEFAUT C1-01 (constate le 08/11/2026, corrige par la vague 3 : `projetsVoirieApi.ts`, « INCONNUE » n'est plus envoyee) : un depot fait avec la
+ * classe de precision par defaut de l'assistant (« Inconnue ») aboutit a la quarantaine, et la base ne porte AUCUNE classe (jamais inventee).
+ * Avant la correction : 400 CHAMPS_INVALIDES a « Simuler l'enregistrement ».
  */
-test.fixme("DEFAUT C1-01 : déposer avec la classe de précision par défaut (« Inconnue ») doit aboutir à la quarantaine", async ({ ouvrirProfil, marqueur }) => {
+test("C1-01 corrigé : déposer avec la classe de précision par défaut (« Inconnue ») aboutit à la quarantaine, sans classe inventée", async ({ ouvrirProfil, marqueur }) => {
   const { page } = await ouvrirProfil();
   const api = await ApiVoirie.connecter(gestionnaire);
   const projetId = await api.creerProjet(codeProjet(marqueur, "C101"));
@@ -311,12 +324,22 @@ test.fixme("DEFAUT C1-01 : déposer avec la classe de précision par défaut («
   await seConnecter(page, gestionnaire);
   await ouvrirProjet(page, projetId);
   const d = await ouvrirAssistant(page);
-  await etapeDepot(page, d, { fichier: { name: "axes-defaut.geojson", buffer: geojson(AXES) }, role: "AXES_TRAVAUX", classe: "INCONNUE" });
+  await expect(d.getByLabel("Classe de précision"), "valeur par defaut de l'assistant").toHaveValue("INCONNUE");
+  const fichier = { name: "axes-defaut.geojson", buffer: geojson(AXES) };
+  await etapeDepot(page, d, { fichier, role: "AXES_TRAVAUX", classe: null });
   await attendreEtape(d, "Format et couches");
   await d.getByRole("button", { name: "Continuer", exact: true }).click();
   await d.getByRole("button", { name: "Vérifier la transformation" }).click();
+  await expect(d.getByTestId("bloc-crs")).toBeVisible();
   await d.getByRole("button", { name: "Continuer", exact: true }).click();
   await d.getByRole("button", { name: "Continuer vers les contrôles" }).click();
+  await attendreEtape(d, "Contrôles et échantillon");
   await d.getByRole("button", { name: "Simuler l'enregistrement" }).click();
   await attendreEtape(d, "Comparaison avec la version autorisée");
+  await expect(d.locator('[role="alert"][data-code="CHAMPS_INVALIDES"]'), "aucun refus du serveur").toHaveCount(0);
+  await d.getByRole("button", { name: "Enregistrer en quarantaine" }).click();
+  await expect(d.getByTestId("depot-enregistre")).toContainText("Fichier enregistré en quarantaine, version 1");
+  const jeux = await requete<{ statut: string; classe: string | null; sha: string }>(
+    `SELECT statut::text AS statut, "classePrecision"::text AS classe, sha256 AS sha FROM projets_voirie_jeux WHERE "projetId" = $1`, [projetId]);
+  expect(jeux).toEqual([{ statut: "CONTROLE", classe: null, sha: sha256(fichier.buffer) }]);
 });
