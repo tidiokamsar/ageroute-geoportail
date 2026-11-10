@@ -35,9 +35,10 @@ function bboxDesJeux(jeux: { resume: unknown }[]): Bbox | null {
   return b;
 }
 
-export async function lireDossier(acteur: Acteur, projetId: string, trop: () => ErreurMetier) {
+export async function lireDossier(acteur: Acteur, projetId: string, trop: () => ErreurMetier, delaiMaxMs = Number.POSITIVE_INFINITY) {
   const decideur = estDecideur(acteur.role);
-  const delai = delaiAnalyseMs();
+  // Revue du lot X1, M4 : au plus ce qui reste du budget de fabrication.
+  const delai = Math.max(1_000, Math.min(delaiAnalyseMs(), delaiMaxMs));
   try {
     return await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SET TRANSACTION READ ONLY`;

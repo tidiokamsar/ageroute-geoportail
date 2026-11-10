@@ -62,22 +62,24 @@ describe("selection GeoJSON : matrice complete statut x niveau x derogation x de
 });
 
 describe("derogation : citee par un export, creee par un ADMIN", () => {
-  const maintenant = new Date("2026-11-10T10:00:00Z");
-  const d = { id: "d1", projetId: "p1", beneficiaireId: "u1", jeuxIds: ["j1"], utiliseeLe: null, expireLe: new Date("2026-11-11T10:00:00Z") };
+  const d = { id: "d1", projetId: "p1", beneficiaireId: "u1", jeuxIds: ["j1"], utilisee: false, expiree: false, reserveeActive: false };
 
   it("valide pour SON projet et SON beneficiaire seulement ; inconnue, autre projet, autre compte : le MEME 404", () => {
-    expect(verifierDerogationCitee(d, { projetId: "p1", acteurId: "u1", maintenant })).toEqual({ ok: true });
+    expect(verifierDerogationCitee(d, { projetId: "p1", acteurId: "u1" })).toEqual({ ok: true });
     for (const [der, c] of [[null, { projetId: "p1", acteurId: "u1" }], [d, { projetId: "p2", acteurId: "u1" }], [d, { projetId: "p1", acteurId: "u2" }]] as const) {
-      const v = verifierDerogationCitee(der, { ...c, maintenant });
+      const v = verifierDerogationCitee(der, c);
       expect(v).toMatchObject({ ok: false, status: 404, code: "DEROGATION_INTROUVABLE", message: "Dérogation introuvable pour ce projet et ce compte." });
     }
   });
 
-  it("usage unique et expiration : utilisee ou expiree, 409 DEROGATION_INDISPONIBLE avec l'etat (l'echeance exacte est expiree)", () => {
-    expect(verifierDerogationCitee({ ...d, utiliseeLe: new Date("2026-11-10T09:00:00Z") }, { projetId: "p1", acteurId: "u1", maintenant })).toMatchObject({ status: 409, extra: { etat: "UTILISEE" } });
-    expect(verifierDerogationCitee({ ...d, expireLe: maintenant }, { projetId: "p1", acteurId: "u1", maintenant })).toMatchObject({ status: 409, extra: { etat: "EXPIREE" } });
-    expect(etatDerogation({ utiliseeLe: null, expireLe: new Date(maintenant.getTime() + 1) }, maintenant)).toBe("DISPONIBLE");
-    expect(etatDerogation({ utiliseeLe: maintenant, expireLe: new Date(0) }, maintenant)).toBe("UTILISEE");
+  it("usage unique, expiration (horloge de la base) et reservation par une tentative en cours : 409 DEROGATION_INDISPONIBLE avec l'etat", () => {
+    const c = { projetId: "p1", acteurId: "u1" };
+    expect(verifierDerogationCitee({ ...d, utilisee: true }, c)).toMatchObject({ status: 409, extra: { etat: "UTILISEE" } });
+    expect(verifierDerogationCitee({ ...d, expiree: true }, c)).toMatchObject({ status: 409, extra: { etat: "EXPIREE" } });
+    expect(verifierDerogationCitee({ ...d, reserveeActive: true }, c)).toMatchObject({ status: 409, extra: { etat: "RESERVEE" } });
+    expect(etatDerogation({ utilisee: true, expiree: true, reserveeActive: true })).toBe("UTILISEE");
+    expect(etatDerogation({ utilisee: false, expiree: true, reserveeActive: true })).toBe("EXPIREE");
+    expect(etatDerogation({ utilisee: false, expiree: false, reserveeActive: false })).toBe("DISPONIBLE");
   });
 
   it("creation : justification (20 caracteres), duree bornee, jeux distincts du projet, AUTORISE, d'un niveau sensible ; sinon le code du refus", () => {
@@ -105,14 +107,16 @@ describe("derogation : citee par un export, creee par un ADMIN", () => {
     expect(code({ demandes: ["s", "p"] })).toBe("409:DEROGATION_INUTILE");
   });
 
-  it("beneficiaire : actif, ADMIN ou GESTIONNAIRE avec la cle du module, perimetre couvrant la region du projet", () => {
+  it("beneficiaire : autre personne que l'auteur (409), actif, ADMIN ou GESTIONNAIRE avec la cle du module, perimetre couvrant la region du projet", () => {
     const ok = { actif: true, role: "GESTIONNAIRE", modules: ["projets-voirie"], perimetreCouvre: true };
-    expect(verifierBeneficiaire(ok)).toEqual({ ok: true });
-    expect(verifierBeneficiaire({ ...ok, role: "ADMIN", modules: [] })).toEqual({ ok: true });
+    expect(verifierBeneficiaire(ok, { estAuteur: false })).toEqual({ ok: true });
+    expect(verifierBeneficiaire({ ...ok, role: "ADMIN", modules: [] }, { estAuteur: false })).toEqual({ ok: true });
+    // Revue du lot X1, M2 : l'ADMIN auteur n'est jamais le beneficiaire, meme habilite.
+    expect(verifierBeneficiaire({ ...ok, role: "ADMIN", modules: [] }, { estAuteur: true })).toMatchObject({ status: 409, code: "SEPARATION_DES_TACHES" });
     for (const b of [null, { ...ok, actif: false }, { ...ok, role: "LECTEUR" }, { ...ok, role: "INSPECTEUR" }, { ...ok, modules: ["troncons"] }]) {
-      expect(verifierBeneficiaire(b)).toMatchObject({ status: 422, code: "BENEFICIAIRE_NON_HABILITE" });
+      expect(verifierBeneficiaire(b, { estAuteur: false })).toMatchObject({ status: 422, code: "BENEFICIAIRE_NON_HABILITE" });
     }
-    expect(verifierBeneficiaire({ ...ok, perimetreCouvre: false })).toMatchObject({ status: 422, code: "BENEFICIAIRE_HORS_PERIMETRE" });
+    expect(verifierBeneficiaire({ ...ok, perimetreCouvre: false }, { estAuteur: false })).toMatchObject({ status: 422, code: "BENEFICIAIRE_HORS_PERIMETRE" });
   });
 });
 

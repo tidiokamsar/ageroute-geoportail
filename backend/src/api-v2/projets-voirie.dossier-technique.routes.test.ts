@@ -15,13 +15,19 @@ vi.hoisted(() => {
   process.env.CORS_ORIGIN = "http://localhost:5173";
 });
 
-const { w, espion } = vi.hoisted(() => {
+const { w, espion, consignes } = vi.hoisted(() => {
+  const consignes: boolean[] = [];
   const w = {
     modules: {} as Record<string, string[]>, perimetres: {} as Record<string, number[]>, regionsProjets: {} as Record<string, number | null>,
-    regionsTerritoires: {} as Record<string, number | null>, appels: [] as { nom: string; args: unknown[] }[], echec: null as unknown,
+    regionsTerritoires: {} as Record<string, number | null>, appels: [] as { nom: string; args: unknown[] }[], echec: null as unknown, retardMs: 0,
   };
-  const espion = (nom: string, valeur: unknown) => vi.fn(async (...args: unknown[]) => { w.appels.push({ nom, args }); if (w.echec) throw w.echec; return valeur; });
-  return { w, espion };
+  const espion = (nom: string, valeur: unknown) => vi.fn(async (...args: unknown[]) => {
+    w.appels.push({ nom, args });
+    if (w.retardMs) await new Promise((ok) => setTimeout(ok, w.retardMs));
+    if (w.echec) throw w.echec;
+    return valeur;
+  });
+  return { w, espion, consignes };
 });
 
 vi.mock("../lib/prisma", () => {
@@ -51,7 +57,7 @@ vi.mock("../projets-voirie/territoires/territoires.service", async (original) =>
 vi.mock("../projets-voirie/import.service", () => ({ deposerJeu: vi.fn() }));
 const { ARCHIVE } = vi.hoisted(() => ({ ARCHIVE: Buffer.concat([Buffer.from([0x50, 0x4b, 0x05, 0x06]), Buffer.alloc(18)]) }));
 vi.mock("../projets-voirie/exports/dossier.service", () => ({
-  exporterDossier: espion("exporterDossier", { archive: ARCHIVE, nomFichier: "dossier-pv-1-2026-11-10.zip", exportId: "e-1", sha256: "a".repeat(64), nbFichiers: 9, nbJeuxGeojson: 2 }),
+  exporterDossier: espion("exporterDossier", { archive: ARCHIVE, nomFichier: "dossier-pv-1-2026-11-10.zip", exportId: "e-1", sha256: "a".repeat(64), nbFichiers: 9, nbJeuxGeojson: 2, consigner: async (envoye: boolean) => { consignes.push(envoye); } }),
   journalExports: espion("journalExports", { exports: [] }),
 }));
 vi.mock("../projets-voirie/exports/derogations.service", () => ({
@@ -90,7 +96,7 @@ const uuid = (n: number) => `${String(n).padStart(8, "0")}-0000-4000-8000-000000
 const P1 = uuid(1), P2 = uuid(2), T1 = uuid(31), T2 = uuid(32), J1 = uuid(21), D1 = uuid(41);
 
 beforeEach(() => {
-  w.appels = []; w.echec = null; w.modules = {}; w.perimetres = {};
+  w.appels = []; w.echec = null; w.retardMs = 0; w.modules = {}; w.perimetres = {};
   w.regionsProjets = { [P1]: 1, [P2]: 2 };
   w.regionsTerritoires = { [T1]: 1, [T2]: 2 };
   for (const c of Object.values(COMPTES)) { w.modules[c.id] = c.modules; if (c.regions) w.perimetres[c.id] = c.regions; }
@@ -103,7 +109,7 @@ beforeEach(() => {
 afterAll(() => _installerResolveurCompte(null));
 
 type Route = { m: "get" | "post"; chemin: string; corps?: object; service: string; roles: string[]; ok: number; projet: boolean };
-const DEROG = { jeuxIds: [J1], justification: "Transmission au bureau de controle pour execution" };
+const DEROG = { jeuxIds: [J1], justification: "Transmission au bureau de controle pour execution", beneficiaireId: uuid(7) };
 const ROUTES: Route[] = [
   { m: "get", chemin: `/${P1}/export/dossier`, service: "exporterDossier", roles: ["ADMIN", "GEST"], ok: 200, projet: true },
   { m: "get", chemin: `/${P1}/export/journal`, service: "journalExports", roles: ["ADMIN", "GEST"], ok: 200, projet: true },
@@ -178,6 +184,7 @@ describe("gardes : authentification, module, role, perimetre", () => {
 });
 
 describe("export du dossier : reponse binaire et parametres", () => {
+  beforeEach(() => { consignes.length = 0; });
   it("200 application/zip, piece jointe nommee, en-tetes d'empreinte, d'identifiant et de comptes ; corps = l'archive du service ; pas de cache", async () => {
     const r = await request(app).get(`${BASE}/${P1}/export/dossier`).set("Authorization", `Bearer ${jeton("GEST")}`).buffer(true).parse((res, cb) => {
       const morceaux: Buffer[] = []; res.on("data", (c: Buffer) => morceaux.push(c)); res.on("end", () => cb(null, Buffer.concat(morceaux)));
@@ -188,6 +195,9 @@ describe("export du dossier : reponse binaire et parametres", () => {
     expect([r.headers["x-export-id"], r.headers["x-empreinte-sha256"], r.headers["x-fichiers"], r.headers["x-jeux-geojson"]]).toEqual(["e-1", "a".repeat(64), "9", "2"]);
     expect(r.headers["cache-control"]).toBe("no-store");
     expect((r.body as Buffer).equals(ARCHIVE)).toBe(true);
+    // Revue du lot X1, M4 : la remise est consignee APRES l'ecriture complete de la reponse, une seule fois, comme envoyee.
+    await new Promise((ok) => setTimeout(ok, 20));
+    expect(consignes).toEqual([true]);
     expect(appelsDe("exporterDossier")[0].args.slice(1)).toEqual([P1, { geojson: true, derogationId: undefined }]);
   });
 
@@ -204,6 +214,14 @@ describe("export du dossier : reponse binaire et parametres", () => {
     expect(appelsDe("exporterDossier")).toHaveLength(2);
   });
 
+  it("client parti pendant la fabrication : l'archive n'est pas envoyee et la remise est consignee NON envoyee (ECHEC_ENVOI, derogation non consommee)", async () => {
+    w.retardMs = 300;
+    const echec = await request(app).get(`${BASE}/${P1}/export/dossier`).set("Authorization", `Bearer ${jeton("GEST")}`).timeout(60).then(() => "recu", (e: { timeout?: number }) => (e.timeout ? "abandon" : "autre"));
+    expect(echec).toBe("abandon");
+    await new Promise((ok) => setTimeout(ok, 600));
+    expect(consignes).toEqual([false]);
+  });
+
   it("journal : limite bornee (1 a 100) ; transmise au service", async () => {
     const g = (q: string) => request(app).get(`${BASE}/${P1}/export/journal?${q}`).set("Authorization", `Bearer ${jeton("GEST")}`);
     for (const q of ["limite=0", "limite=101", "x=1"]) expect((await g(q)).status, q).toBe(400);
@@ -213,9 +231,11 @@ describe("export du dossier : reponse binaire et parametres", () => {
 });
 
 describe("derogation : validation stricte du corps", () => {
-  it("jeux (1 a 20 UUID), justification de 20 caracteres, beneficiaire UUID, duree 1 a 168 h, aucun champ en trop : 400 CHAMPS_INVALIDES sinon", async () => {
+  it("jeux (1 a 20 UUID), justification de 20 caracteres, beneficiaire UUID OBLIGATOIRE (revue X1, M2), duree 1 a 168 h, aucun champ en trop : 400 CHAMPS_INVALIDES sinon", async () => {
     const p = (corps: object) => request(app).post(`${BASE}/${P1}/export/derogations`).set("Authorization", `Bearer ${jeton("ADMIN")}`).send(corps);
-    for (const corps of [{}, { ...DEROG, jeuxIds: [] }, { ...DEROG, jeuxIds: Array.from({ length: 21 }, (_, i) => uuid(100 + i)) }, { ...DEROG, jeuxIds: ["x"] },
+    const { beneficiaireId: _b, ...sansBeneficiaire } = DEROG;
+    void _b;
+    for (const corps of [{}, sansBeneficiaire, { ...DEROG, jeuxIds: [] }, { ...DEROG, jeuxIds: Array.from({ length: 21 }, (_, i) => uuid(100 + i)) }, { ...DEROG, jeuxIds: ["x"] },
       { ...DEROG, justification: "trop court" }, { ...DEROG, beneficiaireId: "x" }, { ...DEROG, dureeHeures: 0 }, { ...DEROG, dureeHeures: 169 }, { ...DEROG, dureeHeures: 1.5 },
       { ...DEROG, utiliseeLe: "2026-01-01" }, { ...DEROG, projetId: P2 }]) {
       const r = await p(corps);
@@ -223,8 +243,8 @@ describe("derogation : validation stricte du corps", () => {
       expect(r.body.code).toBe("CHAMPS_INVALIDES");
     }
     expect(appelsDe("creerDerogation")).toEqual([]);
-    expect((await p({ ...DEROG, beneficiaireId: uuid(7), dureeHeures: 48 })).status).toBe(201);
-    expect(appelsDe("creerDerogation")[0].args.slice(1)).toEqual([P1, { ...DEROG, beneficiaireId: uuid(7), dureeHeures: 48 }]);
+    expect((await p({ ...DEROG, dureeHeures: 48 })).status).toBe(201);
+    expect(appelsDe("creerDerogation")[0].args.slice(1)).toEqual([P1, { ...DEROG, dureeHeures: 48 }]);
   });
 });
 

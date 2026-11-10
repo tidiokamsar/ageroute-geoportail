@@ -40,6 +40,10 @@ export interface DemandeAnalyse {
   largeurEmpriseM?: number;
   largeurChausseeM?: number;
   inclureNonAutorises: boolean;
+  /** Lot X1 (revue, M3) : l'export n'utilise ni les points de croisement ni les zones : ces requetes, les plus couteuses, ne sont pas executees. */
+  sansGeometries?: boolean;
+  /** Lot X1 (revue, M4) : budget restant de l'appelant ; le delai cote base est le plus petit des deux. */
+  delaiMaxMs?: number;
 }
 
 const r2 = (x: number) => Math.round(x * 100) / 100;
@@ -99,7 +103,7 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
   const axesIds = axes.map((j) => j.id);
   const reseauIds = reseaux.map((j) => j.id);
 
-  const delai = delaiAnalyseMs();
+  const delai = Math.max(1_000, Math.min(delaiAnalyseMs(), d.delaiMaxMs ?? Number.POSITIVE_INFINITY));
   const trop = () => new ErreurMetier(504, "ANALYSE_TROP_LONGUE", `L'analyse a depasse ${Math.round(delai / 1000)} s et a ete interrompue : le projet est trop volumineux pour un calcul immediat.`);
   // Au plus 3 analyses simultanees (503 SERVICE_OCCUPE au-dela) ; le budget de temps est partage par toutes les requetes de l'analyse.
   const mesures = await limiteurAnalyses.executer(() => avecErreurDelai("ANALYSE_TROP_LONGUE", trop().message, () => prisma.$transaction(async (tx) => {
@@ -124,8 +128,8 @@ export async function calculer(d: DemandeAnalyse): Promise<ResultatAnalyse> {
       parJeu: calcule ? await budget.etape(() => depot.mesurerParJeu(tx, b), "par jeu") : [],
       parAxe: calcule ? await budget.etape(() => depot.mesurerParAxe(tx, b), "par axe") : [],
       parObjet: calcule ? await budget.etape(() => depot.mesurerParObjet(tx, b, LIGNES_OBJETS_MAX + 1), "par objet") : [],
-      points: calcule ? await budget.etape(() => depot.pointsDeCroisement(tx, b, CROISEMENTS_MAX), "croisements") : [],
-      zones: calcule ? await budget.etape(() => depot.zones(tx, b), "zones") : { chaussee: null, emprise: null, hors: null },
+      points: calcule && !d.sansGeometries ? await budget.etape(() => depot.pointsDeCroisement(tx, b, CROISEMENTS_MAX), "croisements") : [],
+      zones: calcule && !d.sansGeometries ? await budget.etape(() => depot.zones(tx, b), "zones") : { chaussee: null, emprise: null, hors: null },
     };
   }, { timeout: delai + 15_000, maxWait: 10_000 })));
 

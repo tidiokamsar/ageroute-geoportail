@@ -13,8 +13,9 @@ import { DEROGATION_DUREE_MAX_H } from "../projets-voirie/exports/config";
  * referent confine au workflow (403) -> octet NUL (400) -> identifiant de projet en UUID (400) -> ROLE -> PROJET DESIGNE (404 identique si inexistant ou
  * hors perimetre ; projet retire : 404 a tous, par le service) -> validation stricte (400) -> service.
  *
- *   - export et journal : ADMIN et GESTIONNAIRE (les comptes qui decident), audite AVANT la remise ;
- *   - derogation de confidentialite (creation, liste) : ADMIN seul ; nominative, justifiee, a usage unique ;
+ *   - export et journal : ADMIN et GESTIONNAIRE (les comptes qui decident), chaque tentative auditee et comptee dans la cadence ;
+ *   - derogation de confidentialite (creation, liste) : ADMIN seul ; nominative (autre personne que l'ADMIN), justifiee, a usage unique ;
+ *   - la remise est consignee APRES l'ecriture complete de la reponse (journal REMIS ou ECHEC_ENVOI, derogation consommee ou liberee) ;
  *   - GeoJSON des seuls jeux AUTORISE d'un niveau exportable, ou couverts par une derogation citee ; jamais un jeu RETIRE, ni rien qui en vienne.
  */
 export interface OutilsRoutesExports {
@@ -41,6 +42,13 @@ export function monterRoutesExports(router: Router, o: OutilsRoutesExports): voi
     const p = requeteExport.safeParse(req.query);
     if (!p.success) return refuser(res, p.error);
     const r = await exporterDossier(acteurDe(req), req.params.id, { geojson: p.data.geojson, derogationId: p.data.derogation });
+    // Revue du lot X1, M4 : la remise n'est consignee (journal REMIS, consommation de la derogation, audit) qu'APRES l'ecriture complete de la reponse
+    // (evenement `finish`) ; un client parti avant (fabrication longue, onglet ferme, mandataire qui abandonne) donne ECHEC_ENVOI, derogation non consommee.
+    let issue = false;
+    const conclure = (envoye: boolean) => { if (issue) return; issue = true; void r.consigner(envoye); };
+    if (res.destroyed || req.socket.destroyed) { conclure(false); return; }
+    res.once("finish", () => conclure(true));
+    res.once("close", () => conclure(res.writableFinished));
     res.setHeader("Content-Type", "application/zip");
     res.setHeader("Content-Disposition", `attachment; filename="${r.nomFichier}"`);
     res.setHeader("X-Export-Id", r.exportId);
@@ -60,7 +68,8 @@ export function monterRoutesExports(router: Router, o: OutilsRoutesExports): voi
   const corpsDerogation = z.object({
     jeuxIds: z.array(uuid).min(1).max(20),
     justification: z.string().trim().min(20, "20 caractères au moins").max(2000),
-    beneficiaireId: uuid.optional(),
+    // Revue du lot X1, M2 : beneficiaire OBLIGATOIRE, autre personne que l'ADMIN (verifie par le service et par la base).
+    beneficiaireId: uuid,
     dureeHeures: z.number().int().min(1).max(DEROGATION_DUREE_MAX_H).optional(),
   }).strict();
   router.post("/:id/export/derogations", administrateur, gardeProjet, enveloppe(async (req, res) => {

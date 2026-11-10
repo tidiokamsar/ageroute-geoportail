@@ -23,12 +23,14 @@ function typeDepuisLigne(l: { code: string; libelle: string; actif: boolean; par
   };
 }
 
-export async function completudeProjet(acteur: Acteur, projetId: string) {
+export async function completudeProjet(acteur: Acteur, projetId: string, o: { delaiMaxMs?: number } = {}) {
   const decideur = estDecideur(acteur.role);
+  // Lot X1 (revue, M4) : le dossier technique passe son budget restant ; le delai cote base est le plus petit des deux.
+  const delai = Math.max(1_000, Math.min(delaiCarteMs(), o.delaiMaxMs ?? Number.POSITIVE_INFINITY));
   try {
     return await prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SET TRANSACTION READ ONLY`;
-      await poserDelais(tx, delaiCarteMs(), delaiVerrouMs());
+      await poserDelais(tx, delai, delaiVerrouMs());
       const projet = await tx.projetVoirie.findFirst({ where: { id: projetId, deletedAt: null }, select: { id: true } });
       if (!projet) throw introuvable("Projet", "PROJET_INTROUVABLE");
       const jeux = await tx.jeuDonneesProjet.findMany({
@@ -67,7 +69,7 @@ export async function completudeProjet(acteur: Acteur, projetId: string) {
         projetId, calculeLe: new Date(), ...c,
         regle: "Une fonction est disponible des que SES conditions sont remplies par des jeux AUTORISE (ou une decision approuvee) ; aucune piece manquante ne bloque une fonction qui n'en depend pas.",
       };
-    }, { timeout: delaiCarteMs() + 5_000, maxWait: 10_000 });
+    }, { timeout: delai + 5_000, maxWait: 10_000 });
   } catch (e) {
     if (e instanceof ErreurMetier) throw e;
     if (estDelaiDepasse(e)) throw new ErreurMetier(504, "COMPLETUDE_TROP_LONGUE", "Le calcul de ce que les documents permettent a depasse le delai : reessayez.");

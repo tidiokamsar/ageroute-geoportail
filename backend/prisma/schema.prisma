@@ -5476,24 +5476,29 @@ model DocumentProjetVoirieHistorique {
 // duree de 7 jours au plus, usage pose en entier), les declencheurs (journal en ajout seul, derogation immuable et consommee une seule fois avant son
 // expiration, suppression et troncature refusees). Les tableaux de bord n'ecrivent rien et n'ont aucun modele.
 
-/// Journal en AJOUT SEUL des dossiers techniques remis : empreinte et taille de l'archive, manifeste (chemins, tailles, empreintes, jeux) sans geometrie.
+/// Journal des TENTATIVES d'export (revue du lot X1, M3 et M4) : EN_COURS puis une seule issue (REMIS apres l'ecriture complete de la reponse, ECHEC,
+/// ECHEC_ENVOI) ; empreinte et taille de l'archive, manifeste (chemins, tailles, empreintes, jeux) sans geometrie. Toutes les tentatives font la cadence.
 model ExportDossierProjetVoirie {
-  id            String   @id
+  id            String    @id
   projetId      String
   acteurId      String
-  sha256        String
-  tailleOctets  Int
-  nbFichiers    Int
-  nbJeuxGeojson Int      @default(0)
-  manifeste     Json     @default("{}")
-  createdAt     DateTime @default(now())
+  statut        String    @default("EN_COURS")
+  derogationId  String?
+  codeEchec     String?
+  sha256        String?
+  tailleOctets  Int?
+  nbFichiers    Int?
+  nbJeuxGeojson Int       @default(0)
+  manifeste     Json      @default("{}")
+  createdAt     DateTime  @default(now())
+  termineLe     DateTime?
 
   @@index([acteurId, createdAt])
   @@index([projetId, createdAt])
   @@map("exports_dossier_projet_voirie")
 }
 
-/// Derogation ADMIN, justifiee, nominative et a USAGE UNIQUE, pour exporter en GeoJSON des jeux CONFIDENTIEL_CONCESSIONNAIRE ou INFRASTRUCTURE_SENSIBLE.
+/// Derogation ADMIN, justifiee, nominative (beneficiaire autre que l'auteur), RESERVEE par une tentative (`exportId`) puis consommee une seule fois (`utiliseeLe`), pour exporter en GeoJSON des jeux CONFIDENTIEL_CONCESSIONNAIRE ou INFRASTRUCTURE_SENSIBLE.
 model DerogationExportProjetVoirie {
   id             String    @id
   projetId       String

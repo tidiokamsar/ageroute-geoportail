@@ -45,28 +45,37 @@ export function selectionGeojson<J extends JeuCandidat>(jeux: readonly J[], o: {
 
 // ------------------------------------------------------------------------------------------------ Derogation
 
-export type EtatDerogation = "DISPONIBLE" | "UTILISEE" | "EXPIREE";
+export type EtatDerogation = "DISPONIBLE" | "RESERVEE" | "UTILISEE" | "EXPIREE";
 
-export function etatDerogation(d: { utiliseeLe: Date | null; expireLe: Date }, maintenant: Date): EtatDerogation {
-  if (d.utiliseeLe) return "UTILISEE";
-  return d.expireLe.getTime() <= maintenant.getTime() ? "EXPIREE" : "DISPONIBLE";
+/**
+ * Etat d'une derogation. Revue du lot X1, m4 : `expiree` et `reserveeActive` sont calcules PAR LA BASE (son horloge, la seule que le declencheur connait) ;
+ * le noyau ne compare jamais deux horloges. `reserveeActive` : une tentative EN_COURS recente la tient (M4 : reservee pendant la fabrication et l'envoi).
+ */
+export function etatDerogation(d: { utilisee: boolean; expiree: boolean; reserveeActive: boolean }): EtatDerogation {
+  if (d.utilisee) return "UTILISEE";
+  if (d.expiree) return "EXPIREE";
+  return d.reserveeActive ? "RESERVEE" : "DISPONIBLE";
 }
 
 export type Verdict = { ok: true } | { ok: false; status: number; code: string; message: string; extra?: Record<string, unknown> };
 const refus = (status: number, code: string, message: string, extra?: Record<string, unknown>): Verdict => ({ ok: false, status, code, message, ...(extra ? { extra } : {}) });
 
-export interface DerogationLue { id: string; projetId: string; beneficiaireId: string; jeuxIds: string[]; utiliseeLe: Date | null; expireLe: Date }
+export interface DerogationLue { id: string; projetId: string; beneficiaireId: string; jeuxIds: string[]; utilisee: boolean; expiree: boolean; reserveeActive: boolean }
+
+const MESSAGES_ETAT: Record<Exclude<EtatDerogation, "DISPONIBLE">, string> = {
+  UTILISEE: "Cette dérogation a déjà servi à un export : elle est à usage unique.",
+  EXPIREE: "Cette dérogation a expiré : demandez-en une nouvelle à un administrateur.",
+  RESERVEE: "Cette dérogation est réservée par un export en cours : attendez sa fin (elle sera libérée s'il échoue).",
+};
 
 /**
  * Derogation citee par un export. Inconnue, d'un autre projet ou d'un autre beneficiaire : la MEME reponse 404 (rien n'est revele de son existence) ;
- * utilisee ou expiree : 409 avec l'etat.
+ * utilisee, expiree ou reservee par une autre tentative en cours : 409 avec l'etat.
  */
-export function verifierDerogationCitee(d: DerogationLue | null, c: { projetId: string; acteurId: string; maintenant: Date }): Verdict {
+export function verifierDerogationCitee(d: DerogationLue | null, c: { projetId: string; acteurId: string }): Verdict {
   if (!d || d.projetId !== c.projetId || d.beneficiaireId !== c.acteurId) return refus(404, "DEROGATION_INTROUVABLE", "Dérogation introuvable pour ce projet et ce compte.");
-  const etat = etatDerogation(d, c.maintenant);
-  if (etat !== "DISPONIBLE") {
-    return refus(409, "DEROGATION_INDISPONIBLE", etat === "UTILISEE" ? "Cette dérogation a déjà servi à un export : elle est à usage unique." : "Cette dérogation a expiré : demandez-en une nouvelle à un administrateur.", { etat });
-  }
+  const etat = etatDerogation(d);
+  if (etat !== "DISPONIBLE") return refus(409, "DEROGATION_INDISPONIBLE", MESSAGES_ETAT[etat], { etat });
   return { ok: true };
 }
 
@@ -94,7 +103,9 @@ export function verifierCreationDerogation(e: { demandes: readonly string[]; tro
 
 export interface Beneficiaire { actif: boolean; role: string; modules: readonly string[]; perimetreCouvre: boolean }
 
-export function verifierBeneficiaire(b: Beneficiaire | null): Verdict {
+export function verifierBeneficiaire(b: Beneficiaire | null, c: { estAuteur: boolean }): Verdict {
+  // Revue du lot X1, M2 : separation des taches, l'ADMIN qui accorde la derogation n'en est jamais le beneficiaire (aussi contrainte de la base).
+  if (c.estAuteur) return refus(409, "SEPARATION_DES_TACHES", "Le bénéficiaire d'une dérogation est une autre personne que l'administrateur qui l'accorde.");
   if (!b || !b.actif || !(b.role === "ADMIN" || b.role === "GESTIONNAIRE") || (b.role !== "ADMIN" && !b.modules.includes("projets-voirie"))) {
     return refus(422, "BENEFICIAIRE_NON_HABILITE", "Le bénéficiaire doit être un compte actif ADMIN ou GESTIONNAIRE portant la clé du module.");
   }
